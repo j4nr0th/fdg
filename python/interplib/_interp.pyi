@@ -999,6 +999,31 @@ def incidence_matrix(specs: BasisSpecs) -> npt.NDArray[np.double]:
     """
     ...
 
+def incidence_operator(
+    val: npt.ArrayLike, /, specs: BasisSpecs, axis: int = 0
+) -> npt.NDArray[np.double]:
+    """Apply the incidence operator to an array of degrees of freedom along an axis.
+
+    Parameters
+    ----------
+    val : array_like
+        Array of degrees of freedom to apply the incidence operator to.
+
+    specs : BasisSpecs
+        Specifications for basis that determine what set of polynomial is used to take
+        the derivative.
+
+    axis : int, default: 0
+        Axis along which to apply the incidence operator along.
+
+    Returns
+    -------
+    array
+        Array of degrees of freedom that is the result of applying the incidence operator,
+        along the specified axis.
+    """
+    ...
+
 def compute_mass_matrix(
     space_in: FunctionSpace,
     space_out: FunctionSpace,

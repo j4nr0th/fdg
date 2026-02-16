@@ -688,49 +688,6 @@ PyDoc_STRVAR(
     "array\n"
     "    Mass matrix for inner product of two k-forms.\n");
 
-static unsigned basis_get_num_dofs(const unsigned ndim, const basis_spec_t basis[static ndim], const unsigned order,
-                                   const uint8_t derived[static order])
-{
-    unsigned dofs = 1;
-    for (unsigned idim = 0, iderived = 0; idim < ndim; ++idim)
-    {
-        unsigned n;
-        if (iderived != order && idim == derived[iderived])
-        {
-            n = basis[idim].order;
-            iderived += 1;
-        }
-        else
-        {
-            n = basis[idim].order + 1;
-        }
-        dofs *= n;
-    }
-    return dofs;
-}
-
-static void basis_set_iterator(const unsigned ndim, const basis_spec_t basis[static ndim], const unsigned order,
-                               const uint8_t derived[static order], multidim_iterator_t *iter)
-{
-    // Can't put the check here, since the iterator is not initialized on the first run.
-    // ASSERT(multidim_iterator_get_ndims(iter) == ndim, "Iterator was set for %u dimensions, but %u were needed.",
-    //        (unsigned)multidim_iterator_get_ndims(iter), ndim);
-    for (unsigned idim = 0, iderived = 0; idim < ndim; ++idim)
-    {
-        unsigned n;
-        if (iderived != order && idim == derived[iderived])
-        {
-            n = basis[idim].order;
-            iderived += 1;
-        }
-        else
-        {
-            n = basis[idim].order + 1;
-        }
-        multidim_iterator_init_dim(iter, idim, n);
-    }
-}
-
 static PyObject *compute_mass_matrix_component(PyObject *module, PyObject *const *args, const Py_ssize_t nargs,
                                                const PyObject *kwnames)
 {
@@ -862,14 +819,14 @@ static PyObject *compute_mass_matrix_component(PyObject *module, PyObject *const
     for (const uint8_t *p_in = combination_iterator_current(iter_component_right);
          !combination_iterator_is_done(iter_component_right); combination_iterator_next(iter_component_right))
     {
-        col_cnt += basis_get_num_dofs(n, fn_right->specs, order, p_in);
+        col_cnt += kform_basis_get_num_dofs(n, fn_right->specs, order, p_in);
     }
 
     combination_iterator_init(iter_component_left, n, order);
     for (const uint8_t *p_out = combination_iterator_current(iter_component_left);
          !combination_iterator_is_done(iter_component_left); combination_iterator_next(iter_component_left))
     {
-        row_cnt += basis_get_num_dofs(n, fn_left->specs, order, p_out);
+        row_cnt += kform_basis_get_num_dofs(n, fn_left->specs, order, p_out);
     }
 
     const npy_intp dims[2] = {(npy_intp)row_cnt, (npy_intp)col_cnt};
@@ -992,7 +949,7 @@ static PyObject *compute_mass_matrix_component(PyObject *module, PyObject *const
          combination_iterator_next(iter_component_left), ++basis_idx_left)
     {
         // Set the iterator for basis functions of the left k-form component
-        basis_set_iterator(n, fn_left->specs, order, p_basis_components_left, iter_basis_left);
+        kform_basis_set_iterator(n, fn_left->specs, order, p_basis_components_left, iter_basis_left);
 
         size_t idx_right = 0;
         size_t col_offset = 0;
@@ -1048,7 +1005,7 @@ static PyObject *compute_mass_matrix_component(PyObject *module, PyObject *const
             }
 
             // Set the iterator for basis functions of the right k-form component
-            basis_set_iterator(n, fn_right->specs, order, p_basis_components_right, iter_basis_right);
+            kform_basis_set_iterator(n, fn_right->specs, order, p_basis_components_right, iter_basis_right);
 
             // Loop over basis functions of the left k-form component
             for (multidim_iterator_set_to_start(iter_basis_left), idx_left = 0;
@@ -1080,12 +1037,12 @@ static PyObject *compute_mass_matrix_component(PyObject *module, PyObject *const
                 }
             }
 
-            const unsigned dofs_right = basis_get_num_dofs(n, fn_right->specs, order, p_basis_components_right);
+            const unsigned dofs_right = kform_basis_get_num_dofs(n, fn_right->specs, order, p_basis_components_right);
             ASSERT(dofs_right == idx_right, "I miscounted dof counts");
             col_offset += dofs_right;
         }
 
-        const unsigned dofs_left = basis_get_num_dofs(n, fn_left->specs, order, p_basis_components_left);
+        const unsigned dofs_left = kform_basis_get_num_dofs(n, fn_left->specs, order, p_basis_components_left);
         ASSERT(dofs_left == idx_left, "I miscounted dof counts");
         row_offset += dofs_left;
     }

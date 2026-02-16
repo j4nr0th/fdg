@@ -552,3 +552,44 @@ covector_basis_object *covector_basis_object_create(PyTypeObject *type, const co
     *(covector_basis_t *)&this->basis = basis;
     return this;
 }
+
+unsigned kform_basis_get_num_dofs(const unsigned ndim, const basis_spec_t basis[static ndim], const unsigned order,
+                                  const uint8_t components[static order])
+{
+    unsigned dofs = 1;
+    for (unsigned idim = 0, icomponent = 0; idim < ndim; ++idim)
+    {
+        unsigned n;
+        if (icomponent != order && idim == components[icomponent])
+        {
+            n = basis[idim].order;
+            icomponent += 1;
+        }
+        else
+        {
+            n = basis[idim].order + 1;
+        }
+        dofs *= n;
+    }
+    return dofs;
+}
+
+void kform_basis_set_iterator(const unsigned ndim, const basis_spec_t basis[static ndim], const unsigned order,
+                              const uint8_t components[static order], multidim_iterator_t *iter)
+{
+    // Can't put the check here, since the iterator is not initialized on the first run.
+    for (unsigned idim = 0, icomponent = 0; idim < ndim; ++idim)
+    {
+        unsigned n;
+        if (icomponent != order && idim == components[icomponent])
+        {
+            n = basis[idim].order;
+            icomponent += 1;
+        }
+        else
+        {
+            n = basis[idim].order + 1;
+        }
+        multidim_iterator_init_dim(iter, idim, n);
+    }
+}

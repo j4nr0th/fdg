@@ -10,6 +10,7 @@ from interplib._interp import (
     IntegrationSpace,
     IntegrationSpecs,
     incidence_matrix,
+    incidence_operator,
 )
 from interplib.enum_type import BasisType, IntegrationMethod
 from interplib.integration import projection_l2_primal
@@ -60,6 +61,10 @@ def test_derivative_1d(order: int, btype: BasisType) -> None:
 
     assert pytest.approx(expected) == computed
 
+    # Use applying function instead of matrix
+    applied = incidence_operator(fn_dofs.values, specs, axis=0)
+    assert pytest.approx(expected) == applied
+
 
 @pytest.mark.parametrize("btype1", BasisType)
 @pytest.mark.parametrize("order1", (1, 2, 5, 10))
@@ -86,6 +91,10 @@ def test_derivative_2d(
     computed = fn_dofs.derivative(0).values
     assert pytest.approx(expected) == computed
 
+    # Use applying function instead of matrix
+    applied = incidence_operator(fn_dofs.values, func_space.basis_specs[0], axis=0)
+    assert pytest.approx(expected) == applied
+
     # Second dimension
     incidence = incidence_matrix(func_space.basis_specs[1])
     v = list()
@@ -94,6 +103,10 @@ def test_derivative_2d(
     expected = np.stack(v, axis=0)
     computed = fn_dofs.derivative(1).values
     assert pytest.approx(expected) == computed
+
+    # Use applying function instead of matrix
+    applied = incidence_operator(fn_dofs.values, func_space.basis_specs[1], axis=1)
+    assert pytest.approx(expected) == applied
 
 
 @pytest.mark.parametrize(
@@ -149,6 +162,10 @@ def test_derivative_3d(
     computed = fn_dofs.derivative(0).values
     assert pytest.approx(expected) == computed
 
+    # Use applying function instead of matrix
+    applied = incidence_operator(fn_dofs.values, func_space.basis_specs[0], axis=0)
+    assert pytest.approx(expected) == applied
+
     # Second dimension
     incidence = incidence_matrix(func_space.basis_specs[1])
     v = list()
@@ -161,6 +178,10 @@ def test_derivative_3d(
     computed = fn_dofs.derivative(1).values
     assert pytest.approx(expected) == computed
 
+    # Use applying function instead of matrix
+    applied = incidence_operator(fn_dofs.values, func_space.basis_specs[1], axis=1)
+    assert pytest.approx(expected) == applied
+
     # Third dimension
     incidence = incidence_matrix(func_space.basis_specs[2])
     v = list()
@@ -172,3 +193,11 @@ def test_derivative_3d(
     expected = np.stack(v, axis=0)
     computed = fn_dofs.derivative(2).values
     assert pytest.approx(expected) == computed
+
+    # Use applying function instead of matrix
+    applied = incidence_operator(fn_dofs.values, func_space.basis_specs[2], axis=2)
+    assert pytest.approx(expected) == applied
+
+
+if __name__ == "__main__":
+    test_derivative_1d(5, BasisType.BERNSTEIN)
