@@ -721,12 +721,12 @@ PyObject *dof_derivative(PyObject *self, PyTypeObject *defining_class, PyObject 
     {
     case BASIS_BERNSTEIN:
         // Use recurrence relation
-        bernstein_apply_incidence_operator(n, pre_stride, post_stride, 1, values_in, values_out);
+        bernstein_apply_incidence_operator(n, pre_stride, post_stride, 1, values_in, values_out, 0);
         break;
 
     case BASIS_LEGENDRE:
         // Use recurrence relation
-        legendre_apply_incidence_operator(n, pre_stride, post_stride, 1, values_in, values_out);
+        legendre_apply_incidence_operator(n, pre_stride, post_stride, 1, values_in, values_out, 0);
         break;
 
     case BASIS_LAGRANGE_GAUSS:
@@ -742,7 +742,7 @@ PyObject *dof_derivative(PyObject *self, PyTypeObject *defining_class, PyObject 
         }
 
         // Use the real transformation matrix
-        lagrange_apply_incidence_matrix(type, n, pre_stride, post_stride, 1, values_in, values_out, work_buffer);
+        lagrange_apply_incidence_matrix(type, n, pre_stride, post_stride, 1, values_in, values_out, work_buffer, 0);
         PyMem_Free(work_buffer);
     }
     break;

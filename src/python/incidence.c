@@ -9,10 +9,14 @@
 void bernstein_apply_incidence_operator(
     const unsigned n, const size_t pre_stride, const size_t post_stride, const unsigned cols,
     const double INTERPLIB_ARRAY_ARG(values_in, restrict const static pre_stride *(n + 1) * post_stride * cols),
-    double INTERPLIB_ARRAY_ARG(values_out, restrict const pre_stride * n * post_stride * cols))
+    double INTERPLIB_ARRAY_ARG(values_out, restrict const pre_stride * n * post_stride * cols), const int negate)
 {
     const size_t col_stride_in = cols * post_stride * pre_stride * (n + 1);
     const size_t col_stride_out = cols * post_stride * pre_stride * n;
+    npy_double coeff = (double)n / 2.0;
+    if (negate)
+        coeff = -coeff;
+
 #pragma omp simd
     for (unsigned i_col = 0; i_col < cols; ++i_col)
     {
@@ -26,7 +30,6 @@ void bernstein_apply_incidence_operator(
                 double *const ptr_out = vout + i_pre * n * post_stride + i_post;
                 const double *const ptr_in = vin + i_pre * (n + 1) * post_stride + i_post;
 
-                const npy_double coeff = (double)n / 2.0;
                 ptr_out[0] -= coeff * ptr_in[0];
                 for (unsigned col = 1; col < n; ++col)
                 {
@@ -41,23 +44,30 @@ void bernstein_apply_incidence_operator(
 }
 
 void bernstein_matrix_incidence_operator(const unsigned n, const size_t pre_stride, const size_t post_stride,
-                                         const size_t row_stride, double INTERPLIB_ARRAY_ARG(mat, restrict const))
+                                         const size_t row_stride, double INTERPLIB_ARRAY_ARG(mat, restrict const),
+                                         const int negate)
 {
+    npy_double coeff = (double)n / 2.0;
+    if (negate)
+        coeff = -coeff;
     for (size_t i_pre = 0; i_pre < pre_stride; ++i_pre)
     {
         for (size_t i_post = 0; i_post < post_stride; ++i_post)
         {
-            const size_t pos_out = (i_pre * n * post_stride + i_post) * row_stride;
-            const size_t pos_in = i_pre * (n + 1) * post_stride + i_post;
+            const size_t i_out = i_pre * n * post_stride + i_post;
+            const size_t i_in = i_pre * (n + 1) * post_stride + i_post;
 
-            const npy_double coeff = (double)n / 2.0;
-            mat[pos_out + (0) * post_stride + 0] = -coeff;
+            // i_out[0] -= coeff * i_in[0];
+            mat[(i_out + 0) * row_stride + (i_in + 0)] = -coeff;
             for (unsigned col = 1; col < n; ++col)
             {
-                mat[pos_out + col * post_stride * row_stride + pos_in + col * post_stride] = -coeff;
-                mat[pos_out + (col - 1) * post_stride * row_stride + pos_in + col * post_stride] = +coeff;
+                // i_out[col * post_stride] -= coeff * i_in[col * post_stride];
+                mat[(i_out + col * post_stride) * row_stride + (i_in + col * post_stride)] = -coeff;
+                // i_out[(col - 1) * post_stride] += coeff * i_in[col * post_stride];
+                mat[(i_out + (col - 1) * post_stride) * row_stride + (i_in + col * post_stride)] = +coeff;
             }
-            mat[pos_out + (n - 1) * post_stride * row_stride + pos_in + n * post_stride] = +coeff;
+            // i_out[(n - 1) * post_stride] += coeff * i_in[n * post_stride];
+            mat[(i_out + (n - 1) * post_stride) * row_stride + (i_in + n * post_stride)] = +coeff;
         }
     }
 }
@@ -65,7 +75,7 @@ void bernstein_matrix_incidence_operator(const unsigned n, const size_t pre_stri
 void legendre_apply_incidence_operator(
     const unsigned n, const size_t pre_stride, const size_t post_stride, const unsigned cols,
     const double INTERPLIB_ARRAY_ARG(values_in, restrict const static pre_stride *(n + 1) * post_stride * cols),
-    double INTERPLIB_ARRAY_ARG(values_out, restrict const pre_stride * n * post_stride * cols))
+    double INTERPLIB_ARRAY_ARG(values_out, restrict const pre_stride * n * post_stride * cols), const int negate)
 {
     const size_t col_stride_in = cols * post_stride * pre_stride * (n + 1);
     const size_t col_stride_out = cols * post_stride * pre_stride * n;
@@ -88,7 +98,14 @@ void legendre_apply_incidence_operator(
                     for (unsigned c_row = 0; 2 * c_row < col; ++c_row)
                     {
                         const unsigned r = (col - 1 - 2 * c_row);
-                        ptr_out[r * post_stride] += coeff * ptr_in[col * post_stride];
+                        if (negate)
+                        {
+                            ptr_out[r * post_stride] -= coeff * ptr_in[col * post_stride];
+                        }
+                        else
+                        {
+                            ptr_out[r * post_stride] += coeff * ptr_in[col * post_stride];
+                        }
                         coeff -= 4;
                     }
                 }
@@ -98,14 +115,15 @@ void legendre_apply_incidence_operator(
 }
 
 void legendre_matrix_incidence_operator(const unsigned n, const size_t pre_stride, const size_t post_stride,
-                                        const size_t row_stride, double INTERPLIB_ARRAY_ARG(mat, restrict const))
+                                        const size_t row_stride, double INTERPLIB_ARRAY_ARG(mat, restrict const),
+                                        const int negate)
 {
     for (size_t i_pre = 0; i_pre < pre_stride; ++i_pre)
     {
         for (size_t i_post = 0; i_post < post_stride; ++i_post)
         {
-            const size_t pos_out = (i_pre * n * post_stride + i_post) * row_stride;
-            const size_t pos_in = i_pre * (n + 1) * post_stride + i_post;
+            const size_t i_out = i_pre * n * post_stride + i_post;
+            const size_t i_in = i_pre * (n + 1) * post_stride + i_post;
 
             for (unsigned col = n; col > 0; --col)
             {
@@ -113,7 +131,15 @@ void legendre_matrix_incidence_operator(const unsigned n, const size_t pre_strid
                 for (unsigned c_row = 0; 2 * c_row < col; ++c_row)
                 {
                     const unsigned r = (col - 1 - 2 * c_row);
-                    mat[pos_out + r * post_stride * row_stride + pos_in + col * post_stride] = coeff;
+                    // i_out[r * post_stride] += coeff * i_in[col * post_stride];
+                    if (negate)
+                    {
+                        mat[(i_out + r * post_stride) * row_stride + (i_in + col * post_stride)] -= coeff;
+                    }
+                    else
+                    {
+                        mat[(i_out + r * post_stride) * row_stride + (i_in + col * post_stride)] += coeff;
+                    }
                     coeff -= 4;
                 }
             }
@@ -126,7 +152,7 @@ void lagrange_apply_incidence_matrix(
     const unsigned cols,
     const double INTERPLIB_ARRAY_ARG(values_in, restrict const static pre_stride *(n + 1) * post_stride * cols),
     double INTERPLIB_ARRAY_ARG(values_out, restrict const pre_stride * n * post_stride * cols),
-    double INTERPLIB_ARRAY_ARG(work, restrict const n + (n + 1) + n * (n + 1)))
+    double INTERPLIB_ARRAY_ARG(work, restrict const n + (n + 1) + n * (n + 1)), const int negate)
 {
     // Divide up the work array
     double *restrict const out_nodes = work + 0;
@@ -145,6 +171,14 @@ void lagrange_apply_incidence_matrix(
         return;
 
     lagrange_polynomial_first_derivative_2(n, out_nodes, n + 1, in_nodes, trans_matrix);
+    if (negate)
+    {
+        for (unsigned i = 0; i < n * (n + 1); ++i)
+        {
+            trans_matrix[i] = -trans_matrix[i];
+        }
+    }
+
     const size_t col_stride_in = cols * post_stride * pre_stride * (n + 1);
     const size_t col_stride_out = cols * post_stride * pre_stride * n;
 #pragma omp simd
@@ -178,8 +212,10 @@ void lagrange_apply_incidence_matrix(
 void lagrange_matrix_incidence_operator(const basis_set_type_t type, const unsigned n, const size_t pre_stride,
                                         const size_t post_stride, const size_t row_stride,
                                         double INTERPLIB_ARRAY_ARG(mat, restrict const),
-                                        double INTERPLIB_ARRAY_ARG(work, restrict const n + (n + 1) + n * (n + 1)))
+                                        double INTERPLIB_ARRAY_ARG(work, restrict const n + (n + 1) + n * (n + 1)),
+                                        const int negate)
 {
+
     // Divide up the work array
     double *restrict const out_nodes = work + 0;
     double *restrict const in_nodes = work + n;
@@ -197,20 +233,26 @@ void lagrange_matrix_incidence_operator(const basis_set_type_t type, const unsig
         return;
 
     lagrange_polynomial_first_derivative_2(n, out_nodes, n + 1, in_nodes, trans_matrix);
-
+    if (negate)
+    {
+        for (unsigned i = 0; i < n * (n + 1); ++i)
+        {
+            trans_matrix[i] = -trans_matrix[i];
+        }
+    }
     for (size_t i_pre = 0; i_pre < pre_stride; ++i_pre)
     {
         for (size_t i_post = 0; i_post < post_stride; ++i_post)
         {
-            const size_t pos_out = (i_pre * n * post_stride + i_post) * row_stride;
-            const size_t pos_in = i_pre * (n + 1) * post_stride + i_post;
+            const size_t i_out = i_pre * n * post_stride + i_post;
+            const size_t i_in = i_pre * (n + 1) * post_stride + i_post;
 
-            // Apply the transformation matrix
+            // Write out the transformation matrix
             for (unsigned row = 0; row < n; ++row)
             {
                 for (unsigned col = 0; col < n + 1; ++col)
                 {
-                    mat[pos_out + (row * post_stride) * row_stride + pos_in + col * post_stride] =
+                    mat[(i_out + row * post_stride) * row_stride + (i_in + col * post_stride)] =
                         trans_matrix[row * (n + 1) + col];
                 }
             }
@@ -439,11 +481,11 @@ static PyObject *incidence_operator(PyObject *mod, PyObject *const *args, const 
     switch (basis_specs->spec.type)
     {
     case BASIS_BERNSTEIN:
-        bernstein_apply_incidence_operator(order, pre_stride, post_stride, 1, vals_in, out_ptr);
+        bernstein_apply_incidence_operator(order, pre_stride, post_stride, 1, vals_in, out_ptr, 0);
         break;
 
     case BASIS_LEGENDRE:
-        legendre_apply_incidence_operator(order, pre_stride, post_stride, 1, vals_in, out_ptr);
+        legendre_apply_incidence_operator(order, pre_stride, post_stride, 1, vals_in, out_ptr, 0);
         break;
 
     case BASIS_LAGRANGE_UNIFORM:
@@ -451,7 +493,7 @@ static PyObject *incidence_operator(PyObject *mod, PyObject *const *args, const 
     case BASIS_LAGRANGE_GAUSS_LOBATTO:
     case BASIS_LAGRANGE_CHEBYSHEV_GAUSS:
         lagrange_apply_incidence_matrix(basis_specs->spec.type, order, pre_stride, post_stride, 1, vals_in, out_ptr,
-                                        work);
+                                        work, 0);
         break;
 
     default:
@@ -468,13 +510,36 @@ static PyObject *incidence_operator(PyObject *mod, PyObject *const *args, const 
     return (PyObject *)out;
 }
 
+PyDoc_STRVAR(incidence_operator_docstring,
+             "incidence_operator(val: numpy.typing.ArrayLike, /, specs: BasisSpecs, axis: int = 0) -> "
+             "numpy.typing.NDArray[numpy.double]\n"
+             "Apply the incidence operator to an array of degrees of freedom along an axis.\n"
+             "\n"
+             "Parameters\n"
+             "----------\n"
+             "val : array_like\n"
+             "    Array of degrees of freedom to apply the incidence operator to.\n"
+             "\n"
+             "specs : BasisSpecs\n"
+             "    Specifications for basis that determine what set of polynomial is used to take\n"
+             "    the derivative.\n"
+             "\n"
+             "axis : int, default: 0\n"
+             "    Axis along which to apply the incidence operator along.\n"
+             "\n"
+             "Returns\n"
+             "-------\n"
+             "array\n"
+             "    Array of degrees of freedom that is the result of applying the incidence operator,\n"
+             "    along the specified axis.\n");
+
 static void incidence_matrix_fill_block(const unsigned ndim, const basis_spec_t basis[static ndim],
                                         const unsigned order, const uint8_t components[static order],
                                         const unsigned derivative_dim, const unsigned offset_row,
-                                        const unsigned offset_col, const size_t row_pitch, double *restrict out_array,
-                                        double *work)
+                                        const unsigned offset_col, const size_t row_pitch, const int flip_sign,
+                                        double *restrict out_array, double *work)
 {
-    size_t pre_stride = 1, dim_dofs, post_stride = 1;
+    size_t pre_stride = 1, post_stride = 1;
     unsigned idim, i_component;
     for (idim = 0, i_component = 0; idim < derivative_dim; ++idim)
     {
@@ -490,9 +555,11 @@ static void incidence_matrix_fill_block(const unsigned ndim, const basis_spec_t 
         }
         pre_stride *= dofs_in_dimension;
     }
-    ASSERT(components[i_component] == derivative_dim, "I miscounted the components somehow.");
+    ASSERT(components[i_component] == derivative_dim,
+           "I miscounted the components somehow (components[i_component] = %u, derivative_dim = %u).",
+           (unsigned)components[i_component], (unsigned)derivative_dim);
     i_component += 1;
-    dim_dofs = basis[derivative_dim].order;
+    idim += 1;
     for (; idim < ndim; ++idim)
     {
         unsigned dofs_in_dimension;
@@ -507,25 +574,26 @@ static void incidence_matrix_fill_block(const unsigned ndim, const basis_spec_t 
         }
         post_stride *= dofs_in_dimension;
     }
-    ASSERT(i_component == order, "I miscounted the components somehow.");
+    ASSERT(i_component == order, "I miscounted the components somehow (i_component = %u, order = %u).", i_component,
+           order);
 
-    switch (basis[derivative_dim].type)
+    const basis_set_type_t btype = basis[derivative_dim].type;
+    const unsigned n = basis[derivative_dim].order;
+    double *restrict const mat = out_array + offset_row * row_pitch + offset_col;
+    switch (btype)
     {
     case BASIS_BERNSTEIN:
-        bernstein_matrix_incidence_operator(basis[derivative_dim].order, pre_stride, post_stride, row_pitch,
-                                            out_array + offset_row * row_pitch + offset_col);
+        bernstein_matrix_incidence_operator(n, pre_stride, post_stride, row_pitch, mat, flip_sign);
         break;
     case BASIS_LEGENDRE:
-        legendre_matrix_incidence_operator(basis[derivative_dim].order, pre_stride, post_stride, row_pitch,
-                                           out_array + offset_row * row_pitch + offset_col);
+        legendre_matrix_incidence_operator(n, pre_stride, post_stride, row_pitch, mat, flip_sign);
         break;
     case BASIS_LAGRANGE_UNIFORM:
     case BASIS_LAGRANGE_GAUSS:
     case BASIS_LAGRANGE_GAUSS_LOBATTO:
     case BASIS_LAGRANGE_CHEBYSHEV_GAUSS:
         ASSERT(work != NULL, "Work array was not given!");
-        lagrange_matrix_incidence_operator(basis[derivative_dim].type, dim_dofs, pre_stride, post_stride, row_pitch,
-                                           out_array, work);
+        lagrange_matrix_incidence_operator(btype, n, pre_stride, post_stride, row_pitch, mat, work, flip_sign);
         break;
     case BASIS_INVALID:
         ASSERT(0, "Invalid basis type.");
@@ -596,7 +664,8 @@ static PyObject *compute_kform_incidence_matrix(PyObject *mod, PyObject *const *
              .p_ptr = (void **)&out_component_offsets},
             {.size = sizeof(*in_component_offsets) * (combination_total_count(n, order) + 1),
              .p_ptr = (void **)&in_component_offsets},
-            {.size = sizeof(*work_buffer) * (order + 1) * order + order + (order + 1), .p_ptr = (void **)&work_buffer},
+            {.size = sizeof(*work_buffer) * ((max_order + 1) * max_order + max_order + (max_order + 1)),
+             .p_ptr = (void **)&work_buffer},
             {},
         });
 
@@ -619,7 +688,7 @@ static PyObject *compute_kform_incidence_matrix(PyObject *mod, PyObject *const *
     for (const uint8_t *p_basis_components = combination_iterator_current(iter_component_out);
          !combination_iterator_is_done(iter_component_out); combination_iterator_next(iter_component_out), ++idx_out)
     {
-        out_dofs += kform_basis_get_num_dofs(n, fn_space->specs, order, p_basis_components);
+        out_dofs += kform_basis_get_num_dofs(n, fn_space->specs, order + 1, p_basis_components);
         // Use this chance to initialize the offsets
         out_component_offsets[idx_out + 1] = out_dofs;
     }
@@ -655,9 +724,9 @@ static PyObject *compute_kform_incidence_matrix(PyObject *mod, PyObject *const *
             while (basis_components[pv] < basis_components[pv + 1])
             {
                 const unsigned idx_comp_out = combination_get_index(n, order + 1, basis_components);
-                incidence_matrix_fill_block(n, fn_space->specs, order, components_in, basis_components[pv],
+                incidence_matrix_fill_block(n, fn_space->specs, order + 1, basis_components, basis_components[pv],
                                             out_component_offsets[idx_comp_out], in_component_offsets[idx_comp_in],
-                                            in_dofs, out_data, work_buffer);
+                                            in_dofs, pv & 1u, out_data, work_buffer);
                 basis_components[pv] += 1;
             }
             basis_components[pv + 1] += 1;
@@ -666,9 +735,10 @@ static PyObject *compute_kform_incidence_matrix(PyObject *mod, PyObject *const *
         while (basis_components[order] < n)
         {
             const unsigned idx_comp_out = combination_get_index(n, order + 1, basis_components);
-            incidence_matrix_fill_block(n, fn_space->specs, order, components_in, basis_components[order],
+            // printf("Filling block (%u, %u)\n", idx_comp_out, (unsigned)idx_comp_out);
+            incidence_matrix_fill_block(n, fn_space->specs, order + 1, basis_components, basis_components[order],
                                         out_component_offsets[idx_comp_out], in_component_offsets[idx_comp_in], in_dofs,
-                                        out_data, work_buffer);
+                                        order & 1u, out_data, work_buffer);
             basis_components[order] += 1;
         }
     }
@@ -678,6 +748,25 @@ static PyObject *compute_kform_incidence_matrix(PyObject *mod, PyObject *const *
 
     return (PyObject *)out_array;
 }
+
+PyDoc_STRVAR(
+    compute_kform_incidence_matrix_docstring,
+    "compute_kform_incidence_matrix(base_space: FunctionSpace, order: int) -> numpy.typing.NDArray[numpy.double]\n"
+    "Compute the incidence matrix which maps a k-form to its (k + 1)-form derivative.\n"
+    "\n"
+    "Parameters\n"
+    "----------\n"
+    "base_space : FunctionSpace\n"
+    "    Base function space, which describes the function space used for 0-forms.\n"
+    "\n"
+    "order : int\n"
+    "    Order of the k-form to get the incidence matrix for.\n"
+    "\n"
+    "Returns\n"
+    "-------\n"
+    "array\n"
+    "    Matrix, which maps degrees of freedom for the input k-form to the degrees of\n"
+    "    freedom of its (k + 1)-form derivative.\n");
 
 PyMethodDef incidence_methods[] = {
     {
@@ -690,13 +779,13 @@ PyMethodDef incidence_methods[] = {
         .ml_name = "incidence_operator",
         .ml_meth = (void *)incidence_operator,
         .ml_flags = METH_FASTCALL | METH_KEYWORDS,
-        .ml_doc = NULL, // TODO
+        .ml_doc = incidence_operator_docstring,
     },
     {
         .ml_name = "compute_kform_incidence_matrix",
         .ml_meth = (void *)compute_kform_incidence_matrix,
         .ml_flags = METH_FASTCALL | METH_KEYWORDS,
-        .ml_doc = NULL, // TODO
+        .ml_doc = compute_kform_incidence_matrix_docstring,
     },
     {}, // sentinel
 };

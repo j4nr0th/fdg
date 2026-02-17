@@ -983,6 +983,27 @@ def compute_kform_mass_matrix(
     """
     ...
 
+def compute_kform_incidence_matrix(
+    base_space: FunctionSpace, order: int
+) -> npt.NDArray[np.double]:
+    """Compute the incidence matrix which maps a k-form to its (k + 1)-form derivative.
+
+    Parameters
+    ----------
+    base_space : FunctionSpace
+        Base function space, which describes the function space used for 0-forms.
+
+    order : int
+        Order of the k-form to get the incidence matrix for.
+
+    Returns
+    -------
+    array
+        Matrix, which maps degrees of freedom for the input k-form to the degrees of
+        freedom of its (k + 1)-form derivative.
+    """
+    ...
+
 def incidence_matrix(specs: BasisSpecs) -> npt.NDArray[np.double]:
     """Return the incidence matrix to transfer derivative degrees of freedom.
 
