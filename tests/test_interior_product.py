@@ -84,3 +84,87 @@ def test_2d_1form(
     computed_dual_dofs = np.reshape(interprod_mat @ u_dofs, (bo1 + 1, bo2 + 1))
 
     assert pytest.approx(computed_dual_dofs) == dual_dof_values
+
+
+@pytest.mark.parametrize(("io1", "io2", "bo1", "bt1", "bo2", "bt2"), _TEST_CASES_2D)
+def test_2d_2form(
+    io1: int, io2: int, bo1: int, bt1: BasisType, bo2: int, bt2: BasisType
+) -> None:
+    """Check that 2D interior product of a 2-form works."""
+    i_reg = IntegrationRegistry()
+    b_reg = BasisRegistry()
+    rng = np.random.default_rng(67)
+    int_space = IntegrationSpace(IntegrationSpecs(io1), IntegrationSpecs(io2))
+    func_space = FunctionSpace(BasisSpecs(bt1, bo1), BasisSpecs(bt2, bo2))
+
+    x0_dofs = DegreesOfFreedom(func_space.lower_order(idim=0))
+    x1_dofs = DegreesOfFreedom(func_space.lower_order(idim=1))
+    x0_dofs.values = rng.random(x0_dofs.shape)
+    x1_dofs.values = rng.random(x1_dofs.shape)
+    space_map = SpaceMap(
+        CoordinateMap(x0_dofs, int_space), CoordinateMap(x1_dofs, int_space)
+    )
+
+    int_weights = int_space.weights(i_reg) * space_map.determinant
+    vx = rng.random(int_weights.shape)
+    vy = rng.random(int_weights.shape) * 0
+    v_vals = np.array((vx, vy))
+
+    u_dofs = DegreesOfFreedom(func_space.lower_order(idim=0).lower_order(idim=1))
+    u_dofs.values = rng.random(u_dofs.shape)
+
+    dxi0dx0 = space_map.inverse_map[..., 0, 0]
+    dxi0dx1 = space_map.inverse_map[..., 0, 1]
+    dxi1dx0 = space_map.inverse_map[..., 1, 0]
+    dxi1dx1 = space_map.inverse_map[..., 1, 1]
+
+    inv_det = dxi0dx0 * dxi1dx1 - dxi0dx1 * dxi1dx0
+
+    u_vals = u_dofs.reconstruct_at_integration_points(int_space, i_reg, b_reg) * inv_det
+    interprod_values_0_target = -u_vals * vy
+    interprod_values_1_target = +u_vals * vx
+
+    basis_1form_0 = func_space.lower_order(idim=0).values_at_integration_nodes(
+        int_space, integration_registry=i_reg, basis_registry=b_reg
+    )
+    basis_1form_1 = func_space.lower_order(idim=1).values_at_integration_nodes(
+        int_space, integration_registry=i_reg, basis_registry=b_reg
+    )
+
+    dual_dof_values_0 = np.sum(
+        (interprod_values_0_target * dxi0dx0 + interprod_values_1_target * dxi0dx1)[
+            ..., None, None
+        ]
+        * basis_1form_0
+        * int_weights[..., None, None],
+        axis=tuple(range(basis_1form_0.ndim - 2)),
+    )
+    dual_dof_values_1 = np.sum(
+        (interprod_values_0_target * dxi1dx0 + interprod_values_1_target * dxi1dx1)[
+            ..., None, None
+        ]
+        * int_weights[..., None, None]
+        * basis_1form_1,
+        axis=tuple(range(basis_1form_1.ndim - 2)),
+    )
+
+    interprod_mat = compute_kform_interior_product_matrix(
+        space_map,
+        2,
+        func_space,
+        func_space,
+        v_vals,
+        integration_registry=i_reg,
+        basis_registry=b_reg,
+    )
+    computed_dual_dofs = interprod_mat @ u_dofs.values.flatten()
+
+    flattened_dual_dofs = np.concatenate(
+        (dual_dof_values_0.flatten(), dual_dof_values_1.flatten())
+    )
+
+    assert pytest.approx(computed_dual_dofs) == flattened_dual_dofs
+
+
+if __name__ == "__main__":
+    test_2d_2form(5, 5, 2, BasisType.BERNSTEIN, 2, BasisType.BERNSTEIN)

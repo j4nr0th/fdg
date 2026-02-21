@@ -1075,7 +1075,7 @@ static PyObject *compute_kform_mass_matrix(PyObject *module, PyObject *const *ar
 
 static void compute_interior_product_component_weights(
     const unsigned n, const unsigned k, const unsigned idim, const size_t int_pts,
-    double integration_weights[restrict int_pts], const double determinant[restrict int_pts],
+    double integration_weights[restrict int_pts],
     const double *const restrict transform_array_left,  // [const restrict static int_pts],
     const double *const restrict transform_array_right, // [const restrict static int_pts],
     const double vector_field_components[const restrict static n * int_pts], const int negate)
@@ -1113,7 +1113,7 @@ static void compute_interior_product_component_weights(
         // Add contributions of left, right, and vector field (but right is always 1/det)
         for (size_t i = 0; i < int_pts; ++i)
         {
-            const double dp = transform_array_left[i] / determinant[i] * vector_field_components[idim * int_pts + i];
+            const double dp = transform_array_left[i] * vector_field_components[idim * int_pts + i];
             if (!negate)
             {
                 integration_weights[i] += dp;
@@ -1147,7 +1147,7 @@ static void compute_interior_product_component_weights(
 }
 
 static void compute_interior_product_weights(
-    const unsigned n, const unsigned order, const size_t idx_in_left, const size_t idx_in_right,
+    const unsigned n, const unsigned order, const unsigned idx_in_left, const unsigned idx_in_right,
     combination_iterator_t *iter_target_form, const size_t int_pts_cnt, uint8_t basis_components[restrict order],
     const PyArrayObject *transform_array_left, const PyArrayObject *transform_array_right,
     const double vector_components_data[static restrict n * int_pts_cnt],
@@ -1157,7 +1157,7 @@ static void compute_interior_product_weights(
     // First, initialize the weights to zero
     memset(integration_weights, 0, int_pts_cnt * sizeof(double));
     // Loop over left k-form components in the target space to add the (left, right, vec) contributions
-    size_t basis_idx_left = 0;
+    unsigned basis_idx_left = 0;
     combination_iterator_init(iter_target_form, n, order - 1);
     for (const uint8_t *p_basis_components_left = combination_iterator_current(iter_target_form);
          !combination_iterator_is_done(iter_target_form); combination_iterator_next(iter_target_form), ++basis_idx_left)
@@ -1184,11 +1184,12 @@ static void compute_interior_product_weights(
 
                 // Compute contribution of the (left, right, vec_field) combo
                 compute_interior_product_component_weights(n, order, basis_components[pv], int_pts_cnt,
-                                                           integration_weights, determinant, ptr_trans_left,
-                                                           ptr_trans_right, vector_components_data, pv & 1);
+                                                           integration_weights, ptr_trans_left, ptr_trans_right,
+                                                           vector_components_data, pv & 1u);
 
                 basis_components[pv] += 1;
             }
+            basis_components[pv + 1] += 1;
         }
         // Finish up with the last right components remaining
         while (basis_components[pv] < n)
@@ -1201,19 +1202,32 @@ static void compute_interior_product_weights(
 
             // Compute contribution of the (left, right, vec_field) combo
             compute_interior_product_component_weights(n, order, basis_components[pv], int_pts_cnt, integration_weights,
-                                                       determinant, ptr_trans_left, ptr_trans_right,
-                                                       vector_components_data, pv & 1);
+                                                       ptr_trans_left, ptr_trans_right, vector_components_data,
+                                                       pv & 1u);
             basis_components[pv] += 1;
         }
     }
 
     // Finally, scale all resulting weights by integration rule weights and determinant
     size_t integration_pt_idx = 0;
-    for (multidim_iterator_set_to_start(iter_int_pts); !multidim_iterator_is_at_end(iter_int_pts);
-         multidim_iterator_advance(iter_int_pts, n - 1, 1), ++integration_pt_idx)
+    if (order != n)
     {
-        const double int_weight = calculate_integration_weight(n, iter_int_pts, int_rules);
-        integration_weights[integration_pt_idx] *= int_weight * determinant[integration_pt_idx];
+        for (multidim_iterator_set_to_start(iter_int_pts); !multidim_iterator_is_at_end(iter_int_pts);
+             multidim_iterator_advance(iter_int_pts, n - 1, 1), ++integration_pt_idx)
+        {
+            const double int_weight = calculate_integration_weight(n, iter_int_pts, int_rules);
+            integration_weights[integration_pt_idx] *= int_weight * determinant[integration_pt_idx];
+        }
+    }
+    else // if (order == n)
+    {
+        // Here we do not multiply with determinant, since we implicitly canceled it out when computing weights
+        for (multidim_iterator_set_to_start(iter_int_pts); !multidim_iterator_is_at_end(iter_int_pts);
+             multidim_iterator_advance(iter_int_pts, n - 1, 1), ++integration_pt_idx)
+        {
+            const double int_weight = calculate_integration_weight(n, iter_int_pts, int_rules);
+            integration_weights[integration_pt_idx] *= int_weight;
+        }
     }
     ASSERT(integration_pt_idx == int_pts_cnt, "Integration point count mismatch (counted up %zu, expected %zu).",
            integration_pt_idx, int_pts_cnt);
