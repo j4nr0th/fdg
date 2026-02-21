@@ -1031,6 +1031,49 @@ def compute_kform_incidence_matrix(
     """
     ...
 
+def compute_kform_interior_product_matrix(
+    smap: SpaceMap,
+    order: int,
+    left_bases: FunctionSpace,
+    right_bases: FunctionSpace,
+    vector_field_components: npt.NDArray[np.double],
+    *,
+    int_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
+    basis_registry: BasisRegistry = DEFAULT_BASIS_REGISTRY,
+) -> npt.NDArray[np.double]:
+    """Compute the mass matrix that is the result of interior product in an inner product.
+
+    Parameters
+    ----------
+    smap : SpaceMap
+        Mapping of the space in which this is to be computed.
+
+    order : int
+        Order of the k-form for which this is to be done.
+
+    left_bases : FunctionSpace
+        Function space of 0-forms used as test forms.
+
+    right_bases : FunctionSpace
+        Function space of 0-forms used as trial forms.
+
+    vector_field_components : array
+        Vector field components involved in the interior product.
+
+    int_registry : IntegrationRegistry, optional
+        Registry to get the integration rules from.
+
+    basis_registry : BasisRegistry, optional
+        Registry to get the basis from.
+
+    Returns
+    -------
+    array
+        Mass matrix for inner product of two k-forms, where the right one has the interior
+        product with the vector field applied to it.
+    """
+    ...
+
 def incidence_matrix(specs: BasisSpecs) -> npt.NDArray[np.double]:
     """Return the incidence matrix to transfer derivative degrees of freedom.
 
