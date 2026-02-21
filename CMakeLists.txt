@@ -128,6 +128,7 @@ set(PYTHON_NUMERICS_SOURCE_FILES
         src/python/mappings.c
         src/python/incidence.c
         src/python/covector_basis.c
+        src/python/kform_objects.c
 )
 
 Python_add_library(_interp MODULE

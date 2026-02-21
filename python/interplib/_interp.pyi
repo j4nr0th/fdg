@@ -811,6 +811,33 @@ class DegreesOfFreedom:
         ...
 
 @final
+class KFormSpecs:
+    """Differential k-form specification."""
+
+    def __new__(cls, order: int, base_space: FunctionSpace) -> Self: ...
+    @property
+    def order(self) -> int:
+        """Order of the k-form."""
+        ...
+    @property
+    def base_space(self) -> FunctionSpace:
+        """Base function space the k-form is based in."""
+        ...
+
+    @property
+    def dimension(self) -> int:
+        """Dimension of the space the k-form is in."""
+        ...
+
+    def get_component_function_space(self, idx: int) -> FunctionSpace:
+        """Get the function space for a component."""
+        ...
+
+    def get_component_basis(self, idx: int) -> CovectorBasis:
+        """Get covector basis bundle for a component."""
+        ...
+
+@final
 class CoordinateMap:
     """Mapping between reference and physical coordinates.
 
@@ -911,7 +938,7 @@ class SpaceMap:
         ...
 
     @property
-    def inverse_transform(self) -> npt.NDArray[np.double]:
+    def inverse_map(self) -> npt.NDArray[np.double]:
         """Local inverse transformation at each integration point.
 
         This array contains inverse mapping matrix, which is used
@@ -1136,6 +1163,41 @@ def compute_gradient_mass_matrix(
     array
         Mass matrix as a 2D array, which maps the primal degrees of freedom of the input
         function space to dual degrees of freedom of the output function space.
+    """
+    ...
+
+def transform_contravariant_to_target(
+    smap: SpaceMap,
+    components: npt.ArrayLike,
+    *,
+    out: npt.NDArray[np.double] | None = None,
+) -> npt.NDArray[np.double]:
+    """Transform contravariant vector components from reference to target domain.
+
+    Since the basis of 1-forms are covectors, which are as the name implies covarying,
+    the values of components are contravarying. Once transformed to the target domain,
+    the 1-form can be lowered to a tangent vector field trivially.
+
+    Parameters
+    ----------
+    smap : SpaceMap
+        Mapping from the reference space to the physical space to use to transform the
+        components.
+
+    components : array_like
+        Array where the first dimension indexes the components in the reference space. All
+        other dimensions will be treated as if flattened.
+
+    out : array, optional
+        Array to used to write the resulting transformed components to. If it is not
+        specified, a new array is created.
+
+    Returns
+    -------
+    array
+        Array of transformed covariant components. If the ``out`` parameter was given,
+        a new reference to it is returned, otherwise a reference to the newly created
+        output array is returned.
     """
     ...
 @final

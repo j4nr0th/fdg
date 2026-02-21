@@ -76,6 +76,9 @@ typedef struct
     // Default Registries
     PyObject *registry_integration;
     PyObject *registry_basis;
+
+    // K-Forms
+    PyTypeObject *kform_specs_type;
 } interplib_module_state_t;
 
 INTERPLIB_INTERNAL

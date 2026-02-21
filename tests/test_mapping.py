@@ -10,6 +10,7 @@ from interplib._interp import (
     IntegrationSpace,
     IntegrationSpecs,
     SpaceMap,
+    transform_contravariant_to_target,
 )
 from interplib.enum_type import BasisType
 
@@ -219,6 +220,81 @@ def test_space_map_1_to_3(n_int: int, n_b: int, btype: BasisType) -> None:
     assert pytest.approx(det_smap) == det_real
 
 
+@pytest.mark.parametrize(("int_order_1", "int_order_2", "int_order_3"), _TEST_ORDERS_3D)
+@pytest.mark.parametrize(
+    ("basis_order_1", "basis_order_2", "basis_order_3"), _TEST_ORDERS_3D
+)
+@pytest.mark.parametrize(("basis_type_1", "basis_type_2", "basis_type_3"), _TEST_BASIS_3D)
+def test_contravariant_3d(
+    int_order_1: int,
+    basis_order_1: int,
+    basis_type_1: BasisType,
+    int_order_2: int,
+    basis_order_2: int,
+    basis_type_2: BasisType,
+    int_order_3: int,
+    basis_order_3: int,
+    basis_type_3: BasisType,
+) -> None:
+    """Check that contravariant components are correctly transformed."""
+    rng = np.random.default_rng(2198)
+
+    int_space = IntegrationSpace(
+        IntegrationSpecs(int_order_1, method="gauss-lobatto"),
+        IntegrationSpecs(int_order_2, method="gauss-lobatto"),
+        IntegrationSpecs(int_order_3, method="gauss-lobatto"),
+    )
+
+    b_space = FunctionSpace(
+        BasisSpecs(basis_type_1, basis_order_1),
+        BasisSpecs(basis_type_2, basis_order_2),
+        BasisSpecs(basis_type_3, basis_order_3),
+    )
+
+    dofs_x = DegreesOfFreedom(b_space)
+    dofs_x.values = rng.random(dofs_x.values.shape)
+    dofs_y = DegreesOfFreedom(b_space)
+    dofs_y.values = rng.random(dofs_y.values.shape)
+    dofs_z = DegreesOfFreedom(b_space)
+    dofs_z.values = rng.random(dofs_z.values.shape)
+
+    space_map = SpaceMap(
+        CoordinateMap(dofs_x, int_space),
+        CoordinateMap(dofs_y, int_space),
+        CoordinateMap(dofs_z, int_space),
+    )
+
+    dofs_vx = DegreesOfFreedom(b_space)
+    dofs_vx.values = rng.random(dofs_vx.values.shape)
+    dofs_vy = DegreesOfFreedom(b_space)
+    dofs_vy.values = rng.random(dofs_vy.values.shape)
+    dofs_vz = DegreesOfFreedom(b_space)
+    dofs_vz.values = rng.random(dofs_vz.values.shape)
+
+    vx = dofs_vx.reconstruct_at_integration_points(space_map.integration_space)
+    vy = dofs_vy.reconstruct_at_integration_points(space_map.integration_space)
+    vz = dofs_vz.reconstruct_at_integration_points(space_map.integration_space)
+    components = np.array((vx, vy, vz))
+
+    contravariant = transform_contravariant_to_target(space_map, components)
+
+    manual_contravariant = np.zeros_like(components)
+    flat_contravariant_mat = np.reshape(
+        space_map.inverse_map, (-1, *space_map.inverse_map.shape[-2:])
+    )
+    flat_components = np.reshape(components, (3, -1))
+    flat_contravariant = np.reshape(manual_contravariant, (3, -1))
+    for i_pt in range(vx.size):
+        mat = flat_contravariant_mat[i_pt, :, :]
+        vec_in = flat_components[:, i_pt]
+        vec_out = mat.T @ vec_in
+        flat_contravariant[:, i_pt] = vec_out
+    manual_contravariant = np.reshape(flat_contravariant, contravariant.shape)
+
+    assert pytest.approx(manual_contravariant) == contravariant
+
+
 if __name__ == "__main__":
-    test_space_map_2_to_2(2, 2, BasisType.BERNSTEIN)
-    pass
+    test_contravariant_3d(
+        3, 4, BasisType.BERNSTEIN, 3, 4, BasisType.BERNSTEIN, 3, 4, BasisType.BERNSTEIN
+    )
