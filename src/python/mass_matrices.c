@@ -708,7 +708,6 @@ static void compute_kform_mass_matrix_block(
              !multidim_iterator_is_at_end(iter_basis_right);
              multidim_iterator_advance(iter_basis_right, n - 1, 1), ++idx_right)
         {
-
             double integral_value = 0;
             // Loop over all integration points
             for (multidim_iterator_set_to_start(iter_int_pts); !multidim_iterator_is_at_end(iter_int_pts);
@@ -1147,15 +1146,13 @@ static void compute_interior_product_component_weights(
     }
 }
 
-static void compute_interior_product_weights(const unsigned n, const unsigned order, const size_t idx_in_left,
-                                             const size_t idx_in_right, combination_iterator_t *iter_target_form,
-                                             const size_t int_pts_cnt, uint8_t basis_components[restrict order],
-                                             PyArrayObject *transform_array_left, PyArrayObject *transform_array_right,
-                                             const double vector_components_data[static restrict n * int_pts_cnt],
-                                             const double determinant[static restrict int_pts_cnt],
-                                             double integration_weights[restrict int_pts_cnt],
-                                             multidim_iterator_t *iter_int_pts,
-                                             const integration_rule_t *int_rules[static n])
+static void compute_interior_product_weights(
+    const unsigned n, const unsigned order, const size_t idx_in_left, const size_t idx_in_right,
+    combination_iterator_t *iter_target_form, const size_t int_pts_cnt, uint8_t basis_components[restrict order],
+    const PyArrayObject *transform_array_left, const PyArrayObject *transform_array_right,
+    const double vector_components_data[static restrict n * int_pts_cnt],
+    const double determinant[static restrict int_pts_cnt], double integration_weights[restrict int_pts_cnt],
+    multidim_iterator_t *iter_int_pts, const integration_rule_t *int_rules[static n])
 {
     // First, initialize the weights to zero
     memset(integration_weights, 0, int_pts_cnt * sizeof(double));
@@ -1194,7 +1191,7 @@ static void compute_interior_product_weights(const unsigned n, const unsigned or
             }
         }
         // Finish up with the last right components remaining
-        while (basis_components[pv] < order)
+        while (basis_components[pv] < n)
         {
             const unsigned basis_idx_right = combination_get_index(n, order, basis_components);
             const double *restrict ptr_trans_right =
@@ -1210,14 +1207,16 @@ static void compute_interior_product_weights(const unsigned n, const unsigned or
         }
     }
 
-    // Finally, scale all resulting weights by integration rule weights
+    // Finally, scale all resulting weights by integration rule weights and determinant
     size_t integration_pt_idx = 0;
     for (multidim_iterator_set_to_start(iter_int_pts); !multidim_iterator_is_at_end(iter_int_pts);
          multidim_iterator_advance(iter_int_pts, n - 1, 1), ++integration_pt_idx)
     {
         const double int_weight = calculate_integration_weight(n, iter_int_pts, int_rules);
-        integration_weights[integration_pt_idx] *= int_weight;
+        integration_weights[integration_pt_idx] *= int_weight * determinant[integration_pt_idx];
     }
+    ASSERT(integration_pt_idx == int_pts_cnt, "Integration point count mismatch (counted up %zu, expected %zu).",
+           integration_pt_idx, int_pts_cnt);
 }
 
 static PyObject *compute_kform_interior_product_matrix(PyObject *module, PyObject *const *args, const Py_ssize_t nargs,
@@ -1361,7 +1360,6 @@ static PyObject *compute_kform_interior_product_matrix(PyObject *module, PyObjec
     const basis_set_t **basis_sets_left, **basis_sets_right, **basis_sets_left_lower, **basis_sets_right_lower;
     basis_spec_t *lower_basis_buffer;
     double *restrict integration_weights;
-    size_t *col_offsets, *row_offsets;
     uint8_t *basis_components;
     void *const mem_1 = cutl_alloc_group(
         &PYTHON_ALLOCATOR, (const cutl_alloc_info_t[]){
@@ -1378,8 +1376,6 @@ static PyObject *compute_kform_interior_product_matrix(PyObject *module, PyObjec
                                {sizeof(basis_set_t *) * n, (void **)&basis_sets_right_lower},
                                {sizeof(basis_spec_t) * n, (void **)&lower_basis_buffer},
                                {sizeof(double) * int_pts_cnt, (void **)&integration_weights},
-                               {sizeof(size_t) * (combination_total_count(n, order) + 1), (void **)&col_offsets},
-                               {sizeof(size_t) * (combination_total_count(n, order - 1) + 1), (void **)&row_offsets},
                                {sizeof(*basis_components) * order, (void **)&basis_components},
                                {},
                            });
@@ -1394,21 +1390,17 @@ static PyObject *compute_kform_interior_product_matrix(PyObject *module, PyObjec
     size_t row_cnt = 0, col_cnt = 0;
     // Loop over input and output bases
     combination_iterator_init(iter_component_right, n, order);
-    col_offsets[0] = 0;
     for (const uint8_t *p_in = combination_iterator_current(iter_component_right);
          !combination_iterator_is_done(iter_component_right); combination_iterator_next(iter_component_right))
     {
         col_cnt += kform_basis_get_num_dofs(n, fn_right->specs, order, p_in);
-        col_offsets[row_cnt + 1] = col_cnt;
     }
 
-    combination_iterator_init(iter_component_left, n, order);
-    row_offsets[0] = 0;
+    combination_iterator_init(iter_component_left, n, order - 1);
     for (const uint8_t *p_out = combination_iterator_current(iter_component_left);
          !combination_iterator_is_done(iter_component_left); combination_iterator_next(iter_component_left))
     {
         row_cnt += kform_basis_get_num_dofs(n, fn_left->specs, order - 1, p_out);
-        row_offsets[row_cnt + 1] = row_cnt;
     }
 
     const npy_intp dims[2] = {(npy_intp)row_cnt, (npy_intp)col_cnt};
@@ -1450,6 +1442,7 @@ static PyObject *compute_kform_interior_product_matrix(PyObject *module, PyObjec
     {
         Py_DECREF(array_out);
         Py_XDECREF(transform_array_right);
+        Py_XDECREF(transform_array_left);
         cutl_dealloc(&PYTHON_ALLOCATOR, mem_1);
         return NULL;
     }
@@ -1463,6 +1456,7 @@ static PyObject *compute_kform_interior_product_matrix(PyObject *module, PyObjec
             integration_rule_registry_release_rule(integration_registry->registry, integration_rules[i]);
         Py_DECREF(array_out);
         Py_XDECREF(transform_array_right);
+        Py_XDECREF(transform_array_left);
         cutl_dealloc(&PYTHON_ALLOCATOR, mem_1);
         return NULL;
     }
@@ -1479,6 +1473,7 @@ static PyObject *compute_kform_interior_product_matrix(PyObject *module, PyObjec
         }
         Py_DECREF(array_out);
         Py_XDECREF(transform_array_right);
+        Py_XDECREF(transform_array_left);
         cutl_dealloc(&PYTHON_ALLOCATOR, mem_1);
         return NULL;
     }
@@ -1501,6 +1496,7 @@ static PyObject *compute_kform_interior_product_matrix(PyObject *module, PyObjec
         }
         Py_DECREF(array_out);
         Py_XDECREF(transform_array_right);
+        Py_XDECREF(transform_array_left);
         cutl_dealloc(&PYTHON_ALLOCATOR, mem_1);
         return NULL;
     }
@@ -1524,6 +1520,7 @@ static PyObject *compute_kform_interior_product_matrix(PyObject *module, PyObjec
         }
         Py_DECREF(array_out);
         Py_XDECREF(transform_array_right);
+        Py_XDECREF(transform_array_left);
         cutl_dealloc(&PYTHON_ALLOCATOR, mem_1);
         return NULL;
     }
@@ -1568,10 +1565,14 @@ static PyObject *compute_kform_interior_product_matrix(PyObject *module, PyObjec
             const unsigned dofs_right = kform_basis_get_num_dofs(n, fn_right->specs, order, p_basis_components_right);
             col_offset += dofs_right;
         }
+        ASSERT(col_offset == col_cnt, "Column offset at the end of the row (%zu) did not match the column count (%zu)",
+               col_offset, col_cnt);
 
-        const unsigned dofs_left = kform_basis_get_num_dofs(n, fn_left->specs, order, p_basis_components_left);
+        const unsigned dofs_left = kform_basis_get_num_dofs(n, fn_left->specs, order - 1, p_basis_components_left);
         row_offset += dofs_left;
     }
+    ASSERT(row_offset == row_cnt, "Row offset at the end of the matrix (%zu) did not match the row count (%zu)",
+           row_offset, row_cnt);
 
     // Release integration rules and basis
     for (unsigned j = 0; j < n; ++j)
@@ -1584,45 +1585,47 @@ static PyObject *compute_kform_interior_product_matrix(PyObject *module, PyObjec
     }
     cutl_dealloc(&PYTHON_ALLOCATOR, mem_1);
     Py_XDECREF(transform_array_right);
+    Py_XDECREF(transform_array_left);
 
     return (PyObject *)array_out;
 }
 
-PyDoc_STRVAR(compute_kform_interior_product_matrix_docstring,
-             "compute_kform_interior_product_matrix(smap: SpaceMap, order: int, left_bases: FunctionSpace, "
-             "right_bases: FunctionSpace, vector_field_components: numpy.typing.NDArray[numpy.double], *, "
-             "int_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY, basis_registry: BasisRegistry = "
-             "DEFAULT_BASIS_REGISTRY) -> numpy.typing.NDArray[numpy.double]\n"
-             "Compute the mass matrix that is the result of interior product in an inner product.\n"
-             "\n"
-             "Parameters\n"
-             "----------\n"
-             "smap : SpaceMap\n"
-             "    Mapping of the space in which this is to be computed.\n"
-             "\n"
-             "order : int\n"
-             "    Order of the k-form for which this is to be done.\n"
-             "\n"
-             "left_bases : FunctionSpace\n"
-             "    Function space of 0-forms used as test forms.\n"
-             "\n"
-             "right_bases : FunctionSpace\n"
-             "    Function space of 0-forms used as trial forms.\n"
-             "\n"
-             "vector_field_components : array\n"
-             "    Vector field components involved in the interior product.\n"
-             "\n"
-             "int_registry : IntegrationRegistry, optional\n"
-             "    Registry to get the integration rules from.\n"
-             "\n"
-             "basis_registry : BasisRegistry, optional\n"
-             "    Registry to get the basis from.\n"
-             "\n"
-             "Returns\n"
-             "-------\n"
-             "array\n"
-             "    Mass matrix for inner product of two k-forms, where the right one has the interior\n"
-             "    product with the vector field applied to it.\n");
+PyDoc_STRVAR(
+    compute_kform_interior_product_matrix_docstring,
+    "compute_kform_interior_product_matrix(smap: SpaceMap, order: int, left_bases: FunctionSpace, "
+    "right_bases: FunctionSpace, vector_field_components: numpy.typing.NDArray[numpy.double], *, "
+    "integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY, basis_registry: BasisRegistry = "
+    "DEFAULT_BASIS_REGISTRY) -> numpy.typing.NDArray[numpy.double]\n"
+    "Compute the mass matrix that is the result of interior product in an inner product.\n"
+    "\n"
+    "Parameters\n"
+    "----------\n"
+    "smap : SpaceMap\n"
+    "    Mapping of the space in which this is to be computed.\n"
+    "\n"
+    "order : int\n"
+    "    Order of the k-form for which this is to be done.\n"
+    "\n"
+    "left_bases : FunctionSpace\n"
+    "    Function space of 0-forms used as test forms.\n"
+    "\n"
+    "right_bases : FunctionSpace\n"
+    "    Function space of 0-forms used as trial forms.\n"
+    "\n"
+    "vector_field_components : array\n"
+    "    Vector field components involved in the interior product.\n"
+    "\n"
+    "int_registry : IntegrationRegistry, optional\n"
+    "    Registry to get the integration rules from.\n"
+    "\n"
+    "basis_registry : BasisRegistry, optional\n"
+    "    Registry to get the basis from.\n"
+    "\n"
+    "Returns\n"
+    "-------\n"
+    "array\n"
+    "    Mass matrix for inner product of two k-forms, where the right one has the interior\n"
+    "    product with the vector field applied to it.\n");
 
 PyMethodDef mass_matrices_methods[] = {
     {
