@@ -950,27 +950,25 @@ class SpaceMap:
         """
         ...
 
-def compute_basis_transform(smap: SpaceMap, order: int) -> npt.NDArray[np.double]:
-    """Compute the matrix with transformation factors for k-form basis.
+    def basis_transform(self: SpaceMap, order: int) -> npt.NDArray[np.double]:
+        """Compute the matrix with transformation factors for k-form basis.
 
-    Basis transform matrix returned by this function specifies how at integration point a
-    basis from the reference domain contributes to the basis in the target domain.
+        Basis transform matrix returned by this function specifies how at integration
+        point a basis from the reference domain contributes to the basis in the target
+        domain.
 
-    Parameters
-    ----------
-    smap : SpaceMap
-        Mapping of the space in which this is to be computed.
+        Parameters
+        ----------
+        order : int
+            Order of the k-form for which this is to be done.
 
-    order : int
-        Order of the k-form for which this is to be done.
-
-    Returns
-    -------
-    array
-        Array with three axis. The first indexes over the input basis, the second
-        over output basis, and the last one over integration points.
-    """
-    ...
+        Returns
+        -------
+        array
+            Array with three axis. The first indexes over the input basis, the second
+            over output basis, and the last one over integration points.
+        """
+        ...
 
 def compute_kform_mass_matrix(
     smap: SpaceMap,
@@ -1038,7 +1036,7 @@ def compute_kform_interior_product_matrix(
     right_bases: FunctionSpace,
     vector_field_components: npt.NDArray[np.double],
     *,
-    int_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
+    integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
     basis_registry: BasisRegistry = DEFAULT_BASIS_REGISTRY,
 ) -> npt.NDArray[np.double]:
     """Compute the mass matrix that is the result of interior product in an inner product.

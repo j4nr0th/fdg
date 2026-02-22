@@ -273,6 +273,17 @@ static void space_map_object_dealloc(PyObject *self)
     PyObject_GC_UnTrack(self);
     space_map_object *const this = (space_map_object *)self;
     PyTypeObject *const type = Py_TYPE(this);
+
+    if (this->transformations)
+    {
+        for (unsigned i = 0; i < this->ndim; ++i)
+        {
+            Py_XDECREF(this->transformations[i]);
+            this->transformations[i] = NULL;
+        }
+        PyMem_Free((void *)this->transformations);
+        this->transformations = NULL;
+    }
     this->ndim = 0;
     PyMem_Free(this->int_specs);
     this->int_specs = NULL;
@@ -382,6 +393,7 @@ static PyObject *space_map_new(PyTypeObject *subtype, PyObject *args, PyObject *
     this->inverse_maps = NULL;
     for (unsigned i = 0; i < n_maps; ++i)
         this->maps[i] = NULL;
+    this->transformations = NULL;
 
     // Copy the integration space from the first space, then check all others comply
     coordinate_map_object *const first_map = (coordinate_map_object *)PyTuple_GET_ITEM(args, 0);
@@ -405,6 +417,18 @@ static PyObject *space_map_new(PyTypeObject *subtype, PyObject *args, PyObject *
     {
         this->int_specs[i] = first_map->int_specs[i];
     }
+
+    this->transformations = (PyArrayObject **)PyMem_Malloc(sizeof(*this->transformations) * this->ndim);
+    if (!this->transformations)
+    {
+        Py_DECREF(this);
+        return NULL;
+    }
+    for (unsigned idim = 0; idim < this->ndim; ++idim)
+    {
+        this->transformations[idim] = NULL;
+    }
+
     this->maps[0] = first_map;
     Py_INCREF(first_map);
 
@@ -674,95 +698,20 @@ PyDoc_STRVAR(space_map_get_inverse_map_docstring,
              "rectangular matrix, such that it maps the (rectangular) Jacobian\n"
              "to the identity matrix.\n");
 
-PyType_Spec space_map_type_spec = {
-    .name = "interplib._interp.SpaceMap",
-    .basicsize = sizeof(space_map_object),
-    .itemsize = sizeof(coordinate_map_object),
-    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HEAPTYPE | Py_TPFLAGS_IMMUTABLETYPE | Py_TPFLAGS_HAVE_GC,
-    .slots =
-        (PyType_Slot[]){
-            {Py_tp_traverse, heap_type_traverse_type},
-            {Py_tp_dealloc, space_map_object_dealloc},
-            {Py_tp_new, space_map_new},
-            {Py_tp_doc, (void *)space_map_docstring},
-            {Py_tp_getset,
-             (PyGetSetDef[]){
-                 {
-                     .name = "input_dimensions",
-                     .get = space_map_get_input_dimension,
-                     .doc = "int : Dimension of the input/reference space.",
-                 },
-                 {
-                     .name = "output_dimensions",
-                     .get = space_map_get_output_dimension,
-                     .doc = "int : Dimension of the output/physical space.",
-                 },
-                 {
-                     .name = "determinant",
-                     .get = space_map_get_determinant,
-                     .doc = "numpy.typing.NDArray[numpy.double] : Array with the values of determinant at integration "
-                            "points.",
-                 },
-                 {
-                     .name = "integration_space",
-                     .get = space_map_get_integration_space,
-                     .doc = "IntegrationSpace : Integration space used by the mapping.",
-                 },
-                 {
-                     .name = "inverse_map",
-                     .get = space_map_get_inverse_map,
-                     .doc = space_map_get_inverse_map_docstring,
-                 },
-                 {},
-             }},
-            {Py_tp_methods,
-             (PyMethodDef[]){
-                 {
-                     .ml_name = "coordinate_map",
-                     .ml_meth = (void *)space_map_get_coordinate_map,
-                     .ml_flags = METH_FASTCALL | METH_KEYWORDS | METH_METHOD,
-                     .ml_doc = space_map_get_coordinate_map_docstring,
-                 },
-                 {},
-             }},
-            {},
-        },
-};
-
-size_t space_map_inverse_size_per_integration_point(const space_map_object *map)
-{
-    return map->ndim * Py_SIZE(map);
-}
-
-double space_map_forward_derivative(const space_map_object *map, const size_t integration_point_index,
-                                    const unsigned idx_dim, const unsigned idx_coord)
-{
-    const coordinate_map_object *const map_dim = map->maps[idx_coord];
-    return coordinate_map_gradient(map_dim, idx_dim)[integration_point_index];
-}
-
-double space_map_backward_derivative(const space_map_object *map, const size_t integration_point_index,
-                                     const unsigned idx_dim, const unsigned idx_coord)
-{
-    const size_t n_coords = Py_SIZE(map);
-    const size_t jacobian_size = (size_t)map->ndim * n_coords;
-    return map->inverse_maps[integration_point_index * jacobian_size + idx_dim * n_coords + idx_coord];
-}
-
-const double *space_map_inverse_at_integration_point(const space_map_object *map, const size_t flat_index)
-{
-    return map->inverse_maps + flat_index * space_map_inverse_size_per_integration_point(map);
-}
-
 PyArrayObject *compute_basis_transform_impl(const space_map_object *map, const Py_ssize_t order)
 {
     const unsigned n_maps = Py_SIZE(map);
     const unsigned n_dims = map->ndim;
-    if (order <= 0 || order > n_dims || order > n_maps)
+    if (order <= 0 || order > n_dims)
     {
-        PyErr_Format(PyExc_ValueError, "Expected order in range (0, %u], but got %zd.",
-                     n_dims < n_maps ? n_dims : n_maps, order);
+        PyErr_Format(PyExc_ValueError, "Expected order in range (0, %u], but got %zd.", n_dims, order);
         return NULL;
+    }
+
+    if (map->transformations[order - 1] != NULL)
+    {
+        Py_INCREF(map->transformations[order - 1]);
+        return map->transformations[order - 1];
     }
 
     permutation_iterator_t *const iter_out_perm = PyMem_Malloc(permutation_iterator_required_memory(order, order));
@@ -881,22 +830,25 @@ PyArrayObject *compute_basis_transform_impl(const space_map_object *map, const P
     PyMem_Free(iter_in_comb);
     PyMem_Free(iter_out_perm);
 
+    Py_INCREF(res);
+    map->transformations[order - 1] = res;
+
     return res;
 }
 
-static PyObject *compute_basis_transform(PyObject *mod, PyObject *const *args, const Py_ssize_t nargs,
-                                         PyObject *kwnames)
+static PyObject *space_map_basis_transform(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
+                                           const Py_ssize_t nargs, PyObject *kwnames)
 {
-    interplib_module_state_t *const state = PyModule_GetState(mod);
-    if (!state)
+    const interplib_module_state_t *state;
+    const space_map_object *map;
+
+    if (ensure_space_map_and_state(self, defining_class, &state, (space_map_object **)&map) < 0)
         return NULL;
 
-    const space_map_object *map;
     Py_ssize_t order;
 
     if (parse_arguments_check(
             (cpyutl_argument_t[]){
-                {.type = CPYARG_TYPE_PYTHON, .type_check = state->space_mapping_type, .p_val = &map, .kwname = "smap"},
                 {.type = CPYARG_TYPE_SSIZE, .p_val = &order, .kwname = "order"},
                 {},
             },
@@ -906,8 +858,8 @@ static PyObject *compute_basis_transform(PyObject *mod, PyObject *const *args, c
     return (PyObject *)compute_basis_transform_impl(map, order);
 }
 
-PyDoc_STRVAR(compute_basis_transform_docstring,
-             "compute_basis_transform(smap: SpaceMap, order: int) -> numpy.typing.NDArray[numpy.double]\n"
+PyDoc_STRVAR(space_map_basis_transform_docstring,
+             "basis_transform(order: int) -> numpy.typing.NDArray[numpy.double]\n"
              "Compute the matrix with transformation factors for k-form basis.\n"
              "\n"
              "Basis transform matrix returned by this function specifies how at integration point a\n"
@@ -915,9 +867,6 @@ PyDoc_STRVAR(compute_basis_transform_docstring,
              "\n"
              "Parameters\n"
              "----------\n"
-             "smap : SpaceMap\n"
-             "    Mapping of the space in which this is to be computed.\n"
-             "\n"
              "order : int\n"
              "    Order of the k-form for which this is to be done.\n"
              "\n"
@@ -926,6 +875,92 @@ PyDoc_STRVAR(compute_basis_transform_docstring,
              "array\n"
              "    Array with three axis. The first indexes over the input basis, the second\n"
              "    over output basis, and the last one over integration points.\n");
+
+PyType_Spec space_map_type_spec = {
+    .name = "interplib._interp.SpaceMap",
+    .basicsize = sizeof(space_map_object),
+    .itemsize = sizeof(coordinate_map_object),
+    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HEAPTYPE | Py_TPFLAGS_IMMUTABLETYPE | Py_TPFLAGS_HAVE_GC,
+    .slots =
+        (PyType_Slot[]){
+            {Py_tp_traverse, heap_type_traverse_type},
+            {Py_tp_dealloc, space_map_object_dealloc},
+            {Py_tp_new, space_map_new},
+            {Py_tp_doc, (void *)space_map_docstring},
+            {Py_tp_getset,
+             (PyGetSetDef[]){
+                 {
+                     .name = "input_dimensions",
+                     .get = space_map_get_input_dimension,
+                     .doc = "int : Dimension of the input/reference space.",
+                 },
+                 {
+                     .name = "output_dimensions",
+                     .get = space_map_get_output_dimension,
+                     .doc = "int : Dimension of the output/physical space.",
+                 },
+                 {
+                     .name = "determinant",
+                     .get = space_map_get_determinant,
+                     .doc = "numpy.typing.NDArray[numpy.double] : Array with the values of determinant at integration "
+                            "points.",
+                 },
+                 {
+                     .name = "integration_space",
+                     .get = space_map_get_integration_space,
+                     .doc = "IntegrationSpace : Integration space used by the mapping.",
+                 },
+                 {
+                     .name = "inverse_map",
+                     .get = space_map_get_inverse_map,
+                     .doc = space_map_get_inverse_map_docstring,
+                 },
+                 {},
+             }},
+            {Py_tp_methods,
+             (PyMethodDef[]){
+                 {
+                     .ml_name = "coordinate_map",
+                     .ml_meth = (void *)space_map_get_coordinate_map,
+                     .ml_flags = METH_FASTCALL | METH_KEYWORDS | METH_METHOD,
+                     .ml_doc = space_map_get_coordinate_map_docstring,
+                 },
+                 {
+                     .ml_name = "basis_transform",
+                     .ml_meth = (void *)space_map_basis_transform,
+                     .ml_flags = METH_FASTCALL | METH_KEYWORDS | METH_METHOD,
+                     .ml_doc = space_map_basis_transform_docstring,
+                 },
+                 {},
+             }},
+            {},
+        },
+};
+
+size_t space_map_inverse_size_per_integration_point(const space_map_object *map)
+{
+    return map->ndim * Py_SIZE(map);
+}
+
+double space_map_forward_derivative(const space_map_object *map, const size_t integration_point_index,
+                                    const unsigned idx_dim, const unsigned idx_coord)
+{
+    const coordinate_map_object *const map_dim = map->maps[idx_coord];
+    return coordinate_map_gradient(map_dim, idx_dim)[integration_point_index];
+}
+
+double space_map_backward_derivative(const space_map_object *map, const size_t integration_point_index,
+                                     const unsigned idx_dim, const unsigned idx_coord)
+{
+    const size_t n_coords = Py_SIZE(map);
+    const size_t jacobian_size = (size_t)map->ndim * n_coords;
+    return map->inverse_maps[integration_point_index * jacobian_size + idx_dim * n_coords + idx_coord];
+}
+
+const double *space_map_inverse_at_integration_point(const space_map_object *map, const size_t flat_index)
+{
+    return map->inverse_maps + flat_index * space_map_inverse_size_per_integration_point(map);
+}
 
 static int prepare_component_transform(PyObject *mod, PyObject *const *args, const Py_ssize_t nargs, PyObject *kwnames,
                                        PyArrayObject **p_components, PyArrayObject **p_out_array,
@@ -1149,12 +1184,6 @@ PyDoc_STRVAR(transform_contravariant_to_target_docstring,
 // }
 
 PyMethodDef transformation_functions[] = {
-    {
-        .ml_name = "compute_basis_transform",
-        .ml_meth = (void *)compute_basis_transform,
-        .ml_flags = METH_FASTCALL | METH_KEYWORDS,
-        .ml_doc = compute_basis_transform_docstring,
-    },
     {
         .ml_name = "transform_contravariant_to_target",
         .ml_meth = (void *)transform_contravariant_to_target,

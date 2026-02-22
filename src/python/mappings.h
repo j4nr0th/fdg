@@ -27,6 +27,7 @@ typedef struct
     integration_spec_t *int_specs;
     double *determinant;
     double *inverse_maps;
+    PyArrayObject **transformations;
     coordinate_map_object *maps[];
 } space_map_object;
 

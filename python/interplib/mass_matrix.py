@@ -5,12 +5,7 @@ from itertools import combinations
 import numpy as np
 import numpy.typing as npt
 
-from interplib._interp import (
-    CovectorBasis,
-    FunctionSpace,
-    SpaceMap,
-    compute_basis_transform,
-)
+from interplib._interp import CovectorBasis, FunctionSpace, SpaceMap
 
 
 def component_inner_prod_mass_matrix_block(
@@ -42,7 +37,7 @@ def component_inner_prod_mass_matrix_block(
     elif k == n:
         weights /= smap.determinant
     else:
-        transformation_matrix = compute_basis_transform(smap, k)
+        transformation_matrix = smap.basis_transform(k)
 
         weights_1 = transformation_matrix[basis_left.index, :, :]
         weights_2 = transformation_matrix[basis_right.index, :, :]

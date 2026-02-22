@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-from interplib._interp import IntegrationSpace, IntegrationSpecs, compute_basis_transform
+from interplib._interp import IntegrationSpace, IntegrationSpecs
 from interplib.domains import Line, Quad
 
 
@@ -30,9 +30,9 @@ def test_1d_to_md(order_1: int, order_2: int, m: int) -> None:
     space_map = line(int_space)
 
     with pytest.raises(ValueError):
-        compute_basis_transform(space_map, 0)  # Raises Value error
+        space_map.basis_transform(0)  # Raises Value error
 
-    transformation = compute_basis_transform(space_map, 1)  # Only 1-form
+    transformation = space_map.basis_transform(1)  # Only 1-form
     # Shape is based on (in_basis, out_basis, int_pts)
     assert transformation.shape == (1, m, order_2 + 1)
     # Compute dx_i/dt
@@ -78,7 +78,7 @@ def test_2d_to_2d(pts_h: int, pts_v: int, order_i1: int, order_i2) -> None:
     space_map = quad(int_space)
 
     with pytest.raises(ValueError):
-        compute_basis_transform(space_map, 0)  # Raises Value error
+        space_map.basis_transform(0)  # Raises Value error
 
     # Forward derivatives
     dx1dxi1 = (
@@ -110,7 +110,7 @@ def test_2d_to_2d(pts_h: int, pts_v: int, order_i1: int, order_i2) -> None:
     dxi2dx2 = dx1dxi1 / det
 
     # With 2 input dimensions, we have both 1-forms and 2-forms
-    transformation_1 = compute_basis_transform(space_map, 1)
+    transformation_1 = space_map.basis_transform(1)
     assert transformation_1.shape == (2, 2, int_space.weights().size)
     # Check 1-from factors
     assert pytest.approx(dxi1dx1) == transformation_1[0, 0, ...]
@@ -118,7 +118,7 @@ def test_2d_to_2d(pts_h: int, pts_v: int, order_i1: int, order_i2) -> None:
     assert pytest.approx(dxi2dx1) == transformation_1[1, 0, ...]
     assert pytest.approx(dxi2dx2) == transformation_1[1, 1, ...]
 
-    transformation_2 = compute_basis_transform(space_map, 2)
+    transformation_2 = space_map.basis_transform(2)
     assert transformation_2.shape == (1, 1, int_space.weights().size)
     # Check 2-from factor
     assert (
@@ -189,7 +189,7 @@ def test_2d_to_3d(pts_h: int, pts_v: int, order_i1: int, order_i2: int) -> None:
     space_map = quad(int_space)
 
     with pytest.raises(ValueError):
-        compute_basis_transform(space_map, 0)  # Raises Value error
+        space_map.basis_transform(0)  # Raises Value error
 
     # Forward derivatives
     dx1dxi1 = (
@@ -239,7 +239,7 @@ def test_2d_to_3d(pts_h: int, pts_v: int, order_i1: int, order_i2: int) -> None:
     dxi2dx3 = inverses[1, 2, ...]
 
     # With 2 input dimensions, we have both 1-forms and 2-forms
-    transformation_1 = compute_basis_transform(space_map, 1)
+    transformation_1 = space_map.basis_transform(1)
     assert transformation_1.shape == (2, 3, int_space.weights().size)
     # Check 1-from factors
     assert pytest.approx(dxi1dx1) == transformation_1[0, 0, ...]
@@ -249,7 +249,7 @@ def test_2d_to_3d(pts_h: int, pts_v: int, order_i1: int, order_i2: int) -> None:
     assert pytest.approx(dxi2dx2) == transformation_1[1, 1, ...]
     assert pytest.approx(dxi2dx3) == transformation_1[1, 2, ...]
 
-    transformation_2 = compute_basis_transform(space_map, 2)
+    transformation_2 = space_map.basis_transform(2)
     assert transformation_2.shape == (1, 3, int_space.weights().size)
 
     # This shit is kinda complicated to compute, but we got it
