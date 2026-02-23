@@ -1296,9 +1296,71 @@ def transform_contravariant_to_target(
     Returns
     -------
     array
+        Array of transformed contravariant components. If the ``out`` parameter was given,
+        a new reference to it is returned, otherwise a reference to the newly created
+        output array is returned.
+    """
+    ...
+
+def transform_covariant_to_target(
+    smap: SpaceMap,
+    components: npt.ArrayLike,
+    *,
+    out: npt.NDArray[np.double] | None = None,
+) -> npt.NDArray[np.double]:
+    """Transform covariant 1-form components from reference to target domain.
+
+    Parameters
+    ----------
+    smap : SpaceMap
+        Mapping from the reference space to the physical space to use to transform the
+        components.
+
+    components : array_like
+        Array where the first dimension indexes the components in the reference space. All
+        other dimensions will be treated as if flattened.
+
+    out : array, optional
+        Array to used to write the resulting transformed components to. If it is not
+        specified, a new array is created.
+
+    Returns
+    -------
+    array
         Array of transformed covariant components. If the ``out`` parameter was given,
         a new reference to it is returned, otherwise a reference to the newly created
         output array is returned.
+    """
+    ...
+
+def transform_kform_to_target(
+    order: int,
+    smap: SpaceMap,
+    components: npt.ArrayLike,
+    *,
+    out: npt.NDArray[np.double] | None = None,
+) -> npt.NDArray[np.double]:
+    """Transform k-form values based on a space mapping.
+
+    Parameters
+    ----------
+    order : int
+        Order of the k-form being transformed.
+
+    smap : SpaceMap
+        Mapping between the reference and target domain to use.
+
+    components : array_like
+        Array with values of components of the k-form in the reference domain at
+        integration points associated with the space mapping.
+
+    out : array, optional
+        Array to use to store the output in.
+
+    Returns
+    -------
+    array
+        Array with values of the components in the physical space.
     """
     ...
 @final

@@ -984,7 +984,7 @@ static int prepare_component_transform(PyObject *mod, PyObject *const *args, con
             (cpyutl_argument_t[]){
                 {.type = CPYARG_TYPE_PYTHON, .type_check = state->space_mapping_type, .p_val = &map, .kwname = "smap"},
                 {.type = CPYARG_TYPE_PYTHON, .p_val = &py_components, .kwname = "components"},
-                {.type = CPYARG_TYPE_PYTHON, .p_val = &out, .kwname = "out", .optional = 1},
+                {.type = CPYARG_TYPE_PYTHON, .p_val = &out, .kwname = "out", .optional = 1, .kw_only = 1},
                 {},
             },
             args, nargs, kwnames) < 0)
@@ -1121,7 +1121,7 @@ static PyObject *transform_contravariant_to_target(PyObject *mod, PyObject *cons
             double val = 0.0;
             for (unsigned i_in = 0; i_in < ndim_in; ++i_in)
             {
-                val += ptr_components[i_in * total_points + i] * space_map_backward_derivative(map, i, i_in, i_out);
+                val += ptr_components[i_in * total_points + i] * space_map_forward_derivative(map, i, i_in, i_out);
             }
             ptr_out[i_out * total_points + i] = val;
         }
@@ -1160,35 +1160,207 @@ PyDoc_STRVAR(transform_contravariant_to_target_docstring,
              "    a new reference to it is returned, otherwise a reference to the newly created\n"
              "    output array is returned.\n");
 
-// static PyObject *transform_covariant_to_target(PyObject *mod, PyObject *const *args, const Py_ssize_t nargs,
-//                                                PyObject *kwnames)
-// {
-//     PyArrayObject *components, *out_array;
-//     size_t total_points;
-//     unsigned ndim_out, ndim_in;
-//     const space_map_object *map;
-//     if (prepare_component_transform(mod, args, nargs, kwnames, &components, &out_array, &total_points, &ndim_out,
-//                                     &ndim_in, &map) < 0)
-//         return NULL;
-//
-//     const npy_double *restrict const ptr_components = PyArray_DATA(components);
-//     npy_double *restrict const ptr_out = PyArray_DATA(out_array);
-//     for (size_t i = 0; i < total_points; ++i)
-//     {
-// #pragma omp simd
-//         for (unsigned i_out = 0; i_out < ndim_out; ++i_out)
-//         {
-//             double val = 0.0;
-//             for (unsigned i_in = 0; i_in < ndim_in; ++i_in)
-//             {
-//                 val += ptr_components[i_in * total_points + i] * space_map_forward_derivative(map, i, i_in, i_out);
-//             }
-//             ptr_out[i_out * total_points + i] = val;
-//         }
-//     }
-//
-//     return (PyObject *)out_array;
-// }
+static void transform_covariant_to_target_impl(const PyArrayObject *components, const PyArrayObject *out_array,
+                                               const size_t total_points, const unsigned ndim_out,
+                                               const unsigned ndim_in, const space_map_object *map)
+{
+    const npy_double *restrict const ptr_components = PyArray_DATA(components);
+    npy_double *restrict const ptr_out = PyArray_DATA(out_array);
+    for (size_t i = 0; i < total_points; ++i)
+    {
+#pragma omp simd
+        for (unsigned i_out = 0; i_out < ndim_out; ++i_out)
+        {
+            double val = 0.0;
+            for (unsigned i_in = 0; i_in < ndim_in; ++i_in)
+            {
+                val += ptr_components[i_in * total_points + i] * space_map_backward_derivative(map, i, i_in, i_out);
+            }
+            ptr_out[i_out * total_points + i] = val;
+        }
+    }
+}
+static PyObject *transform_covariant_to_target(PyObject *mod, PyObject *const *args, const Py_ssize_t nargs,
+                                               PyObject *kwnames)
+{
+    PyArrayObject *components, *out_array;
+    size_t total_points;
+    unsigned ndim_out, ndim_in;
+    const space_map_object *map;
+    if (prepare_component_transform(mod, args, nargs, kwnames, &components, &out_array, &total_points, &ndim_out,
+                                    &ndim_in, &map) < 0)
+        return NULL;
+
+    transform_covariant_to_target_impl(components, out_array, total_points, ndim_out, ndim_in, map);
+    return (PyObject *)out_array;
+}
+
+static PyObject *transform_kform_to_target(PyObject *mod, PyObject *const *args, const Py_ssize_t nargs,
+                                           PyObject *kwnames)
+{
+    interplib_module_state_t *const state = PyModule_GetState(mod);
+    if (!state)
+        return NULL;
+
+    Py_ssize_t order;
+    const space_map_object *map;
+    PyObject *py_components, *out = NULL;
+    if (parse_arguments_check(
+            (cpyutl_argument_t[]){
+                {.type = CPYARG_TYPE_SSIZE, .p_val = &order, .kwname = "order"},
+                {.type = CPYARG_TYPE_PYTHON, .type_check = state->space_mapping_type, .p_val = &map, .kwname = "smap"},
+                {.type = CPYARG_TYPE_PYTHON, .p_val = &py_components, .kwname = "components"},
+                {.type = CPYARG_TYPE_PYTHON, .p_val = &out, .kwname = "out", .optional = 1},
+                {},
+            },
+            args, nargs, kwnames) < 0)
+        return NULL;
+
+    // If NULL is given for "out", it should be the same as it not being given.
+    if (out != NULL && Py_IsNone(out))
+    {
+        out = NULL;
+    }
+
+    // Get the shape of the transformation
+    const unsigned ndim_in = map->ndim;
+    const unsigned ndim_out = (unsigned)Py_SIZE(map);
+    const unsigned n_components_in = combination_total_count(ndim_in, order);
+    const unsigned n_components_out = combination_total_count(ndim_out, order);
+
+    // Check order
+    if (order < 0 || order > ndim_in)
+    {
+        PyErr_Format(PyExc_ValueError, "Expected order to be between 0 and %u, but got %zd.", ndim_in, order);
+        return NULL;
+    }
+
+    // Convert components to be an array
+    PyArrayObject *const components =
+        (PyArrayObject *)PyArray_FROMANY(py_components, NPY_DOUBLE, 1 + ndim_in, 1 + ndim_in, NPY_ARRAY_IN_ARRAY);
+    if (!components)
+        return NULL;
+
+    // Check the shape is correct
+    const npy_intp *const dims_in = PyArray_DIMS(components);
+    const unsigned ndim_components = PyArray_NDIM(components);
+    if (dims_in[0] != n_components_in)
+    {
+        PyErr_Format(PyExc_ValueError, "Expected components to have shape (%u, ...), but got (%zd, ...).",
+                     n_components_in, dims_in[0]);
+        Py_DECREF(components);
+        return NULL;
+    }
+    // The other dimensions must match the integration rule used by the space map
+    for (unsigned idim = 0; idim < ndim_in; ++idim)
+    {
+        const npy_intp size_in = dims_in[idim + 1];
+        if (size_in != map->int_specs[idim].order + 1)
+        {
+            PyErr_Format(PyExc_ValueError,
+                         "Components dimension %u did not match the integration rule of order %u as specified by the "
+                         "space map (instead it was %zd).",
+                         idim, map->int_specs[idim].order, size_in);
+            Py_DECREF(components);
+            return NULL;
+        }
+    }
+
+    // Create an output array if needed
+    PyArrayObject *out_array;
+    if (out == NULL)
+    {
+        // Create the output array
+        npy_intp *const dims_out = PyMem_Malloc(sizeof(*dims_out) * ndim_components);
+        if (!dims_out)
+        {
+            Py_DECREF(components);
+            return NULL;
+        }
+        dims_out[0] = n_components_out;
+        for (unsigned idim = 1; idim < ndim_components; ++idim)
+        {
+            dims_out[idim] = dims_in[idim];
+        }
+        out_array = (PyArrayObject *)PyArray_SimpleNew(ndim_components, dims_out, NPY_DOUBLE);
+        PyMem_Free(dims_out);
+        if (!out_array)
+        {
+            Py_DECREF(components);
+            return NULL;
+        }
+    }
+    else
+    {
+        // We were given one
+        if (!PyArray_Check(out))
+        {
+            PyErr_Format(PyExc_TypeError, "Expected out to be an array, but got %s.", Py_TYPE(out)->tp_name);
+            Py_DECREF(components);
+            return NULL;
+        }
+        out_array = (PyArrayObject *)out;
+        // Check the shape is correct
+        const npy_intp *const dims_out = PyArray_DIMS(out_array);
+        if (dims_out[0] != n_components_out)
+        {
+            PyErr_Format(PyExc_ValueError, "Expected output to have shape (%u, ...), but got (%zd, ...).",
+                         n_components_out, dims_out[0]);
+            Py_DECREF(components);
+            return NULL;
+        }
+        Py_INCREF(out_array);
+    }
+
+    const size_t total_points = integration_specs_total_points(ndim_in, map->int_specs);
+
+    if (order == 0)
+    {
+        // Copy from input to output and we are done
+        memcpy(PyArray_DATA(out_array), PyArray_DATA(components), sizeof(double) * total_points);
+        Py_DECREF(components);
+        return (PyObject *)out_array;
+    }
+
+    if (order == 1)
+    {
+        transform_covariant_to_target_impl(components, out_array, total_points, ndim_out, ndim_in, map);
+        return (PyObject *)out_array;
+    }
+
+    PyArrayObject *const transformation_array = compute_basis_transform_impl(map, order);
+    if (!transformation_array)
+    {
+        Py_DECREF(components);
+        Py_DECREF(out_array);
+        return NULL;
+    }
+
+    Py_BEGIN_ALLOW_THREADS;
+    const double *restrict const ptr_components = PyArray_DATA(components);
+    const double *restrict const ptr_transformation = PyArray_DATA(transformation_array);
+    double *restrict const ptr_out = PyArray_DATA(out_array);
+#pragma omp simd
+    for (size_t i_pt = 0; i_pt < total_points; ++i_pt)
+    {
+        for (unsigned i_out = 0; i_out < n_components_out; ++i_out)
+        {
+            double val = 0.0;
+            for (unsigned i_in = 0; i_in < n_components_in; ++i_in)
+            {
+                val +=
+                    ptr_transformation[(size_t)i_in * n_components_out * total_points + i_out * total_points + i_pt] *
+                    ptr_components[i_in * total_points + i_pt];
+            }
+            ptr_out[i_out * total_points + i_pt] = val;
+        }
+    }
+    Py_END_ALLOW_THREADS;
+
+    Py_DECREF(transformation_array);
+    Py_DECREF(components);
+    return (PyObject *)out_array;
+}
 
 PyMethodDef transformation_functions[] = {
     {
@@ -1196,6 +1368,18 @@ PyMethodDef transformation_functions[] = {
         .ml_meth = (void *)transform_contravariant_to_target,
         .ml_flags = METH_FASTCALL | METH_KEYWORDS,
         .ml_doc = transform_contravariant_to_target_docstring,
+    },
+    {
+        .ml_name = "transform_covariant_to_target",
+        .ml_meth = (void *)transform_covariant_to_target,
+        .ml_flags = METH_FASTCALL | METH_KEYWORDS,
+        .ml_doc = NULL, // TODO
+    },
+    {
+        .ml_name = "transform_kform_to_target",
+        .ml_meth = (void *)transform_kform_to_target,
+        .ml_flags = METH_FASTCALL | METH_KEYWORDS,
+        .ml_doc = NULL, // TODO
     },
     {}, // sentinel
 };
