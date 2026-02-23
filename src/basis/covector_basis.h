@@ -2,6 +2,8 @@
 #define INTERPLIB_COVECTOR_BASIS_H
 #include "../common/common_defines.h"
 
+#include <stdint.h>
+
 enum
 {
     // The highest number of basis dimensions and rank, due to the number of bits
@@ -72,8 +74,23 @@ unsigned covector_basis_rank(covector_basis_t basis);
  * @return The constructed covector_basis_t structure representing the basis.
  */
 INTERPLIB_INTERNAL
-covector_basis_t covector_basis_make(unsigned dimension, int sign, unsigned rank,
-                                     const unsigned INTERPLIB_ARRAY_ARG(indices, static rank));
+covector_basis_t covector_basis_create(unsigned dimension, int sign, unsigned rank,
+                                       const unsigned INTERPLIB_ARRAY_ARG(indices, static rank));
+
+/**
+ * Constructs a covector basis representation with the specified parameters.
+ *
+ * @param dimension The dimension of the covector space. Must be less than COVECTOR_BASIS_MAX_DIM.
+ * @param sign The sign of the covector basis. Negative values mean the basis have a negative sign.
+ * @param rank The number of active components in the covector basis. Must not exceed the dimension.
+ * @param indices Sorted indices specifying the indices of the components to be set in the basis.
+ *           Each index must be within the bounds of the dimension and must be unique.
+ *           Behavior is undefined if an index is repeated, out of bounds, or unsorted.
+ * @return The constructed covector_basis_t structure representing the basis.
+ */
+INTERPLIB_INTERNAL
+covector_basis_t covector_basis_create_u8(unsigned dimension, int sign, unsigned rank,
+                                          const uint8_t INTERPLIB_ARRAY_ARG(indices, static rank));
 
 /**
  * Computes the result of applying a contravector basis on the covector basis bundle.

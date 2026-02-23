@@ -829,12 +829,72 @@ class KFormSpecs:
         """Dimension of the space the k-form is in."""
         ...
 
+    @property
+    def component_count(self) -> int:
+        """Number of components in the k-form."""
+        ...
+
     def get_component_function_space(self, idx: int) -> FunctionSpace:
         """Get the function space for a component."""
         ...
 
     def get_component_basis(self, idx: int) -> CovectorBasis:
         """Get covector basis bundle for a component."""
+        ...
+
+    def get_component_slice(self, idx: int) -> slice:
+        """Get the slice corresponding to degrees of freedom of a k-form component.
+
+        The resulting slice can be used to index into the flattened array of degrees
+        of freedom to get the DoFs corresponding to a praticular component.
+
+        Parameters
+        ----------
+        idx : int
+            Index of the k-form component.
+
+        Returns
+        -------
+        slice
+            Slice of the flattened array of all k-form degrees of freedom that corresponds
+            to degrees of freedom of the specified component.
+        """
+        ...
+
+    @property
+    def component_dof_counts(self) -> npt.NDArray[np.int64]:
+        """Number of DoFs in each component."""
+        ...
+
+@final
+class KForm:
+    """Degrees of freedom of a k-form."""
+
+    def __new__(cls, specs: KFormSpecs) -> Self: ...
+    @property
+    def specs(self) -> KFormSpecs:
+        """KFormSpecs : Specifications of the k-form."""
+        ...
+
+    @property
+    def values(self) -> npt.NDArray[np.double]:
+        """Values of all k-form degrees of freedom."""
+        ...
+
+    def get_component_dofs(self, idx: int) -> npt.NDArray[np.double]:
+        """Get the array containing the degrees of freedom for a k-form component.
+
+        Parameters
+        ----------
+        idx : int
+            Index of the k-form component.
+
+        Returns
+        -------
+        array
+            Array containing the degrees of freedom. This is not a copy, so changing
+            values in it will change the values of degrees of freedom.
+        """
         ...
 
 @final

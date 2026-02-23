@@ -814,6 +814,7 @@ static int interplib_add_types(PyObject *mod)
             NULL ||
         (module_state->kform_specs_type = cpyutl_add_type_from_spec_to_module(mod, &kform_spec_type_spec, NULL)) ==
             NULL ||
+        (module_state->kform_type = cpyutl_add_type_from_spec_to_module(mod, &kform_type_spec, NULL)) == NULL ||
         (module_state->geoid_type = cpyutl_add_type_from_spec_to_module(mod, &geo_id_type_spec, NULL)) == NULL ||
         (module_state->line_type = cpyutl_add_type_from_spec_to_module(mod, &line_type_spec, NULL)) == NULL ||
         (module_state->surf_type = cpyutl_add_type_from_spec_to_module(mod, &surface_type_spec, NULL)) == NULL ||

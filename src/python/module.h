@@ -79,6 +79,7 @@ typedef struct
 
     // K-Forms
     PyTypeObject *kform_specs_type;
+    PyTypeObject *kform_type;
 } interplib_module_state_t;
 
 INTERPLIB_INTERNAL

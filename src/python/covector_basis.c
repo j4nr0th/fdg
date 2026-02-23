@@ -58,7 +58,7 @@ static PyObject *covector_basis_new(PyTypeObject *type, PyObject *args, PyObject
         cnt += 1;
     }
 
-    return (PyObject *)covector_basis_object_create(type, covector_basis_make(n_dims, 0, cnt, present));
+    return (PyObject *)covector_basis_object_create(type, covector_basis_create(n_dims, 0, cnt, present));
 }
 
 static PyObject *covector_basis_get_ndim(PyObject *self, void *Py_UNUSED(closure))
@@ -345,7 +345,7 @@ static PyObject *covector_basis_repr(PyObject *self)
             PRINT_TO_BUFFER(", %u", i);
         }
     }
-    return PyUnicode_FromFormat("%cCovectorBasis(%u%s)", this->basis.sign ? '+' : '-', this->basis.dimension, buffer);
+    return PyUnicode_FromFormat("%cCovectorBasis(%u%s)", this->basis.sign ? '-' : '+', this->basis.dimension, buffer);
 }
 
 #undef PRINT_TO_BUFFER
