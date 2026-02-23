@@ -789,6 +789,7 @@ static PyObject *compute_kform_mass_matrix(PyObject *module, PyObject *const *ar
         return NULL;
 
     const unsigned n = space_map->ndim;
+    const unsigned n_coords = Py_SIZE(space_map);
     // Check function spaces and space map match.
     if (n != Py_SIZE(fn_left) || n != Py_SIZE(fn_right))
     {
@@ -1010,7 +1011,7 @@ static PyObject *compute_kform_mass_matrix(PyObject *module, PyObject *const *ar
                     // For 0-form it's just the determinant
                     int_weight *= space_map->determinant[integration_pt_flat_idx];
                 }
-                else if (order == n)
+                else if (order == n_coords)
                 {
                     ASSERT(transform_array == NULL, "Transform array should be NULL for order n.");
                     // For n-form it is the inverse of determinant
@@ -1074,11 +1075,11 @@ static PyObject *compute_kform_mass_matrix(PyObject *module, PyObject *const *ar
 }
 
 static void compute_interior_product_component_weights(
-    const unsigned n, const unsigned k, const unsigned idim, const size_t int_pts,
+    const unsigned n_maps, const unsigned k, const unsigned idim, const size_t int_pts,
     double integration_weights[restrict int_pts],
     const double *const restrict transform_array_left,  // [const restrict static int_pts],
     const double *const restrict transform_array_right, // [const restrict static int_pts],
-    const double vector_field_components[const restrict static n * int_pts], const int negate)
+    const double vector_field_components[const restrict static n_maps * int_pts], const int negate)
 {
     // Special cases:
     // - k is 1:
@@ -1106,7 +1107,7 @@ static void compute_interior_product_component_weights(
             }
         }
     }
-    else if (k == n)
+    else if (k == n_maps)
     {
         ASSERT(transform_array_left != NULL, "Left transform array for left component should not be NULL.");
         ASSERT(transform_array_right == NULL, "Right transform array should be NULL for k = n.");
@@ -1147,18 +1148,19 @@ static void compute_interior_product_component_weights(
 }
 
 static void compute_interior_product_weights(
-    const unsigned n, const unsigned order, const unsigned idx_in_left, const unsigned idx_in_right,
-    combination_iterator_t *iter_target_form, const size_t int_pts_cnt, uint8_t basis_components[restrict order],
-    const PyArrayObject *transform_array_left, const PyArrayObject *transform_array_right,
-    const double vector_components_data[static restrict n * int_pts_cnt],
+    const unsigned n_dims, const unsigned n_maps, const unsigned order, const unsigned idx_in_left,
+    const unsigned idx_in_right, combination_iterator_t *iter_target_form, const size_t int_pts_cnt,
+    uint8_t basis_components[restrict order], const PyArrayObject *transform_array_left,
+    const PyArrayObject *transform_array_right,
+    const double vector_components_data[static restrict n_maps * int_pts_cnt],
     const double determinant[static restrict int_pts_cnt], double integration_weights[restrict int_pts_cnt],
-    multidim_iterator_t *iter_int_pts, const integration_rule_t *int_rules[static n])
+    multidim_iterator_t *iter_int_pts, const integration_rule_t *int_rules[static n_dims])
 {
     // First, initialize the weights to zero
     memset(integration_weights, 0, int_pts_cnt * sizeof(double));
     // Loop over left k-form components in the target space to add the (left, right, vec) contributions
     unsigned basis_idx_left = 0;
-    combination_iterator_init(iter_target_form, n, order - 1);
+    combination_iterator_init(iter_target_form, n_maps, order - 1);
     for (const uint8_t *p_basis_components_left = combination_iterator_current(iter_target_form);
          !combination_iterator_is_done(iter_target_form); combination_iterator_next(iter_target_form), ++basis_idx_left)
     {
@@ -1175,7 +1177,7 @@ static void compute_interior_product_weights(
             while (basis_components[pv] < basis_components[pv + 1])
             {
                 // Get the index of the right component
-                const unsigned basis_idx_right = combination_get_index(n, order, basis_components);
+                const unsigned basis_idx_right = combination_get_index(n_maps, order, basis_components);
                 const double *restrict ptr_trans_right =
                     transform_array_right ? PyArray_GETPTR2(transform_array_right, idx_in_right, basis_idx_right)
                                           : NULL;
@@ -1183,7 +1185,7 @@ static void compute_interior_product_weights(
                     transform_array_left ? PyArray_GETPTR2(transform_array_left, idx_in_left, basis_idx_left) : NULL;
 
                 // Compute contribution of the (left, right, vec_field) combo
-                compute_interior_product_component_weights(n, order, basis_components[pv], int_pts_cnt,
+                compute_interior_product_component_weights(n_maps, order, basis_components[pv], int_pts_cnt,
                                                            integration_weights, ptr_trans_left, ptr_trans_right,
                                                            vector_components_data, pv & 1u);
 
@@ -1192,40 +1194,40 @@ static void compute_interior_product_weights(
             basis_components[pv + 1] += 1;
         }
         // Finish up with the last right components remaining
-        while (basis_components[pv] < n)
+        while (basis_components[pv] < n_dims)
         {
-            const unsigned basis_idx_right = combination_get_index(n, order, basis_components);
+            const unsigned basis_idx_right = combination_get_index(n_dims, order, basis_components);
             const double *restrict ptr_trans_right =
                 transform_array_right ? PyArray_GETPTR2(transform_array_right, idx_in_right, basis_idx_right) : NULL;
             const double *restrict ptr_trans_left =
                 transform_array_left ? PyArray_GETPTR2(transform_array_left, idx_in_left, basis_idx_left) : NULL;
 
             // Compute contribution of the (left, right, vec_field) combo
-            compute_interior_product_component_weights(n, order, basis_components[pv], int_pts_cnt, integration_weights,
-                                                       ptr_trans_left, ptr_trans_right, vector_components_data,
-                                                       pv & 1u);
+            compute_interior_product_component_weights(n_maps, order, basis_components[pv], int_pts_cnt,
+                                                       integration_weights, ptr_trans_left, ptr_trans_right,
+                                                       vector_components_data, pv & 1u);
             basis_components[pv] += 1;
         }
     }
 
     // Finally, scale all resulting weights by integration rule weights and determinant
     size_t integration_pt_idx = 0;
-    if (order != n)
+    if (order != n_maps)
     {
         for (multidim_iterator_set_to_start(iter_int_pts); !multidim_iterator_is_at_end(iter_int_pts);
-             multidim_iterator_advance(iter_int_pts, n - 1, 1), ++integration_pt_idx)
+             multidim_iterator_advance(iter_int_pts, n_dims - 1, 1), ++integration_pt_idx)
         {
-            const double int_weight = calculate_integration_weight(n, iter_int_pts, int_rules);
+            const double int_weight = calculate_integration_weight(n_dims, iter_int_pts, int_rules);
             integration_weights[integration_pt_idx] *= int_weight * determinant[integration_pt_idx];
         }
     }
-    else // if (order == n)
+    else // if (order == n_maps)
     {
         // Here we do not multiply with determinant, since we implicitly canceled it out when computing weights
         for (multidim_iterator_set_to_start(iter_int_pts); !multidim_iterator_is_at_end(iter_int_pts);
-             multidim_iterator_advance(iter_int_pts, n - 1, 1), ++integration_pt_idx)
+             multidim_iterator_advance(iter_int_pts, n_dims - 1, 1), ++integration_pt_idx)
         {
-            const double int_weight = calculate_integration_weight(n, iter_int_pts, int_rules);
+            const double int_weight = calculate_integration_weight(n_dims, iter_int_pts, int_rules);
             integration_weights[integration_pt_idx] *= int_weight;
         }
     }
@@ -1563,7 +1565,7 @@ static PyObject *compute_kform_interior_product_matrix(PyObject *module, PyObjec
              combination_iterator_next(iter_component_right), ++basis_idx_right)
         {
             // Compute the integration weights in advance
-            compute_interior_product_weights(n_coords, order, basis_idx_left, basis_idx_right, iter_target_form,
+            compute_interior_product_weights(n, n_coords, order, basis_idx_left, basis_idx_right, iter_target_form,
                                              int_pts_cnt, basis_components, transform_array_left, transform_array_right,
                                              vector_components_data, space_map->determinant, integration_weights,
                                              iter_int_pts, integration_rules);
