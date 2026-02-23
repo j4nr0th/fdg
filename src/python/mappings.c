@@ -7,6 +7,8 @@
 #include "degrees_of_freedom.h"
 #include "integration_objects.h"
 
+#include <iso646.h>
+
 static PyObject *coordinate_map_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 {
     const interplib_module_state_t *const state = interplib_get_module_state(type);
@@ -714,121 +716,126 @@ PyArrayObject *compute_basis_transform_impl(const space_map_object *map, const P
         return map->transformations[order - 1];
     }
 
-    permutation_iterator_t *const iter_out_perm = PyMem_Malloc(permutation_iterator_required_memory(order, order));
-    if (!iter_out_perm)
-        return NULL;
-    combination_iterator_t *const iter_out_comb = PyMem_Malloc(combination_iterator_required_memory(order));
-    if (!iter_out_comb)
-    {
-        PyMem_Free(iter_out_perm);
-        return NULL;
-    }
-    combination_iterator_t *const iter_in_comb = PyMem_Malloc(combination_iterator_required_memory(order));
-    if (!iter_in_comb)
-    {
-        PyMem_Free(iter_out_comb);
-        PyMem_Free(iter_out_perm);
-        return NULL;
-    }
-    multidim_iterator_t *const iter_int_pts = integration_specs_iterator(n_dims, map->int_specs);
-    if (!iter_int_pts)
-    {
-        PyMem_Free(iter_out_comb);
-        PyMem_Free(iter_in_comb);
-        PyMem_Free(iter_out_perm);
-        return NULL;
-    }
-    combination_iterator_init(iter_in_comb, n_dims, order);
-    combination_iterator_init(iter_out_comb, n_maps, order);
-    permutation_iterator_init(iter_out_perm, order, order);
-
-    const size_t total_points = multidim_iterator_total_size(iter_int_pts);
+    const size_t total_points = integration_specs_total_points(n_dims, map->int_specs);
     const npy_intp out_dims[3] = {
-        combination_iterator_total_count(iter_in_comb),
-        combination_iterator_total_count(iter_out_comb),
+        combination_total_count(n_dims, order),
+        combination_total_count(n_maps, order),
         (npy_intp)total_points,
     };
     PyArrayObject *const res = (PyArrayObject *)PyArray_SimpleNew(3, out_dims, NPY_DOUBLE);
     if (!res)
-    {
-        PyMem_Free(iter_int_pts);
-        PyMem_Free(iter_out_comb);
-        PyMem_Free(iter_in_comb);
-        PyMem_Free(iter_out_perm);
         return NULL;
-    }
-    npy_double *const ptr_out = PyArray_DATA(res);
 
-    // Iterate over bases in the inputs space
-    size_t idx_in = 0;
-    combination_iterator_init(iter_in_comb, n_dims, order);
-    while (!combination_iterator_is_done(iter_in_comb))
+    if (order == 1)
     {
-        // Indices of current input dimensions
-        const uint8_t *const current_in = combination_iterator_current(iter_in_comb);
-        // Iterate over bases in the output space.
-        size_t idx_out = 0;
-        combination_iterator_init(iter_out_comb, n_maps, order);
-        while (!combination_iterator_is_done(iter_out_comb))
+        Py_BEGIN_ALLOW_THREADS;
+        // Special case: transformation is just the space map
+        for (size_t i_in = 0; i_in < n_dims; ++i_in)
+            for (size_t i_out = 0; i_out < n_maps; ++i_out)
+                for (size_t i_pt = 0; i_pt < total_points; ++i_pt)
+                    *(double *)PyArray_GETPTR3(res, i_in, i_out, i_pt) =
+                        space_map_backward_derivative(map, i_pt, i_in, i_out);
+        Py_END_ALLOW_THREADS;
+    }
+    else if (order == n_maps)
+    {
+        npy_double *const ptr = PyArray_DATA(res);
+        Py_BEGIN_ALLOW_THREADS;
+        // Special case: transformation is just the space map
+        for (size_t i_pt = 0; i_pt < total_points; ++i_pt)
+            ptr[i_pt] = (1 / map->determinant[i_pt]);
+        Py_END_ALLOW_THREADS;
+    }
+    else // (order != 1 && order != n_maps)
+    {
+        permutation_iterator_t *iter_out_perm;
+        combination_iterator_t *iter_out_comb;
+        combination_iterator_t *iter_in_comb;
+        void *const mem = cutl_alloc_group(
+            &PYTHON_ALLOCATOR,
+            (const cutl_alloc_info_t[]){
+                {.size = permutation_iterator_required_memory(order, order), .p_ptr = (void **)&iter_out_perm},
+                {.size = combination_iterator_required_memory(order), .p_ptr = (void **)&iter_out_comb},
+                {.size = combination_iterator_required_memory(order), .p_ptr = (void **)&iter_in_comb},
+                {},
+            });
+        if (!mem)
         {
-            // Indices of current output dimensions.
-            const uint8_t *const current_out = combination_iterator_current(iter_out_comb);
-
-            // Loop over integration points
-            for (size_t idx_pt = 0; idx_pt < total_points; ++idx_pt)
-            {
-                // Total transformation coefficient, which we will accumulate for each possible basis.
-                double val = 0.0;
-
-                // Loop over all permutations of the current basis indices.
-                permutation_iterator_init(iter_out_perm, order, order);
-                while (!permutation_iterator_is_done(iter_out_perm))
-                {
-                    // Indices for the current permutation
-                    const uint8_t *const current_perm = permutation_iterator_current(iter_out_perm);
-                    double basis_contribution = 1.0;
-
-                    // Loop over the derivative terms and compute their product
-                    for (unsigned idim = 0; idim < order; ++idim)
-                    {
-                        const unsigned idx_coord = current_out[current_perm[idim]];
-                        const unsigned idx_dim = current_in[idim];
-                        // AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-                        const double contribution = space_map_backward_derivative(map, idx_pt, idx_dim, idx_coord);
-                        basis_contribution *= contribution;
-                        // printf("Adding contribution of dxi_%u/dx_%u=%g to element(%zu, %zu, %zu)\n", idx_dim,
-                        // idx_coord,
-                        //        contribution, idx_in, idx_out, idx_pt);
-                    }
-
-                    // Check if we flip the sign (meaning subtract) for this contribution.
-                    if (permutation_iterator_current_sign(iter_out_perm))
-                    {
-                        val -= basis_contribution;
-                    }
-                    else
-                    {
-                        val += basis_contribution;
-                    }
-
-                    permutation_iterator_next(iter_out_perm);
-                }
-
-                ptr_out[idx_in * out_dims[1] * out_dims[2] + idx_out * out_dims[2] + idx_pt] = val;
-            }
-
-            idx_out += 1;
-            combination_iterator_next(iter_out_comb);
+            Py_DECREF(res);
+            return NULL;
         }
 
-        idx_in += 1;
-        combination_iterator_next(iter_in_comb);
-    }
+        Py_BEGIN_ALLOW_THREADS;
 
-    PyMem_Free(iter_int_pts);
-    PyMem_Free(iter_out_comb);
-    PyMem_Free(iter_in_comb);
-    PyMem_Free(iter_out_perm);
+        size_t idx_in = 0;
+        // Iterate over bases in the inputs space
+        combination_iterator_init(iter_in_comb, n_dims, order);
+        while (!combination_iterator_is_done(iter_in_comb))
+        {
+            // Indices of current input dimensions
+            const uint8_t *const current_in = combination_iterator_current(iter_in_comb);
+            // Iterate over bases in the output space.
+            size_t idx_out = 0;
+            combination_iterator_init(iter_out_comb, n_maps, order);
+            while (!combination_iterator_is_done(iter_out_comb))
+            {
+                // Indices of current output dimensions.
+                const uint8_t *const current_out = combination_iterator_current(iter_out_comb);
+
+                // Loop over integration points
+                for (size_t idx_pt = 0; idx_pt < total_points; ++idx_pt)
+                {
+                    // Total transformation coefficient, which we will accumulate for each possible basis.
+                    double val = 0.0;
+
+                    // Loop over all permutations of the current basis indices.
+                    permutation_iterator_init(iter_out_perm, order, order);
+                    while (!permutation_iterator_is_done(iter_out_perm))
+                    {
+                        // Indices for the current permutation
+                        const uint8_t *const current_perm = permutation_iterator_current(iter_out_perm);
+                        double basis_contribution = 1.0;
+
+                        // Loop over the derivative terms and compute their product
+                        for (unsigned idim = 0; idim < order; ++idim)
+                        {
+                            const unsigned idx_coord = current_out[current_perm[idim]];
+                            const unsigned idx_dim = current_in[idim];
+                            // AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+                            const double contribution = space_map_backward_derivative(map, idx_pt, idx_dim, idx_coord);
+                            basis_contribution *= contribution;
+                            // printf("Adding contribution of dxi_%u/dx_%u=%g to element(%zu, %zu, %zu)\n", idx_dim,
+                            // idx_coord,
+                            //        contribution, idx_in, idx_out, idx_pt);
+                        }
+
+                        // Check if we flip the sign (meaning subtract) for this contribution.
+                        if (permutation_iterator_current_sign(iter_out_perm))
+                        {
+                            val -= basis_contribution;
+                        }
+                        else
+                        {
+                            val += basis_contribution;
+                        }
+
+                        permutation_iterator_next(iter_out_perm);
+                    }
+                    *(double *)PyArray_GETPTR3(res, idx_in, idx_out, idx_pt) = val;
+                    // ptr_out[idx_in * out_dims[1] * out_dims[2] + idx_out * out_dims[2] + idx_pt] = val;
+                }
+
+                idx_out += 1;
+                combination_iterator_next(iter_out_comb);
+            }
+
+            idx_in += 1;
+            combination_iterator_next(iter_in_comb);
+        }
+        Py_END_ALLOW_THREADS;
+
+        cutl_dealloc(&PYTHON_ALLOCATOR, mem);
+    }
 
     Py_INCREF(res);
     map->transformations[order - 1] = res;
