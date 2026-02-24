@@ -10,11 +10,12 @@ from interplib._interp import (
     FunctionSpace,
     IntegrationSpace,
     IntegrationSpecs,
+    KFormSpecs,
 )
 from interplib.degrees_of_freedom import reconstruct
 from interplib.domains import Quad
 from interplib.enum_type import BasisType
-from interplib.integration import projection_l2_primal
+from interplib.integration import projection_kform_l2_primal, projection_l2_primal
 
 
 @pytest.mark.parametrize("order", (1, 2, 4, 10))
@@ -124,5 +125,47 @@ def test_deformed_2d_to_3d() -> None:
     assert test_function(tx, ty, tz) == pytest.approx(reconstruct(proj, r1, r2))
 
 
+@pytest.mark.parametrize(("o1", "o2", "o3"), ((1, 1, 1), (2, 4, 10), (10, 4, 3)))
+@pytest.mark.parametrize(
+    ("b1", "b2", "b3"),
+    (
+        (BasisType.BERNSTEIN, BasisType.BERNSTEIN, BasisType.LAGRNAGE_GAUSS),
+        (BasisType.LEGENDRE, BasisType.LAGRANGE_CHEBYSHEV_GAUSS, BasisType.BERNSTEIN),
+    ),
+)
+def test_projection_kform_3d(
+    o1: int, b1: BasisType, o2: int, b2: BasisType, o3: int, b3: BasisType
+) -> None:
+    """Check that projection of DoFs to the same space is identity."""
+    base_space = FunctionSpace(BasisSpecs(b1, o1), BasisSpecs(b2, o2), BasisSpecs(b3, o3))
+    rng = np.random.default_rng(129)
+    int_space = IntegrationSpace(
+        IntegrationSpecs(o1 + 2, method="gauss"),
+        IntegrationSpecs(o2 + 2, method="gauss"),
+        IntegrationSpecs(o3 + 2, method="gauss"),
+    )
+
+    for k in range(0, 4):
+        specs = KFormSpecs(k, base_space)
+        components = [
+            DegreesOfFreedom(specs.get_component_function_space(idx))
+            for idx in range(specs.component_count)
+        ]
+        for c in components:
+            c.values[:] = rng.random(c.shape)
+
+        functions = [partial(reconstruct, c) for c in components]
+
+        proj = projection_kform_l2_primal(functions, specs, int_space)
+
+        for pv, c in zip(proj, components, strict=True):
+            assert pytest.approx(pv, c.values)
+
+
 if __name__ == "__main__":
-    test_deformed_2d_to_3d()
+    for o1, o2, o3 in ((1, 1, 1), (2, 4, 10), (10, 4, 3)):
+        for b1, b2, b3 in (
+            (BasisType.BERNSTEIN, BasisType.BERNSTEIN, BasisType.LAGRNAGE_GAUSS),
+            (BasisType.LEGENDRE, BasisType.LAGRANGE_CHEBYSHEV_GAUSS, BasisType.BERNSTEIN),
+        ):
+            test_projection_3d(o1, b1, o2, b2, o3, b3)
