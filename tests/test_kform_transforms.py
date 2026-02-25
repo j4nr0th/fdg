@@ -12,6 +12,7 @@ from interplib._interp import (
     IntegrationSpace,
     IntegrationSpecs,
     SpaceMap,
+    transform_kform_component_to_target,
     transform_kform_to_target,
 )
 from interplib.enum_type import BasisType
@@ -129,6 +130,33 @@ def test_kforms(n: int, dm: int) -> None:
         values_kform = rng.random((comp_cnt_in, *int_space_shape))
 
         transformed = transform_kform_to_target(k, space_map, values_kform)
+        per_component = np.zeros_like(transformed)
+        for i in range(comp_cnt_in):
+            cv = transform_kform_component_to_target(
+                k, space_map, values_kform[i, ...], i
+            )
+            o = np.empty_like(cv)
+            rv = transform_kform_component_to_target(
+                k, space_map, values_kform[i, ...], i, out=o
+            )
+            assert rv is o
+            assert np.all(rv == o)
+            tv_in = rng.random(np.concatenate([rng.integers(2, 4, 3), rv.shape]))
+            tv_out_v = transform_kform_component_to_target(k, space_map, tv_in, i)
+            tv_out_l = np.reshape(
+                np.array(
+                    [
+                        transform_kform_component_to_target(k, space_map, tv, i)
+                        for tv in np.reshape(tv_in, (-1, *rv.shape))
+                    ]
+                ),
+                tv_out_v.shape,
+            )
+            assert np.all(tv_out_v == tv_out_l)
+
+            per_component += cv
+        assert pytest.approx(per_component) == transformed
+
         trans_array = space_map.basis_transform(k)
         ta = np.reshape(trans_array, (comp_cnt_in, comp_cnt_out, *int_space_shape))
         manually_transformed = np.zeros((comp_cnt_out, *int_space_shape))
@@ -138,3 +166,9 @@ def test_kforms(n: int, dm: int) -> None:
             )
 
         assert pytest.approx(transformed) == manually_transformed
+
+
+if __name__ == "__main__":
+    for n in (2, 3, 4, 5):
+        for dm in (0, 1, 2):
+            test_kforms(n, dm)

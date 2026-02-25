@@ -1363,6 +1363,41 @@ def transform_kform_to_target(
         Array with values of the components in the physical space.
     """
     ...
+
+def transform_kform_component_to_target(
+    order: int,
+    smap: SpaceMap,
+    component: npt.ArrayLike,
+    index: int,
+    *,
+    out: npt.NDArray[np.double] | None = None,
+) -> npt.NDArray[np.double]:
+    """Transform k-form values based on a space mapping.
+
+    Parameters
+    ----------
+    order : int
+        Order of the k-form being transformed.
+
+    smap : SpaceMap
+        Mapping between the reference and target domain to use.
+
+    component : array_like
+        Values of component in the reference domain at integration points associated
+        with the space mapping.
+
+    index : int
+        Index of the component that is to be computed.
+
+    out : array, optional
+        Array to use to store the output in.
+
+    Returns
+    -------
+    array
+        Array with values of the components in the physical space.
+    """
+    ...
 @final
 class GeoID:
     """Type used to identify a geometrical object with an index and orientation.
