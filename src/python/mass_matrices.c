@@ -728,6 +728,62 @@ static void compute_kform_mass_matrix_block(
     }
 }
 
+static void compute_mass_matrix_integration_weights(const space_map_object *space_map, const Py_ssize_t order,
+                                                    const unsigned n_coords, const size_t total_int_pts,
+                                                    const double base_weights[restrict static total_int_pts],
+                                                    double integration_weights[restrict total_int_pts],
+                                                    const PyArrayObject *transform_array, const size_t basis_idx_left,
+                                                    const size_t basis_idx_right)
+{
+    if (order == 0)
+    {
+        ASSERT(transform_array == NULL, "Transform array should be NULL for order 0.");
+        // For 0-form it's just the determinant
+        for (size_t i = 0; i < total_int_pts; ++i)
+        {
+            integration_weights[i] = base_weights[i] * space_map->determinant[i];
+        }
+    }
+    else if (order == n_coords)
+    {
+        ASSERT(transform_array == NULL, "Transform array should be NULL for order n.");
+        // For n-form it is the inverse of determinant
+        for (size_t i = 0; i < total_int_pts; ++i)
+        {
+            integration_weights[i] = base_weights[i] / space_map->determinant[i];
+        }
+    }
+    else
+    {
+        ASSERT(transform_array != NULL, "Transform array should not be NULL for order > 0.");
+        // For all others we must compute them from transformation matrix, after determinant
+        const npy_intp *restrict const trans_dims = PyArray_DIMS(transform_array);
+        ASSERT(basis_idx_left < (size_t)PyArray_DIM(transform_array, 0) &&
+                   basis_idx_right < (size_t)PyArray_DIM(transform_array, 0),
+               "Input basis indices are not correct for the transformation array shape");
+
+        for (size_t i = 0; i < total_int_pts; ++i)
+        {
+            double dp = 0;
+            // Contraction of 2-nd dimension for the current components and integration point
+            for (unsigned m = 0; m < trans_dims[1]; ++m)
+            {
+                //     const double v_left = trans_mat[basis_idx_left * trans_dims[1] * trans_dims[2] + m *
+                //     trans_dims[2] +
+                //                                     integration_pt_flat_idx];
+                //     const double v_right = trans_mat[basis_idx_right * trans_dims[1] * trans_dims[2] + m *
+                //     trans_dims[2] +
+                //                                      integration_pt_flat_idx];
+
+                const double v_left = *(double *)PyArray_GETPTR3(transform_array, basis_idx_left, m, i);
+                const double v_right = *(double *)PyArray_GETPTR3(transform_array, basis_idx_right, m, i);
+                dp += v_left * v_right;
+            }
+            // Multiply the factor by the weight
+            integration_weights[i] = base_weights[i] * dp * space_map->determinant[i];
+        }
+    }
+}
 static PyObject *compute_kform_mass_matrix(PyObject *module, PyObject *const *args, const Py_ssize_t nargs,
                                            const PyObject *kwnames)
 {
@@ -821,7 +877,7 @@ static PyObject *compute_kform_mass_matrix(PyObject *module, PyObject *const *ar
     // NOTE: we could try exploiting the symmetry of the matrix, but first we should check how critical this is
     // (probably quite significant).
     //
-    // const int symmetric = function_spaces_match(fn_left, fn_right);
+    const int symmetric = function_spaces_match(fn_left, fn_right);
 
     // Compute needed space
     combination_iterator_t *iter_component_right, *iter_component_left;
@@ -830,6 +886,7 @@ static PyObject *compute_kform_mass_matrix(PyObject *module, PyObject *const *ar
     const basis_set_t **basis_sets_left, **basis_sets_right, **basis_sets_left_lower, **basis_sets_right_lower;
     basis_spec_t *lower_basis_buffer;
     double *restrict integration_weights;
+    double *restrict base_weights;
     void *const mem_1 = cutl_alloc_group(
         &PYTHON_ALLOCATOR, (const cutl_alloc_info_t[]){
                                {combination_iterator_required_memory(order), (void **)&iter_component_right},
@@ -844,6 +901,7 @@ static PyObject *compute_kform_mass_matrix(PyObject *module, PyObject *const *ar
                                {sizeof(basis_set_t *) * n, (void **)&basis_sets_right_lower},
                                {sizeof(basis_spec_t) * n, (void **)&lower_basis_buffer},
                                {sizeof(double) * int_pts_cnt, (void **)&integration_weights},
+                               {sizeof(double) * int_pts_cnt, (void **)&base_weights},
                                {},
                            });
     if (!mem_1)
@@ -880,7 +938,7 @@ static PyObject *compute_kform_mass_matrix(PyObject *module, PyObject *const *ar
 
     PyArrayObject *transform_array = NULL;
 
-    if (order != 0 && order != n)
+    if (order != 0 && order != n_coords)
     {
         transform_array = compute_basis_transform_impl(space_map, order);
         if (!transform_array)
@@ -976,6 +1034,16 @@ static PyObject *compute_kform_mass_matrix(PyObject *module, PyObject *const *ar
         return NULL;
     }
 
+    // Compute base integration weights right now
+    // Compute the integration weights in advance
+    size_t idx = 0;
+    for (multidim_iterator_set_to_start(iter_int_pts); !multidim_iterator_is_at_end(iter_int_pts);
+         multidim_iterator_advance(iter_int_pts, n - 1, 1), ++idx)
+    {
+        const double int_weight = calculate_integration_weight(n, iter_int_pts, integration_rules);
+        base_weights[idx] = int_weight;
+    }
+
     npy_double *restrict const ptr_mat_out = PyArray_DATA(array_out);
 
     // Now compute numerical integrals
@@ -990,6 +1058,7 @@ static PyObject *compute_kform_mass_matrix(PyObject *module, PyObject *const *ar
     {
         // Set the iterator for basis functions of the left k-form component
         kform_basis_set_iterator(n, fn_left->specs, order, p_basis_components_left, iter_basis_left);
+        const unsigned dofs_left = kform_basis_get_num_dofs(n, fn_left->specs, order, p_basis_components_left);
 
         size_t col_offset = 0;
         size_t basis_idx_right = 0;
@@ -999,63 +1068,38 @@ static PyObject *compute_kform_mass_matrix(PyObject *module, PyObject *const *ar
              !combination_iterator_is_done(iter_component_right);
              combination_iterator_next(iter_component_right), ++basis_idx_right)
         {
-            // Compute the integration weights in advance
-            for (multidim_iterator_set_to_start(iter_int_pts); !multidim_iterator_is_at_end(iter_int_pts);
-                 multidim_iterator_advance(iter_int_pts, n - 1, 1))
+            const unsigned dofs_right = kform_basis_get_num_dofs(n, fn_right->specs, order, p_basis_components_right);
+            if (basis_idx_left <= basis_idx_right || !symmetric)
             {
-                double int_weight = calculate_integration_weight(n, iter_int_pts, integration_rules);
-                const size_t integration_pt_flat_idx = multidim_iterator_get_flat_index(iter_int_pts);
-                if (order == 0)
-                {
-                    ASSERT(transform_array == NULL, "Transform array should be NULL for order 0.");
-                    // For 0-form it's just the determinant
-                    int_weight *= space_map->determinant[integration_pt_flat_idx];
-                }
-                else if (order == n_coords)
-                {
-                    ASSERT(transform_array == NULL, "Transform array should be NULL for order n.");
-                    // For n-form it is the inverse of determinant
-                    int_weight /= space_map->determinant[integration_pt_flat_idx];
-                }
-                else
-                {
-                    ASSERT(transform_array != NULL, "Transform array should not be NULL for order > 0.");
-                    // For all others we must compute them from transformation matrix, after determinant
-                    int_weight *= space_map->determinant[integration_pt_flat_idx];
-                    const npy_double *restrict const trans_mat = PyArray_DATA(transform_array);
-                    const npy_intp *restrict const trans_dims = PyArray_DIMS(transform_array);
-                    // Contraction of 2-nd dimension for the current components and integration point
-                    double dp = 0;
-                    ASSERT(basis_idx_left < (size_t)trans_dims[0] && basis_idx_right < (size_t)trans_dims[0],
-                           "Input basis indices are not correct for the transformation array shape");
-                    for (unsigned m = 0; m < trans_dims[1]; ++m)
-                    {
-                        const double v_left = trans_mat[basis_idx_left * trans_dims[1] * trans_dims[2] +
-                                                        m * trans_dims[2] + integration_pt_flat_idx];
-                        const double v_right = trans_mat[basis_idx_right * trans_dims[1] * trans_dims[2] +
-                                                         m * trans_dims[2] + integration_pt_flat_idx];
-                        dp += v_left * v_right;
-                    }
-                    // Multiply the factor by the weight
-                    int_weight *= dp;
-                }
+                // Must compute the block
+                compute_mass_matrix_integration_weights(space_map, order, n_coords, int_pts_cnt, base_weights,
+                                                        integration_weights, transform_array, basis_idx_left,
+                                                        basis_idx_right);
 
-                integration_weights[integration_pt_flat_idx] = int_weight;
+                // Set the iterator for basis functions of the right k-form component
+                kform_basis_set_iterator(n, fn_right->specs, order, p_basis_components_right, iter_basis_right);
+
+                compute_kform_mass_matrix_block(n, order, p_basis_components_left, order, p_basis_components_right,
+                                                iter_basis_left, iter_basis_right, iter_int_pts, integration_weights,
+                                                basis_sets_left, basis_sets_right, basis_sets_left_lower,
+                                                basis_sets_right_lower, row_offset, col_offset, col_cnt, ptr_mat_out);
+            }
+            else
+            {
+                // We can copy and transpose the block instead of computing, which will save quite some time.
+                for (size_t i = 0; i < dofs_left; ++i)
+                {
+                    for (size_t j = 0; j < dofs_right; ++j)
+                    {
+                        const double val = ptr_mat_out[(col_offset + j) * col_cnt + (row_offset + i)];
+                        ptr_mat_out[(row_offset + i) * col_cnt + (col_offset + j)] = val;
+                    }
+                }
             }
 
-            // Set the iterator for basis functions of the right k-form component
-            kform_basis_set_iterator(n, fn_right->specs, order, p_basis_components_right, iter_basis_right);
-
-            compute_kform_mass_matrix_block(n, order, p_basis_components_left, order, p_basis_components_right,
-                                            iter_basis_left, iter_basis_right, iter_int_pts, integration_weights,
-                                            basis_sets_left, basis_sets_right, basis_sets_left_lower,
-                                            basis_sets_right_lower, row_offset, col_offset, col_cnt, ptr_mat_out);
-
-            const unsigned dofs_right = kform_basis_get_num_dofs(n, fn_right->specs, order, p_basis_components_right);
             col_offset += dofs_right;
         }
 
-        const unsigned dofs_left = kform_basis_get_num_dofs(n, fn_left->specs, order, p_basis_components_left);
         row_offset += dofs_left;
     }
 
@@ -1363,11 +1407,6 @@ static PyObject *compute_kform_interior_product_matrix(PyObject *module, PyObjec
 
     // Calculate the required space for storing intermediate integration weights for each k-form component.
     const unsigned int_pts_cnt = integration_specs_total_points(n, space_map->int_specs);
-
-    // NOTE: we could try exploiting the symmetry of the matrix, but first we should check how critical this is
-    // (probably quite significant).
-    //
-    // const int symmetric = function_spaces_match(fn_left, fn_right);
 
     // Compute needed space
     combination_iterator_t *iter_component_right, *iter_component_left, *iter_target_form;

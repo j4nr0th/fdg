@@ -133,7 +133,7 @@ def test_deformed_2d_to_3d() -> None:
         (BasisType.LEGENDRE, BasisType.LAGRANGE_CHEBYSHEV_GAUSS, BasisType.BERNSTEIN),
     ),
 )
-def test_projection_kform_3d(
+def _test_projection_kform_3d(
     o1: int, b1: BasisType, o2: int, b2: BasisType, o3: int, b3: BasisType
 ) -> None:
     """Check that projection of DoFs to the same space is identity."""
@@ -159,7 +159,7 @@ def test_projection_kform_3d(
         proj = projection_kform_l2_primal(functions, specs, int_space)
 
         for pv, c in zip(proj, components, strict=True):
-            assert pytest.approx(pv, c.values)
+            assert pytest.approx(pv) == c.values
 
 
 if __name__ == "__main__":
@@ -168,4 +168,4 @@ if __name__ == "__main__":
             (BasisType.BERNSTEIN, BasisType.BERNSTEIN, BasisType.LAGRNAGE_GAUSS),
             (BasisType.LEGENDRE, BasisType.LAGRANGE_CHEBYSHEV_GAUSS, BasisType.BERNSTEIN),
         ):
-            test_projection_3d(o1, b1, o2, b2, o3, b3)
+            _test_projection_kform_3d(o1, b1, o2, b2, o3, b3)

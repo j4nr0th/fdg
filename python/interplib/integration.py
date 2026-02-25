@@ -244,6 +244,7 @@ def projection_l2_primal(
     return DegreesOfFreedom(function_space, primal_dofs)
 
 
+# TODO: Needs another transformation function for basis only.
 def projection_kform_l2_dual(
     funcs: Sequence[Integrable],
     specs: KFormSpecs,
@@ -289,7 +290,7 @@ def projection_kform_l2_dual(
 
     func_vals = (
         np.asarray(
-            (func(*[nodes[i, ...] for i in range(nodes.shape[0])]) for func in funcs)
+            [func(*[nodes[i, ...] for i in range(nodes.shape[0])]) for func in funcs]
         )
         * weights[None, ...]
     )
@@ -303,6 +304,9 @@ def projection_kform_l2_dual(
             int_space = integration.integration_space
         case _:
             assert False
+
+    for idim in range(int_space.dimension):
+        func_vals = func_vals[..., None]
 
     basis_functions: list[npt.NDArray] = list()
     for idx in range(specs.component_count):
@@ -325,8 +329,8 @@ def projection_kform_l2_dual(
         transformed_basis = np.array(basis_functions)
 
     dual_dofs = tuple(
-        np.sum(func_vals * b, axis=tuple(range(func_vals.ndim, b.ndim)))
-        for b in transformed_basis
+        np.sum(f * b, axis=tuple(range(int_space.dimension)))
+        for f, b in zip(func_vals, transformed_basis)
     )
 
     return dual_dofs

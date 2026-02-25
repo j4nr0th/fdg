@@ -26,6 +26,13 @@ from interplib.enum_type import BasisType
 from interplib.integration import Integrable, integrate_callable
 
 
+def _array_axis_slice(a: npt.NDArray, idx: int, axis: int):
+    """Take a slice from a numpy array along the specified axis."""
+    slices: list[slice | int] = [slice(None)] * a.ndim
+    slices[axis] = slice(idx, idx + 1) if idx >= 0 else slice(idx, idx - 1)
+    return a[tuple(slices)]
+
+
 @dataclass(frozen=True)
 class HypercubeDomain:
     """Base type for all domains."""
@@ -195,6 +202,71 @@ class HypercubeDomain:
             new_dofs.append(DegreesOfFreedom(new_fs, new_vals))
 
         return HypercubeDomain(*new_dofs)
+
+    # @classmethod
+    # def from_boundaries(cls, *boundaries: HypercubeDomain) -> Self:
+    #     """Create a domain from its boundaries."""
+    #     nbnd = len(boundaries)
+    #     if nbnd & 1:
+    #         raise ValueError("Domain must have an even number of boundaries.")
+
+    #     ndim_in = nbnd // 2
+    #     if ndim_in <= 1:
+    #         raise ValueError(
+    #             "Domain must have at least two dimensions for this way of constructing
+    #  it"
+    #             " to work."
+    #         )
+
+    #     for ib, bnd in enumerate(boundaries):
+    #         if bnd.ndim_reference + 1 != ndim_in:
+    #             raise ValueError(
+    #                 f"Boundary {ib} is not defined on the reference domain with "
+    #                 f"{ndim_in - 1} dimension as is expected for a new domain."
+    #             )
+    #         if bnd.ndim_physical != boundaries[0].ndim_physical:
+    #             raise ValueError(
+    #                 f"Boundary {ib} does not have the matching number of physical "
+    #                 "dimension with other boundaries that have "
+    #                 f"{boundaries[0].ndim_physical}"
+    #             )
+
+    #     start_boundaries = boundaries[:ndim_in]
+    #     end_boundaries = boundaries[ndim_in:]
+
+    #     max_orders = np.zeros(ndim_in, dtype=np.uint64)
+    #     for idim in range(ndim_in):
+    #         start = start_boundaries[idim]
+    #         end = end_boundaries[idim]
+    #         orders = np.max(
+    #             (start.function_space.orders, end.function_space.orders), axis=0
+    #         )
+    #         padded = np.concatenate((orders[:idim], (0,), orders[idim:]))
+    #         max_orders = np.max((max_orders, padded), axis=0)
+
+    #     fs_target = FunctionSpace(
+    #         *(BasisSpecs(BasisType.LAGRANGE_UNIFORM, int(order)) for order in max_orders
+    # )
+    #     )
+    #     sample_points = np.meshgrid(
+    #         *(np.linspace(-1, +1, order + 1) for order in max_orders)
+    #     )
+    #     start_bnd_pts = [
+    #         start_boundaries[idim].sample(
+    #             *(_array_axis_slice(pts, 0, idim) for pts in sample_points)
+    #         )
+    #         for idim in range(ndim_in)
+    #     ]
+    #     end_bnd_pts = [
+    #         end_boundaries[idim].sample(
+    #             *(_array_axis_slice(pts, 0, idim) for pts in sample_points)
+    #         )
+    #         for idim in range(ndim_in)
+    #     ]
+
+    #     # TODO: check for adjacency between neighboring boundaries
+
+    #     raise NotImplementedError
 
 
 @dataclass(frozen=True)

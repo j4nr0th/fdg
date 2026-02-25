@@ -282,19 +282,22 @@ def test_contravariant_3d(
     flat_contravariant_mat = np.reshape(
         space_map.inverse_map, (-1, *space_map.inverse_map.shape[-2:])
     )
+    flat_contravariant_mat = np.array(
+        [
+            [
+                space_map.coordinate_map(imap).gradient(idim)
+                for idim in range(space_map.input_dimensions)
+            ]
+            for imap in range(space_map.output_dimensions)
+        ]
+    ).reshape((space_map.output_dimensions, space_map.input_dimensions, -1))
     flat_components = np.reshape(components, (3, -1))
     flat_contravariant = np.reshape(manual_contravariant, (3, -1))
     for i_pt in range(vx.size):
-        mat = flat_contravariant_mat[i_pt, :, :]
+        mat = flat_contravariant_mat[:, :, i_pt]
         vec_in = flat_components[:, i_pt]
-        vec_out = mat.T @ vec_in
+        vec_out = mat @ vec_in
         flat_contravariant[:, i_pt] = vec_out
     manual_contravariant = np.reshape(flat_contravariant, contravariant.shape)
 
     assert pytest.approx(manual_contravariant) == contravariant
-
-
-if __name__ == "__main__":
-    test_contravariant_3d(
-        3, 4, BasisType.BERNSTEIN, 3, 4, BasisType.BERNSTEIN, 3, 4, BasisType.BERNSTEIN
-    )
