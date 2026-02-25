@@ -18,7 +18,7 @@ from interplib._interp import (
     SpaceMap,
     compute_kform_mass_matrix,
     compute_mass_matrix,
-    transform_kform_to_target,
+    transform_kform_component_to_target,
 )
 
 
@@ -322,16 +322,21 @@ def projection_kform_l2_dual(
     del integration_registry, basis_registry
 
     if type(integration) is SpaceMap:
-        transformed_basis = transform_kform_to_target(
-            specs.order, integration, basis_functions
+        transformed_basis = [
+            transform_kform_component_to_target(
+                specs.order, integration, basis_functions[i], i
+            )
+            for i in range(specs.component_count)
+        ]
+        dual_dofs = tuple(
+            np.sum(func_vals * b, axis=tuple(range(int_space.dimension + 1)))
+            for b in transformed_basis
         )
     else:
-        transformed_basis = np.array(basis_functions)
-
-    dual_dofs = tuple(
-        np.sum(f * b, axis=tuple(range(int_space.dimension)))
-        for f, b in zip(func_vals, transformed_basis)
-    )
+        dual_dofs = tuple(
+            np.sum(f * b, axis=tuple(range(int_space.dimension)))
+            for f, b in zip(func_vals, basis_functions)
+        )
 
     return dual_dofs
 

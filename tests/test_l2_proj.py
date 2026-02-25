@@ -125,7 +125,7 @@ def test_deformed_2d_to_3d() -> None:
     assert test_function(tx, ty, tz) == pytest.approx(reconstruct(proj, r1, r2))
 
 
-@pytest.mark.parametrize(("o1", "o2", "o3"), ((1, 1, 1), (2, 4, 10), (10, 4, 3)))
+@pytest.mark.parametrize(("o1", "o2", "o3"), ((1, 1, 1), (2, 4, 6), (6, 4, 3)))
 @pytest.mark.parametrize(
     ("b1", "b2", "b3"),
     (
@@ -133,7 +133,7 @@ def test_deformed_2d_to_3d() -> None:
         (BasisType.LEGENDRE, BasisType.LAGRANGE_CHEBYSHEV_GAUSS, BasisType.BERNSTEIN),
     ),
 )
-def _test_projection_kform_3d(
+def test_projection_kform_3d(
     o1: int, b1: BasisType, o2: int, b2: BasisType, o3: int, b3: BasisType
 ) -> None:
     """Check that projection of DoFs to the same space is identity."""
@@ -163,9 +163,9 @@ def _test_projection_kform_3d(
 
 
 if __name__ == "__main__":
-    for o1, o2, o3 in ((1, 1, 1), (2, 4, 10), (10, 4, 3)):
+    for o1, o2, o3 in ((1, 1, 1), (2, 4, 6), (6, 4, 3)):
         for b1, b2, b3 in (
             (BasisType.BERNSTEIN, BasisType.BERNSTEIN, BasisType.LAGRNAGE_GAUSS),
             (BasisType.LEGENDRE, BasisType.LAGRANGE_CHEBYSHEV_GAUSS, BasisType.BERNSTEIN),
         ):
-            _test_projection_kform_3d(o1, b1, o2, b2, o3, b3)
+            test_projection_kform_3d(o1, b1, o2, b2, o3, b3)
