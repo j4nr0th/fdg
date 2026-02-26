@@ -8,7 +8,7 @@ from typing import Self
 import numpy as np
 import numpy.typing as npt
 
-from interplib._interp import (
+from fdg._fdg import (
     DEFAULT_BASIS_REGISTRY,
     DEFAULT_INTEGRATION_REGISTRY,
     BasisRegistry,
@@ -21,9 +21,9 @@ from interplib._interp import (
     IntegrationSpecs,
     SpaceMap,
 )
-from interplib.degrees_of_freedom import reconstruct
-from interplib.enum_type import BasisType
-from interplib.integration import Integrable, integrate_callable
+from fdg.degrees_of_freedom import reconstruct
+from fdg.enum_type import BasisType
+from fdg.integration import Integrable, integrate_callable
 
 
 def _array_axis_slice(a: npt.NDArray, idx: int, axis: int):

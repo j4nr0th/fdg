@@ -3,7 +3,7 @@
 import numpy as np
 import numpy.typing as npt
 import pytest
-from interplib._interp import (
+from fdg._fdg import (
     BasisSpecs,
     DegreesOfFreedom,
     FunctionSpace,
@@ -12,8 +12,8 @@ from interplib._interp import (
     incidence_matrix,
     incidence_operator,
 )
-from interplib.enum_type import BasisType, IntegrationMethod
-from interplib.integration import projection_l2_primal
+from fdg.enum_type import BasisType, IntegrationMethod
+from fdg.integration import projection_l2_primal
 
 
 @pytest.mark.parametrize("btype", BasisType)

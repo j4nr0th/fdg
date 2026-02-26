@@ -1,29 +1,29 @@
 #include "rw_lock.h"
 #include <threads.h>
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 interp_result_t rw_lock_init(rw_lock_t *this)
 {
     *this = (rw_lock_t){};
     if (mtx_init(&this->lock, mtx_plain) != thrd_success)
     {
-        return INTERP_ERROR_FAILED_ALLOCATION;
+        return FDG_ERROR_FAILED_ALLOCATION;
     }
     if (cnd_init(&this->cond_read) != thrd_success)
     {
         mtx_destroy(&this->lock);
-        return INTERP_ERROR_FAILED_ALLOCATION;
+        return FDG_ERROR_FAILED_ALLOCATION;
     }
     if (cnd_init(&this->cond_write) != thrd_success)
     {
         cnd_destroy(&this->cond_read);
         mtx_destroy(&this->lock);
-        return INTERP_ERROR_FAILED_ALLOCATION;
+        return FDG_ERROR_FAILED_ALLOCATION;
     }
-    return INTERP_SUCCESS;
+    return FDG_SUCCESS;
 }
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 void rw_lock_destroy(rw_lock_t *this)
 {
     cnd_destroy(&this->cond_write);
@@ -32,7 +32,7 @@ void rw_lock_destroy(rw_lock_t *this)
     *this = (rw_lock_t){};
 }
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 void rw_lock_acquire_read(rw_lock_t *this)
 {
     mtx_lock(&this->lock);
@@ -44,7 +44,7 @@ void rw_lock_acquire_read(rw_lock_t *this)
     mtx_unlock(&this->lock);
 }
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 void rw_lock_acquire_write(rw_lock_t *this)
 {
     mtx_lock(&this->lock);
@@ -56,7 +56,7 @@ void rw_lock_acquire_write(rw_lock_t *this)
     mtx_unlock(&this->lock);
 }
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 void rw_lock_release_read(rw_lock_t *this)
 {
     mtx_lock(&this->lock);
@@ -68,7 +68,7 @@ void rw_lock_release_read(rw_lock_t *this)
     mtx_unlock(&this->lock);
 }
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 void rw_lock_release_write(rw_lock_t *this)
 {
     mtx_lock(&this->lock);

@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-from interplib._interp import (
+from fdg._fdg import (
     BasisSpecs,
     DegreesOfFreedom,
     FunctionSpace,
@@ -10,7 +10,7 @@ from interplib._interp import (
     compute_kform_incidence_matrix,
     incidence_kform_operator,
 )
-from interplib.enum_type import BasisType
+from fdg.enum_type import BasisType
 
 _TEST_VALUES_2D = (
     (1, 1, BasisType.BERNSTEIN, BasisType.BERNSTEIN),

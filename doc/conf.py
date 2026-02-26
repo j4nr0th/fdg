@@ -6,7 +6,7 @@ https://www.sphinx-doc.org/en/master/usage/configuration.html"""
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = "interplib"
+project = "fdg"
 copyright = "2024, Jan Roth"
 author = "Jan Roth"
 release = "0.0.1a"
@@ -74,7 +74,7 @@ sphinx_gallery_conf = {
     "gallery_dirs": "auto_examples",
     "reference_url": {
          # The module you locally document uses None
-        "interplib": None,
+        "fdg": None,
     },
     "image_scrapers": ("matplotlib", "pyvista"),
 }

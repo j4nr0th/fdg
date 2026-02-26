@@ -10,7 +10,7 @@ supported rules:
 """  # noqa: D205 D400
 
 import numpy as np
-from interplib import IntegrationMethod, IntegrationSpecs, bernstein1d
+from fdg import IntegrationMethod, IntegrationSpecs, bernstein1d
 from matplotlib import pyplot as plt
 
 # %%

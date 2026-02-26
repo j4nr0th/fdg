@@ -51,18 +51,18 @@ interp_result_t basis_set_registry_create(basis_set_registry_t **out, int should
 {
     basis_set_registry_t *const this = cutl_alloc(allocator, sizeof *this);
     if (!this)
-        return INTERP_ERROR_FAILED_ALLOCATION;
+        return FDG_ERROR_FAILED_ALLOCATION;
     *this = (basis_set_registry_t){
         .allocator = *allocator, .should_cache = should_cache != 0, .n_buckets = 0, .buckets = NULL};
     const interp_result_t res = rw_lock_init(&this->lock);
-    if (res != INTERP_SUCCESS)
+    if (res != FDG_SUCCESS)
     {
         cutl_dealloc(allocator, this);
         return res;
     }
 
     *out = this;
-    return INTERP_SUCCESS;
+    return FDG_SUCCESS;
 }
 
 static inline interp_result_t basis_set_bucket_btype_init(basis_bucket_btype_t *this, basis_set_type_t type,
@@ -75,9 +75,9 @@ static inline interp_result_t basis_set_bucket_btype_init(basis_bucket_btype_t *
     if (!this->buckets)
     {
         this->capacity = 0;
-        return INTERP_ERROR_FAILED_ALLOCATION;
+        return FDG_ERROR_FAILED_ALLOCATION;
     }
-    return INTERP_SUCCESS;
+    return FDG_SUCCESS;
 }
 
 static inline interp_result_t basis_set_bucket_itype_init(basis_bucket_itype_t *this, integration_rule_type_t type,
@@ -90,16 +90,16 @@ static inline interp_result_t basis_set_bucket_itype_init(basis_bucket_itype_t *
     if (!this->basis_sets)
     {
         this->capacity = 0;
-        return INTERP_ERROR_FAILED_ALLOCATION;
+        return FDG_ERROR_FAILED_ALLOCATION;
     }
     this->ref_counts = cutl_alloc(allocator, starting_size * sizeof *this->ref_counts);
     if (!this->ref_counts)
     {
         cutl_dealloc(allocator, this->basis_sets);
         this->capacity = 0;
-        return INTERP_ERROR_FAILED_ALLOCATION;
+        return FDG_ERROR_FAILED_ALLOCATION;
     }
-    return INTERP_SUCCESS;
+    return FDG_SUCCESS;
 }
 
 static inline interp_result_t basis_set_create(basis_set_t **out, const integration_rule_t *integration_rule,
@@ -124,7 +124,7 @@ static inline interp_result_t basis_set_create(basis_set_t **out, const integrat
         break;
 
     default:
-        return INTERP_ERROR_INVALID_ENUM;
+        return FDG_ERROR_INVALID_ENUM;
     }
 
     return res;
@@ -138,17 +138,17 @@ static inline interp_result_t basis_set_registry_add_btype_bucket(basis_set_regi
         cutl_realloc(&this->allocator, this->buckets, (this->n_buckets + 1) * sizeof *new_buckets);
     if (!new_buckets)
     {
-        return INTERP_ERROR_FAILED_ALLOCATION;
+        return FDG_ERROR_FAILED_ALLOCATION;
     }
     this->buckets = new_buckets;
     basis_bucket_btype_t *const first_bucket = this->buckets + this->n_buckets;
     this->n_buckets += 1;
     const interp_result_t res = basis_set_bucket_btype_init(first_bucket, type, starting_size, &this->allocator);
-    if (res != INTERP_SUCCESS)
+    if (res != FDG_SUCCESS)
     {
         return res;
     }
-    return INTERP_SUCCESS;
+    return FDG_SUCCESS;
 }
 
 static inline interp_result_t basis_set_registry_add_itype_bucket(const basis_set_registry_t *this,
@@ -162,16 +162,16 @@ static inline interp_result_t basis_set_registry_add_itype_bucket(const basis_se
         basis_bucket_itype_t *const new_buckets =
             cutl_realloc(&this->allocator, first_bucket->buckets, new_capacity * sizeof *new_buckets);
         if (!new_buckets)
-            return INTERP_ERROR_FAILED_ALLOCATION;
+            return FDG_ERROR_FAILED_ALLOCATION;
         first_bucket->buckets = new_buckets;
         first_bucket->capacity = new_capacity;
     }
     basis_bucket_itype_t *const second_bucket = first_bucket->buckets + first_bucket->count;
     first_bucket->count += 1;
     const interp_result_t res = basis_set_bucket_itype_init(second_bucket, type, starting_size, &this->allocator);
-    if (res != INTERP_SUCCESS)
+    if (res != FDG_SUCCESS)
         return res;
-    return INTERP_SUCCESS;
+    return FDG_SUCCESS;
 }
 
 static inline interp_result_t basis_set_registry_add_basis_set(const basis_set_registry_t *this,
@@ -186,19 +186,19 @@ static inline interp_result_t basis_set_registry_add_basis_set(const basis_set_r
         basis_set_t **const new_basis =
             cutl_realloc(&this->allocator, second_bucket->basis_sets, new_capacity * sizeof *new_basis);
         if (!new_basis)
-            return INTERP_ERROR_FAILED_ALLOCATION;
+            return FDG_ERROR_FAILED_ALLOCATION;
         second_bucket->basis_sets = new_basis;
         _Atomic unsigned *const new_ref_counts =
             cutl_realloc(&this->allocator, second_bucket->ref_counts, new_capacity * sizeof *new_ref_counts);
         if (!new_ref_counts)
-            return INTERP_ERROR_FAILED_ALLOCATION;
+            return FDG_ERROR_FAILED_ALLOCATION;
         second_bucket->ref_counts = new_ref_counts;
         second_bucket->capacity = new_capacity;
     }
 
     basis_set_t *basis;
     const interp_result_t res = basis_set_create(&basis, integration_rule, spec, &this->allocator);
-    if (res != INTERP_SUCCESS)
+    if (res != FDG_SUCCESS)
         return res;
 
     second_bucket->basis_sets[second_bucket->count] = basis;
@@ -206,7 +206,7 @@ static inline interp_result_t basis_set_registry_add_basis_set(const basis_set_r
     second_bucket->count += 1;
 
     *p_basis = basis;
-    return INTERP_SUCCESS;
+    return FDG_SUCCESS;
 }
 
 interp_result_t basis_set_registry_get_basis_set(basis_set_registry_t *this, const basis_set_t **p_basis,
@@ -241,7 +241,7 @@ interp_result_t basis_set_registry_get_basis_set(basis_set_registry_t *this, con
                             second_bucket->ref_counts[k] += 1;
                             *p_basis = basis;
                             rw_lock_release_read(&this->lock);
-                            return INTERP_SUCCESS;
+                            return FDG_SUCCESS;
                         }
                     }
                     break;
@@ -256,7 +256,7 @@ interp_result_t basis_set_registry_get_basis_set(basis_set_registry_t *this, con
     if (!first_bucket)
     {
         const interp_result_t res = basis_set_registry_add_btype_bucket(this, spec.type, BUCKET_STARTING_SIZE);
-        if (res != INTERP_SUCCESS)
+        if (res != FDG_SUCCESS)
         {
             rw_lock_release_write(&this->lock);
             return res;
@@ -267,7 +267,7 @@ interp_result_t basis_set_registry_get_basis_set(basis_set_registry_t *this, con
     {
         const interp_result_t res =
             basis_set_registry_add_itype_bucket(this, first_bucket, integration_rule->spec.type, BUCKET_STARTING_SIZE);
-        if (res != INTERP_SUCCESS)
+        if (res != FDG_SUCCESS)
         {
             rw_lock_release_write(&this->lock);
             return res;
@@ -278,25 +278,24 @@ interp_result_t basis_set_registry_get_basis_set(basis_set_registry_t *this, con
     const basis_set_t *basis;
     const interp_result_t res = basis_set_registry_add_basis_set(this, second_bucket, &basis, integration_rule, spec);
     rw_lock_release_write(&this->lock);
-    if (res != INTERP_SUCCESS)
+    if (res != FDG_SUCCESS)
     {
         return res;
     }
     *p_basis = basis;
-    return INTERP_SUCCESS;
+    return FDG_SUCCESS;
 }
 
 interp_result_t basis_set_registry_get_basis_sets(basis_set_registry_t *this, unsigned cnt,
-                                                  const basis_set_t *INTERPLIB_ARRAY_ARG(p_basis, cnt),
-                                                  const integration_rule_t *INTERPLIB_ARRAY_ARG(integration_rule,
-                                                                                                static cnt),
-                                                  const basis_spec_t INTERPLIB_ARRAY_ARG(specs, static cnt))
+                                                  const basis_set_t *FDG_ARRAY_ARG(p_basis, cnt),
+                                                  const integration_rule_t *FDG_ARRAY_ARG(integration_rule, static cnt),
+                                                  const basis_spec_t FDG_ARRAY_ARG(specs, static cnt))
 {
     for (unsigned i = 0; i < cnt; ++i)
     {
         const basis_set_t *basis;
         const interp_result_t res = basis_set_registry_get_basis_set(this, &basis, integration_rule[i], specs[i]);
-        if (res != INTERP_SUCCESS)
+        if (res != FDG_SUCCESS)
         {
             // Release all the basis acquired thus far
             for (unsigned j = 0; j < i; ++j)
@@ -306,7 +305,7 @@ interp_result_t basis_set_registry_get_basis_sets(basis_set_registry_t *this, un
         p_basis[i] = basis;
     }
 
-    return INTERP_SUCCESS;
+    return FDG_SUCCESS;
 }
 
 interp_result_t basis_set_registry_release_basis_set(basis_set_registry_t *this, const basis_set_t *basis)
@@ -324,7 +323,7 @@ interp_result_t basis_set_registry_release_basis_set(basis_set_registry_t *this,
     if (!first_bucket)
     {
         rw_lock_release_read(&this->lock);
-        return INTERP_ERROR_NOT_IN_REGISTRY;
+        return FDG_ERROR_NOT_IN_REGISTRY;
     }
 
     basis_bucket_itype_t *second_bucket = NULL;
@@ -339,7 +338,7 @@ interp_result_t basis_set_registry_release_basis_set(basis_set_registry_t *this,
     if (!second_bucket)
     {
         rw_lock_release_read(&this->lock);
-        return INTERP_ERROR_NOT_IN_REGISTRY;
+        return FDG_ERROR_NOT_IN_REGISTRY;
     }
 
     for (unsigned position = 0; position < second_bucket->count; ++position)
@@ -357,12 +356,12 @@ interp_result_t basis_set_registry_release_basis_set(basis_set_registry_t *this,
                 second_bucket->count -= 1;
             }
             rw_lock_release_write(&this->lock);
-            return INTERP_SUCCESS;
+            return FDG_SUCCESS;
         }
     }
 
     rw_lock_release_read(&this->lock);
-    return INTERP_ERROR_NOT_IN_REGISTRY;
+    return FDG_ERROR_NOT_IN_REGISTRY;
 }
 
 void basis_set_registry_destroy(basis_set_registry_t *this)
@@ -419,8 +418,8 @@ void basis_set_registry_release_unused_basis_sets(basis_set_registry_t *const th
     rw_lock_release_write(&this->lock);
 }
 unsigned basis_set_registry_get_sets(basis_set_registry_t *this, unsigned max_count,
-                                     basis_spec_t INTERPLIB_ARRAY_ARG(basis_spec, const max_count),
-                                     integration_spec_t INTERPLIB_ARRAY_ARG(integration_spec, const max_count))
+                                     basis_spec_t FDG_ARRAY_ARG(basis_spec, const max_count),
+                                     integration_spec_t FDG_ARRAY_ARG(integration_spec, const max_count))
 {
     rw_lock_acquire_read(&this->lock);
     unsigned count = 0;
@@ -448,7 +447,7 @@ unsigned basis_set_registry_get_sets(basis_set_registry_t *this, unsigned max_co
 }
 
 void basis_compute_at_point_prepare(const basis_set_type_t type, const unsigned order,
-                                    double INTERPLIB_ARRAY_ARG(work, restrict order + 1))
+                                    double FDG_ARRAY_ARG(work, restrict order + 1))
 {
     // Prepare the roots for Lagrange multipliers
     switch (type)
@@ -483,9 +482,9 @@ void basis_compute_at_point_prepare(const basis_set_type_t type, const unsigned 
 }
 
 void basis_compute_at_point_values(const basis_set_type_t type, const unsigned order, const unsigned cnt,
-                                   const double INTERPLIB_ARRAY_ARG(x, restrict static cnt),
-                                   double INTERPLIB_ARRAY_ARG(out, restrict cnt *(order + 1)),
-                                   double INTERPLIB_ARRAY_ARG(work, restrict order + 1))
+                                   const double FDG_ARRAY_ARG(x, restrict static cnt),
+                                   double FDG_ARRAY_ARG(out, restrict cnt *(order + 1)),
+                                   double FDG_ARRAY_ARG(work, restrict order + 1))
 {
     switch (type)
     {
@@ -512,9 +511,9 @@ void basis_compute_at_point_values(const basis_set_type_t type, const unsigned o
 }
 
 void basis_compute_at_point_derivatives(const basis_set_type_t type, const unsigned order, const unsigned cnt,
-                                        const double INTERPLIB_ARRAY_ARG(x, restrict static cnt),
-                                        double INTERPLIB_ARRAY_ARG(out, restrict cnt *(order + 1)),
-                                        double INTERPLIB_ARRAY_ARG(work, restrict order + 1))
+                                        const double FDG_ARRAY_ARG(x, restrict static cnt),
+                                        double FDG_ARRAY_ARG(out, restrict cnt *(order + 1)),
+                                        double FDG_ARRAY_ARG(work, restrict order + 1))
 {
     switch (type)
     {
@@ -579,7 +578,7 @@ void basis_compute_at_point_derivatives(const basis_set_type_t type, const unsig
 }
 
 void basis_compute_outer_product_basis_required_memory(const unsigned n_basis,
-                                                       const basis_spec_t INTERPLIB_ARRAY_ARG(basis_specs, n_basis),
+                                                       const basis_spec_t FDG_ARRAY_ARG(basis_specs, n_basis),
                                                        const unsigned cnt, unsigned *out_elements,
                                                        unsigned *work_elements, unsigned *tmp_elements,
                                                        size_t *iterator_size)
@@ -598,10 +597,9 @@ void basis_compute_outer_product_basis_required_memory(const unsigned n_basis,
 }
 
 void basis_compute_outer_product_basis(const unsigned n_basis_dims,
-                                       const basis_spec_t INTERPLIB_ARRAY_ARG(basis_specs, n_basis_dims),
-                                       const unsigned cnt, const double *INTERPLIB_ARRAY_ARG(x, restrict n_basis_dims),
-                                       double out[restrict], double work[restrict], double tmp[restrict],
-                                       multidim_iterator_t *const iter)
+                                       const basis_spec_t FDG_ARRAY_ARG(basis_specs, n_basis_dims), const unsigned cnt,
+                                       const double *FDG_ARRAY_ARG(x, restrict n_basis_dims), double out[restrict],
+                                       double work[restrict], double tmp[restrict], multidim_iterator_t *const iter)
 {
     size_t size_out = cnt, max_size_basis = 1;
     for (unsigned dim = 0; dim < n_basis_dims; ++dim)

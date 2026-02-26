@@ -6,7 +6,7 @@ This example demonstrates how to create and visualize different function spaces.
 """  # noqa: D205 D400
 
 import numpy as np
-from interplib import BasisSpecs, FunctionSpace
+from fdg import BasisSpecs, FunctionSpace
 from matplotlib import pyplot as plt
 
 # %%

@@ -67,7 +67,7 @@ unsigned covector_basis_rank(const covector_basis_t basis)
 }
 
 covector_basis_t covector_basis_create(const unsigned dimension, const int sign, const unsigned rank,
-                                       const unsigned INTERPLIB_ARRAY_ARG(indices, static rank))
+                                       const unsigned FDG_ARRAY_ARG(indices, static rank))
 {
     ASSERT(dimension > 0, "Dimension must be positive.");
     ASSERT(rank <= dimension, "Rank was larger than dimension.");
@@ -87,7 +87,7 @@ covector_basis_t covector_basis_create(const unsigned dimension, const int sign,
 }
 
 covector_basis_t covector_basis_create_u8(const unsigned dimension, const int sign, const unsigned rank,
-                                          const uint8_t INTERPLIB_ARRAY_ARG(indices, static rank))
+                                          const uint8_t FDG_ARRAY_ARG(indices, static rank))
 {
     ASSERT(dimension > 0, "Dimension must be positive.");
     ASSERT(rank <= dimension, "Rank was larger than dimension.");

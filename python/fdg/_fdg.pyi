@@ -6,7 +6,7 @@ from typing import Self, final
 import numpy as np
 import numpy.typing as npt
 
-from interplib.enum_type import _BasisTypeHint, _IntegrationMethodHint
+from fdg.enum_type import _BasisTypeHint, _IntegrationMethodHint
 
 # TODO: check each time an input array is taken as a parameter, there's a check for
 #  dimensions, types, and continuity
@@ -34,7 +34,7 @@ class IntegrationSpecs:
     order : int
         Order of the integration rule.
 
-    method : interplib.IntegrationMethod, default: "gauss"
+    method : fdg.IntegrationMethod, default: "gauss"
         Method used for integration.
     """
 
@@ -66,7 +66,7 @@ class IntegrationSpecs:
 
         Parameters
         ----------
-        registry : interplib.IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY
+        registry : fdg.IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY
             Registry used to retrieve the integration rule.
 
         Returns
@@ -83,7 +83,7 @@ class IntegrationSpecs:
 
         Parameters
         ----------
-        registry : interplib.IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY
+        registry : fdg.IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY
             Registry used to retrieve the integration rule.
 
         Returns
@@ -203,7 +203,7 @@ class BasisSpecs:
 
     Parameters
     ----------
-    basis_type : interplib._typing.BasisType
+    basis_type : fdg._typing.BasisType
         Type of the basis used for the set.
 
     order : int
@@ -381,7 +381,7 @@ class IntegrationSpace:
     ) -> npt.NDArray[np.double]:
         """Get the integration nodes of the space.
 
-        registry : interplib.IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY
+        registry : fdg.IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY
             Registry used to retrieve the integration rules.
 
         Returns
@@ -396,7 +396,7 @@ class IntegrationSpace:
     ) -> npt.NDArray[np.double]:
         """Get the integration weights of the space.
 
-        registry : interplib.IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY
+        registry : fdg.IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY
             Registry used to retrieve the integration rules.
 
         Returns

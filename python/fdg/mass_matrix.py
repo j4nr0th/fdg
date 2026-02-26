@@ -5,7 +5,7 @@ from itertools import combinations
 import numpy as np
 import numpy.typing as npt
 
-from interplib._interp import CovectorBasis, FunctionSpace, SpaceMap
+from fdg._fdg import CovectorBasis, FunctionSpace, SpaceMap
 
 
 def component_inner_prod_mass_matrix_block(

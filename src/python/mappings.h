@@ -1,6 +1,7 @@
-#ifndef INTERPLIB_MAPPINGS_H
-#define INTERPLIB_MAPPINGS_H
+#ifndef FDG_MAPPINGS_H
+#define FDG_MAPPINGS_H
 
+#include "../integration/integration_rules.h"
 #include "module.h"
 
 typedef struct
@@ -11,13 +12,13 @@ typedef struct
     double values[];
 } coordinate_map_object;
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 extern PyType_Spec coordinate_map_type_spec;
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 const double *coordinate_map_values(const coordinate_map_object *map);
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 const double *coordinate_map_gradient(const coordinate_map_object *map, unsigned dim);
 
 typedef struct
@@ -31,7 +32,7 @@ typedef struct
     coordinate_map_object *maps[];
 } space_map_object;
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 extern PyType_Spec space_map_type_spec;
 
 /**
@@ -48,10 +49,10 @@ extern PyType_Spec space_map_type_spec;
  * @return Pointer to the starting element of the inverse mapping data
  *         corresponding to the specified integration point.
  */
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 const double *space_map_inverse_at_integration_point(const space_map_object *map, size_t flat_index);
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 size_t space_map_inverse_size_per_integration_point(const space_map_object *map);
 
 /**
@@ -63,7 +64,7 @@ size_t space_map_inverse_size_per_integration_point(const space_map_object *map)
  * @param idx_coord Index of the coordinate.
  * @return Value of the specified forward derivative at the integration point.
  */
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 double space_map_forward_derivative(const space_map_object *map, size_t integration_point_index, unsigned idx_dim,
                                     unsigned idx_coord);
 
@@ -76,14 +77,14 @@ double space_map_forward_derivative(const space_map_object *map, size_t integrat
  * @param idx_coord Index of the coordinate.
  * @return Value of the specified backward derivative at the integration point.
  */
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 double space_map_backward_derivative(const space_map_object *map, size_t integration_point_index, unsigned idx_dim,
                                      unsigned idx_coord);
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 extern PyMethodDef transformation_functions[];
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 PyArrayObject *compute_basis_transform_impl(const space_map_object *map, const Py_ssize_t order);
 
-#endif // INTERPLIB_MAPPINGS_H
+#endif // FDG_MAPPINGS_H

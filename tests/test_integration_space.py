@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-from interplib import IntegrationMethod, IntegrationSpace, IntegrationSpecs
+from fdg import IntegrationMethod, IntegrationSpace, IntegrationSpecs
 
 
 def _exact_integral_monomial(k: int) -> float:

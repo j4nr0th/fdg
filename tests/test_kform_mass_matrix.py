@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-from interplib._interp import (
+from fdg._fdg import (
     BasisSpecs,
     FunctionSpace,
     IntegrationSpace,
@@ -10,9 +10,9 @@ from interplib._interp import (
     SpaceMap,
     compute_kform_mass_matrix,
 )
-from interplib.domains import Line, Quad
-from interplib.enum_type import BasisType
-from interplib.mass_matrix import compute_inner_prod_mass_matrix
+from fdg.domains import Line, Quad
+from fdg.enum_type import BasisType
+from fdg.mass_matrix import compute_inner_prod_mass_matrix
 
 
 def check_matrix_correctness(

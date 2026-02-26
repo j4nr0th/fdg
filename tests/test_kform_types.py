@@ -4,8 +4,8 @@ from itertools import combinations
 
 import numpy as np
 import pytest
-from interplib._interp import BasisSpecs, CovectorBasis, FunctionSpace, KForm, KFormSpecs
-from interplib.enum_type import BasisType
+from fdg._fdg import BasisSpecs, CovectorBasis, FunctionSpace, KForm, KFormSpecs
+from fdg.enum_type import BasisType
 
 
 @pytest.mark.parametrize("n", (1, 2, 3, 4, 6, 7))

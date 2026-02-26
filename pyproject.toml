@@ -1,10 +1,10 @@
 [project]
-name = "interplib"
+name = "fdg"
 version = "0.0.1a"
 authors = [{ name = "Jan Roth", email = "r0th.j4n@gmail.com" }]
-description = "Interpolation library designed to handle different topologies."
+description = "Finite Differential Geometry library for Python."
 requires-python = ">=3.11"
-dependencies = ["numpy>=2.0.0", "scipy"]
+dependencies = ["numpy>=2.0.0"]
 
 
 [build-system]
@@ -30,10 +30,8 @@ dev = [
     "pytest",
     "pytest-cov",
     "interrogate",
-    "nox",
     "pre-commit",
     "codespell",
-    "trame-vuetify",
     "tomli",
 ]
 docs = [
@@ -55,9 +53,9 @@ docs = [
 
 
 [tool.pyrefly]
-project-includes = ["python/interplib/**/*.py", "python/interplib/**/*.pyi"]
+project-includes = ["python/fdg/**/*.py", "python/fdg/**/*.pyi"]
 use-ignore-files = true
-search-path = ["python/interplib"]
+search-path = ["python/fdg"]
 ignore-missing-imports = ["*"]
 
 
@@ -86,7 +84,7 @@ unfixable = []
 convention = "numpy"
 
 [tool.pytest]
-addopts = ["--doctest-modules", "-ra", "--cov=interplib", "--ignore=cpyutl"]
+addopts = ["--doctest-modules", "-ra", "--cov=fdg", "--ignore=cpyutl"]
 testpaths = ["tests", "src"]
 console_output_style = "count"
 

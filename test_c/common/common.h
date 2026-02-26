@@ -2,8 +2,8 @@
 // Created by jan on 2025-09-07.
 //
 
-#ifndef INTERPLIB_COMMON_H
-#define INTERPLIB_COMMON_H
+#ifndef FDG_COMMON_H
+#define FDG_COMMON_H
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -35,7 +35,7 @@ static void failed_assertion(const char *file, const int line, const char *funct
 static void test_interp_result(const char *file, const int line, const char *function, const char *expr,
                                const interp_result_t res)
 {
-    if (res == INTERP_SUCCESS)
+    if (res == FDG_SUCCESS)
         return;
     fprintf(stderr, "%s:%d - %s (Assertion failed: %s): %s (%s)\n", file, line, function, expr, interp_error_str(res),
             interp_error_msg(res));
@@ -49,7 +49,7 @@ static void test_interp_result(const char *file, const int line, const char *fun
 #define TEST_ASSERTION(expr, msg, ...)                                                                                 \
     ((expr) ? (void)0 : failed_assertion(__FILE__, __LINE__, __func__, #expr, msg __VA_OPT__(, ) __VA_ARGS__))
 
-#define TEST_INTERP_RESULT(expr) test_interp_result(__FILE__, __LINE__, __func__, #expr, expr)
+#define TEST_FDG_RESULT(expr) test_interp_result(__FILE__, __LINE__, __func__, #expr, expr)
 
 static void test_numbers_close(const char *file, const int line, const char *function, const double x, const double y,
                                const double atol, const double rtol)
@@ -76,13 +76,13 @@ typedef struct
     uint32_t state;
 } test_prng_t;
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 void test_prng_seed(test_prng_t *rng, uint32_t seed);
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 uint32_t test_prng_next_uint(test_prng_t *rng);
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 double test_prng_next_double(test_prng_t *rng);
 
-#endif // INTERPLIB_COMMON_H
+#endif // FDG_COMMON_H

@@ -4,7 +4,7 @@ from functools import cache
 
 import numpy as np
 import pytest
-from interplib._interp import (
+from fdg._fdg import (
     BasisSpecs,
     CoordinateMap,
     DegreesOfFreedom,
@@ -15,7 +15,7 @@ from interplib._interp import (
     transform_kform_component_to_target,
     transform_kform_to_target,
 )
-from interplib.enum_type import BasisType
+from fdg.enum_type import BasisType
 
 
 def prepare_random_space_map(

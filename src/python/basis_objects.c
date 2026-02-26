@@ -8,16 +8,6 @@
 #include <numpy/ndarrayobject.h>
 #include <string.h>
 
-/* Enumeration-like strings for basis_type */
-// static const char *basis_type_strings[] = {
-//     "lagrange-uniform",
-//     "lagrange-gauss",
-//     "lagrange-gauss-lobatto",
-//     "legendre",
-//     "bernstein",
-//     NULL
-// };
-
 static basis_set_type_t get_basis_type(const char *str)
 {
     if (strcmp(str, "lagrange-uniform") == 0)
@@ -208,7 +198,7 @@ PyDoc_STRVAR(basis_registry_docstring, "Registry for basis sets.\n"
                                        "retrieval.\n");
 
 PyType_Spec basis_registry_type_specs = {
-    .name = "interplib._interp.BasisRegistry",
+    .name = FDG_TYPE_NAME("BasisRegistry"),
     .basicsize = sizeof(basis_registry_object),
     .itemsize = 0,
     .flags = Py_TPFLAGS_IMMUTABLETYPE | Py_TPFLAGS_HEAPTYPE | Py_TPFLAGS_HAVE_GC | Py_TPFLAGS_DEFAULT,
@@ -302,12 +292,12 @@ static PyGetSetDef basis_getset[] = {
     {},
 };
 
-PyDoc_STRVAR(basis_specs_docstring, "BasisSpecs(basis_type: interplib._typing.BasisType, order: int)\n"
+PyDoc_STRVAR(basis_specs_docstring, "BasisSpecs(basis_type: fdg._typing.BasisType, order: int)\n"
                                     "Type that describes a set of basis functions.\n"
                                     "\n"
                                     "Parameters\n"
                                     "----------\n"
-                                    "basis_type : interplib._typing.BasisType\n"
+                                    "basis_type : fdg._typing.BasisType\n"
                                     "    Type of the basis used for the set.\n"
                                     "\n"
                                     "order : int\n"
@@ -521,7 +511,7 @@ static PyObject *basis_specs_richcompare(PyObject *self, PyObject *other, const 
 
 /* Spec for the heap type */
 PyType_Spec basis_specs_type_spec = {
-    .name = "interplib._interp.BasisSpecs",
+    .name = FDG_TYPE_NAME("BasisSpecs"),
     .basicsize = sizeof(basis_specs_object),
     .flags =
         Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE | Py_TPFLAGS_HEAPTYPE | Py_TPFLAGS_HAVE_GC | Py_TPFLAGS_IMMUTABLETYPE,
@@ -559,7 +549,7 @@ basis_registry_object *basis_registry_object_create(PyTypeObject *type)
         return NULL;
     this->registry = NULL;
     const interp_result_t res = basis_set_registry_create(&this->registry, 1, &SYSTEM_ALLOCATOR);
-    if (res != INTERP_SUCCESS)
+    if (res != FDG_SUCCESS)
     {
         PyErr_Format(PyExc_RuntimeError, "Could not initialize basis set registry: %s (%s)", interp_error_str(res),
                      interp_error_msg(res));
@@ -588,7 +578,7 @@ const basis_set_t **python_basis_sets_get(const unsigned n_basis, const basis_sp
     {
         const interp_result_t res =
             basis_set_registry_get_basis_set(registry, array + ibasis, rules[ibasis], specs[ibasis]);
-        if (res != INTERP_SUCCESS)
+        if (res != FDG_SUCCESS)
         {
             PyErr_Format(PyExc_RuntimeError, "Failed to retrieve basis set: %s (%s).", interp_error_str(res),
                          interp_error_msg(res));

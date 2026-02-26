@@ -5,7 +5,7 @@
 """  # noqa: D205 D400
 
 import numpy as np
-from interplib import (
+from fdg import (
     BasisSpecs,
     BasisType,
     FunctionSpace,
@@ -15,13 +15,13 @@ from interplib import (
     Quad,
     projection_l2_primal,
 )
-from interplib._interp import (
+from fdg._fdg import (
     DegreesOfFreedom,
     compute_gradient_mass_matrix,
     compute_mass_matrix,
 )
-from interplib.degrees_of_freedom import reconstruct
-from interplib.enum_type import IntegrationMethod
+from fdg.degrees_of_freedom import reconstruct
+from fdg.enum_type import IntegrationMethod
 from matplotlib import pyplot as plt
 
 # %%

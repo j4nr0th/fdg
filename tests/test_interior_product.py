@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-from interplib._interp import (
+from fdg._fdg import (
     BasisRegistry,
     BasisSpecs,
     CoordinateMap,
@@ -14,7 +14,7 @@ from interplib._interp import (
     SpaceMap,
     compute_kform_interior_product_matrix,
 )
-from interplib.enum_type import BasisType
+from fdg.enum_type import BasisType
 
 _TEST_CASES_2D = (
     (6, 7, 3, BasisType.LEGENDRE, 4, BasisType.BERNSTEIN),

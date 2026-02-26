@@ -9,7 +9,7 @@ integration_registry_object *integration_registry_object_create(PyTypeObject *ty
         return NULL;
     self->registry = NULL;
     const interp_result_t res = integration_rule_registry_create(&self->registry, 1, &SYSTEM_ALLOCATOR);
-    if (res != INTERP_SUCCESS)
+    if (res != FDG_SUCCESS)
     {
         PyErr_Format(PyExc_RuntimeError, "Could not initialize integration rule registry: %s (%s)",
                      interp_error_str(res), interp_error_msg(res));
@@ -149,7 +149,7 @@ static PyObject *integration_registry_clear(PyObject *self, PyTypeObject *defini
 }
 
 PyType_Spec integration_registry_type_spec = {
-    .name = "interplib._interp.IntegrationRegistry",
+    .name = FDG_TYPE_NAME("IntegrationRegistry"),
     .basicsize = sizeof(integration_registry_object),
     .itemsize = 0,
     .flags = Py_TPFLAGS_IMMUTABLETYPE | Py_TPFLAGS_HAVE_GC | Py_TPFLAGS_HEAPTYPE | Py_TPFLAGS_DEFAULT,
@@ -356,7 +356,7 @@ static PyArrayObject *integration_specs_prepare_array(PyObject *self, PyTypeObje
 
     const integration_rule_t *rule;
     const interp_result_t res = integration_rule_registry_get_rule(registry, this->spec, &rule);
-    if (res != INTERP_SUCCESS)
+    if (res != FDG_SUCCESS)
     {
         PyErr_Format(PyExc_RuntimeError, "Failed to retrieve integration rule: %s (%s).", interp_error_str(res),
                      interp_error_msg(res));
@@ -376,7 +376,7 @@ PyDoc_STRVAR(integration_specs_nodes_docstring,
              "\n"
              "Parameters\n"
              "----------\n"
-             "registry : interplib.IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY\n"
+             "registry : fdg.IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY\n"
              "    Registry used to retrieve the integration rule.\n"
              "\n"
              "Returns\n"
@@ -401,7 +401,7 @@ static PyObject *integration_specs_nodes(PyObject *self, PyTypeObject *defining_
     }
     const interp_result_t res = integration_rule_registry_release_rule(registry, rule);
     (void)res;
-    ASSERT(res == INTERP_SUCCESS, "Rule from the registry had to be successfully returned.");
+    ASSERT(res == FDG_SUCCESS, "Rule from the registry had to be successfully returned.");
     return (PyObject *)out;
 }
 
@@ -411,7 +411,7 @@ PyDoc_STRVAR(integration_specs_weights_docstring,
              "\n"
              "Parameters\n"
              "----------\n"
-             "registry : interplib.IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY\n"
+             "registry : fdg.IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY\n"
              "    Registry used to retrieve the integration rule.\n"
              "\n"
              "Returns\n"
@@ -436,7 +436,7 @@ static PyObject *integration_specs_weights(PyObject *self, PyTypeObject *definin
     }
     const interp_result_t res = integration_rule_registry_release_rule(registry, rule);
     (void)res;
-    ASSERT(res == INTERP_SUCCESS, "Rule from the registry had to be successfully returned.");
+    ASSERT(res == FDG_SUCCESS, "Rule from the registry had to be successfully returned.");
     return (PyObject *)out;
 }
 
@@ -477,7 +477,7 @@ PyObject *integration_spec_richcompare(PyObject *self, PyObject *other, const in
 }
 
 PyType_Spec integration_specs_type_spec = {
-    .name = "interplib._interp.IntegrationSpecs",
+    .name = FDG_TYPE_NAME("IntegrationSpecs"),
     .basicsize = sizeof(integration_specs_object),
     .itemsize = 0,
     .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_IMMUTABLETYPE | Py_TPFLAGS_HEAPTYPE | Py_TPFLAGS_HAVE_GC,
@@ -622,7 +622,7 @@ PyDoc_STRVAR(integration_space_weights_docstring,
              "numpy.typing.NDArray[numpy.double]\n"
              "Get the integration weights of the space.\n"
              "\n"
-             "registry : interplib.IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY\n"
+             "registry : fdg.IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY\n"
              "    Registry used to retrieve the integration rules.\n"
              "\n"
              "Returns\n"
@@ -676,7 +676,7 @@ static PyObject *integration_space_weights(PyObject *self, PyTypeObject *definin
     {
         multidim_iterator_init_dim(iter, i, this->specs[i].order + 1);
     }
-    interp_result_t res = INTERP_SUCCESS;
+    interp_result_t res = FDG_SUCCESS;
     Py_BEGIN_ALLOW_THREADS;
 
     p_out[0] = 1.0;
@@ -684,7 +684,7 @@ static PyObject *integration_space_weights(PyObject *self, PyTypeObject *definin
     {
         const integration_rule_t *rule;
         res = integration_rule_registry_get_rule(registry_object->registry, this->specs[idim], &rule);
-        if (res != INTERP_SUCCESS)
+        if (res != FDG_SUCCESS)
             break;
         multidim_iterator_set_to_start(iter);
         const unsigned npts = this->specs[idim].order + 1;
@@ -704,7 +704,7 @@ static PyObject *integration_space_weights(PyObject *self, PyTypeObject *definin
     Py_END_ALLOW_THREADS;
     PyMem_Free(dims_out);
 
-    if (res != INTERP_SUCCESS)
+    if (res != FDG_SUCCESS)
     {
         Py_DECREF(out);
         PyErr_Format(PyExc_RuntimeError, "Failed to retrieve integration rule: %s (%s).", interp_error_str(res),
@@ -720,7 +720,7 @@ PyDoc_STRVAR(
     "nodes(registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY, /) -> numpy.typing.NDArray[numpy.double]\n"
     "Get the integration nodes of the space.\n"
     "\n"
-    "registry : interplib.IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY\n"
+    "registry : fdg.IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY\n"
     "    Registry used to retrieve the integration rules.\n"
     "\n"
     "Returns\n"
@@ -779,7 +779,7 @@ static PyObject *integration_space_nodes(PyObject *self, PyTypeObject *defining_
     {
         multidim_iterator_init_dim(iter, i, this->specs[i].order + 1);
     }
-    interp_result_t res = INTERP_SUCCESS;
+    interp_result_t res = FDG_SUCCESS;
     Py_BEGIN_ALLOW_THREADS;
 
     for (unsigned idim = 0; idim < ndim; ++idim)
@@ -787,7 +787,7 @@ static PyObject *integration_space_nodes(PyObject *self, PyTypeObject *defining_
         npy_double *const ptr = p_out + size_per_dim * idim;
         const integration_rule_t *rule;
         res = integration_rule_registry_get_rule(registry_object->registry, this->specs[idim], &rule);
-        if (res != INTERP_SUCCESS)
+        if (res != FDG_SUCCESS)
             break;
         multidim_iterator_set_to_start(iter);
 
@@ -802,7 +802,7 @@ static PyObject *integration_space_nodes(PyObject *self, PyTypeObject *defining_
     Py_END_ALLOW_THREADS;
     PyMem_Free(dims_out);
 
-    if (res != INTERP_SUCCESS)
+    if (res != FDG_SUCCESS)
     {
         Py_DECREF(out);
         PyErr_Format(PyExc_RuntimeError, "Failed to retrieve integration rule: %s (%s).", interp_error_str(res),
@@ -827,7 +827,7 @@ PyDoc_STRVAR(integration_space_docstring,
              "    Integration specifications for each dimension of the integration space.\n");
 
 PyType_Spec integration_space_type_spec = {
-    .name = "interplib._interp.IntegrationSpace",
+    .name = FDG_TYPE_NAME("IntegrationSpace"),
     .basicsize = sizeof(integration_space_object),
     .itemsize = sizeof(integration_spec_t),
     .flags = Py_TPFLAGS_HEAPTYPE | Py_TPFLAGS_HAVE_GC | Py_TPFLAGS_IMMUTABLETYPE | Py_TPFLAGS_DEFAULT,
@@ -876,7 +876,7 @@ PyType_Spec integration_space_type_spec = {
     }};
 
 multidim_iterator_t *integration_specs_iterator(const unsigned n_specs,
-                                                const integration_spec_t INTERPLIB_ARRAY_ARG(specs, static n_specs))
+                                                const integration_spec_t FDG_ARRAY_ARG(specs, static n_specs))
 {
     multidim_iterator_t *const iter = PyMem_Malloc(multidim_iterator_needed_memory(n_specs));
     if (!iter)
@@ -905,7 +905,7 @@ const integration_rule_t **python_integration_rules_get(const unsigned n_rules,
     for (unsigned irule = 0; irule < n_rules; ++irule)
     {
         const interp_result_t res = integration_rule_registry_get_rule(registry, specs[irule], array + irule);
-        if (res != INTERP_SUCCESS)
+        if (res != FDG_SUCCESS)
         {
             PyErr_Format(PyExc_RuntimeError, "Failed to retrieve integration rule: %s (%s).", interp_error_str(res),
                          interp_error_msg(res));

@@ -1,6 +1,6 @@
 
-#ifndef INTERPLIB_INTEGRATION_RULES_H
-#define INTERPLIB_INTEGRATION_RULES_H
+#ifndef FDG_INTEGRATION_RULES_H
+#define FDG_INTEGRATION_RULES_H
 #include "../common/error.h"
 #include <cutl/allocators.h>
 
@@ -11,7 +11,7 @@ typedef enum
     INTEGRATION_RULE_TYPE_GAUSS_LOBATTO,
 } integration_rule_type_t;
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 const char *integration_rule_type_to_str(integration_rule_type_t type);
 
 typedef struct
@@ -48,11 +48,11 @@ static inline const double *integration_rule_weights_const(const integration_rul
     return this->_data + this->n_nodes;
 }
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 interp_result_t integration_rule_for_accuracy(integration_rule_t **out, integration_rule_type_t type, unsigned accuracy,
                                               const cutl_allocator_t *allocator);
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 interp_result_t integration_rule_for_order(integration_rule_t **out, integration_rule_type_t type, unsigned order,
                                            const cutl_allocator_t *allocator);
 
@@ -72,13 +72,13 @@ typedef struct integration_rule_registry_t integration_rule_registry_t;
  * @param[in] allocator Pointer to an `cutl_allocator_t` structure for custom
  *                      memory allocation, reallocation, and deallocation operations.
  *
- * @return `INTERP_SUCCESS` on successful initialization.
- *         `INTERP_ERROR_FAILED_ALLOCATION` if memory allocation fails.
+ * @return `FDG_SUCCESS` on successful initialization.
+ *         `FDG_ERROR_FAILED_ALLOCATION` if memory allocation fails.
  *
  * The caller is responsible for properly deallocating the registry using the corresponding
  * cleanup function when it is no longer necessary.
  */
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 interp_result_t integration_rule_registry_create(integration_rule_registry_t **out, int should_cache,
                                                  const cutl_allocator_t *allocator);
 
@@ -98,7 +98,7 @@ interp_result_t integration_rule_registry_create(integration_rule_registry_t **o
  * The caller is responsible for ensuring the registry is no longer
  * in use before calling this function to avoid undefined behavior.
  */
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 void integration_rule_registry_destroy(integration_rule_registry_t *this);
 
 /**
@@ -115,8 +115,8 @@ void integration_rule_registry_destroy(integration_rule_registry_t *this);
  * @param[out] p_rule Pointer to a location where the retrieved or newly created
  *                    `integration_rule_t` object will be stored.
  *
- * @return `INTERP_SUCCESS` if the rule is successfully retrieved or created.
- *         `INTERP_ERROR_FAILED_ALLOCATION` if memory allocation fails during the
+ * @return `FDG_SUCCESS` if the rule is successfully retrieved or created.
+ *         `FDG_ERROR_FAILED_ALLOCATION` if memory allocation fails during the
  *         operation.
  *         Other `interp_result_t` error codes indicating issues with initialization
  *         or rule creation may also be returned.
@@ -128,7 +128,7 @@ void integration_rule_registry_destroy(integration_rule_registry_t *this);
  * The rule will not be freed and will remain cached until all references to it have been removed and
  * `integration_rule_registry_release_unused_rules` has been called.
  */
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 interp_result_t integration_rule_registry_get_rule(integration_rule_registry_t *this, integration_spec_t spec,
                                                    const integration_rule_t **p_rule);
 
@@ -141,8 +141,8 @@ interp_result_t integration_rule_registry_get_rule(integration_rule_registry_t *
  * @param[in] specs The specifications of the integration rules.
  * @param[out] p_rules Array which gets filled with pointers to `integration_rule_t` objects.
  *
- * @return `INTERP_SUCCESS` if the rule is successfully retrieved or created.
- *         `INTERP_ERROR_FAILED_ALLOCATION` if memory allocation fails during the
+ * @return `FDG_SUCCESS` if the rule is successfully retrieved or created.
+ *         `FDG_ERROR_FAILED_ALLOCATION` if memory allocation fails during the
  *         operation.
  *         Other `interp_result_t` error codes indicating issues with initialization
  *         or rule creation may also be returned.
@@ -154,10 +154,10 @@ interp_result_t integration_rule_registry_get_rule(integration_rule_registry_t *
  * The rule will not be freed and will remain cached until all references to it have been removed and
  * `integration_rule_registry_release_unused_rules` has been called.
  */
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 interp_result_t integration_rule_registry_get_rules(integration_rule_registry_t *this, unsigned cnt,
-                                                    const integration_spec_t INTERPLIB_ARRAY_ARG(specs, static cnt),
-                                                    const integration_rule_t *INTERPLIB_ARRAY_ARG(p_rules, cnt));
+                                                    const integration_spec_t FDG_ARRAY_ARG(specs, static cnt),
+                                                    const integration_rule_t *FDG_ARRAY_ARG(p_rules, cnt));
 
 /**
  * @brief Releases a specific integration rule from the integration rule registry.
@@ -169,14 +169,14 @@ interp_result_t integration_rule_registry_get_rules(integration_rule_registry_t 
  * @param[in] this Pointer to the `integration_rule_registry_t` containing the rule.
  * @param[in] rule Pointer to the `integration_rule_t` to be released.
  *
- * @return `INTERP_SUCCESS` if the rule was successfully released and, if applicable, removed.
- *         `INTERP_ERROR_NOT_IN_REGISTRY` if the specified rule was not found in the registry.
+ * @return `FDG_SUCCESS` if the rule was successfully released and, if applicable, removed.
+ *         `FDG_ERROR_NOT_IN_REGISTRY` if the specified rule was not found in the registry.
  *
  * This operation might modify the internal structure of the registry, specifically the bucket
  * where the rule is located. The caller should ensure thread-safety if the registry is accessed
  * concurrently.
  */
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 interp_result_t integration_rule_registry_release_rule(integration_rule_registry_t *this,
                                                        const integration_rule_t *rule);
 /**
@@ -197,7 +197,7 @@ interp_result_t integration_rule_registry_release_rule(integration_rule_registry
  * The caller is responsible for ensuring the registry is not accessed
  * concurrently by other threads.
  */
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 void integration_rule_registry_release_unused_rules(integration_rule_registry_t *this);
 
 /**
@@ -213,17 +213,17 @@ void integration_rule_registry_release_unused_rules(integration_rule_registry_t 
  * The caller must ensure the validity of the input `this` pointer. This function does not
  * deallocate the registry object itself; it only removes and releases the rules within it.
  */
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 void integration_rule_registry_release_all_rules(integration_rule_registry_t *this);
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 unsigned integration_rule_get_rules(integration_rule_registry_t *this, unsigned max_count,
-                                    integration_spec_t INTERPLIB_ARRAY_ARG(specs, max_count));
+                                    integration_spec_t FDG_ARRAY_ARG(specs, max_count));
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 unsigned integration_rule_spec_get_accuracy(integration_spec_t spec);
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 size_t integration_specs_total_points(unsigned ndim, const integration_spec_t specs[static ndim]);
 
-#endif // INTERPLIB_INTEGRATION_RULES_H
+#endif // FDG_INTEGRATION_RULES_H

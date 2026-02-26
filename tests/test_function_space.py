@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-from interplib._interp import (
+from fdg._fdg import (
     BasisSpecs,
     FunctionSpace,
     IntegrationSpace,

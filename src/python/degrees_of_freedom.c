@@ -768,7 +768,7 @@ static void dof_dealloc(dof_object *self)
 }
 
 PyType_Spec degrees_of_freedom_type_spec = {
-    .name = "interplib._interp.DegreesOfFreedom",
+    .name = FDG_TYPE_NAME("DegreesOfFreedom"),
     .basicsize = sizeof(dof_object),
     .itemsize = sizeof(double),
     .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HEAPTYPE | Py_TPFLAGS_HAVE_GC | Py_TPFLAGS_IMMUTABLETYPE,

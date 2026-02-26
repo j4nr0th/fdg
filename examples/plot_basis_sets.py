@@ -10,9 +10,9 @@ The basis values are sampled at the integration points (nodes), and the
 functions are visualized on the reference interval [-1, 1].
 """  # noqa: D400 D205
 
-# Assume classes are defined in interplib
+# Assume classes are defined in fdg
 import numpy as np
-from interplib import BasisSpecs, BasisType
+from fdg import BasisSpecs, BasisType
 from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
 

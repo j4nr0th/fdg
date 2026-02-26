@@ -1,7 +1,7 @@
 //
 // Created by jan on 29.9.2024.
 //
-#define PY_ARRAY_UNIQUE_SYMBOL _interp
+#define PY_ARRAY_UNIQUE_SYMBOL _fdg
 #include "module.h"
 
 //  Numpy
@@ -57,7 +57,7 @@ static void free_system(void *state, void *ptr)
     PyMem_RawFree(ptr);
 }
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 cutl_allocator_t SYSTEM_ALLOCATOR = {
     .allocate = allocate_system,
     .deallocate = free_system,
@@ -83,7 +83,7 @@ static void free_python(void *state, void *ptr)
     PyMem_Free(ptr);
 }
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 cutl_allocator_t PYTHON_ALLOCATOR = {
     .allocate = allocate_python,
     .deallocate = free_python,
@@ -187,7 +187,7 @@ static int interplib_add_registries(PyObject *mod)
 
 PyModuleDef interplib_module = {
     .m_base = PyModuleDef_HEAD_INIT,
-    .m_name = "interplib._interp",
+    .m_name = FDG_MODULE_NAME,
     .m_doc = "Internal C-extension implementing interpolation functions",
     .m_size = sizeof(interplib_module_state_t),
     .m_methods = NULL,
@@ -202,7 +202,7 @@ PyModuleDef interplib_module = {
         },
 };
 
-PyMODINIT_FUNC PyInit__interp(void)
+PyMODINIT_FUNC PyInit__fdg(void)
 {
     import_array();
 

@@ -2,11 +2,11 @@
 // Created by jan on 2025-09-09.
 //
 
-#ifndef INTERPLIB_BASIS_LAGRANGE_H
-#define INTERPLIB_BASIS_LAGRANGE_H
+#ifndef FDG_BASIS_LAGRANGE_H
+#define FDG_BASIS_LAGRANGE_H
 #include "basis_set.h"
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 interp_result_t lagrange_basis_create(basis_set_t **out, basis_spec_t spec, const integration_rule_t *rule,
                                       const cutl_allocator_t *allocator);
 
@@ -18,7 +18,7 @@ static inline const double *lagrange_basis_roots(const basis_set_t *this)
     return this->_data + (this->spec.order + 1) * (2 * (this->integration_spec.order + 1));
 }
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 interp_result_t generate_lagrange_roots(unsigned order, basis_set_type_t type, double roots[const order + 1]);
 
-#endif // INTERPLIB_BASIS_LAGRANGE_H
+#endif // FDG_BASIS_LAGRANGE_H

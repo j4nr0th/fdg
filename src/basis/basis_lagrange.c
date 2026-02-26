@@ -36,19 +36,19 @@ interp_result_t generate_lagrange_roots(const unsigned order, const basis_set_ty
         break;
 
     default:
-        return INTERP_ERROR_INVALID_ENUM;
+        return FDG_ERROR_INVALID_ENUM;
     }
 
-    return INTERP_SUCCESS;
+    return FDG_SUCCESS;
 }
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 interp_result_t lagrange_basis_create(basis_set_t **out, const basis_spec_t spec, const integration_rule_t *rule,
                                       const cutl_allocator_t *allocator)
 {
     basis_set_t *const this = cutl_alloc(allocator, sizeof *this + sizeof(*this->_data) * (spec.order + 1) *
                                                                        (2 * (rule->spec.order + 1) + 1));
     if (!this)
-        return INTERP_ERROR_FAILED_ALLOCATION;
+        return FDG_ERROR_FAILED_ALLOCATION;
 
     double *const roots = this->_data + 2 * (spec.order + 1) * (rule->spec.order + 1);
 
@@ -57,7 +57,7 @@ interp_result_t lagrange_basis_create(basis_set_t **out, const basis_spec_t spec
     // Find roots for Lagrange polynomials
 
     interp_result_t res;
-    if ((res = generate_lagrange_roots(spec.order, spec.type, roots)) != INTERP_SUCCESS)
+    if ((res = generate_lagrange_roots(spec.order, spec.type, roots)) != FDG_SUCCESS)
         return res;
 
     lagrange_polynomial_values_transposed_2(rule->n_nodes, integration_rule_nodes_const(rule), spec.order + 1, roots,
@@ -67,5 +67,5 @@ interp_result_t lagrange_basis_create(basis_set_t **out, const basis_spec_t spec
     this->spec = spec;
     this->integration_spec = rule->spec;
     *out = this;
-    return INTERP_SUCCESS;
+    return FDG_SUCCESS;
 }

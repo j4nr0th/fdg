@@ -1,5 +1,5 @@
-#ifndef INTERPLIB_MATRICES_H
-#define INTERPLIB_MATRICES_H
+#ifndef FDG_MATRICES_H
+#define FDG_MATRICES_H
 #include "../common/error.h"
 
 typedef struct
@@ -14,7 +14,7 @@ typedef struct
  * @param ar[in,out] Input matrix, which becomes the upper-triangular matrix.
  * @param q[in,out] Matrix, which becomes the orthogonal Q matrix, such that A = QR
  *
- * @returns INTERP_SUCCESS if successful, INTERP_ERROR_MATRIX_DIMS_MISMATCH if matrices
+ * @returns FDG_SUCCESS if successful, FDG_ERROR_MATRIX_DIMS_MISMATCH if matrices
  * do not have correct dimensions.
  */
 interp_result_t matrix_qr_decompose(const matrix_t *ar, const matrix_t *q);
@@ -26,7 +26,7 @@ interp_result_t matrix_qr_decompose(const matrix_t *ar, const matrix_t *q);
  * @param b[in] The second input matrix with dimensions (common_dim x cols).
  * @param c[out] The output matrix where the result of the multiplication is stored, with dimensions (rows x cols).
  *
- * @returns INTERP_SUCCESS if successful, INTERP_ERROR_MATRIX_DIMS_MISMATCH if the dimensions of the matrices are
+ * @returns FDG_SUCCESS if successful, FDG_ERROR_MATRIX_DIMS_MISMATCH if the dimensions of the matrices are
  * incompatible.
  */
 interp_result_t matrix_multiply(const matrix_t *a, const matrix_t *b, const matrix_t *c);
@@ -39,9 +39,9 @@ interp_result_t matrix_multiply(const matrix_t *a, const matrix_t *b, const matr
  * @param upper Upper triangular matrix U to solve using back substitution.
  * @param b Matrix to solve for inplace.
  *
- * @returns INTERP_SUCCESS if successful, INTERP_ERROR_MATRIX_DIMS_MISMATCH if the dimensions of the matrices are
+ * @returns FDG_SUCCESS if successful, FDG_ERROR_MATRIX_DIMS_MISMATCH if the dimensions of the matrices are
  * incompatible.
  */
 interp_result_t matrix_back_substitute(const matrix_t *upper, const matrix_t *b);
 
-#endif // INTERPLIB_MATRICES_H
+#endif // FDG_MATRICES_H

@@ -1,5 +1,5 @@
 """
-.. currentmodule:: interplib
+.. currentmodule:: fdg
 
 Domain Examples
 ===============
@@ -8,7 +8,7 @@ This example demonstrates how different domains look and behave like.
 """  # noqa: D205 D400
 
 import numpy as np
-from interplib import Line, Quad
+from fdg import Line, Quad
 from matplotlib import pyplot as plt
 
 # %%

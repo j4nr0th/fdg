@@ -2,8 +2,8 @@
 // Created by jan on 2025-09-07.
 //
 
-#ifndef INTERPLIB_MODULE_H
-#define INTERPLIB_MODULE_H
+#ifndef FDG_MODULE_H
+#define FDG_MODULE_H
 
 #include "../common/common_defines.h"
 #include <cutl/allocators.h>
@@ -24,7 +24,7 @@
 
 #ifndef PY_ARRAY_UNIQUE_SYMBOL
 #define NO_IMPORT_ARRAY
-#define PY_ARRAY_UNIQUE_SYMBOL _interp
+#define PY_ARRAY_UNIQUE_SYMBOL _fdg
 #endif
 
 #include <Python.h>
@@ -33,17 +33,17 @@
 // This must be after the NumPy include
 #include <cpyutl.h>
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 extern cutl_allocator_t SYSTEM_ALLOCATOR;
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 extern cutl_allocator_t PYTHON_ALLOCATOR;
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 extern cutl_allocator_t OBJECT_ALLOCATOR;
 
-#include "../basis/basis_set.h"
-#include "../integration/integration_rules.h"
+#define FDG_MODULE_NAME "fdg._fdg"
+#define FDG_TYPE_NAME(type_name) (FDG_MODULE_NAME "." type_name)
 
 typedef struct
 {
@@ -65,14 +65,6 @@ typedef struct
     PyTypeObject *coordinate_mapping_type;
     PyTypeObject *space_mapping_type;
 
-    // Topology
-    PyTypeObject *geoid_type;
-    PyTypeObject *line_type;
-    PyTypeObject *surf_type;
-    PyTypeObject *man_type;
-    PyTypeObject *man1d_type;
-    PyTypeObject *man2d_type;
-
     // Default Registries
     PyObject *registry_integration;
     PyObject *registry_basis;
@@ -82,7 +74,7 @@ typedef struct
     PyTypeObject *kform_type;
 } interplib_module_state_t;
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 extern PyModuleDef interplib_module;
 
 static inline const interplib_module_state_t *interplib_get_module_state(PyTypeObject *type)
@@ -95,7 +87,7 @@ static inline const interplib_module_state_t *interplib_get_module_state(PyTypeO
     return PyModule_GetState(mod);
 }
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 int heap_type_traverse_type(PyObject *self, visitproc visit, void *arg);
 
-#endif // INTERPLIB_MODULE_H
+#endif // FDG_MODULE_H

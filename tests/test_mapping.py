@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-from interplib._interp import (
+from fdg._fdg import (
     BasisSpecs,
     CoordinateMap,
     DegreesOfFreedom,
@@ -12,7 +12,7 @@ from interplib._interp import (
     SpaceMap,
     transform_contravariant_to_target,
 )
-from interplib.enum_type import BasisType
+from fdg.enum_type import BasisType
 
 _TEST_ORDERS = (1, 2, 5, 10)
 
