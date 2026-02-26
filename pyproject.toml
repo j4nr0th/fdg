@@ -21,7 +21,7 @@ editable.verbose = true
 editable.rebuild = false
 
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
     "build",
     "scikit-build-core",
