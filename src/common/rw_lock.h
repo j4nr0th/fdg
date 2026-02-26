@@ -1,5 +1,5 @@
-#ifndef INTERPLIB_RW_LOCK_H
-#define INTERPLIB_RW_LOCK_H
+#ifndef FDG_RW_LOCK_H
+#define FDG_RW_LOCK_H
 
 #include "error.h"
 #include <threads.h>
@@ -14,22 +14,22 @@ struct rw_lock_t
     unsigned writers;
 };
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 interp_result_t rw_lock_init(rw_lock_t *this);
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 void rw_lock_destroy(rw_lock_t *this);
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 void rw_lock_acquire_read(rw_lock_t *this);
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 void rw_lock_acquire_write(rw_lock_t *this);
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 void rw_lock_release_read(rw_lock_t *this);
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 void rw_lock_release_write(rw_lock_t *this);
 
-#endif // INTERPLIB_RW_LOCK_H
+#endif // FDG_RW_LOCK_H

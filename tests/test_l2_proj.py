@@ -4,7 +4,7 @@ from functools import partial
 
 import numpy as np
 import pytest
-from interplib._interp import (
+from fdg._fdg import (
     BasisSpecs,
     DegreesOfFreedom,
     FunctionSpace,
@@ -12,10 +12,10 @@ from interplib._interp import (
     IntegrationSpecs,
     KFormSpecs,
 )
-from interplib.degrees_of_freedom import reconstruct
-from interplib.domains import Quad
-from interplib.enum_type import BasisType
-from interplib.integration import projection_kform_l2_primal, projection_l2_primal
+from fdg.degrees_of_freedom import reconstruct
+from fdg.domains import Quad
+from fdg.enum_type import BasisType
+from fdg.integration import projection_kform_l2_primal, projection_l2_primal
 
 
 @pytest.mark.parametrize("order", (1, 2, 4, 10))

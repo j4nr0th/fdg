@@ -32,7 +32,7 @@ interp_result_t integration_rule_for_accuracy(integration_rule_t **out, const in
         break;
 
     default:
-        return INTERP_ERROR_INVALID_ENUM;
+        return FDG_ERROR_INVALID_ENUM;
     }
 
     return integration_rule_for_order(out, type, required_order, allocator);
@@ -42,7 +42,7 @@ interp_result_t integration_rule_for_order(integration_rule_t **out, const integ
 {
     integration_rule_t *const this = cutl_alloc(allocator, sizeof *this + 2 * (order + 1) * sizeof *this->_data);
     if (!this)
-        return INTERP_ERROR_FAILED_ALLOCATION;
+        return FDG_ERROR_FAILED_ALLOCATION;
     this->n_nodes = order + 1;
     this->spec = (integration_spec_t){.type = type, .order = order};
 
@@ -65,11 +65,11 @@ interp_result_t integration_rule_for_order(integration_rule_t **out, const integ
                                     integration_rule_weights(this));
         break;
     default:
-        return INTERP_ERROR_INVALID_ENUM;
+        return FDG_ERROR_INVALID_ENUM;
     }
 
     *out = this;
-    return INTERP_SUCCESS;
+    return FDG_SUCCESS;
 }
 
 typedef struct
@@ -91,17 +91,17 @@ static inline interp_result_t integration_rule_type_bucket_init(integration_rule
     this->capacity = starting_size;
     this->rules = cutl_alloc(allocator, starting_size * sizeof *this->rules);
     if (!this->rules)
-        return INTERP_ERROR_FAILED_ALLOCATION;
+        return FDG_ERROR_FAILED_ALLOCATION;
 
     this->ref_counts = cutl_alloc(allocator, starting_size * sizeof *this->ref_counts);
     if (!this->ref_counts)
     {
         cutl_dealloc(allocator, this->rules);
-        return INTERP_ERROR_FAILED_ALLOCATION;
+        return FDG_ERROR_FAILED_ALLOCATION;
     }
     memset(this->ref_counts, 0, starting_size * sizeof *this->ref_counts);
 
-    return INTERP_SUCCESS;
+    return FDG_SUCCESS;
 }
 
 static inline void integration_rule_type_bucket_destroy(integration_rule_type_bucket_t *this,
@@ -126,12 +126,12 @@ static inline interp_result_t integration_rule_type_bucket_add_rule(integration_
         const unsigned new_capacity = this->capacity * 2;
         integration_rule_t **new_rules = cutl_realloc(allocator, this->rules, new_capacity * sizeof *new_rules);
         if (!new_rules)
-            return INTERP_ERROR_FAILED_ALLOCATION;
+            return FDG_ERROR_FAILED_ALLOCATION;
         this->rules = new_rules;
 
         unsigned *new_ref_counts = cutl_realloc(allocator, this->ref_counts, new_capacity * sizeof *new_ref_counts);
         if (!new_ref_counts)
-            return INTERP_ERROR_FAILED_ALLOCATION;
+            return FDG_ERROR_FAILED_ALLOCATION;
         this->ref_counts = new_ref_counts;
         this->capacity = new_capacity;
     }
@@ -140,7 +140,7 @@ static inline interp_result_t integration_rule_type_bucket_add_rule(integration_
     this->ref_counts[this->count] = 1;
     this->count += 1;
 
-    return INTERP_SUCCESS;
+    return FDG_SUCCESS;
 }
 
 struct integration_rule_registry_t
@@ -152,26 +152,26 @@ struct integration_rule_registry_t
     integration_rule_type_bucket_t *buckets; // Bucket array
 };
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 interp_result_t integration_rule_registry_create(integration_rule_registry_t **out, const int should_cache,
                                                  const cutl_allocator_t *allocator)
 {
     integration_rule_registry_t *const this = cutl_alloc(allocator, sizeof *this);
     if (!this)
-        return INTERP_ERROR_FAILED_ALLOCATION;
+        return FDG_ERROR_FAILED_ALLOCATION;
     *this = (integration_rule_registry_t){
         .allocator = *allocator, .should_cache = (should_cache != 0), .n_buckets = 0, .buckets = NULL};
     const interp_result_t res = rw_lock_init(&this->lock);
-    if (res != INTERP_SUCCESS)
+    if (res != FDG_SUCCESS)
     {
         cutl_dealloc(allocator, this);
         return res;
     }
     *out = this;
-    return INTERP_SUCCESS;
+    return FDG_SUCCESS;
 }
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 void integration_rule_registry_destroy(integration_rule_registry_t *this)
 {
     for (unsigned i = 0; i < this->n_buckets; ++i)
@@ -183,7 +183,7 @@ void integration_rule_registry_destroy(integration_rule_registry_t *this)
     cutl_dealloc(&this->allocator, this);
 }
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 interp_result_t integration_rule_registry_get_rule(integration_rule_registry_t *this, const integration_spec_t spec,
                                                    const integration_rule_t **p_rule)
 {
@@ -205,7 +205,7 @@ interp_result_t integration_rule_registry_get_rule(integration_rule_registry_t *
         integration_rule_type_bucket_t *const new_buckets =
             cutl_realloc(&this->allocator, this->buckets, (this->n_buckets + 1) * sizeof *new_buckets);
         if (!new_buckets)
-            return INTERP_ERROR_FAILED_ALLOCATION;
+            return FDG_ERROR_FAILED_ALLOCATION;
         this->buckets = new_buckets;
         enum
         {
@@ -213,22 +213,22 @@ interp_result_t integration_rule_registry_get_rule(integration_rule_registry_t *
         };
         interp_result_t result = integration_rule_type_bucket_init(this->buckets + this->n_buckets, spec.type,
                                                                    BUCKET_STARTING_SIZE, &this->allocator);
-        if (result != INTERP_SUCCESS)
+        if (result != FDG_SUCCESS)
             return result;
         bucket = this->buckets + this->n_buckets;
         this->n_buckets += 1;
 
         integration_rule_t *rule;
         result = integration_rule_for_order(&rule, spec.type, spec.order, &this->allocator);
-        if (result != INTERP_SUCCESS)
+        if (result != FDG_SUCCESS)
             return result;
         result = integration_rule_type_bucket_add_rule(bucket, rule, &this->allocator);
-        if (result != INTERP_SUCCESS)
+        if (result != FDG_SUCCESS)
             return result;
         *p_rule = rule;
 
         rw_lock_release_write(&this->lock);
-        return INTERP_SUCCESS;
+        return FDG_SUCCESS;
     }
 
     for (unsigned i = 0; i < bucket->count; ++i)
@@ -238,7 +238,7 @@ interp_result_t integration_rule_registry_get_rule(integration_rule_registry_t *
             bucket->ref_counts[i] += 1;
             *p_rule = bucket->rules[i];
             rw_lock_release_read(&this->lock);
-            return INTERP_SUCCESS;
+            return FDG_SUCCESS;
         }
     }
 
@@ -247,29 +247,29 @@ interp_result_t integration_rule_registry_get_rule(integration_rule_registry_t *
 
     integration_rule_t *rule;
     interp_result_t result = integration_rule_for_order(&rule, spec.type, spec.order, &this->allocator);
-    if (result != INTERP_SUCCESS)
+    if (result != FDG_SUCCESS)
     {
         rw_lock_release_write(&this->lock);
         return result;
     }
 
     result = integration_rule_type_bucket_add_rule(bucket, rule, &this->allocator);
-    if (result == INTERP_SUCCESS)
+    if (result == FDG_SUCCESS)
         *p_rule = rule;
 
     rw_lock_release_write(&this->lock);
-    return INTERP_SUCCESS;
+    return FDG_SUCCESS;
 }
 
 interp_result_t integration_rule_registry_get_rules(integration_rule_registry_t *this, const unsigned cnt,
-                                                    const integration_spec_t INTERPLIB_ARRAY_ARG(specs, static cnt),
-                                                    const integration_rule_t *INTERPLIB_ARRAY_ARG(p_rules, cnt))
+                                                    const integration_spec_t FDG_ARRAY_ARG(specs, static cnt),
+                                                    const integration_rule_t *FDG_ARRAY_ARG(p_rules, cnt))
 {
     for (unsigned i = 0; i < cnt; ++i)
     {
         const integration_rule_t *rule;
         const interp_result_t res = integration_rule_registry_get_rule(this, specs[i], &rule);
-        if (res != INTERP_SUCCESS)
+        if (res != FDG_SUCCESS)
         {
             // Release all rules that were retrieved thus far
             for (unsigned j = 0; j < i; ++j)
@@ -282,10 +282,10 @@ interp_result_t integration_rule_registry_get_rules(integration_rule_registry_t 
         p_rules[i] = rule;
     }
 
-    return INTERP_SUCCESS;
+    return FDG_SUCCESS;
 }
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 interp_result_t integration_rule_registry_release_rule(integration_rule_registry_t *this,
                                                        const integration_rule_t *rule)
 {
@@ -312,16 +312,16 @@ interp_result_t integration_rule_registry_release_rule(integration_rule_registry
                     bucket->count -= 1;
                 }
                 rw_lock_release_write(&this->lock);
-                return INTERP_SUCCESS;
+                return FDG_SUCCESS;
             }
         }
     }
 
     rw_lock_release_read(&this->lock);
-    return INTERP_ERROR_NOT_IN_REGISTRY;
+    return FDG_ERROR_NOT_IN_REGISTRY;
 }
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 void integration_rule_registry_release_unused_rules(integration_rule_registry_t *this)
 {
     rw_lock_acquire_write(&this->lock);
@@ -365,7 +365,7 @@ void integration_rule_registry_release_all_rules(integration_rule_registry_t *th
 }
 
 unsigned integration_rule_get_rules(integration_rule_registry_t *this, const unsigned max_count,
-                                    integration_spec_t INTERPLIB_ARRAY_ARG(specs, max_count))
+                                    integration_spec_t FDG_ARRAY_ARG(specs, max_count))
 {
     rw_lock_acquire_read(&this->lock);
     unsigned count = 0;

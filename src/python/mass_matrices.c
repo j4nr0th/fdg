@@ -952,7 +952,7 @@ static PyObject *compute_kform_mass_matrix(PyObject *module, PyObject *const *ar
     // Get integration rules
     interp_result_t res =
         integration_rule_registry_get_rules(integration_registry->registry, n, space_map->int_specs, integration_rules);
-    if (res != INTERP_SUCCESS)
+    if (res != FDG_SUCCESS)
     {
         Py_DECREF(array_out);
         Py_XDECREF(transform_array);
@@ -963,7 +963,7 @@ static PyObject *compute_kform_mass_matrix(PyObject *module, PyObject *const *ar
     // Get left basis sets
     res = basis_set_registry_get_basis_sets(basis_registry->registry, n, basis_sets_left, integration_rules,
                                             fn_left->specs);
-    if (res != INTERP_SUCCESS)
+    if (res != FDG_SUCCESS)
     {
         for (unsigned i = 0; i < n; ++i)
             integration_rule_registry_release_rule(integration_registry->registry, integration_rules[i]);
@@ -976,7 +976,7 @@ static PyObject *compute_kform_mass_matrix(PyObject *module, PyObject *const *ar
     // Get the right basis sets
     res = basis_set_registry_get_basis_sets(basis_registry->registry, n, basis_sets_right, integration_rules,
                                             fn_right->specs);
-    if (res != INTERP_SUCCESS)
+    if (res != FDG_SUCCESS)
     {
         for (unsigned i = 0; i < n; ++i)
         {
@@ -997,7 +997,7 @@ static PyObject *compute_kform_mass_matrix(PyObject *module, PyObject *const *ar
     // Get left lower basis sets
     res = basis_set_registry_get_basis_sets(basis_registry->registry, n, basis_sets_left_lower, integration_rules,
                                             lower_basis_buffer);
-    if (res != INTERP_SUCCESS)
+    if (res != FDG_SUCCESS)
     {
         for (unsigned i = 0; i < n; ++i)
         {
@@ -1019,7 +1019,7 @@ static PyObject *compute_kform_mass_matrix(PyObject *module, PyObject *const *ar
     // Get right lower basis sets
     res = basis_set_registry_get_basis_sets(basis_registry->registry, n, basis_sets_right_lower, integration_rules,
                                             lower_basis_buffer);
-    if (res != INTERP_SUCCESS)
+    if (res != FDG_SUCCESS)
     {
         for (unsigned i = 0; i < n; ++i)
         {
@@ -1493,7 +1493,7 @@ static PyObject *compute_kform_interior_product_matrix(PyObject *module, PyObjec
     // Get integration rules
     interp_result_t res =
         integration_rule_registry_get_rules(integration_registry->registry, n, space_map->int_specs, integration_rules);
-    if (res != INTERP_SUCCESS)
+    if (res != FDG_SUCCESS)
     {
         Py_DECREF(array_out);
         Py_XDECREF(transform_array_right);
@@ -1505,7 +1505,7 @@ static PyObject *compute_kform_interior_product_matrix(PyObject *module, PyObjec
     // Get left basis sets
     res = basis_set_registry_get_basis_sets(basis_registry->registry, n, basis_sets_left, integration_rules,
                                             fn_left->specs);
-    if (res != INTERP_SUCCESS)
+    if (res != FDG_SUCCESS)
     {
         for (unsigned i = 0; i < n; ++i)
             integration_rule_registry_release_rule(integration_registry->registry, integration_rules[i]);
@@ -1519,7 +1519,7 @@ static PyObject *compute_kform_interior_product_matrix(PyObject *module, PyObjec
     // Get the right basis sets
     res = basis_set_registry_get_basis_sets(basis_registry->registry, n, basis_sets_right, integration_rules,
                                             fn_right->specs);
-    if (res != INTERP_SUCCESS)
+    if (res != FDG_SUCCESS)
     {
         for (unsigned i = 0; i < n; ++i)
         {
@@ -1541,7 +1541,7 @@ static PyObject *compute_kform_interior_product_matrix(PyObject *module, PyObjec
     // Get left lower basis sets
     res = basis_set_registry_get_basis_sets(basis_registry->registry, n, basis_sets_left_lower, integration_rules,
                                             lower_basis_buffer);
-    if (res != INTERP_SUCCESS)
+    if (res != FDG_SUCCESS)
     {
         for (unsigned i = 0; i < n; ++i)
         {
@@ -1564,7 +1564,7 @@ static PyObject *compute_kform_interior_product_matrix(PyObject *module, PyObjec
     // Get right lower basis sets
     res = basis_set_registry_get_basis_sets(basis_registry->registry, n, basis_sets_right_lower, integration_rules,
                                             lower_basis_buffer);
-    if (res != INTERP_SUCCESS)
+    if (res != FDG_SUCCESS)
     {
         for (unsigned i = 0; i < n; ++i)
         {

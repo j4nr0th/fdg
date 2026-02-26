@@ -5,14 +5,14 @@
 #include "basis_legendre.h"
 #include "../polynomials/legendre.h"
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 interp_result_t legendre_basis_create(basis_set_t **out, const basis_spec_t spec, const integration_rule_t *rule,
                                       const cutl_allocator_t *allocator)
 {
     basis_set_t *const this =
         cutl_alloc(allocator, sizeof *this + 2 * sizeof(*this->_data) * (spec.order + 1) * (rule->n_nodes));
     if (!this)
-        return INTERP_ERROR_FAILED_ALLOCATION;
+        return FDG_ERROR_FAILED_ALLOCATION;
 
     double *values = this->_data;
     double *derivatives = this->_data + (spec.order + 1) * (rule->n_nodes);
@@ -36,5 +36,5 @@ interp_result_t legendre_basis_create(basis_set_t **out, const basis_spec_t spec
     this->spec = spec;
     this->integration_spec = rule->spec;
     *out = this;
-    return INTERP_SUCCESS;
+    return FDG_SUCCESS;
 }

@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-from interplib import (
+from fdg import (
     BasisSpecs,
     BasisType,
     DegreesOfFreedom,

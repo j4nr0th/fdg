@@ -3,7 +3,7 @@
 from itertools import combinations
 
 import pytest
-from interplib._interp import CovectorBasis
+from fdg._fdg import CovectorBasis
 
 
 def test_1d():

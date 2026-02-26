@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-from interplib import (
+from fdg import (
     BasisSpecs,
     BasisType,
     FunctionSpace,
@@ -11,14 +11,14 @@ from interplib import (
     IntegrationSpecs,
     Line,
 )
-from interplib._interp import (
+from fdg._fdg import (
     DegreesOfFreedom,
     compute_gradient_mass_matrix,
     compute_mass_matrix,
 )
-from interplib.degrees_of_freedom import reconstruct
-from interplib.domains import Quad
-from interplib.integration import projection_l2_dual, projection_l2_primal
+from fdg.degrees_of_freedom import reconstruct
+from fdg.domains import Quad
+from fdg.integration import projection_l2_dual, projection_l2_primal
 
 
 @pytest.mark.parametrize("order", (1, 2, 4))

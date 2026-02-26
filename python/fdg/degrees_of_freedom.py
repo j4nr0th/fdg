@@ -3,8 +3,8 @@
 import numpy as np
 import numpy.typing as npt
 
-from interplib._interp import DegreesOfFreedom, FunctionSpace, IntegrationSpace
-from interplib.integration import Integrable
+from fdg._fdg import DegreesOfFreedom, FunctionSpace, IntegrationSpace
+from fdg.integration import Integrable
 
 
 def reconstruct(

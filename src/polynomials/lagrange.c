@@ -4,9 +4,9 @@
 
 #include "lagrange.h"
 
-INTERPLIB_INTERNAL
-void lagrange_polynomial_denominators(unsigned n, const double INTERPLIB_ARRAY_ARG(nodes, restrict static n),
-                                      double INTERPLIB_ARRAY_ARG(denominators, restrict n))
+FDG_INTERNAL
+void lagrange_polynomial_denominators(unsigned n, const double FDG_ARRAY_ARG(nodes, restrict static n),
+                                      double FDG_ARRAY_ARG(denominators, restrict n))
 {
     denominators[0] = 1.0;
     // Compute the first denominator directly
@@ -29,10 +29,9 @@ void lagrange_polynomial_denominators(unsigned n, const double INTERPLIB_ARRAY_A
     }
 }
 
-INTERPLIB_INTERNAL
-void lagrange_polynomial_coefficients(unsigned n, unsigned j,
-                                      const double INTERPLIB_ARRAY_ARG(nodes, restrict static n),
-                                      double INTERPLIB_ARRAY_ARG(coefficients, restrict n))
+FDG_INTERNAL
+void lagrange_polynomial_coefficients(unsigned n, unsigned j, const double FDG_ARRAY_ARG(nodes, restrict static n),
+                                      double FDG_ARRAY_ARG(coefficients, restrict n))
 {
     coefficients[0] = 1.0;
     for (unsigned i = 0; i < j; ++i)
@@ -57,11 +56,11 @@ void lagrange_polynomial_coefficients(unsigned n, unsigned j,
     }
 }
 
-INTERPLIB_INTERNAL
-void lagrange_polynomial_values(const unsigned n_pos, const double INTERPLIB_ARRAY_ARG(p_pos, static n_pos),
-                                const unsigned n_roots, const double INTERPLIB_ARRAY_ARG(p_roots, static n_roots),
-                                double INTERPLIB_ARRAY_ARG(values, restrict n_roots *n_pos),
-                                double INTERPLIB_ARRAY_ARG(work, restrict n_roots))
+FDG_INTERNAL
+void lagrange_polynomial_values(const unsigned n_pos, const double FDG_ARRAY_ARG(p_pos, static n_pos),
+                                const unsigned n_roots, const double FDG_ARRAY_ARG(p_roots, static n_roots),
+                                double FDG_ARRAY_ARG(values, restrict n_roots *n_pos),
+                                double FDG_ARRAY_ARG(work, restrict n_roots))
 {
     lagrange_polynomial_denominators(n_roots, p_roots, work);
 
@@ -104,10 +103,10 @@ void lagrange_polynomial_values(const unsigned n_pos, const double INTERPLIB_ARR
     }
 }
 
-INTERPLIB_INTERNAL
-void lagrange_polynomial_values_2(const unsigned n_pos, const double INTERPLIB_ARRAY_ARG(p_pos, static n_pos),
-                                  const unsigned n_roots, const double INTERPLIB_ARRAY_ARG(p_roots, static n_roots),
-                                  double INTERPLIB_ARRAY_ARG(values, restrict n_roots *n_pos))
+FDG_INTERNAL
+void lagrange_polynomial_values_2(const unsigned n_pos, const double FDG_ARRAY_ARG(p_pos, static n_pos),
+                                  const unsigned n_roots, const double FDG_ARRAY_ARG(p_roots, static n_roots),
+                                  double FDG_ARRAY_ARG(values, restrict n_roots *n_pos))
 {
     // Special case: n_roots == 1, where there is 1 basis, which is 1 everywhere
     if (n_roots == 1)
@@ -182,11 +181,11 @@ void lagrange_polynomial_values_2(const unsigned n_pos, const double INTERPLIB_A
     }
 }
 
-INTERPLIB_INTERNAL
-void lagrange_polynomial_values_transposed(const unsigned n_in, const double INTERPLIB_ARRAY_ARG(pos, static n_in),
-                                           const unsigned n_nodes, const double INTERPLIB_ARRAY_ARG(x, static n_nodes),
-                                           double INTERPLIB_ARRAY_ARG(weights, restrict n_nodes *n_in),
-                                           double INTERPLIB_ARRAY_ARG(work, restrict n_nodes))
+FDG_INTERNAL
+void lagrange_polynomial_values_transposed(const unsigned n_in, const double FDG_ARRAY_ARG(pos, static n_in),
+                                           const unsigned n_nodes, const double FDG_ARRAY_ARG(x, static n_nodes),
+                                           double FDG_ARRAY_ARG(weights, restrict n_nodes *n_in),
+                                           double FDG_ARRAY_ARG(work, restrict n_nodes))
 {
     lagrange_polynomial_denominators(n_nodes, x, work);
 
@@ -229,10 +228,11 @@ void lagrange_polynomial_values_transposed(const unsigned n_in, const double INT
     }
 }
 
-INTERPLIB_INTERNAL
-void lagrange_polynomial_denominators_stride(
-    const unsigned n_roots, const double INTERPLIB_ARRAY_ARG(p_roots, restrict static n_roots), const unsigned stride,
-    double INTERPLIB_ARRAY_ARG(denominators, restrict(n_roots - 1) * stride + 1))
+FDG_INTERNAL
+void lagrange_polynomial_denominators_stride(const unsigned n_roots,
+                                             const double FDG_ARRAY_ARG(p_roots, restrict static n_roots),
+                                             const unsigned stride,
+                                             double FDG_ARRAY_ARG(denominators, restrict(n_roots - 1) * stride + 1))
 {
     // Initialize the first denominator manually
     denominators[0] = 1.0;
@@ -257,10 +257,10 @@ void lagrange_polynomial_denominators_stride(
     }
 }
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 void lagrange_polynomial_denominators_apply_stride(
-    const unsigned n_roots, const double INTERPLIB_ARRAY_ARG(p_roots, restrict static n_roots), const unsigned stride,
-    double INTERPLIB_ARRAY_ARG(denominators, restrict(n_roots - 1) * stride + 1))
+    const unsigned n_roots, const double FDG_ARRAY_ARG(p_roots, restrict static n_roots), const unsigned stride,
+    double FDG_ARRAY_ARG(denominators, restrict(n_roots - 1) * stride + 1))
 {
     for (unsigned i = 0; i < n_roots; ++i)
     {
@@ -273,12 +273,11 @@ void lagrange_polynomial_denominators_apply_stride(
     }
 }
 
-INTERPLIB_INTERNAL
-void lagrange_polynomial_values_transposed_2(const unsigned n_pos,
-                                             const double INTERPLIB_ARRAY_ARG(p_pos, static n_pos),
+FDG_INTERNAL
+void lagrange_polynomial_values_transposed_2(const unsigned n_pos, const double FDG_ARRAY_ARG(p_pos, static n_pos),
                                              const unsigned n_roots,
-                                             const double INTERPLIB_ARRAY_ARG(p_roots, static n_roots),
-                                             double INTERPLIB_ARRAY_ARG(values, restrict n_roots *n_pos))
+                                             const double FDG_ARRAY_ARG(p_roots, static n_roots),
+                                             double FDG_ARRAY_ARG(values, restrict n_roots *n_pos))
 {
     // Stores denominators as the last element of each row
     lagrange_polynomial_denominators_stride(n_roots, p_roots, n_pos, values + (n_pos - 1));
@@ -314,15 +313,14 @@ void lagrange_polynomial_values_transposed_2(const unsigned n_pos,
     }
 }
 
-INTERPLIB_INTERNAL
-void lagrange_polynomial_first_derivative(const unsigned n_pos, const double INTERPLIB_ARRAY_ARG(p_pos, static n_pos),
-                                          const unsigned n_roots,
-                                          const double INTERPLIB_ARRAY_ARG(p_roots, static n_roots),
-                                          double INTERPLIB_ARRAY_ARG(weights, restrict n_roots *n_pos),
+FDG_INTERNAL
+void lagrange_polynomial_first_derivative(const unsigned n_pos, const double FDG_ARRAY_ARG(p_pos, static n_pos),
+                                          const unsigned n_roots, const double FDG_ARRAY_ARG(p_roots, static n_roots),
+                                          double FDG_ARRAY_ARG(weights, restrict n_roots *n_pos),
                                           /* cache for denominators (once per fn) */
-                                          double INTERPLIB_ARRAY_ARG(work1, restrict n_roots),
+                                          double FDG_ARRAY_ARG(work1, restrict n_roots),
                                           /* cache for differences (once per node) */
-                                          double INTERPLIB_ARRAY_ARG(work2, restrict n_roots))
+                                          double FDG_ARRAY_ARG(work2, restrict n_roots))
 {
     // compute denominators
     lagrange_polynomial_denominators(n_roots, p_roots, work1);
@@ -379,11 +377,10 @@ void lagrange_polynomial_first_derivative(const unsigned n_pos, const double INT
     }
 }
 
-INTERPLIB_INTERNAL
-void lagrange_polynomial_first_derivative_2(const unsigned n_pos, const double INTERPLIB_ARRAY_ARG(p_pos, static n_pos),
-                                            const unsigned n_roots,
-                                            const double INTERPLIB_ARRAY_ARG(p_roots, static n_roots),
-                                            double INTERPLIB_ARRAY_ARG(values, restrict n_roots *n_pos))
+FDG_INTERNAL
+void lagrange_polynomial_first_derivative_2(const unsigned n_pos, const double FDG_ARRAY_ARG(p_pos, static n_pos),
+                                            const unsigned n_roots, const double FDG_ARRAY_ARG(p_roots, static n_roots),
+                                            double FDG_ARRAY_ARG(values, restrict n_roots *n_pos))
 {
     // Ideally, we would have two extra arrays - one to store denominators and another
     // to use as per-node storage for numerator terms. Since that would require extra buffers,
@@ -524,16 +521,15 @@ void lagrange_polynomial_first_derivative_2(const unsigned n_pos, const double I
     }
 }
 
-INTERPLIB_INTERNAL
-void lagrange_polynomial_first_derivative_transposed(const unsigned n_in,
-                                                     const double INTERPLIB_ARRAY_ARG(pos, static n_in),
+FDG_INTERNAL
+void lagrange_polynomial_first_derivative_transposed(const unsigned n_in, const double FDG_ARRAY_ARG(pos, static n_in),
                                                      const unsigned n_nodes,
-                                                     const double INTERPLIB_ARRAY_ARG(x, static n_nodes),
-                                                     double INTERPLIB_ARRAY_ARG(weights, restrict n_nodes *n_in),
+                                                     const double FDG_ARRAY_ARG(x, static n_nodes),
+                                                     double FDG_ARRAY_ARG(weights, restrict n_nodes *n_in),
                                                      /* cache for denominators (once per fn) */
-                                                     double INTERPLIB_ARRAY_ARG(work1, restrict n_nodes),
+                                                     double FDG_ARRAY_ARG(work1, restrict n_nodes),
                                                      /* cache for differences (once per node) */
-                                                     double INTERPLIB_ARRAY_ARG(work2, restrict n_nodes))
+                                                     double FDG_ARRAY_ARG(work2, restrict n_nodes))
 {
     // compute denominators
     lagrange_polynomial_denominators(n_nodes, x, work1);
@@ -590,12 +586,12 @@ void lagrange_polynomial_first_derivative_transposed(const unsigned n_in,
     }
 }
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 void lagrange_polynomial_first_derivative_transposed_2(const unsigned n_pos,
-                                                       const double INTERPLIB_ARRAY_ARG(p_pos, static n_pos),
+                                                       const double FDG_ARRAY_ARG(p_pos, static n_pos),
                                                        const unsigned n_roots,
-                                                       const double INTERPLIB_ARRAY_ARG(p_roots, static n_roots),
-                                                       double INTERPLIB_ARRAY_ARG(values, restrict n_roots *n_pos))
+                                                       const double FDG_ARRAY_ARG(p_roots, static n_roots),
+                                                       double FDG_ARRAY_ARG(values, restrict n_roots *n_pos))
 {
     // Ideally, we would have two extra arrays - one to store denominators and another
     // to use as per-node storage for numerator terms. Since that would require extra buffers,
@@ -736,13 +732,12 @@ void lagrange_polynomial_first_derivative_transposed_2(const unsigned n_pos,
     }
 }
 
-INTERPLIB_INTERNAL
-interp_result_t lagrange_polynomial_second_derivative(unsigned n_in, const double INTERPLIB_ARRAY_ARG(pos, static n_in),
-                                                      unsigned n_nodes,
-                                                      const double INTERPLIB_ARRAY_ARG(x, static n_nodes),
-                                                      double INTERPLIB_ARRAY_ARG(weights, restrict n_nodes *n_in),
-                                                      double INTERPLIB_ARRAY_ARG(work1, restrict n_nodes),
-                                                      double INTERPLIB_ARRAY_ARG(work2, restrict n_nodes))
+FDG_INTERNAL
+interp_result_t lagrange_polynomial_second_derivative(unsigned n_in, const double FDG_ARRAY_ARG(pos, static n_in),
+                                                      unsigned n_nodes, const double FDG_ARRAY_ARG(x, static n_nodes),
+                                                      double FDG_ARRAY_ARG(weights, restrict n_nodes *n_in),
+                                                      double FDG_ARRAY_ARG(work1, restrict n_nodes),
+                                                      double FDG_ARRAY_ARG(work2, restrict n_nodes))
 {
     // compute denominators
     lagrange_polynomial_denominators(n_nodes, x, work1);
@@ -805,5 +800,5 @@ interp_result_t lagrange_polynomial_second_derivative(unsigned n_in, const doubl
         }
     }
 
-    return INTERP_SUCCESS;
+    return FDG_SUCCESS;
 }

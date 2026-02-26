@@ -224,7 +224,7 @@ static PyObject *coordinate_map_object_gradient(PyObject *self, PyTypeObject *de
 static_assert(sizeof(*((coordinate_map_object *)0xB00B1E5)->values) == sizeof(double), "Nice");
 
 PyType_Spec coordinate_map_type_spec = {
-    .name = "interplib._interp.CoordinateMap",
+    .name = FDG_TYPE_NAME("CoordinateMap"),
     .basicsize = sizeof(coordinate_map_object),
     .itemsize = sizeof(*((coordinate_map_object *)0xB00B1E5)->values),
     .flags = Py_TPFLAGS_HEAPTYPE | Py_TPFLAGS_HAVE_GC | Py_TPFLAGS_DEFAULT | Py_TPFLAGS_IMMUTABLETYPE,
@@ -327,7 +327,7 @@ static void calculate_determinants_and_inverse_maps(
         // Decompose Jacobian into QR decomposition
         interp_result_t res = matrix_qr_decompose(&jacobian_mat, &q_matrix);
         (void)res;
-        CPYUTL_ASSERT(res == INTERP_SUCCESS, "QR decomposition failed.");
+        CPYUTL_ASSERT(res == FDG_SUCCESS, "QR decomposition failed.");
         // Compute the determinant from the diagonal of the matrix
         double det = 1;
         for (unsigned i = 0; i < cols; ++i)
@@ -350,7 +350,7 @@ static void calculate_determinants_and_inverse_maps(
         // Use decomposition to compute "inverse". This is done simply by applying inverse of the
         // upper triangular (rows x rows) part of the jacobian to the matrix q_mat.
         res = matrix_back_substitute(&jacobian_mat, &out_mat);
-        CPYUTL_ASSERT(res == INTERP_SUCCESS, "Back substitution failed.");
+        CPYUTL_ASSERT(res == FDG_SUCCESS, "Back substitution failed.");
         (void)res;
     }
 }
@@ -882,7 +882,7 @@ PyDoc_STRVAR(space_map_basis_transform_docstring,
              "    over output basis, and the last one over integration points.\n");
 
 PyType_Spec space_map_type_spec = {
-    .name = "interplib._interp.SpaceMap",
+    .name = FDG_TYPE_NAME("SpaceMap"),
     .basicsize = sizeof(space_map_object),
     .itemsize = sizeof(coordinate_map_object),
     .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HEAPTYPE | Py_TPFLAGS_IMMUTABLETYPE | Py_TPFLAGS_HAVE_GC,

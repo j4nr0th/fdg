@@ -6,7 +6,7 @@ from typing import Protocol
 import numpy as np
 import numpy.typing as npt
 
-from interplib._interp import (
+from fdg._fdg import (
     DEFAULT_BASIS_REGISTRY,
     DEFAULT_INTEGRATION_REGISTRY,
     BasisRegistry,

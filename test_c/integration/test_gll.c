@@ -17,7 +17,7 @@ int main()
     integration_rule_t *rule = NULL;
     for (unsigned accuracy = 0; accuracy < 20; ++accuracy)
     {
-        TEST_INTERP_RESULT(
+        TEST_FDG_RESULT(
             integration_rule_for_accuracy(&rule, INTEGRATION_RULE_TYPE_GAUSS_LOBATTO, accuracy, &TEST_ALLOCATOR));
         TEST_ASSERTION(rule->accuracy >= accuracy, "Accuracy of integration rule is not sufficient");
 

@@ -9,8 +9,8 @@
 
 void bernstein_apply_incidence_operator(
     const unsigned n, const size_t pre_stride, const size_t post_stride, const unsigned cols,
-    const double INTERPLIB_ARRAY_ARG(values_in, restrict const static pre_stride *(n + 1) * post_stride * cols),
-    double INTERPLIB_ARRAY_ARG(values_out, restrict const pre_stride * n * post_stride * cols), const int negate)
+    const double FDG_ARRAY_ARG(values_in, restrict const static pre_stride *(n + 1) * post_stride * cols),
+    double FDG_ARRAY_ARG(values_out, restrict const pre_stride * n * post_stride * cols), const int negate)
 {
     npy_double coeff = (double)n / 2.0;
     if (negate)
@@ -44,8 +44,8 @@ void bernstein_apply_incidence_operator(
 
 void bernstein_apply_incidence_operator_transpose(
     const unsigned n, const size_t pre_stride, const size_t post_stride, const unsigned cols,
-    const double INTERPLIB_ARRAY_ARG(values_in, restrict const static pre_stride * n * post_stride * cols),
-    double INTERPLIB_ARRAY_ARG(values_out, restrict const pre_stride *(n + 1) * post_stride * cols), const int negate)
+    const double FDG_ARRAY_ARG(values_in, restrict const static pre_stride * n * post_stride * cols),
+    double FDG_ARRAY_ARG(values_out, restrict const pre_stride *(n + 1) * post_stride * cols), const int negate)
 {
     npy_double coeff = (double)n / 2.0;
     if (negate)
@@ -80,7 +80,7 @@ void bernstein_apply_incidence_operator_transpose(
 }
 
 void bernstein_matrix_incidence_operator(const unsigned n, const size_t pre_stride, const size_t post_stride,
-                                         const size_t row_stride, double INTERPLIB_ARRAY_ARG(mat, restrict const),
+                                         const size_t row_stride, double FDG_ARRAY_ARG(mat, restrict const),
                                          const int negate)
 {
     npy_double coeff = (double)n / 2.0;
@@ -110,8 +110,8 @@ void bernstein_matrix_incidence_operator(const unsigned n, const size_t pre_stri
 
 void legendre_apply_incidence_operator(
     const unsigned n, const size_t pre_stride, const size_t post_stride, const unsigned cols,
-    const double INTERPLIB_ARRAY_ARG(values_in, restrict const static pre_stride *(n + 1) * post_stride * cols),
-    double INTERPLIB_ARRAY_ARG(values_out, restrict const pre_stride * n * post_stride * cols), const int negate)
+    const double FDG_ARRAY_ARG(values_in, restrict const static pre_stride *(n + 1) * post_stride * cols),
+    double FDG_ARRAY_ARG(values_out, restrict const pre_stride * n * post_stride * cols), const int negate)
 {
 #pragma omp simd
     for (unsigned i_col = 0; i_col < cols; ++i_col)
@@ -150,8 +150,8 @@ void legendre_apply_incidence_operator(
 
 void legendre_apply_incidence_operator_transpose(
     const unsigned n, const size_t pre_stride, const size_t post_stride, const unsigned cols,
-    const double INTERPLIB_ARRAY_ARG(values_in, restrict const static pre_stride * n * post_stride * cols),
-    double INTERPLIB_ARRAY_ARG(values_out, restrict const pre_stride *(n + 1) * post_stride * cols), const int negate)
+    const double FDG_ARRAY_ARG(values_in, restrict const static pre_stride * n * post_stride * cols),
+    double FDG_ARRAY_ARG(values_out, restrict const pre_stride *(n + 1) * post_stride * cols), const int negate)
 {
 #pragma omp simd
     for (unsigned i_col = 0; i_col < cols; ++i_col)
@@ -189,7 +189,7 @@ void legendre_apply_incidence_operator_transpose(
 }
 
 void legendre_matrix_incidence_operator(const unsigned n, const size_t pre_stride, const size_t post_stride,
-                                        const size_t row_stride, double INTERPLIB_ARRAY_ARG(mat, restrict const),
+                                        const size_t row_stride, double FDG_ARRAY_ARG(mat, restrict const),
                                         const int negate)
 {
     for (size_t i_pre = 0; i_pre < pre_stride; ++i_pre)
@@ -224,9 +224,9 @@ void legendre_matrix_incidence_operator(const unsigned n, const size_t pre_strid
 void lagrange_apply_incidence_operator(
     const basis_set_type_t type, const unsigned n, const size_t pre_stride, const size_t post_stride,
     const unsigned cols,
-    const double INTERPLIB_ARRAY_ARG(values_in, restrict const static pre_stride *(n + 1) * post_stride * cols),
-    double INTERPLIB_ARRAY_ARG(values_out, restrict const pre_stride * n * post_stride * cols),
-    double INTERPLIB_ARRAY_ARG(work, restrict const n + (n + 1) + n * (n + 1)), const int negate)
+    const double FDG_ARRAY_ARG(values_in, restrict const static pre_stride *(n + 1) * post_stride * cols),
+    double FDG_ARRAY_ARG(values_out, restrict const pre_stride * n * post_stride * cols),
+    double FDG_ARRAY_ARG(work, restrict const n + (n + 1) + n * (n + 1)), const int negate)
 {
     // Divide up the work array
     double *restrict const out_nodes = work + 0;
@@ -235,13 +235,13 @@ void lagrange_apply_incidence_operator(
 
     // Compute nodes for the output set
     interp_result_t res = generate_lagrange_roots(n - 1, type, out_nodes);
-    CPYUTL_ASSERT(res == INTERP_SUCCESS, "Somehow an invalid enum?");
-    if (res != INTERP_SUCCESS)
+    CPYUTL_ASSERT(res == FDG_SUCCESS, "Somehow an invalid enum?");
+    if (res != FDG_SUCCESS)
         return;
 
     res = generate_lagrange_roots(n, type, in_nodes);
-    CPYUTL_ASSERT(res == INTERP_SUCCESS, "Somehow an invalid enum?");
-    if (res != INTERP_SUCCESS)
+    CPYUTL_ASSERT(res == FDG_SUCCESS, "Somehow an invalid enum?");
+    if (res != FDG_SUCCESS)
         return;
 
     lagrange_polynomial_first_derivative_2(n, out_nodes, n + 1, in_nodes, trans_matrix);
@@ -284,9 +284,9 @@ void lagrange_apply_incidence_operator(
 void lagrange_apply_incidence_operator_transpose(
     const basis_set_type_t type, const unsigned n, const size_t pre_stride, const size_t post_stride,
     const unsigned cols,
-    const double INTERPLIB_ARRAY_ARG(values_in, restrict const static pre_stride * n * post_stride * cols),
-    double INTERPLIB_ARRAY_ARG(values_out, restrict const pre_stride *(n + 1) * post_stride * cols),
-    double INTERPLIB_ARRAY_ARG(work, restrict const n + (n + 1) + n * (n + 1)), const int negate)
+    const double FDG_ARRAY_ARG(values_in, restrict const static pre_stride * n * post_stride * cols),
+    double FDG_ARRAY_ARG(values_out, restrict const pre_stride *(n + 1) * post_stride * cols),
+    double FDG_ARRAY_ARG(work, restrict const n + (n + 1) + n * (n + 1)), const int negate)
 {
     // Divide up the work array
     double *restrict const out_nodes = work + 0;
@@ -295,13 +295,13 @@ void lagrange_apply_incidence_operator_transpose(
 
     // Compute nodes for the output set
     interp_result_t res = generate_lagrange_roots(n - 1, type, out_nodes);
-    CPYUTL_ASSERT(res == INTERP_SUCCESS, "Somehow an invalid enum?");
-    if (res != INTERP_SUCCESS)
+    CPYUTL_ASSERT(res == FDG_SUCCESS, "Somehow an invalid enum?");
+    if (res != FDG_SUCCESS)
         return;
 
     res = generate_lagrange_roots(n, type, in_nodes);
-    CPYUTL_ASSERT(res == INTERP_SUCCESS, "Somehow an invalid enum?");
-    if (res != INTERP_SUCCESS)
+    CPYUTL_ASSERT(res == FDG_SUCCESS, "Somehow an invalid enum?");
+    if (res != FDG_SUCCESS)
         return;
 
     lagrange_polynomial_first_derivative_2(n, out_nodes, n + 1, in_nodes, trans_matrix);
@@ -342,8 +342,8 @@ void lagrange_apply_incidence_operator_transpose(
 
 void lagrange_matrix_incidence_operator(const basis_set_type_t type, const unsigned n, const size_t pre_stride,
                                         const size_t post_stride, const size_t row_stride,
-                                        double INTERPLIB_ARRAY_ARG(mat, restrict const),
-                                        double INTERPLIB_ARRAY_ARG(work, restrict const n + (n + 1) + n * (n + 1)),
+                                        double FDG_ARRAY_ARG(mat, restrict const),
+                                        double FDG_ARRAY_ARG(work, restrict const n + (n + 1) + n * (n + 1)),
                                         const int negate)
 {
 
@@ -354,13 +354,13 @@ void lagrange_matrix_incidence_operator(const basis_set_type_t type, const unsig
 
     // Compute nodes for the output set
     interp_result_t res = generate_lagrange_roots(n - 1, type, out_nodes);
-    CPYUTL_ASSERT(res == INTERP_SUCCESS, "Somehow an invalid enum?");
-    if (res != INTERP_SUCCESS)
+    CPYUTL_ASSERT(res == FDG_SUCCESS, "Somehow an invalid enum?");
+    if (res != FDG_SUCCESS)
         return;
 
     res = generate_lagrange_roots(n, type, in_nodes);
-    CPYUTL_ASSERT(res == INTERP_SUCCESS, "Somehow an invalid enum?");
-    if (res != INTERP_SUCCESS)
+    CPYUTL_ASSERT(res == FDG_SUCCESS, "Somehow an invalid enum?");
+    if (res != FDG_SUCCESS)
         return;
 
     lagrange_polynomial_first_derivative_2(n, out_nodes, n + 1, in_nodes, trans_matrix);
@@ -471,7 +471,7 @@ static PyObject *incidence_matrix(PyObject *mod, PyObject *const *args, const Py
             }
             interp_result_t res = generate_lagrange_roots(n - 1, basis_specs->spec.type, out_nodes);
             (void)res;
-            CPYUTL_ASSERT(res == INTERP_SUCCESS, "Somehow an invalid enum?");
+            CPYUTL_ASSERT(res == FDG_SUCCESS, "Somehow an invalid enum?");
             double *const in_nodes = PyMem_Malloc(sizeof(*in_nodes) * (n + 1));
             if (!in_nodes)
             {
@@ -481,7 +481,7 @@ static PyObject *incidence_matrix(PyObject *mod, PyObject *const *args, const Py
             }
             res = generate_lagrange_roots(n, basis_specs->spec.type, in_nodes);
             (void)res;
-            CPYUTL_ASSERT(res == INTERP_SUCCESS, "Somehow an invalid enum?");
+            CPYUTL_ASSERT(res == FDG_SUCCESS, "Somehow an invalid enum?");
 
             lagrange_polynomial_first_derivative_2(n, out_nodes, n + 1, in_nodes, data);
 

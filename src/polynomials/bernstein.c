@@ -4,8 +4,8 @@
 
 #include "bernstein.h"
 
-INTERPLIB_INTERNAL
-void bernstein_from_power_series(const unsigned n, double INTERPLIB_ARRAY_ARG(coeffs, static n))
+FDG_INTERNAL
+void bernstein_from_power_series(const unsigned n, double FDG_ARRAY_ARG(coeffs, static n))
 {
     unsigned base_coefficient = 1;
     for (unsigned k = 0; k < n; ++k)
@@ -28,8 +28,8 @@ void bernstein_from_power_series(const unsigned n, double INTERPLIB_ARRAY_ARG(co
     }
 }
 
-INTERPLIB_INTERNAL
-void bernstein_interpolation_vector(const double t, const unsigned n, double INTERPLIB_ARRAY_ARG(out, restrict n + 1))
+FDG_INTERNAL
+void bernstein_interpolation_vector(const double t, const unsigned n, double FDG_ARRAY_ARG(out, restrict n + 1))
 {
     //  Bernstein polynomials follow the following recursion:
     //
@@ -50,12 +50,12 @@ void bernstein_interpolation_vector(const double t, const unsigned n, double INT
     }
 }
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 void bernstein_interpolation_value_derivative_matrix(const unsigned n_in,
-                                                     const double INTERPLIB_ARRAY_ARG(t, restrict static n_in),
+                                                     const double FDG_ARRAY_ARG(t, restrict static n_in),
                                                      const unsigned n,
-                                                     double INTERPLIB_ARRAY_ARG(out_value, restrict(n + 1) * n_in),
-                                                     double INTERPLIB_ARRAY_ARG(out_derivative, restrict(n + 1) * n_in))
+                                                     double FDG_ARRAY_ARG(out_value, restrict(n + 1) * n_in),
+                                                     double FDG_ARRAY_ARG(out_derivative, restrict(n + 1) * n_in))
 {
     // Quick bail if n is 0
     if (n == 0)

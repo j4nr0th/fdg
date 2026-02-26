@@ -2,8 +2,8 @@
 
 import numpy as np
 import pytest
-from interplib._interp import IntegrationSpace, IntegrationSpecs
-from interplib.domains import Line, Quad
+from fdg._fdg import IntegrationSpace, IntegrationSpecs
+from fdg.domains import Line, Quad
 
 
 @pytest.mark.parametrize(

@@ -291,7 +291,7 @@ static PyObject *kform_specs_get_component_slice(PyObject *self, PyTypeObject *d
 }
 
 PyType_Spec kform_spec_type_spec = {
-    .name = "interplib._interp.KFormSpecs",
+    .name = FDG_TYPE_NAME("KFormSpecs"),
     .basicsize = sizeof(kform_spec_object),
     .itemsize = sizeof(*((kform_spec_object *)0)->component_offsets),
     .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HEAPTYPE | Py_TPFLAGS_HAVE_GC | Py_TPFLAGS_IMMUTABLETYPE,
@@ -544,7 +544,7 @@ static PyObject *kform_get_values(PyObject *self, void *Py_UNUSED(closure))
 }
 
 PyType_Spec kform_type_spec = {
-    .name = "interplib._interp.KForm",
+    .name = FDG_TYPE_NAME("KForm"),
     .basicsize = sizeof(kform_object),
     .itemsize = sizeof(*((kform_object *)0)->values),
     .flags = Py_TPFLAGS_HAVE_GC | Py_TPFLAGS_IMMUTABLETYPE | Py_TPFLAGS_HEAPTYPE | Py_TPFLAGS_DEFAULT,

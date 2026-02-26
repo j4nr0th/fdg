@@ -20,7 +20,7 @@ interp_result_t matrix_qr_decompose(const matrix_t *const ar, const matrix_t *co
     const unsigned rows = ar->rows;
     if (q->rows != rows || q->cols != rows)
     {
-        return INTERP_ERROR_MATRIX_DIMS_MISMATCH;
+        return FDG_ERROR_MATRIX_DIMS_MISMATCH;
     }
     const unsigned cols = ar->cols;
 
@@ -33,7 +33,7 @@ interp_result_t matrix_qr_decompose(const matrix_t *const ar, const matrix_t *co
 
     // Check if we can even do anything
     if (rows == 1)
-        return INTERP_SUCCESS;
+        return FDG_SUCCESS;
 
     double *const r = ar->values;
     double *const qt = q->values;
@@ -82,7 +82,7 @@ interp_result_t matrix_qr_decompose(const matrix_t *const ar, const matrix_t *co
         }
     }
 
-    return INTERP_SUCCESS;
+    return FDG_SUCCESS;
 }
 
 interp_result_t matrix_multiply(const matrix_t *a, const matrix_t *b, const matrix_t *c)
@@ -93,11 +93,11 @@ interp_result_t matrix_multiply(const matrix_t *a, const matrix_t *b, const matr
 
     // Does output have correct size?
     if (rows != c->rows || cols != c->cols)
-        return INTERP_ERROR_MATRIX_DIMS_MISMATCH;
+        return FDG_ERROR_MATRIX_DIMS_MISMATCH;
 
     // Do the inputs match?
     if (k != b->rows)
-        return INTERP_ERROR_MATRIX_DIMS_MISMATCH;
+        return FDG_ERROR_MATRIX_DIMS_MISMATCH;
 
     for (unsigned i = 0; i < rows; ++i)
     {
@@ -111,7 +111,7 @@ interp_result_t matrix_multiply(const matrix_t *a, const matrix_t *b, const matr
         }
     }
 
-    return INTERP_SUCCESS;
+    return FDG_SUCCESS;
 }
 
 interp_result_t matrix_back_substitute(const matrix_t *upper, const matrix_t *b)
@@ -119,7 +119,7 @@ interp_result_t matrix_back_substitute(const matrix_t *upper, const matrix_t *b)
     const unsigned u_cols = upper->cols;
     if (u_cols > b->rows)
     {
-        return INTERP_ERROR_MATRIX_DIMS_MISMATCH;
+        return FDG_ERROR_MATRIX_DIMS_MISMATCH;
     }
     const unsigned b_cols = b->cols;
     // Do each column of B separately
@@ -137,5 +137,5 @@ interp_result_t matrix_back_substitute(const matrix_t *upper, const matrix_t *b)
         }
     }
 
-    return INTERP_SUCCESS;
+    return FDG_SUCCESS;
 }

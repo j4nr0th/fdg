@@ -52,7 +52,7 @@ int main()
 {
     test_data_t data = {.shared_data = 0, .writer_active = 0, .lock = {}};
 
-    TEST_INTERP_RESULT(rw_lock_init(&data.lock));
+    TEST_FDG_RESULT(rw_lock_init(&data.lock));
 
     thrd_t readers[THREAD_COUNT];
     thrd_t writers[THREAD_COUNT];

@@ -3,9 +3,9 @@
 #include "../polynomials/legendre.h"
 #include <math.h>
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 int gauss_legendre_nodes_weights(const unsigned n, const double tol, const unsigned max_iter,
-                                 double INTERPLIB_ARRAY_ARG(x, restrict n), double INTERPLIB_ARRAY_ARG(w, restrict n))
+                                 double FDG_ARRAY_ARG(x, restrict n), double FDG_ARRAY_ARG(w, restrict n))
 {
     ASSERT(n > 0, "n can not be zero.");
     if (n == 1)
@@ -49,9 +49,9 @@ int gauss_legendre_nodes_weights(const unsigned n, const double tol, const unsig
     return non_converged;
 }
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 int gauss_legendre_nodes(const unsigned n, const double tol, const unsigned max_iter,
-                         double INTERPLIB_ARRAY_ARG(x, restrict n))
+                         double FDG_ARRAY_ARG(x, restrict n))
 {
     ASSERT(n > 0, "n can not be zero.");
     if (n == 1)

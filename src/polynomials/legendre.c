@@ -4,8 +4,8 @@
 
 #include "legendre.h"
 
-INTERPLIB_INTERNAL
-void legendre_eval_bonnet_two(const unsigned n, const double x, double INTERPLIB_ARRAY_ARG(out, 2))
+FDG_INTERNAL
+void legendre_eval_bonnet_two(const unsigned n, const double x, double FDG_ARRAY_ARG(out, 2))
 {
     ASSERT(n >= 2, "n must be at least 2, but was %u", n);
     // n >= 2
@@ -23,8 +23,8 @@ void legendre_eval_bonnet_two(const unsigned n, const double x, double INTERPLIB
     out[1] = v2;
 }
 
-INTERPLIB_INTERNAL
-void legendre_eval_bonnet(const unsigned n, const double x, const unsigned m, double INTERPLIB_ARRAY_ARG(out, m))
+FDG_INTERNAL
+void legendre_eval_bonnet(const unsigned n, const double x, const unsigned m, double FDG_ARRAY_ARG(out, m))
 {
     ASSERT(n >= m, "m can not be more than n, but was n=%u while m=%u", n, m);
     ASSERT(m > 0, "m must be greater than zero");
@@ -57,8 +57,8 @@ void legendre_eval_bonnet(const unsigned n, const double x, const unsigned m, do
     }
 }
 
-INTERPLIB_INTERNAL
-void legendre_eval_bonnet_all(const unsigned n, const double x, double INTERPLIB_ARRAY_ARG(out, n + 1))
+FDG_INTERNAL
+void legendre_eval_bonnet_all(const unsigned n, const double x, double FDG_ARRAY_ARG(out, n + 1))
 {
     out[0] = 1.0;
     if (n == 0)
@@ -84,11 +84,11 @@ void legendre_eval_bonnet_all(const unsigned n, const double x, double INTERPLIB
     }
 }
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 void legendre_eval_bonnet_all_stride(const unsigned n, const double x, const unsigned stride, const unsigned offset,
-                                     double INTERPLIB_ARRAY_ARG(out, (n + 1) * stride))
+                                     double FDG_ARRAY_ARG(out, (n + 1) * stride))
 {
     out += offset;
     out[0 * stride] = 1.0;

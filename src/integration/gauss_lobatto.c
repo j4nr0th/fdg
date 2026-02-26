@@ -10,9 +10,9 @@
 #include "../polynomials/legendre.h"
 #include <math.h>
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 int gauss_lobatto_nodes_weights(const unsigned n, const double tol, const unsigned max_iter,
-                                double INTERPLIB_ARRAY_ARG(x, restrict n), double INTERPLIB_ARRAY_ARG(w, restrict n))
+                                double FDG_ARRAY_ARG(x, restrict n), double FDG_ARRAY_ARG(w, restrict n))
 {
     if (n == 1)
     {
@@ -60,9 +60,9 @@ int gauss_lobatto_nodes_weights(const unsigned n, const double tol, const unsign
     return non_converged;
 }
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 int gauss_lobatto_nodes(const unsigned n, const double tol, const unsigned max_iter,
-                        double INTERPLIB_ARRAY_ARG(x, restrict n))
+                        double FDG_ARRAY_ARG(x, restrict n))
 {
     if (n == 1)
     {

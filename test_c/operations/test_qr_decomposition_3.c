@@ -46,12 +46,12 @@ int main()
     printf("Matrix R:\n");
     print_matrix(&r);
 
-    TEST_ASSERTION(res == INTERP_SUCCESS, "QR decomposition failed");
+    TEST_ASSERTION(res == FDG_SUCCESS, "QR decomposition failed");
 
     // Multiplying A with Q should give R
 
     res = matrix_multiply(&q, &a, &ra);
-    TEST_ASSERTION(res == INTERP_SUCCESS, "Multiplication failed");
+    TEST_ASSERTION(res == FDG_SUCCESS, "Multiplication failed");
     printf("Matrix QA:\n");
     print_matrix(&ra);
 
@@ -78,7 +78,7 @@ int main()
     print_matrix(&inv);
     // Invert R on Q
     res = matrix_back_substitute(&r, &inv);
-    TEST_ASSERTION(res == INTERP_SUCCESS, "Back substitution failed");
+    TEST_ASSERTION(res == FDG_SUCCESS, "Back substitution failed");
     printf("Computed R^(-1)Q^T:\n");
     print_matrix(&inv);
 
@@ -97,7 +97,7 @@ int main()
     print_matrix(&q);
 
     res = matrix_multiply(&q, &r, &ra);
-    TEST_ASSERTION(res == INTERP_SUCCESS, "Multiplication failed");
+    TEST_ASSERTION(res == FDG_SUCCESS, "Multiplication failed");
 
     printf("Re-computed QR:\n");
     print_matrix(&ra);

@@ -23,6 +23,6 @@ jobs:
         python-version: '3.13'
         cache: pip
     - name: Install the extension
-      run: pip install .[dev]
+      run: pip install --group dev .
     - name: Test
       run: pytest

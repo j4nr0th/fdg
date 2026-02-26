@@ -487,7 +487,7 @@ static int covector_basis_contains(PyObject *self, PyObject *item)
 }
 
 PyType_Spec covector_basis_type_spec = {
-    .name = "interplib._interp.CovectorBasis",
+    .name = FDG_TYPE_NAME("CovectorBasis"),
     .basicsize = sizeof(covector_basis_object),
     .itemsize = 0,
     .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_IMMUTABLETYPE | Py_TPFLAGS_HEAPTYPE | Py_TPFLAGS_HAVE_GC,

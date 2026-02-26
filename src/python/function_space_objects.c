@@ -4,7 +4,7 @@
 #include <cutl/iterators/multidim_iteration.h>
 
 function_space_object *function_space_object_create(PyTypeObject *type, const unsigned n_basis,
-                                                    const basis_spec_t INTERPLIB_ARRAY_ARG(specs, static n_basis))
+                                                    const basis_spec_t FDG_ARRAY_ARG(specs, static n_basis))
 {
     function_space_object *const this = (function_space_object *)type->tp_alloc(type, n_basis);
     if (!this)
@@ -405,7 +405,7 @@ static PyObject *function_space_values_at_integration_nodes(PyObject *self, PyTy
         const integration_rule_t *int_rule;
         interp_result_t res = integration_rule_registry_get_rule(integration_registry->registry,
                                                                  integration_space->specs[idim], &int_rule);
-        if (res == INTERP_SUCCESS)
+        if (res == FDG_SUCCESS)
         {
             const basis_set_t *basis;
             res = basis_set_registry_get_basis_set(basis_registry->registry, &basis, int_rule, this->specs[idim]);
@@ -414,7 +414,7 @@ static PyObject *function_space_values_at_integration_nodes(PyObject *self, PyTy
             basis_sets[idim] = basis;
         }
 
-        if (res != INTERP_SUCCESS)
+        if (res != FDG_SUCCESS)
         {
             // Release the basis acquired so far
             for (unsigned jdim = 0; jdim < idim; ++jdim)
@@ -580,7 +580,7 @@ static PyObject *function_space_rich_compare(PyObject *self, PyObject *other, co
 }
 
 PyType_Spec function_space_type_spec = {
-    .name = "interplib._interp.FunctionSpace",
+    .name = FDG_TYPE_NAME("FunctionSpace"),
     .basicsize = sizeof(function_space_object),
     .itemsize = sizeof(basis_spec_t),
     .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HEAPTYPE | Py_TPFLAGS_HAVE_GC | Py_TPFLAGS_IMMUTABLETYPE,

@@ -1,5 +1,5 @@
-#ifndef INTERPLIB_COVECTOR_BASIS_H
-#define INTERPLIB_COVECTOR_BASIS_H
+#ifndef FDG_COVECTOR_BASIS_H
+#define FDG_COVECTOR_BASIS_H
 #include "../common/common_defines.h"
 
 #include <stdint.h>
@@ -31,7 +31,7 @@ typedef struct
 // When the dimension is zero, the basis is assumed to be zero.
 static const covector_basis_t COVECTOR_BASIS_ZERO = {};
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 int covector_basis_has_component(covector_basis_t basis, unsigned dim);
 
 /**
@@ -47,7 +47,7 @@ int covector_basis_has_component(covector_basis_t basis, unsigned dim);
  *         The result contains the combined dimension, updated sign, and basis bits.
  *         If the dimensions of b1 and b2 overlap, the result is a zero basis.
  */
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 covector_basis_t covector_basis_wedge(covector_basis_t b1, covector_basis_t b2);
 
 /**
@@ -59,7 +59,7 @@ covector_basis_t covector_basis_wedge(covector_basis_t b1, covector_basis_t b2);
  * @return The rank of the covector basis, which is the count of set bits
  *         in the basis_bits field of the provided structure.
  */
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 unsigned covector_basis_rank(covector_basis_t basis);
 
 /**
@@ -73,9 +73,9 @@ unsigned covector_basis_rank(covector_basis_t basis);
  *           Behavior is undefined if an index is repeated, out of bounds, or unsorted.
  * @return The constructed covector_basis_t structure representing the basis.
  */
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 covector_basis_t covector_basis_create(unsigned dimension, int sign, unsigned rank,
-                                       const unsigned INTERPLIB_ARRAY_ARG(indices, static rank));
+                                       const unsigned FDG_ARRAY_ARG(indices, static rank));
 
 /**
  * Constructs a covector basis representation with the specified parameters.
@@ -88,9 +88,9 @@ covector_basis_t covector_basis_create(unsigned dimension, int sign, unsigned ra
  *           Behavior is undefined if an index is repeated, out of bounds, or unsorted.
  * @return The constructed covector_basis_t structure representing the basis.
  */
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 covector_basis_t covector_basis_create_u8(unsigned dimension, int sign, unsigned rank,
-                                          const uint8_t INTERPLIB_ARRAY_ARG(indices, static rank));
+                                          const uint8_t FDG_ARRAY_ARG(indices, static rank));
 
 /**
  * Computes the result of applying a contravector basis on the covector basis bundle.
@@ -103,7 +103,7 @@ covector_basis_t covector_basis_create_u8(unsigned dimension, int sign, unsigned
  *
  * @return Resulting covector basis bundle.
  */
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 covector_basis_t covector_basis_apply_contra_basis(covector_basis_t basis, unsigned dim);
 
 typedef enum
@@ -127,12 +127,12 @@ typedef enum
  *         - COVECTOR_BASIS_NOT_COMPARABLE: The bases are not comparable due to
  *           differing ranks or dimensions.
  */
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 covector_basis_order_relation_t covector_basis_determine_order(covector_basis_t basis_1, covector_basis_t basis_2);
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 int covector_basis_is_zero(covector_basis_t basis);
 
 covector_basis_t covector_basis_hodge(covector_basis_t basis);
 
-#endif // INTERPLIB_COVECTOR_BASIS_H
+#endif // FDG_COVECTOR_BASIS_H

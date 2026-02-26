@@ -1,5 +1,5 @@
-#ifndef INTERPLIB_INTEGRATION_RULE_OBJECT_H
-#define INTERPLIB_INTEGRATION_RULE_OBJECT_H
+#ifndef FDG_INTEGRATION_RULE_OBJECT_H
+#define FDG_INTEGRATION_RULE_OBJECT_H
 #include "../integration/integration_rules.h"
 #include "module.h"
 #include <cutl/iterators/multidim_iteration.h>
@@ -16,16 +16,16 @@ typedef struct
     integration_spec_t spec;
 } integration_specs_object;
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 extern PyType_Spec integration_registry_type_spec;
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 extern PyType_Spec integration_specs_type_spec;
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 integration_registry_object *integration_registry_object_create(PyTypeObject *type);
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 integration_specs_object *integration_specs_object_create(PyTypeObject *type, integration_spec_t spec);
 
 typedef struct
@@ -34,23 +34,23 @@ typedef struct
     integration_spec_t specs[];
 } integration_space_object;
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 extern PyType_Spec integration_space_type_spec;
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 multidim_iterator_t *integration_space_iterator(const integration_space_object *space);
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 multidim_iterator_t *integration_specs_iterator(unsigned n_specs,
-                                                const integration_spec_t INTERPLIB_ARRAY_ARG(specs, static n_specs));
+                                                const integration_spec_t FDG_ARRAY_ARG(specs, static n_specs));
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 const integration_rule_t **python_integration_rules_get(unsigned n_rules,
                                                         const integration_spec_t specs[const static n_rules],
                                                         integration_rule_registry_t *registry);
 
-INTERPLIB_INTERNAL
+FDG_INTERNAL
 void python_integration_rules_release(unsigned n_rules, const integration_rule_t *rules[static n_rules],
                                       integration_rule_registry_t *registry);
 
-#endif // INTERPLIB_INTEGRATION_RULE_OBJECT_H
+#endif // FDG_INTEGRATION_RULE_OBJECT_H

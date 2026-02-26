@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.29)
 
 if (NOT DEFINED SKBUILD_PROJECT_NAME)
-    set(SKBUILD_PROJECT_NAME "InterpLib")
+    set(SKBUILD_PROJECT_NAME "fdg")
 endif ()
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -93,7 +93,7 @@ add_library(interp STATIC
 add_subdirectory(cutl)
 
 set_property(TARGET interp PROPERTY C_STANDARD 17)
-target_compile_definitions(interp PRIVATE INTERPLIB_ASSERTS)
+target_compile_definitions(interp PRIVATE FDG_ASSERTS)
 target_link_libraries(interp PUBLIC m OpenMP::OpenMP_C cutl)
 if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
     target_compile_options(interp PRIVATE -Wall -Wextra -Werror -fanalyzer -Werror)
@@ -112,26 +112,26 @@ set(PYTHON_NUMERICS_SOURCE_FILES
         src/python/kform_objects.c
 )
 
-Python_add_library(_interp MODULE
+Python_add_library(_fdg MODULE
         src/python/module.c
         ${PYTHON_NUMERICS_SOURCE_FILES}
         WITH_SOABI)
 
 add_subdirectory(cpyutl)
 
-target_link_libraries(_interp PRIVATE interp cpyutl cutl)
-set_property(TARGET _interp PROPERTY C_STANDARD 17)
-set_property(TARGET _interp PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
-install(TARGETS _interp DESTINATION ${SKBUILD_PROJECT_NAME})
-target_compile_definitions(_interp PRIVATE INTERPLIB_ASSERTS CPYUTL_ENABLE_ASSERTS)
+target_link_libraries(_fdg PRIVATE interp cpyutl cutl)
+set_property(TARGET _fdg PROPERTY C_STANDARD 17)
+set_property(TARGET _fdg PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+install(TARGETS _fdg DESTINATION ${SKBUILD_PROJECT_NAME})
+target_compile_definitions(_fdg PRIVATE FDG_ASSERTS CPYUTL_ENABLE_ASSERTS)
 
 if ("${NumPy_INCLUDE_DIRS}" STREQUAL "")
     message(FATAL_ERROR "NumPy_INCLUDE_DIRS was empty.")
 endif ()
-target_include_directories(_interp PRIVATE ${NumPy_INCLUDE_DIRS} ${Python_INCLUDE_DIRS} cpyutl/src)
+target_include_directories(_fdg PRIVATE ${NumPy_INCLUDE_DIRS} ${Python_INCLUDE_DIRS} cpyutl/src)
 
 if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
-    target_compile_options(_interp PRIVATE -Wall -Wextra -Werror)
+    target_compile_options(_fdg PRIVATE -Wall -Wextra -Werror)
 endif ()
 
 

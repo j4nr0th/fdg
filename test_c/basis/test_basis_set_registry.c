@@ -14,8 +14,8 @@ int main(void)
     integration_rule_registry_t *ir_registry;
 
     // Create the registry with caching enabled
-    TEST_INTERP_RESULT(integration_rule_registry_create(&ir_registry, 1 /*should_cache*/, &TEST_ALLOCATOR));
-    TEST_INTERP_RESULT(basis_set_registry_create(&registry, 1 /*should_cache*/, &TEST_ALLOCATOR));
+    TEST_FDG_RESULT(integration_rule_registry_create(&ir_registry, 1 /*should_cache*/, &TEST_ALLOCATOR));
+    TEST_FDG_RESULT(basis_set_registry_create(&registry, 1 /*should_cache*/, &TEST_ALLOCATOR));
 
     enum
     {
@@ -39,29 +39,29 @@ int main(void)
             .type = (integration_rule_type_t)(test_prng_next_uint(&prng) % INTEGRATION_RULE_TYPE_COUNT + 1),
             .order = 1 + (test_prng_next_uint(&prng) % INTEGRATION_RULE_MAX_ORDER)};
 
-        TEST_INTERP_RESULT(integration_rule_registry_get_rule(ir_registry, rule_spec, &rules[i]));
+        TEST_FDG_RESULT(integration_rule_registry_get_rule(ir_registry, rule_spec, &rules[i]));
 
         const basis_spec_t spec = {.type = (basis_set_type_t)(test_prng_next_uint(&prng) % BASIS_TYPE_COUNT + 1),
                                    .order = 1 + (test_prng_next_uint(&prng) % BASIS_SET_MAX_ORDER)};
 
         // Get basis set and store it
-        TEST_INTERP_RESULT(basis_set_registry_get_basis_set(registry, &basis_sets[i], rules[i], spec));
+        TEST_FDG_RESULT(basis_set_registry_get_basis_set(registry, &basis_sets[i], rules[i], spec));
 
         // Request the same basis set again to verify caching
         const basis_set_t *cached_basis;
-        TEST_INTERP_RESULT(basis_set_registry_get_basis_set(registry, &cached_basis, rules[i], spec));
+        TEST_FDG_RESULT(basis_set_registry_get_basis_set(registry, &cached_basis, rules[i], spec));
 
         // Verify caching worked
         TEST_ASSERTION(basis_sets[i] == cached_basis, "Caching failed: Expected same basis_set pointer");
 
         // Release cached reference
-        TEST_INTERP_RESULT(basis_set_registry_release_basis_set(registry, cached_basis));
+        TEST_FDG_RESULT(basis_set_registry_release_basis_set(registry, cached_basis));
     }
 
     // Release all basis sets
     for (int i = 0; i < PAIR_COUNT; i++)
     {
-        TEST_INTERP_RESULT(basis_set_registry_release_basis_set(registry, basis_sets[i]));
+        TEST_FDG_RESULT(basis_set_registry_release_basis_set(registry, basis_sets[i]));
     }
 
     // Force cleanup of unused basis sets
