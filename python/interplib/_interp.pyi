@@ -8,6 +8,9 @@ import numpy.typing as npt
 
 from interplib.enum_type import _BasisTypeHint, _IntegrationMethodHint
 
+# TODO: check each time an input array is taken as a parameter, there's a check for
+#  dimensions, types, and continuity
+
 def lagrange1d(
     roots: npt.ArrayLike, x: npt.ArrayLike, out: npt.NDArray[np.double] | None = None, /
 ) -> npt.NDArray[np.double]:
@@ -1030,6 +1033,7 @@ class SpaceMap:
         """
         ...
 
+# TODO: change input to be KFormSpecs
 def compute_kform_mass_matrix(
     smap: SpaceMap,
     order: int,
@@ -1068,6 +1072,7 @@ def compute_kform_mass_matrix(
     """
     ...
 
+# TODO: change input to be KFormSpecs
 def compute_kform_incidence_matrix(
     base_space: FunctionSpace, order: int
 ) -> npt.NDArray[np.double]:
@@ -1089,6 +1094,7 @@ def compute_kform_incidence_matrix(
     """
     ...
 
+# TODO: change input to be KFormSpecs
 def compute_kform_interior_product_matrix(
     smap: SpaceMap,
     order: int,
@@ -1129,6 +1135,41 @@ def compute_kform_interior_product_matrix(
     array
         Mass matrix for inner product of two k-forms, where the right one has the interior
         product with the vector field applied to it.
+    """
+    ...
+
+def incidence_kform_operator(
+    specs: KFormSpecs,
+    values: npt.NDArray[np.double],
+    transpose: bool = False,
+    *,
+    out: npt.NDArray[np.double] | None = None,
+) -> npt.NDArray[np.double]:
+    """Apply the incidence operator on the k-form.
+
+    Parameters
+    ----------
+    specs : KFormSpecs
+        Specifications of the input k-form on which this operator is to be applied on.
+
+    values : array
+        Array which contains the degrees of freedom of all components flattened along the
+        last axis. Treated as a row-major matrix or a vector, depending if 1D or 2D.
+
+    transpose : bool, default: False
+        Apply the transpose of the incidence operator instead.
+
+    out : array, optional
+        Array to which the result is written to. The first axis must have the same size
+        as the number of output degrees of freedom of the resulting k-form. If the input
+        was 2D, this must be as well, with the last axis matching the input's last axis.
+
+    Returns
+    -------
+    array
+        Values of the degrees of freedom of the derivative of the input k-form. When an
+        output array is specified through the parameters, another reference to it is
+        returned, otherwise a new array is created to hold the result and returned.
     """
     ...
 

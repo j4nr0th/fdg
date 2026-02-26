@@ -5,14 +5,13 @@
 #include "covector_basis.h"
 #include "cutl/iterators/combination_iterator.h"
 #include "function_space_objects.h"
+#include "kform_objects.h"
 
 void bernstein_apply_incidence_operator(
     const unsigned n, const size_t pre_stride, const size_t post_stride, const unsigned cols,
     const double INTERPLIB_ARRAY_ARG(values_in, restrict const static pre_stride *(n + 1) * post_stride * cols),
     double INTERPLIB_ARRAY_ARG(values_out, restrict const pre_stride * n * post_stride * cols), const int negate)
 {
-    const size_t col_stride_in = cols * post_stride * pre_stride * (n + 1);
-    const size_t col_stride_out = cols * post_stride * pre_stride * n;
     npy_double coeff = (double)n / 2.0;
     if (negate)
         coeff = -coeff;
@@ -20,24 +19,24 @@ void bernstein_apply_incidence_operator(
 #pragma omp simd
     for (unsigned i_col = 0; i_col < cols; ++i_col)
     {
-        double *const vout = values_out + i_col * col_stride_out;
-        const double *const vin = values_in + i_col * col_stride_in;
+        double *const vout = values_out + i_col;
+        const double *const vin = values_in + i_col;
 
         for (size_t i_pre = 0; i_pre < pre_stride; ++i_pre)
         {
             for (size_t i_post = 0; i_post < post_stride; ++i_post)
             {
-                double *const ptr_out = vout + i_pre * n * post_stride + i_post;
-                const double *const ptr_in = vin + i_pre * (n + 1) * post_stride + i_post;
+                const size_t i_out = i_pre * n * post_stride + i_post;
+                const size_t i_in = i_pre * (n + 1) * post_stride + i_post;
 
-                ptr_out[0] -= coeff * ptr_in[0];
+                vout[(i_out + 0) * cols] -= coeff * vin[(i_in + 0) * cols];
                 for (unsigned col = 1; col < n; ++col)
                 {
-                    const npy_double x = coeff * ptr_in[col * post_stride];
-                    ptr_out[col * post_stride] -= x;
-                    ptr_out[(col - 1) * post_stride] += x;
+                    const npy_double x = coeff * vin[(i_in + col * post_stride) * cols];
+                    vout[(i_out + col * post_stride) * cols] -= x;
+                    vout[(i_out + (col - 1) * post_stride) * cols] += x;
                 }
-                ptr_out[(n - 1) * post_stride] += coeff * ptr_in[n * post_stride];
+                vout[(i_out + (n - 1) * post_stride) * cols] += coeff * vin[(i_in + n * post_stride) * cols];
             }
         }
     }
@@ -77,20 +76,18 @@ void legendre_apply_incidence_operator(
     const double INTERPLIB_ARRAY_ARG(values_in, restrict const static pre_stride *(n + 1) * post_stride * cols),
     double INTERPLIB_ARRAY_ARG(values_out, restrict const pre_stride * n * post_stride * cols), const int negate)
 {
-    const size_t col_stride_in = cols * post_stride * pre_stride * (n + 1);
-    const size_t col_stride_out = cols * post_stride * pre_stride * n;
 #pragma omp simd
     for (unsigned i_col = 0; i_col < cols; ++i_col)
     {
-        double *const vout = values_out + i_col * col_stride_out;
-        const double *const vin = values_in + i_col * col_stride_in;
+        double *const vout = values_out + i_col;
+        const double *const vin = values_in + i_col;
 
         for (size_t i_pre = 0; i_pre < pre_stride; ++i_pre)
         {
             for (size_t i_post = 0; i_post < post_stride; ++i_post)
             {
-                double *const ptr_out = vout + i_pre * n * post_stride + i_post;
-                const double *const ptr_in = vin + i_pre * (n + 1) * post_stride + i_post;
+                const size_t i_out = i_pre * n * post_stride + i_post;
+                const size_t i_in = i_pre * (n + 1) * post_stride + i_post;
 
                 for (unsigned col = n; col > 0; --col)
                 {
@@ -100,11 +97,11 @@ void legendre_apply_incidence_operator(
                         const unsigned r = (col - 1 - 2 * c_row);
                         if (negate)
                         {
-                            ptr_out[r * post_stride] -= coeff * ptr_in[col * post_stride];
+                            vout[(i_out + r * post_stride) * cols] -= coeff * vin[(i_in + col * post_stride) * cols];
                         }
                         else
                         {
-                            ptr_out[r * post_stride] += coeff * ptr_in[col * post_stride];
+                            vout[(i_out + r * post_stride) * cols] += coeff * vin[(i_in + col * post_stride) * cols];
                         }
                         coeff -= 4;
                     }
@@ -147,7 +144,7 @@ void legendre_matrix_incidence_operator(const unsigned n, const size_t pre_strid
     }
 }
 
-void lagrange_apply_incidence_matrix(
+void lagrange_apply_incidence_operator(
     const basis_set_type_t type, const unsigned n, const size_t pre_stride, const size_t post_stride,
     const unsigned cols,
     const double INTERPLIB_ARRAY_ARG(values_in, restrict const static pre_stride *(n + 1) * post_stride * cols),
@@ -179,20 +176,18 @@ void lagrange_apply_incidence_matrix(
         }
     }
 
-    const size_t col_stride_in = cols * post_stride * pre_stride * (n + 1);
-    const size_t col_stride_out = cols * post_stride * pre_stride * n;
 #pragma omp simd
     for (unsigned i_col = 0; i_col < cols; ++i_col)
     {
-        double *const vout = values_out + i_col * col_stride_out;
-        const double *const vin = values_in + i_col * col_stride_in;
+        double *const vout = values_out + i_col;
+        const double *const vin = values_in + i_col;
 
         for (size_t i_pre = 0; i_pre < pre_stride; ++i_pre)
         {
             for (size_t i_post = 0; i_post < post_stride; ++i_post)
             {
-                double *const ptr_out = vout + i_pre * n * post_stride + i_post;
-                const double *const ptr_in = vin + i_pre * (n + 1) * post_stride + i_post;
+                const size_t i_out = i_pre * n * post_stride + i_post;
+                const size_t i_in = i_pre * (n + 1) * post_stride + i_post;
 
                 // Apply the transformation matrix
                 for (unsigned row = 0; row < n; ++row)
@@ -200,9 +195,9 @@ void lagrange_apply_incidence_matrix(
                     double v = 0;
                     for (unsigned col = 0; col < n + 1; ++col)
                     {
-                        v += trans_matrix[row * (n + 1) + col] * ptr_in[col * post_stride];
+                        v += trans_matrix[row * (n + 1) + col] * vin[(i_in + col * post_stride) * cols];
                     }
-                    ptr_out[row * post_stride] = v;
+                    vout[(i_out + row * post_stride) * cols] += v;
                 }
             }
         }
@@ -492,8 +487,8 @@ static PyObject *incidence_operator(PyObject *mod, PyObject *const *args, const 
     case BASIS_LAGRANGE_GAUSS:
     case BASIS_LAGRANGE_GAUSS_LOBATTO:
     case BASIS_LAGRANGE_CHEBYSHEV_GAUSS:
-        lagrange_apply_incidence_matrix(basis_specs->spec.type, order, pre_stride, post_stride, 1, vals_in, out_ptr,
-                                        work, 0);
+        lagrange_apply_incidence_operator(basis_specs->spec.type, order, pre_stride, post_stride, 1, vals_in, out_ptr,
+                                          work, 0);
         break;
 
     default:
@@ -601,8 +596,75 @@ static void incidence_matrix_fill_block(const unsigned ndim, const basis_spec_t 
     }
 }
 
+static void incidence_operator_apply_block(const unsigned ndim, const basis_spec_t basis[static ndim],
+                                           const unsigned order, const uint8_t components[static order],
+                                           const unsigned cols, const unsigned derivative_dim, const int flip_sign,
+                                           const double *restrict in_array, double *restrict out_array, double *work)
+{
+    size_t pre_stride = 1, post_stride = 1;
+    unsigned idim, i_component;
+    for (idim = 0, i_component = 0; idim < derivative_dim; ++idim)
+    {
+        unsigned dofs_in_dimension;
+        if (i_component < order && idim == components[i_component])
+        {
+            dofs_in_dimension = basis[idim].order;
+            i_component += 1;
+        }
+        else
+        {
+            dofs_in_dimension = basis[idim].order + 1;
+        }
+        pre_stride *= dofs_in_dimension;
+    }
+    ASSERT(components[i_component] == derivative_dim,
+           "I miscounted the components somehow (components[i_component] = %u, derivative_dim = %u).",
+           (unsigned)components[i_component], (unsigned)derivative_dim);
+    i_component += 1;
+    idim += 1;
+    for (; idim < ndim; ++idim)
+    {
+        unsigned dofs_in_dimension;
+        if (i_component < order && idim == components[i_component])
+        {
+            dofs_in_dimension = basis[idim].order;
+            i_component += 1;
+        }
+        else
+        {
+            dofs_in_dimension = basis[idim].order + 1;
+        }
+        post_stride *= dofs_in_dimension;
+    }
+    ASSERT(i_component == order, "I miscounted the components somehow (i_component = %u, order = %u).", i_component,
+           order);
+
+    const basis_set_type_t btype = basis[derivative_dim].type;
+    const unsigned n = basis[derivative_dim].order;
+    switch (btype)
+    {
+    case BASIS_BERNSTEIN:
+        bernstein_apply_incidence_operator(n, pre_stride, post_stride, cols, in_array, out_array, flip_sign);
+        break;
+    case BASIS_LEGENDRE:
+        legendre_apply_incidence_operator(n, pre_stride, post_stride, cols, in_array, out_array, flip_sign);
+        break;
+    case BASIS_LAGRANGE_UNIFORM:
+    case BASIS_LAGRANGE_GAUSS:
+    case BASIS_LAGRANGE_GAUSS_LOBATTO:
+    case BASIS_LAGRANGE_CHEBYSHEV_GAUSS:
+        ASSERT(work != NULL, "Work array was not given!");
+        lagrange_apply_incidence_operator(btype, n, pre_stride, post_stride, cols, in_array, out_array, work,
+                                          flip_sign);
+        break;
+    case BASIS_INVALID:
+        ASSERT(0, "Invalid basis type.");
+        return;
+    }
+}
+
 static PyObject *compute_kform_incidence_matrix(PyObject *mod, PyObject *const *args, const Py_ssize_t nargs,
-                                                PyObject *kwnames)
+                                                const PyObject *kwnames)
 {
     const interplib_module_state_t *const state = PyModule_GetState(mod);
     if (!state)
@@ -768,6 +830,242 @@ PyDoc_STRVAR(
     "    Matrix, which maps degrees of freedom for the input k-form to the degrees of\n"
     "    freedom of its (k + 1)-form derivative.\n");
 
+static PyObject *incidence_kform_operator(PyObject *mod, PyObject *const *args, const Py_ssize_t nargs,
+                                          const PyObject *kwnames)
+{
+    const interplib_module_state_t *const state = PyModule_GetState(mod);
+    if (!state)
+        return NULL;
+
+    const kform_spec_object *specs;
+    PyArrayObject *py_vals, *py_out = NULL;
+    int b_transpose = 0;
+    if (parse_arguments_check(
+            (cpyutl_argument_t[]){
+                {.type = CPYARG_TYPE_PYTHON, .p_val = &specs, .type_check = state->kform_specs_type, .kwname = "specs"},
+                {.type = CPYARG_TYPE_PYTHON, .p_val = &py_vals, .type_check = &PyArray_Type, .kwname = "values"},
+                {.type = CPYARG_TYPE_BOOL, .p_val = &b_transpose, .kwname = "transpose", .optional = 1},
+                {.type = CPYARG_TYPE_PYTHON, .p_val = &py_out, .kwname = "out", .optional = 1, .kw_only = 1},
+                {},
+                {},
+            },
+            args, nargs, kwnames) < 0)
+        return NULL;
+
+    if (py_out != NULL && Py_IsNone((PyObject *)py_out))
+    {
+        // None for py_out should be treated as unspecified.
+        py_out = NULL;
+    }
+
+    const function_space_object *fn_space = specs->function_space;
+    const unsigned n = Py_SIZE(fn_space);
+    const unsigned order = specs->order;
+
+    unsigned order_in, order_out;
+    if (b_transpose)
+    {
+        order_in = order + 1;
+        order_out = order;
+        PyErr_SetString(PyExc_NotImplementedError, "Transpose is not supported yet.");
+        return NULL;
+    }
+    else
+    {
+        order_in = order;
+        order_out = order + 1;
+        (void)order_out;
+    }
+
+    const size_t n_components_in = combination_total_count(n, order_in);
+    const size_t n_components_out = combination_total_count(n, order_out);
+
+    // Compute the number of input and output degrees of freedom
+    const size_t *const in_component_offsets = specs->component_offsets;
+    const size_t in_dofs = in_component_offsets[n_components_in];
+
+    const unsigned in_array_ndim = PyArray_NDIM(py_vals);
+
+    // Find the highest order of the basis for all dimensions
+    unsigned max_order = 0;
+    for (unsigned i = 0; i < n; ++i)
+    {
+        if (max_order < fn_space->specs[i].order)
+            max_order = fn_space->specs[i].order;
+    }
+
+    // Allocate the memory needed for all work buffers and iterators
+    combination_iterator_t *iter_component_in, *iter_component_out;
+    uint8_t *basis_components;
+    size_t *out_component_offsets;
+    double *work_buffer;
+    void *const mem = cutl_alloc_group(
+        &PYTHON_ALLOCATOR,
+        (const cutl_alloc_info_t[]){
+            {.size = combination_iterator_required_memory(order), .p_ptr = (void **)&iter_component_in},
+            {.size = combination_iterator_required_memory(order + 1), .p_ptr = (void **)&iter_component_out},
+            {.size = sizeof(*basis_components) * (order + 1), .p_ptr = (void **)&basis_components},
+            {.size = sizeof(*out_component_offsets) * (n_components_out + 1), .p_ptr = (void **)&out_component_offsets},
+            {.size = sizeof(*work_buffer) * ((max_order + 1) * max_order + max_order + (max_order + 1)),
+             .p_ptr = (void **)&work_buffer},
+            {},
+        });
+    if (!mem)
+        return NULL;
+
+    // Compute output offsets
+    size_t out_dofs = 0, idx_out = 0;
+    out_component_offsets[0] = 0;
+    combination_iterator_init(iter_component_out, n, order + 1);
+    for (const uint8_t *p_basis_components = combination_iterator_current(iter_component_out);
+         !combination_iterator_is_done(iter_component_out); combination_iterator_next(iter_component_out), ++idx_out)
+    {
+        out_dofs += kform_basis_get_num_dofs(n, fn_space->specs, order + 1, p_basis_components);
+        // Use this chance to initialize the offsets
+        out_component_offsets[idx_out + 1] = out_dofs;
+    }
+    ASSERT(idx_out == n_components_out, "I miscounted the components somehow (idx_out = %zu, n_components_out = %zu).",
+           idx_out, n_components_out);
+
+    // Check that the input array has "in_dofs" for its last axis size
+    size_t cols = 1;
+    if (in_array_ndim == 1)
+    {
+        if (check_input_array(py_vals, 1, (const npy_intp[1]){(npy_intp)in_dofs}, NPY_DOUBLE,
+                              NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS, "values") < 0)
+        {
+            cutl_dealloc(&PYTHON_ALLOCATOR, mem);
+            return NULL;
+        }
+    }
+    else if (in_array_ndim == 2)
+    {
+        cols = PyArray_DIM(py_vals, 1);
+        if (check_input_array(py_vals, 2, (const npy_intp[2]){(npy_intp)in_dofs, (npy_intp)cols}, NPY_DOUBLE,
+                              NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS, "values") < 0)
+        {
+            cutl_dealloc(&PYTHON_ALLOCATOR, mem);
+            return NULL;
+        }
+    }
+    else
+    {
+        PyErr_SetString(PyExc_ValueError, "Input array can only be 1D or 2D.");
+        cutl_dealloc(&PYTHON_ALLOCATOR, mem);
+        return NULL;
+    }
+
+    // Fill out output dimensions
+    const npy_intp out_dims[2] = {(npy_intp)out_dofs, (npy_intp)cols};
+    // Create output if need be
+    if (py_out == NULL)
+    {
+        // We need to create it the same shape as input, with only the last axis being having the "out_dofs" size
+        py_out = (PyArrayObject *)PyArray_SimpleNew(in_array_ndim, out_dims, NPY_DOUBLE);
+        if (!py_out)
+        {
+            cutl_dealloc(&PYTHON_ALLOCATOR, mem);
+            return NULL;
+        }
+    }
+    else if (check_input_array(py_out, in_array_ndim, out_dims, NPY_DOUBLE,
+                               NPY_ARRAY_C_CONTIGUOUS | NPY_ARRAY_ALIGNED | NPY_ARRAY_WRITEABLE, "out") < 0)
+    {
+        cutl_dealloc(&PYTHON_ALLOCATOR, mem);
+        return NULL;
+    }
+    else
+    {
+        Py_INCREF(py_out);
+    }
+
+    // Zero the output just in case
+    npy_double *restrict const out_data = PyArray_DATA(py_out);
+    const npy_double *restrict const in_data = PyArray_DATA(py_vals);
+    memset(out_data, 0, PyArray_SIZE(py_out) * sizeof(*out_data));
+
+    // Loop over input k-form components
+    size_t idx_comp_in = 0;
+    combination_iterator_init(iter_component_in, n, order_in);
+    for (const uint8_t *const components_in = combination_iterator_current(iter_component_in);
+         !combination_iterator_is_done(iter_component_in); combination_iterator_next(iter_component_in), ++idx_comp_in)
+    {
+        // Prepare the loop over all possible outputs
+        basis_components[0] = 0;
+        for (unsigned i = 0; i < order; ++i)
+        {
+            basis_components[i + 1] = components_in[i];
+        }
+
+        const size_t in_component_offset = in_component_offsets[idx_comp_in];
+        const npy_double *restrict const in_array = in_data + in_component_offset * cols;
+        for (unsigned pv = 0; pv < order; pv += 1)
+        {
+            while (basis_components[pv] < basis_components[pv + 1])
+            {
+                const unsigned idx_comp_out = combination_get_index(n, order + 1, basis_components);
+                const size_t out_component_offset = out_component_offsets[idx_comp_out];
+                // printf("Working on block with in offset %zu and out offset %zu (%zX)\n", in_component_offset,
+                //        out_component_offset, out_component_offset);
+                incidence_operator_apply_block(n, fn_space->specs, order + 1, basis_components, cols,
+                                               basis_components[pv], pv & 1u, in_array,
+                                               out_data + out_component_offset * cols, work_buffer);
+                basis_components[pv] += 1;
+            }
+            basis_components[pv + 1] += 1;
+        }
+        ASSERT(out_dofs == out_component_offsets[n_components_out], "Value in the array changed.");
+
+        while (basis_components[order] < n)
+        {
+            const unsigned idx_comp_out = combination_get_index(n, order + 1, basis_components);
+            const size_t out_component_offset = out_component_offsets[idx_comp_out];
+            // printf("Working on block with in offset %zu and out offset %zu (%zX)\n", in_component_offset,
+            //        out_component_offset, out_component_offset);
+            incidence_operator_apply_block(n, fn_space->specs, order + 1, basis_components, cols,
+                                           basis_components[order], order & 1u, in_array,
+                                           out_data + out_component_offset * cols, work_buffer);
+            basis_components[order] += 1;
+        }
+        ASSERT(out_dofs == out_component_offsets[n_components_out], "Value in the array changed.");
+    }
+
+    // Release the memory
+    cutl_dealloc(&PYTHON_ALLOCATOR, mem);
+
+    return (PyObject *)py_out;
+}
+
+PyDoc_STRVAR(
+    incidence_kform_operator_docstring,
+    "incidence_kform_operator(specs: KFormSpecs, values: numpy.typing.NDArray[np.double], transpose: bool = False, *, "
+    "out: numpy.typing.NDArray[numpy.double] | None = None) -> numpy.typing.NDArray[numpy.double]\n"
+    "Apply the incidence operator on the k-form.\n"
+    "\n"
+    "Parameters\n"
+    "----------\n"
+    "specs : KFormSpecs\n"
+    "    Specifications of the input k-form on which this operator is to be applied on.\n"
+    "\n"
+    "values : array\n"
+    "    Array which contains the degrees of freedom of all components flattened along the\n"
+    "    last axis. Treated as a row-major matrix or a vector, depending if 1D or 2D.\n"
+    "\n"
+    "transpose : bool, default: False\n"
+    "    Apply the transpose of the incidence operator instead.\n"
+    "\n"
+    "out : array, optional\n"
+    "    Array to which the result is written to. The first axis must have the same size\n"
+    "    as the number of output degrees of freedom of the resulting k-form. If the input\n"
+    "    was 2D, this must be as well, with the last axis matching the input's last axis.\n"
+    "\n"
+    "Returns\n"
+    "-------\n"
+    "array\n"
+    "    Values of the degrees of freedom of the derivative of the input k-form. When an\n"
+    "    output array is specified through the parameters, another reference to it is\n"
+    "    returned, otherwise a new array is created to hold the result and returned.\n");
+
 PyMethodDef incidence_methods[] = {
     {
         .ml_name = "incidence_matrix",
@@ -786,6 +1084,12 @@ PyMethodDef incidence_methods[] = {
         .ml_meth = (void *)compute_kform_incidence_matrix,
         .ml_flags = METH_FASTCALL | METH_KEYWORDS,
         .ml_doc = compute_kform_incidence_matrix_docstring,
+    },
+    {
+        .ml_name = "incidence_kform_operator",
+        .ml_meth = (void *)incidence_kform_operator,
+        .ml_flags = METH_FASTCALL | METH_KEYWORDS,
+        .ml_doc = incidence_kform_operator_docstring,
     },
     {}, // sentinel
 };

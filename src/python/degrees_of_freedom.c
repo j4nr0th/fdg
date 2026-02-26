@@ -742,7 +742,7 @@ PyObject *dof_derivative(PyObject *self, PyTypeObject *defining_class, PyObject 
         }
 
         // Use the real transformation matrix
-        lagrange_apply_incidence_matrix(type, n, pre_stride, post_stride, 1, values_in, values_out, work_buffer, 0);
+        lagrange_apply_incidence_operator(type, n, pre_stride, post_stride, 1, values_in, values_out, work_buffer, 0);
         PyMem_Free(work_buffer);
     }
     break;

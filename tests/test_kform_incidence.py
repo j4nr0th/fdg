@@ -1,4 +1,4 @@
-"""Check that k-form incidence matrix is correctly implemented."""
+"""Check that k-form incidence matrix and operator are correctly implemented."""
 
 import numpy as np
 import pytest
@@ -6,21 +6,37 @@ from interplib._interp import (
     BasisSpecs,
     DegreesOfFreedom,
     FunctionSpace,
+    KFormSpecs,
     compute_kform_incidence_matrix,
+    incidence_kform_operator,
 )
 from interplib.enum_type import BasisType
 
+_TEST_VALUES_2D = (
+    (1, 1, BasisType.BERNSTEIN, BasisType.BERNSTEIN),
+    (3, 4, BasisType.BERNSTEIN, BasisType.BERNSTEIN),
+    (4, 3, BasisType.BERNSTEIN, BasisType.BERNSTEIN),
+    (3, 2, BasisType.LEGENDRE, BasisType.LAGRNAGE_GAUSS),
+    (3, 3, BasisType.LAGRANGE_UNIFORM, BasisType.LAGRANGE_CHEBYSHEV_GAUSS),
+)
 
-@pytest.mark.parametrize(
-    ("o1", "o2", "b1", "b2"),
+_TEST_VALUES_3D = (
+    (1, 1, 1, BasisType.BERNSTEIN, BasisType.BERNSTEIN, BasisType.BERNSTEIN),
+    (3, 4, 5, BasisType.BERNSTEIN, BasisType.BERNSTEIN, BasisType.BERNSTEIN),
+    (4, 3, 5, BasisType.BERNSTEIN, BasisType.BERNSTEIN, BasisType.BERNSTEIN),
+    (3, 2, 4, BasisType.LEGENDRE, BasisType.LAGRNAGE_GAUSS, BasisType.LEGENDRE),
     (
-        (1, 1, BasisType.BERNSTEIN, BasisType.BERNSTEIN),
-        (3, 4, BasisType.BERNSTEIN, BasisType.BERNSTEIN),
-        (4, 3, BasisType.BERNSTEIN, BasisType.BERNSTEIN),
-        (3, 2, BasisType.LEGENDRE, BasisType.LAGRNAGE_GAUSS),
-        (3, 3, BasisType.LAGRANGE_UNIFORM, BasisType.LAGRANGE_CHEBYSHEV_GAUSS),
+        3,
+        3,
+        3,
+        BasisType.LAGRANGE_UNIFORM,
+        BasisType.LAGRANGE_CHEBYSHEV_GAUSS,
+        BasisType.LAGRNAGE_GAUSS_LOBATTO,
     ),
 )
+
+
+@pytest.mark.parametrize(("o1", "o2", "b1", "b2"), _TEST_VALUES_2D)
 def test_2d_derivatives(o1: int, o2: int, b1: BasisType, b2: BasisType) -> None:
     """Check that incidence matrices for k-forms in 2D work as intended."""
     # Init PRNG
@@ -70,23 +86,7 @@ def test_2d_derivatives(o1: int, o2: int, b1: BasisType, b2: BasisType) -> None:
     assert pytest.approx(dofs_2) == form_2.values.flatten()
 
 
-@pytest.mark.parametrize(
-    ("o1", "o2", "o3", "b1", "b2", "b3"),
-    (
-        (1, 1, 1, BasisType.BERNSTEIN, BasisType.BERNSTEIN, BasisType.BERNSTEIN),
-        (3, 4, 5, BasisType.BERNSTEIN, BasisType.BERNSTEIN, BasisType.BERNSTEIN),
-        (4, 3, 5, BasisType.BERNSTEIN, BasisType.BERNSTEIN, BasisType.BERNSTEIN),
-        (3, 2, 4, BasisType.LEGENDRE, BasisType.LAGRNAGE_GAUSS, BasisType.LEGENDRE),
-        (
-            3,
-            3,
-            3,
-            BasisType.LAGRANGE_UNIFORM,
-            BasisType.LAGRANGE_CHEBYSHEV_GAUSS,
-            BasisType.LAGRNAGE_GAUSS_LOBATTO,
-        ),
-    ),
-)
+@pytest.mark.parametrize(("o1", "o2", "o3", "b1", "b2", "b3"), _TEST_VALUES_3D)
 def test_3d_derivatives(
     o1: int, o2: int, o3: int, b1: BasisType, b2: BasisType, b3: BasisType
 ) -> None:
@@ -203,3 +203,115 @@ def test_3d_derivatives(
 
     ## Check that computed values are correct
     assert pytest.approx(dofs_3) == form_2_d.values.flatten()
+
+
+@pytest.mark.parametrize(("o1", "o2", "o3", "b1", "b2", "b3"), _TEST_VALUES_3D)
+def test_3d_operator(
+    o1: int, o2: int, o3: int, b1: BasisType, b2: BasisType, b3: BasisType
+) -> None:
+    """Check that operator matrices for k-forms in 3D work as intended."""
+    # Init PRNG
+    rng = np.random.default_rng(
+        o1 + 2 * o2 + 3 * o3 + hash(b1) ** 2 + hash(b2) ** 2 + hash(b3) ** 2
+    )
+    # Create base function space
+    base_space = FunctionSpace(BasisSpecs(b1, o1), BasisSpecs(b2, o2), BasisSpecs(b3, o3))
+
+    # Test 0 -> 1 derivative in 3D
+    ## Create the 0-form
+    specs_0 = KFormSpecs(0, base_space)
+    form_0 = DegreesOfFreedom(base_space)
+    form_0.values = rng.random(form_0.shape)
+
+    ## Use the incidence matrix first
+    e01_mat = compute_kform_incidence_matrix(base_space, 0)
+    dofs_joined_01 = e01_mat @ form_0.values.flatten()
+
+    # Try using the operator instead
+    dofs_computed_01 = incidence_kform_operator(specs_0, form_0.values.flatten())
+
+    ## Check that compute values are correct
+    assert pytest.approx(dofs_joined_01) == dofs_computed_01
+
+    # Test 1 -> 2 derivative in 3D
+    ## Create the 1-forms
+    specs_1 = KFormSpecs(1, base_space)
+    form_1_0 = DegreesOfFreedom(base_space.lower_order(idim=0))
+    form_1_1 = DegreesOfFreedom(base_space.lower_order(idim=1))
+    form_1_2 = DegreesOfFreedom(base_space.lower_order(idim=2))
+    form_1_0.values = rng.random(form_1_0.shape)
+    form_1_1.values = rng.random(form_1_1.shape)
+    form_1_2.values = rng.random(form_1_2.shape)
+
+    ## Use the incidence matrix
+    e12_mat = compute_kform_incidence_matrix(base_space, 1)
+    dofs_1_flattened = np.concatenate(
+        (form_1_0.values.flatten(), form_1_1.values.flatten(), form_1_2.values.flatten())
+    )
+    dofs_2 = e12_mat @ dofs_1_flattened
+
+    # Try using the operator instead
+    dofs_computed_12 = incidence_kform_operator(specs_1, dofs_1_flattened)
+
+    ## Check that computed values are correct
+    assert pytest.approx(dofs_2) == dofs_computed_12
+
+    # Test 2 -> 3 derivative in 3D
+    ## Create the 2-forms
+    specs_2 = KFormSpecs(2, base_space)
+    form_2_0 = DegreesOfFreedom(base_space.lower_order(idim=0).lower_order(idim=1))
+    form_2_1 = DegreesOfFreedom(base_space.lower_order(idim=0).lower_order(idim=2))
+    form_2_2 = DegreesOfFreedom(base_space.lower_order(idim=1).lower_order(idim=2))
+    form_2_0.values = rng.random(form_2_0.shape)
+    form_2_1.values = rng.random(form_2_1.shape)
+    form_2_2.values = rng.random(form_2_2.shape)
+
+    ## Use the incidence matrix
+    e23_mat = compute_kform_incidence_matrix(base_space, 2)
+    dofs_2_flattened = np.concatenate(
+        (form_2_0.values.flatten(), form_2_1.values.flatten(), form_2_2.values.flatten())
+    )
+    dofs_3 = e23_mat @ dofs_2_flattened
+
+    # Try using the operator instead
+    dofs_computed_23 = incidence_kform_operator(specs_2, dofs_2_flattened)
+
+    ## Check that computed values are correct
+    assert pytest.approx(dofs_3) == dofs_computed_23
+
+
+@pytest.mark.parametrize(("o1", "o2", "o3", "b1", "b2", "b3"), _TEST_VALUES_3D)
+@pytest.mark.parametrize("cols", (1, 12, 50))
+def test_3d_operator_matrix(
+    o1: int, o2: int, o3: int, b1: BasisType, b2: BasisType, b3: BasisType, cols: int
+) -> None:
+    """Check that operator matrices for k-forms in 3D work as intended."""
+    # Init PRNG
+    rng = np.random.default_rng(
+        o1 + 2 * o2 + 3 * o3 + hash(b1) ** 2 + hash(b2) ** 2 + hash(b3) ** 2
+    )
+    # Create base function space
+    base_space = FunctionSpace(BasisSpecs(b1, o1), BasisSpecs(b2, o2), BasisSpecs(b3, o3))
+
+    # Test 0 -> 1 derivative in 3D
+    ## Create the 0-form
+    for k in range(0, 3):
+        specs_k = KFormSpecs(k, base_space)
+        dofs_kform = rng.random((sum(specs_k.component_dof_counts), cols))
+        e_mat = compute_kform_incidence_matrix(base_space, k)
+        # dofs_kform[-specs_k.component_dof_counts[-1] :] = 0
+
+        ## Use the incidence matrix first
+        dofs_derivative_expected = e_mat @ dofs_kform
+
+        # Try using the operator instead
+        dofs_derivative_computed = incidence_kform_operator(specs_k, dofs_kform)
+
+        ## Check that compute values are correct
+        assert pytest.approx(dofs_derivative_expected) == dofs_derivative_computed
+
+
+if __name__ == "__main__":
+    for args in _TEST_VALUES_3D:
+        for cols in (1, 2, 3, 4):
+            test_3d_operator_matrix(*args, cols)
