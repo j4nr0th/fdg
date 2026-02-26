@@ -1,5 +1,6 @@
 """Functions to allow integration of callables."""
 
+from collections.abc import Sequence
 from typing import Protocol
 
 import numpy as np
@@ -13,8 +14,11 @@ from interplib._interp import (
     FunctionSpace,
     IntegrationRegistry,
     IntegrationSpace,
+    KFormSpecs,
     SpaceMap,
+    compute_kform_mass_matrix,
     compute_mass_matrix,
+    transform_kform_component_to_target,
 )
 
 
@@ -44,7 +48,24 @@ class Integrable(Protocol):
 def _prepare_integration(
     integration: IntegrationSpace | SpaceMap, registry: IntegrationRegistry
 ) -> tuple[npt.NDArray[np.double], npt.NDArray[np.double]]:
-    """Prepare nodes and weights."""
+    """Prepare nodes and weights.
+
+    Parameters
+    ----------
+    integration : IntegrationSpace or SpaceMap
+        Either an ordinary integration space of a space map.
+
+    registry : IntegrationRegistry
+        Registry to get the integration nodes and weights from.
+
+    Returns
+    -------
+    array
+        Array of integration nodes where a callable should be evaluated at.
+
+    array
+        Array of integration weights to use for integrating the function.
+    """
     match integration:
         case IntegrationSpace() as int_space:
             nodes = int_space.nodes(registry)
@@ -221,3 +242,180 @@ def projection_l2_primal(
     primal_dofs = np.linalg.solve(mass_matrix, dual_dofs.values.flatten())
     del dual_dofs, mass_matrix
     return DegreesOfFreedom(function_space, primal_dofs)
+
+
+# TODO: Needs another transformation function for basis only.
+def projection_kform_l2_dual(
+    funcs: Sequence[Integrable],
+    specs: KFormSpecs,
+    integration: IntegrationSpace | SpaceMap,
+    /,
+    *,
+    integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
+    basis_registry: BasisRegistry = DEFAULT_BASIS_REGISTRY,
+) -> tuple[npt.NDArray[np.double], ...]:
+    """Compute the dual L2 projection of the k-form.
+
+    Parameters
+    ----------
+    func : Integratable
+        Function to project. It has to be possible to integrate it.
+
+    specs : KFormSpecs
+        Specifications of the k-form to project.
+
+    integration : IntegrationSpace or SpaceMap
+        Specification of the integration domain.
+
+    integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY
+        The registry to use for obtaining the integrator.
+
+    basis_registry : BasisRegistry, default: DEFAULT_BASIS_REGISTRY
+        The registry to use for obtaining the basis values.
+
+    Returns
+    -------
+    tuple of array
+        Dual degrees of freedom of the projection for each of the components.
+    """
+    nodes, weights = _prepare_integration(
+        integration=integration, registry=integration_registry
+    )
+
+    if len(funcs) != specs.component_count:
+        raise ValueError(
+            f"A {specs.order}-form in {specs.dimension}D has {specs.component_count}"
+            f" components, but {len(funcs)} were provided."
+        )
+
+    func_vals = (
+        np.asarray(
+            [func(*[nodes[i, ...] for i in range(nodes.shape[0])]) for func in funcs]
+        )
+        * weights[None, ...]
+    )
+    del nodes, funcs, weights
+
+    int_space: IntegrationSpace
+    match integration:
+        case IntegrationSpace():
+            int_space = integration
+        case SpaceMap():
+            int_space = integration.integration_space
+        case _:
+            assert False
+
+    for idim in range(int_space.dimension):
+        func_vals = func_vals[..., None]
+
+    basis_functions: list[npt.NDArray] = list()
+    for idx in range(specs.component_count):
+        fn_space = specs.get_component_function_space(idx)
+        basis_functions.append(
+            fn_space.values_at_integration_nodes(
+                int_space,
+                integration_registry=integration_registry,
+                basis_registry=basis_registry,
+            )
+        )
+
+    del integration_registry, basis_registry
+
+    if type(integration) is SpaceMap:
+        transformed_basis = [
+            transform_kform_component_to_target(
+                specs.order, integration, basis_functions[i], i
+            )
+            for i in range(specs.component_count)
+        ]
+        dual_dofs = tuple(
+            np.sum(func_vals * b, axis=tuple(range(int_space.dimension + 1)))
+            for b in transformed_basis
+        )
+    else:
+        dual_dofs = tuple(
+            np.sum(f * b, axis=tuple(range(int_space.dimension)))
+            for f, b in zip(func_vals, basis_functions)
+        )
+
+    return dual_dofs
+
+
+def projection_kform_l2_primal(
+    funcs: Sequence[Integrable],
+    specs: KFormSpecs,
+    integration: IntegrationSpace | SpaceMap,
+    /,
+    *,
+    integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
+    basis_registry: BasisRegistry = DEFAULT_BASIS_REGISTRY,
+) -> tuple[npt.NDArray[np.double], ...]:
+    """Compute the primal L2 projection of the k-form.
+
+    Parameters
+    ----------
+    func : Integratable
+        Function to project. It has to be possible to integrate it.
+
+    specs : KFormSpecs
+        Specifications of the k-form to project.
+
+    integration : IntegrationSpace or SpaceMap
+        Specification of the integration domain.
+
+    integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY
+        The registry to use for obtaining the integrator.
+
+    basis_registry : BasisRegistry, default: DEFAULT_BASIS_REGISTRY
+        The registry to use for obtaining the basis values.
+
+    Returns
+    -------
+    tuple of array
+        Primal degrees of freedom of the projection for each of the components.
+    """
+    dual_dofs = projection_kform_l2_dual(
+        funcs,
+        specs,
+        integration,
+        integration_registry=integration_registry,
+        basis_registry=basis_registry,
+    )
+    flat_dual = np.concatenate([dd.flatten() for dd in dual_dofs])
+    match integration:
+        case SpaceMap() as smap:
+            mass_matrix = compute_kform_mass_matrix(
+                smap,
+                specs.order,
+                specs.base_space,
+                specs.base_space,
+                int_registry=integration_registry,
+                basis_registry=basis_registry,
+            )
+            flat_primal = np.linalg.solve(mass_matrix, flat_dual)
+        case IntegrationSpace() as ispace:
+            primal_vals: list[npt.NDArray[np.double]] = list()
+            for idx, dd in enumerate(dual_dofs):
+                fn_space = specs.get_component_function_space(idx)
+                mass_matrix = compute_mass_matrix(
+                    fn_space,
+                    fn_space,
+                    ispace,
+                    integration_registry=integration_registry,
+                    basis_registry=basis_registry,
+                )
+                primal_vals.append(np.linalg.solve(mass_matrix, dd.flatten()))
+            flat_primal = np.concatenate(primal_vals)
+
+        case _:
+            raise TypeError(f"Invalid integration type {type(integration)}")
+
+    off = 0
+    primal: list[npt.NDArray[np.double]] = list()
+    for dd in dual_dofs:
+        sz = dd.size
+        pd = flat_primal[off : off + sz]
+        off += sz
+        primal.append(np.reshape(pd, dd.shape))
+
+    return tuple(primal)

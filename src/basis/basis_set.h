@@ -65,6 +65,13 @@ interp_result_t basis_set_registry_get_basis_set(basis_set_registry_t *this, con
                                                  const integration_rule_t *integration_rule, basis_spec_t spec);
 
 INTERPLIB_INTERNAL
+interp_result_t basis_set_registry_get_basis_sets(basis_set_registry_t *this, unsigned cnt,
+                                                  const basis_set_t *INTERPLIB_ARRAY_ARG(p_basis, cnt),
+                                                  const integration_rule_t *INTERPLIB_ARRAY_ARG(integration_rule,
+                                                                                                static cnt),
+                                                  const basis_spec_t INTERPLIB_ARRAY_ARG(specs, static cnt));
+
+INTERPLIB_INTERNAL
 interp_result_t basis_set_registry_release_basis_set(basis_set_registry_t *this, const basis_set_t *basis);
 
 INTERPLIB_INTERNAL

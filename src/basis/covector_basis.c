@@ -1,6 +1,7 @@
 #include "covector_basis.h"
 
 #include <stdarg.h>
+#include <stdint.h>
 
 static unsigned popcnt_uint(unsigned x)
 {
@@ -65,8 +66,28 @@ unsigned covector_basis_rank(const covector_basis_t basis)
     return popcnt_uint(basis.basis_bits);
 }
 
-covector_basis_t covector_basis_make(const unsigned dimension, const int sign, const unsigned rank,
-                                     const unsigned INTERPLIB_ARRAY_ARG(indices, static rank))
+covector_basis_t covector_basis_create(const unsigned dimension, const int sign, const unsigned rank,
+                                       const unsigned INTERPLIB_ARRAY_ARG(indices, static rank))
+{
+    ASSERT(dimension > 0, "Dimension must be positive.");
+    ASSERT(rank <= dimension, "Rank was larger than dimension.");
+    ASSERT(dimension < COVECTOR_BASIS_MAX_DIM, "Maximum dimension count of %u was exceeded!", COVECTOR_BASIS_MAX_DIM);
+    covector_basis_t basis = {.dimension = dimension, .sign = sign < 0};
+    for (unsigned i = 0; i < rank; ++i)
+    {
+        const unsigned idx = indices[i];
+        ASSERT(i == 0 || idx > indices[i - 1], "Indices were not sorted in ascending order.");
+        ASSERT(idx < dimension, "Index %u was out of bounds for dimension %u.", idx, dimension);
+        const unsigned bit = (1u << idx);
+        ASSERT(basis.basis_bits ^ bit, "Component %u was already specified.", idx);
+        basis.basis_bits |= bit;
+    }
+
+    return basis;
+}
+
+covector_basis_t covector_basis_create_u8(const unsigned dimension, const int sign, const unsigned rank,
+                                          const uint8_t INTERPLIB_ARRAY_ARG(indices, static rank))
 {
     ASSERT(dimension > 0, "Dimension must be positive.");
     ASSERT(rank <= dimension, "Rank was larger than dimension.");

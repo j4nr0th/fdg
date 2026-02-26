@@ -1,5 +1,7 @@
 #include "covector_basis.h"
 
+#include "cutl/iterators/combination_iterator.h"
+
 static PyObject *covector_basis_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 {
     if (kwds && PyDict_Size(kwds))
@@ -56,7 +58,7 @@ static PyObject *covector_basis_new(PyTypeObject *type, PyObject *args, PyObject
         cnt += 1;
     }
 
-    return (PyObject *)covector_basis_object_create(type, covector_basis_make(n_dims, 0, cnt, present));
+    return (PyObject *)covector_basis_object_create(type, covector_basis_create(n_dims, 0, cnt, present));
 }
 
 static PyObject *covector_basis_get_ndim(PyObject *self, void *Py_UNUSED(closure))
@@ -75,6 +77,26 @@ static PyObject *covector_basis_get_sign(PyObject *self, void *Py_UNUSED(closure
 {
     const covector_basis_object *const this = (covector_basis_object *)self;
     return PyLong_FromLong(this->basis.sign ? -1 : +1);
+}
+
+static PyObject *covector_basis_get_index(PyObject *self, void *Py_UNUSED(closure))
+{
+    const covector_basis_object *const this = (covector_basis_object *)self;
+    // Unpack indices of non-zero bits into an array
+    uint8_t indices[COVECTOR_BASIS_MAX_DIM] = {};
+    const unsigned r = covector_basis_rank(this->basis);
+    for (unsigned i = 0, j = 0; i < this->basis.dimension && j < r; ++i)
+    {
+
+        if (covector_basis_has_component(this->basis, i))
+        {
+            indices[j] = i;
+            j += 1;
+        }
+    }
+    // Now we can call the function
+    const unsigned idx = combination_get_index(this->basis.dimension, r, indices);
+    return PyLong_FromUnsignedLong(idx);
 }
 
 static PyObject *covector_basis_xor(PyObject *self, PyObject *other)
@@ -323,7 +345,7 @@ static PyObject *covector_basis_repr(PyObject *self)
             PRINT_TO_BUFFER(", %u", i);
         }
     }
-    return PyUnicode_FromFormat("%cCovectorBasis(%u%s)", this->basis.sign ? '+' : '-', this->basis.dimension, buffer);
+    return PyUnicode_FromFormat("%cCovectorBasis(%u%s)", this->basis.sign ? '-' : '+', this->basis.dimension, buffer);
 }
 
 #undef PRINT_TO_BUFFER
@@ -423,6 +445,47 @@ PyDoc_STRVAR(covector_basis_docstring,
              "*idx : int\n"
              "    Indices of basis present in the bundle. Should be sorted and non-repeating.\n");
 
+static int covector_basis_contains(PyObject *self, PyObject *item)
+{
+    const covector_basis_object *const this = (covector_basis_object *)self;
+    const interplib_module_state_t *const state = interplib_get_module_state(Py_TYPE(self));
+    if (!state)
+        return -1;
+
+    // First, check if this is an integer or basis
+    if (PyObject_TypeCheck(item, state->covector_basis_type))
+    {
+        // It is a basis
+        const covector_basis_object *const that = (covector_basis_object *)item;
+        if (this->basis.dimension != that->basis.dimension)
+        {
+            return 0;
+        }
+
+        // Check if it is a subset of the self
+        for (unsigned i = 0; i < this->basis.dimension; ++i)
+        {
+            if (!covector_basis_has_component(this->basis, i) && covector_basis_has_component(that->basis, i))
+            {
+                return 0;
+            }
+        }
+        return 1;
+    }
+    // Try and convert to an integer
+    const Py_ssize_t num = PyNumber_AsSsize_t(item, PyExc_OverflowError);
+    if (PyErr_Occurred())
+        return -1;
+    if (num < 0 || num >= this->basis.dimension)
+    {
+        PyErr_Format(PyExc_ValueError, "Index %zd is out of bounds for basis of dimension %u.", num,
+                     this->basis.dimension);
+        return -1;
+    }
+
+    return covector_basis_has_component(this->basis, num);
+}
+
 PyType_Spec covector_basis_type_spec = {
     .name = "interplib._interp.CovectorBasis",
     .basicsize = sizeof(covector_basis_object),
@@ -432,27 +495,30 @@ PyType_Spec covector_basis_type_spec = {
         (PyType_Slot[]){
             {Py_tp_traverse, heap_type_traverse_type},
             {Py_tp_new, covector_basis_new},
-            {
-                Py_tp_getset,
-                (PyGetSetDef[]){
-                    {
-                        .name = "ndim",
-                        .get = covector_basis_get_ndim,
-                        .doc = "int : Number of dimensions of the space the basis are in.",
-                    },
-                    {
-                        .name = "rank",
-                        .get = covector_basis_get_rank,
-                        .doc = "int : Number of basis contained.",
-                    },
-                    {
-                        .name = "sign",
-                        .get = covector_basis_get_sign,
-                        .doc = "int : The sign of the basis.",
-                    },
-                    {},
-                },
-            },
+            {Py_tp_getset,
+             (PyGetSetDef[]){
+                 {
+                     .name = "ndim",
+                     .get = covector_basis_get_ndim,
+                     .doc = "int : Number of dimensions of the space the basis are in.",
+                 },
+                 {
+                     .name = "rank",
+                     .get = covector_basis_get_rank,
+                     .doc = "int : Number of basis contained.",
+                 },
+                 {
+                     .name = "sign",
+                     .get = covector_basis_get_sign,
+                     .doc = "int : The sign of the basis.",
+                 },
+                 {
+                     .name = "index",
+                     .get = covector_basis_get_index,
+                     .doc = "int : Index of the basis for the k-form.",
+                 },
+                 {},
+             }},
             {Py_nb_xor, covector_basis_xor},
             {Py_nb_negative, covector_basis_negative},
             {Py_nb_invert, covector_basis_invert},
@@ -472,6 +538,7 @@ PyType_Spec covector_basis_type_spec = {
                  },
                  {},
              }},
+            {Py_sq_contains, covector_basis_contains},
             {},
         },
 };
@@ -484,4 +551,45 @@ covector_basis_object *covector_basis_object_create(PyTypeObject *type, const co
     // When we init we need to write, and this will upset the compiler. After this, this is all const.
     *(covector_basis_t *)&this->basis = basis;
     return this;
+}
+
+unsigned kform_basis_get_num_dofs(const unsigned ndim, const basis_spec_t basis[static ndim], const unsigned order,
+                                  const uint8_t components[static order])
+{
+    unsigned dofs = 1;
+    for (unsigned idim = 0, icomponent = 0; idim < ndim; ++idim)
+    {
+        unsigned n;
+        if (icomponent != order && idim == components[icomponent])
+        {
+            n = basis[idim].order;
+            icomponent += 1;
+        }
+        else
+        {
+            n = basis[idim].order + 1;
+        }
+        dofs *= n;
+    }
+    return dofs;
+}
+
+void kform_basis_set_iterator(const unsigned ndim, const basis_spec_t basis[static ndim], const unsigned order,
+                              const uint8_t components[static order], multidim_iterator_t *iter)
+{
+    // Can't put the check here, since the iterator is not initialized on the first run.
+    for (unsigned idim = 0, icomponent = 0; idim < ndim; ++idim)
+    {
+        unsigned n;
+        if (icomponent != order && idim == components[icomponent])
+        {
+            n = basis[idim].order;
+            icomponent += 1;
+        }
+        else
+        {
+            n = basis[idim].order + 1;
+        }
+        multidim_iterator_init_dim(iter, idim, n);
+    }
 }

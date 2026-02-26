@@ -261,6 +261,30 @@ interp_result_t integration_rule_registry_get_rule(integration_rule_registry_t *
     return INTERP_SUCCESS;
 }
 
+interp_result_t integration_rule_registry_get_rules(integration_rule_registry_t *this, const unsigned cnt,
+                                                    const integration_spec_t INTERPLIB_ARRAY_ARG(specs, static cnt),
+                                                    const integration_rule_t *INTERPLIB_ARRAY_ARG(p_rules, cnt))
+{
+    for (unsigned i = 0; i < cnt; ++i)
+    {
+        const integration_rule_t *rule;
+        const interp_result_t res = integration_rule_registry_get_rule(this, specs[i], &rule);
+        if (res != INTERP_SUCCESS)
+        {
+            // Release all rules that were retrieved thus far
+            for (unsigned j = 0; j < i; ++j)
+            {
+                integration_rule_registry_release_rule(this, p_rules[j]);
+            }
+            // Now we can return.
+            return res;
+        }
+        p_rules[i] = rule;
+    }
+
+    return INTERP_SUCCESS;
+}
+
 INTERPLIB_INTERNAL
 interp_result_t integration_rule_registry_release_rule(integration_rule_registry_t *this,
                                                        const integration_rule_t *rule)
@@ -376,6 +400,16 @@ unsigned integration_rule_spec_get_accuracy(const integration_spec_t spec)
     default:
         return 0;
     }
+}
+
+size_t integration_specs_total_points(const unsigned ndim, const integration_spec_t specs[static const ndim])
+{
+    size_t total = 1;
+    for (unsigned i = 0; i < ndim; ++i)
+    {
+        total *= specs[i].order + 1;
+    }
+    return total;
 }
 
 const char *integration_rule_type_to_str(const integration_rule_type_t type)

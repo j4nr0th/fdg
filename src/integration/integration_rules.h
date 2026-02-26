@@ -133,6 +133,33 @@ interp_result_t integration_rule_registry_get_rule(integration_rule_registry_t *
                                                    const integration_rule_t **p_rule);
 
 /**
+ * @brief Batched version of `integration_rule_registry_get_rule`
+ *
+ * @param[in] this Pointer to the `integration_rule_registry_t` instance representing
+ *                 the integration rule registry.
+ * @param[in] cnt Number of rules to retrieve.
+ * @param[in] specs The specifications of the integration rules.
+ * @param[out] p_rules Array which gets filled with pointers to `integration_rule_t` objects.
+ *
+ * @return `INTERP_SUCCESS` if the rule is successfully retrieved or created.
+ *         `INTERP_ERROR_FAILED_ALLOCATION` if memory allocation fails during the
+ *         operation.
+ *         Other `interp_result_t` error codes indicating issues with initialization
+ *         or rule creation may also be returned.
+ *
+ * The caller is responsible for ensuring that the registry is initialized before calling
+ * this function. The fetched or created rule should be treated as owned by the registry
+ * and not freed independently.
+ *
+ * The rule will not be freed and will remain cached until all references to it have been removed and
+ * `integration_rule_registry_release_unused_rules` has been called.
+ */
+INTERPLIB_INTERNAL
+interp_result_t integration_rule_registry_get_rules(integration_rule_registry_t *this, unsigned cnt,
+                                                    const integration_spec_t INTERPLIB_ARRAY_ARG(specs, static cnt),
+                                                    const integration_rule_t *INTERPLIB_ARRAY_ARG(p_rules, cnt));
+
+/**
  * @brief Releases a specific integration rule from the integration rule registry.
  *
  * This function reduces the reference count of an integration rule within the
@@ -195,5 +222,8 @@ unsigned integration_rule_get_rules(integration_rule_registry_t *this, unsigned 
 
 INTERPLIB_INTERNAL
 unsigned integration_rule_spec_get_accuracy(integration_spec_t spec);
+
+INTERPLIB_INTERNAL
+size_t integration_specs_total_points(unsigned ndim, const integration_spec_t specs[static ndim]);
 
 #endif // INTERPLIB_INTEGRATION_RULES_H

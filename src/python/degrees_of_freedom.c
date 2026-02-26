@@ -4,6 +4,7 @@
 #include "../polynomials/lagrange.h"
 #include "basis_objects.h"
 #include "function_space_objects.h"
+#include "incidence.h"
 #include "integration_objects.h"
 
 /**
@@ -229,90 +230,10 @@ PyDoc_STRVAR(dof_reconstruct_at_integration_points_docstring,
              "array\n"
              "    Array of reconstructed function values at the integration points.\n");
 
-static void compute_integration_point_values(const unsigned ndim, multidim_iterator_t *const iter_int,
-                                             multidim_iterator_t *const iter_basis,
-                                             const basis_set_t *basis_sets[static ndim], npy_double *const ptr,
-                                             const double *dof_values)
-{
-    multidim_iterator_set_to_start(iter_int);
-    while (!multidim_iterator_is_at_end(iter_int))
-    {
-        // Compute the point value
-        double val = 0;
-        multidim_iterator_set_to_start(iter_basis);
-        while (!multidim_iterator_is_at_end(iter_basis))
-        {
-            // For each basis compute value at the integration point
-            double basis_val = 1;
-            for (unsigned idim = 0; idim < ndim; ++idim)
-            {
-                basis_val *= basis_set_basis_values(
-                    basis_sets[idim],
-                    multidim_iterator_get_offset(iter_basis, idim))[multidim_iterator_get_offset(iter_int, idim)];
-            }
-            // Scale the basis value by the degree of freedom
-            val += basis_val * dof_values[multidim_iterator_get_flat_index(iter_basis)];
-            multidim_iterator_advance(iter_basis, ndim - 1, 1);
-        }
-
-        // Write output and advance the integration iterator
-        ptr[multidim_iterator_get_flat_index(iter_int)] = val;
-        multidim_iterator_advance(iter_int, ndim - 1, 1);
-    }
-}
-
-static void compute_integration_point_values_derivatives(const unsigned ndim, multidim_iterator_t *const iter_int,
-                                                         multidim_iterator_t *const iter_basis,
-                                                         const basis_set_t *basis_sets[static ndim],
-                                                         const int derivatives[static ndim], npy_double *const ptr,
-                                                         const double *dof_values)
-{
-    multidim_iterator_set_to_start(iter_int);
-    while (!multidim_iterator_is_at_end(iter_int))
-    {
-        // Compute the point value
-        double val = 0;
-        multidim_iterator_set_to_start(iter_basis);
-        while (!multidim_iterator_is_at_end(iter_basis))
-        {
-            // For each basis compute value at the integration point
-            double basis_val = 1;
-            for (unsigned idim = 0; idim < ndim; ++idim)
-            {
-                const size_t idx_basis_dim = multidim_iterator_get_offset(iter_basis, idim);
-                const double *basis_values;
-                if (derivatives[idim] == 0)
-                {
-                    basis_values = basis_set_basis_values(basis_sets[idim], idx_basis_dim);
-                }
-                else
-                {
-                    basis_values = basis_set_basis_derivatives(basis_sets[idim], idx_basis_dim);
-                }
-                basis_val *= basis_values[multidim_iterator_get_offset(iter_int, idim)];
-            }
-            // Scale the basis value by the degree of freedom
-            val += basis_val * dof_values[multidim_iterator_get_flat_index(iter_basis)];
-            multidim_iterator_advance(iter_basis, ndim - 1, 1);
-        }
-
-        // Write output and advance the integration iterator
-        ptr[multidim_iterator_get_flat_index(iter_int)] = val;
-        multidim_iterator_advance(iter_int, ndim - 1, 1);
-    }
-}
-
-typedef struct
-{
-    multidim_iterator_t *iter_int;
-    multidim_iterator_t *iter_basis;
-    const basis_set_t **basis_sets;
-} reconstruction_state_t;
-
-static int reconstruction_state_init(const dof_object *this, const integration_space_object *integration_space,
-                                     const integration_registry_object *python_integration_registry,
-                                     const basis_registry_object *python_basis_registry,
-                                     reconstruction_state_t *recon_state)
+int dof_reconstruction_state_init(const dof_object *this, const integration_space_object *integration_space,
+                                  const integration_registry_object *python_integration_registry,
+                                  const basis_registry_object *python_basis_registry,
+                                  reconstruction_state_t *recon_state)
 {
     multidim_iterator_t *const iter_int = integration_space_iterator(integration_space);
     if (!iter_int)
@@ -356,9 +277,8 @@ static int reconstruction_state_init(const dof_object *this, const integration_s
     return 0;
 }
 
-static void reconstruction_state_release(reconstruction_state_t *const recon_state,
-                                         basis_set_registry_t *basis_registry, const unsigned ndim,
-                                         const basis_set_t *basis_sets[static ndim])
+void dof_reconstruction_state_release(reconstruction_state_t *const recon_state, basis_set_registry_t *basis_registry,
+                                      const unsigned ndim, const basis_set_t *basis_sets[static ndim])
 {
     python_basis_sets_release(ndim, basis_sets, basis_registry);
     PyMem_Free(recon_state->iter_basis);
@@ -488,8 +408,8 @@ PyObject *dof_reconstruct_at_integration_points(PyObject *self, PyTypeObject *de
         return NULL;
 
     reconstruction_state_t recon_state;
-    if (reconstruction_state_init(this, integration_space, python_integration_registry, python_basis_registry,
-                                  &recon_state) < 0)
+    if (dof_reconstruction_state_init(this, integration_space, python_integration_registry, python_basis_registry,
+                                      &recon_state) < 0)
     {
         Py_DECREF(out_array);
         return NULL;
@@ -501,11 +421,11 @@ PyObject *dof_reconstruct_at_integration_points(PyObject *self, PyTypeObject *de
                   "Basis iterator should have the same number of elements as there are DoFs (%zu vs %u)",
                   multidim_iterator_total_size(recon_state.iter_basis), n_dof);
 
-    compute_integration_point_values(ndim, recon_state.iter_int, recon_state.iter_basis, recon_state.basis_sets, ptr,
-                                     this->values);
+    compute_integration_point_values(ndim, recon_state.iter_int, recon_state.iter_basis, recon_state.basis_sets,
+                                     PyArray_SIZE(out_array), ptr, n_dof, this->values);
 
     // Free the iterator memory and release the basis sets
-    reconstruction_state_release(&recon_state, python_basis_registry->registry, ndim, recon_state.basis_sets);
+    dof_reconstruction_state_release(&recon_state, python_basis_registry->registry, ndim, recon_state.basis_sets);
     return (PyObject *)out_array;
 }
 
@@ -698,8 +618,8 @@ PyObject *dof_reconstruct_derivative_at_integration_points(PyObject *self, PyTyp
     }
 
     reconstruction_state_t recon_state;
-    if (reconstruction_state_init(this, integration_space, python_integration_registry, python_basis_registry,
-                                  &recon_state) < 0)
+    if (dof_reconstruction_state_init(this, integration_space, python_integration_registry, python_basis_registry,
+                                      &recon_state) < 0)
     {
         PyMem_Free(derivative_indices);
         Py_DECREF(out_array);
@@ -713,11 +633,12 @@ PyObject *dof_reconstruct_derivative_at_integration_points(PyObject *self, PyTyp
                   multidim_iterator_total_size(recon_state.iter_basis), n_dof);
 
     compute_integration_point_values_derivatives(ndim, recon_state.iter_int, recon_state.iter_basis,
-                                                 recon_state.basis_sets, derivative_indices, ptr, this->values);
+                                                 recon_state.basis_sets, derivative_indices, PyArray_SIZE(out_array),
+                                                 ptr, n_dof, this->values);
 
     // Free the iterator memory and release the basis sets
     PyMem_Free(derivative_indices);
-    reconstruction_state_release(&recon_state, python_basis_registry->registry, ndim, recon_state.basis_sets);
+    dof_reconstruction_state_release(&recon_state, python_basis_registry->registry, ndim, recon_state.basis_sets);
     return (PyObject *)out_array;
 }
 
@@ -734,120 +655,6 @@ PyDoc_STRVAR(dof_derivative_docstring,
              "-------\n"
              "DegreesOfFreedom\n"
              "    Degrees of freedom of the computed derivative.\n");
-
-void bernstein_apply_incidence_operator(
-    const unsigned n, const size_t pre_stride, const size_t post_stride,
-    const double values_in[restrict const static pre_stride * (n + 1) * post_stride],
-    double values_out[restrict const pre_stride * n * post_stride])
-{
-    for (size_t i_pre = 0; i_pre < pre_stride; ++i_pre)
-    {
-        for (size_t i_post = 0; i_post < post_stride; ++i_post)
-        {
-            double *const ptr_out = values_out + i_pre * n * post_stride + i_post;
-            const double *const ptr_in = values_in + i_pre * (n + 1) * post_stride + i_post;
-
-            const npy_double coeff = (double)n / 2.0;
-            // data[0 * (n + 1) + 0] = -coeff;
-            ptr_out[0] -= coeff * ptr_in[0];
-            for (unsigned col = 1; col < n; ++col)
-            {
-                // data[col * (n + 1) + col] = -coeff;
-                // data[(col - 1) * (n + 1) + col] = +coeff;
-                const npy_double x = coeff * ptr_in[col * post_stride];
-                ptr_out[col * post_stride] -= x;
-                ptr_out[(col - 1) * post_stride] += x;
-            }
-            // data[(n - 1) * (n + 1) + n] = +coeff;
-            ptr_out[(n - 1) * post_stride] += coeff * ptr_in[n * post_stride];
-        }
-    }
-}
-
-void legendre_apply_incidence_operator(const unsigned n, const size_t pre_stride, const size_t post_stride,
-                                       const double values_in[restrict const static pre_stride * (n + 1) * post_stride],
-                                       double values_out[restrict const pre_stride * n * post_stride])
-{
-    for (size_t i_pre = 0; i_pre < pre_stride; ++i_pre)
-    {
-        for (size_t i_post = 0; i_post < post_stride; ++i_post)
-        {
-            double *const ptr_out = values_out + i_pre * n * post_stride + i_post;
-            const double *const ptr_in = values_in + i_pre * (n + 1) * post_stride + i_post;
-
-            for (unsigned col = n; col > 0; --col)
-            {
-                unsigned coeff = 2 * col - 1;
-                for (unsigned c_row = 0; 2 * c_row < col; ++c_row)
-                {
-                    const unsigned r = (col - 1 - 2 * c_row);
-                    // data[r * (n + 1) + col] = coeff;
-                    ptr_out[r * post_stride] += coeff * ptr_in[col * post_stride];
-                    coeff -= 4;
-                }
-            }
-        }
-    }
-}
-
-int lagrange_apply_incidence_matrix(const basis_set_type_t type, const unsigned n, const size_t pre_stride,
-                                    const size_t post_stride,
-                                    const double values_in[restrict const static pre_stride * (n + 1) * post_stride],
-                                    double values_out[restrict const pre_stride * n * post_stride])
-{
-    // Compute nodes for the output set
-    double *const out_nodes = PyMem_Malloc(sizeof(*out_nodes) * n);
-    if (!out_nodes)
-    {
-        return -1;
-    }
-    interp_result_t res = generate_lagrange_roots(n - 1, type, out_nodes);
-    (void)res;
-    CPYUTL_ASSERT(res == INTERP_SUCCESS, "Somehow an invalid enum?");
-    double *const in_nodes = PyMem_Malloc(sizeof(*in_nodes) * (n + 1));
-    if (!in_nodes)
-    {
-        PyMem_Free(out_nodes);
-        return -1;
-    }
-    res = generate_lagrange_roots(n, type, in_nodes);
-    (void)res;
-    CPYUTL_ASSERT(res == INTERP_SUCCESS, "Somehow an invalid enum?");
-
-    double *const trans_matrix = PyMem_Malloc(sizeof(*trans_matrix) * n * (n + 1));
-    if (!trans_matrix)
-    {
-        PyMem_Free(out_nodes);
-        PyMem_Free(in_nodes);
-        return -1;
-    }
-
-    lagrange_polynomial_first_derivative_2(n, out_nodes, n + 1, in_nodes, trans_matrix);
-    PyMem_Free(out_nodes);
-    PyMem_Free(in_nodes);
-    for (size_t i_pre = 0; i_pre < pre_stride; ++i_pre)
-    {
-        for (size_t i_post = 0; i_post < post_stride; ++i_post)
-        {
-            double *const ptr_out = values_out + i_pre * n * post_stride + i_post;
-            const double *const ptr_in = values_in + i_pre * (n + 1) * post_stride + i_post;
-
-            // Apply the transformation matrix
-            for (unsigned row = 0; row < n; ++row)
-            {
-                double v = 0;
-                for (unsigned col = 0; col < n + 1; ++col)
-                {
-                    v += trans_matrix[row * (n + 1) + col] * ptr_in[col * post_stride];
-                }
-                ptr_out[row * post_stride] = v;
-            }
-        }
-    }
-
-    PyMem_Free(trans_matrix);
-    return 0;
-}
 
 PyObject *dof_derivative(PyObject *self, PyTypeObject *defining_class, PyObject *const *args, const Py_ssize_t nargs,
                          const PyObject *kwnames)
@@ -914,25 +721,31 @@ PyObject *dof_derivative(PyObject *self, PyTypeObject *defining_class, PyObject 
     {
     case BASIS_BERNSTEIN:
         // Use recurrence relation
-        bernstein_apply_incidence_operator(n, pre_stride, post_stride, values_in, values_out);
+        bernstein_apply_incidence_operator(n, pre_stride, post_stride, 1, values_in, values_out, 0);
         break;
 
     case BASIS_LEGENDRE:
         // Use recurrence relation
-        legendre_apply_incidence_operator(n, pre_stride, post_stride, values_in, values_out);
+        legendre_apply_incidence_operator(n, pre_stride, post_stride, 1, values_in, values_out, 0);
         break;
 
     case BASIS_LAGRANGE_GAUSS:
     case BASIS_LAGRANGE_CHEBYSHEV_GAUSS:
     case BASIS_LAGRANGE_GAUSS_LOBATTO:
-    case BASIS_LAGRANGE_UNIFORM:
-        // Use the real transformation matrix
-        if (lagrange_apply_incidence_matrix(type, n, pre_stride, post_stride, values_in, values_out) < 0)
+    case BASIS_LAGRANGE_UNIFORM: {
+        // Allocate memory needed for Lagrange incidence
+        double *const work_buffer = PyMem_Malloc(sizeof(*work_buffer) * (n + (n + 1) + n * (n + 1)));
+        if (!work_buffer)
         {
             Py_DECREF(new_dofs);
             return NULL;
         }
-        break;
+
+        // Use the real transformation matrix
+        lagrange_apply_incidence_operator(type, n, pre_stride, post_stride, 1, values_in, values_out, work_buffer, 0);
+        PyMem_Free(work_buffer);
+    }
+    break;
 
     default: {
         PyErr_Format(PyExc_ValueError, "Unsupported basis type %d.", type);

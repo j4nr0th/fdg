@@ -7,6 +7,7 @@ endif ()
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 project(${SKBUILD_PROJECT_NAME} LANGUAGES C)
 find_package(Python COMPONENTS Interpreter Development.Module Development.SABIModule REQUIRED)
+message("Using Python executable ${Python_EXECUTABLE}")
 
 find_package(OpenMP)
 
@@ -17,12 +18,13 @@ execute_process(
         OUTPUT_STRIP_TRAILING_WHITESPACE
 )
 
+message("Numpy's include directories were ${NumPy_INCLUDE_DIRS}")
+
 set(BASIS_SOURCE_FILES
         src/basis/basis_set.c
         src/basis/basis_bernstein.c
         src/basis/basis_lagrange.c
         src/basis/basis_legendre.c
-        src/basis/de_rham_sequence.c
         src/basis/covector_basis.c
         src/basis/covector_basis.h
 )
@@ -31,7 +33,6 @@ set(BASIS_HEADER_FILES
         src/basis/basis_bernstein.h
         src/basis/basis_lagrange.h
         src/basis/basis_legendre.h
-        src/basis/de_rham_sequence.h
 )
 set(COMMON_SOURCE_FILES
         src/common/error.c
@@ -75,21 +76,18 @@ set(POLYNOMIALS_HEADER_FILES
         src/polynomials/legendre.h
 )
 
-set(TOPOLOGY_SOURCE_FILES
-        src/topology/topology.c
+set(RECONSTRUCTION_SOURCE_FILES
+        src/reconstruction/reconstruction.c
 )
 
-set(TOPOLOGY_HEADER_FILES
-        src/topology/topology.h
-)
 
 add_library(interp STATIC
         ${BASIS_SOURCE_FILES}
         ${COMMON_SOURCE_FILES}
         ${INTEGRATION_SOURCE_FILES}
         ${OPERATIONS_SOURCE_FILES}
-        ${TOPOLOGY_SOURCE_FILES}
         ${POLYNOMIALS_SOURCE_FILES}
+        ${RECONSTRUCTION_SOURCE_FILES}
 )
 
 add_subdirectory(cutl)
@@ -101,14 +99,6 @@ if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
     target_compile_options(interp PRIVATE -Wall -Wextra -Werror -fanalyzer -Werror)
 endif ()
 
-set(PYTHON_TOPOLOGY_SOURCE_FILES
-        src/python/topology/geoid_object.c
-        src/python/topology/line_object.c
-        src/python/topology/manifold1d_object.c
-        src/python/topology/manifold2d_object.c
-        src/python/topology/manifold_object.c
-        src/python/topology/surface_object.c
-)
 
 set(PYTHON_NUMERICS_SOURCE_FILES
         src/python/integration_objects.c
@@ -119,11 +109,11 @@ set(PYTHON_NUMERICS_SOURCE_FILES
         src/python/mappings.c
         src/python/incidence.c
         src/python/covector_basis.c
+        src/python/kform_objects.c
 )
 
 Python_add_library(_interp MODULE
         src/python/module.c
-        ${PYTHON_TOPOLOGY_SOURCE_FILES}
         ${PYTHON_NUMERICS_SOURCE_FILES}
         WITH_SOABI)
 
@@ -131,6 +121,7 @@ add_subdirectory(cpyutl)
 
 target_link_libraries(_interp PRIVATE interp cpyutl cutl)
 set_property(TARGET _interp PROPERTY C_STANDARD 17)
+set_property(TARGET _interp PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
 install(TARGETS _interp DESTINATION ${SKBUILD_PROJECT_NAME})
 target_compile_definitions(_interp PRIVATE INTERPLIB_ASSERTS CPYUTL_ENABLE_ASSERTS)
 
@@ -140,7 +131,7 @@ endif ()
 target_include_directories(_interp PRIVATE ${NumPy_INCLUDE_DIRS} ${Python_INCLUDE_DIRS} cpyutl/src)
 
 if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
-    target_compile_options(_interp PRIVATE -Wall -Wextra -Werror -flto=auto)
+    target_compile_options(_interp PRIVATE -Wall -Wextra -Werror)
 endif ()
 
 

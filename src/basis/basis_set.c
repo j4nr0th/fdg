@@ -286,6 +286,29 @@ interp_result_t basis_set_registry_get_basis_set(basis_set_registry_t *this, con
     return INTERP_SUCCESS;
 }
 
+interp_result_t basis_set_registry_get_basis_sets(basis_set_registry_t *this, unsigned cnt,
+                                                  const basis_set_t *INTERPLIB_ARRAY_ARG(p_basis, cnt),
+                                                  const integration_rule_t *INTERPLIB_ARRAY_ARG(integration_rule,
+                                                                                                static cnt),
+                                                  const basis_spec_t INTERPLIB_ARRAY_ARG(specs, static cnt))
+{
+    for (unsigned i = 0; i < cnt; ++i)
+    {
+        const basis_set_t *basis;
+        const interp_result_t res = basis_set_registry_get_basis_set(this, &basis, integration_rule[i], specs[i]);
+        if (res != INTERP_SUCCESS)
+        {
+            // Release all the basis acquired thus far
+            for (unsigned j = 0; j < i; ++j)
+                basis_set_registry_release_basis_set(this, p_basis[j]);
+            return res;
+        }
+        p_basis[i] = basis;
+    }
+
+    return INTERP_SUCCESS;
+}
+
 interp_result_t basis_set_registry_release_basis_set(basis_set_registry_t *this, const basis_set_t *basis)
 {
     rw_lock_acquire_read(&this->lock);
