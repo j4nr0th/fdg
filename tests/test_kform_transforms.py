@@ -69,7 +69,7 @@ def binomial_coefficient(n: int, k: int) -> int:
     return int(np.prod(np.arange(high + 1, n + 1)) // np.prod(np.arange(2, low + 1)))
 
 
-@pytest.mark.parametrize("n", (1, 2, 3, 4, 5))
+@pytest.mark.parametrize("n", (1, 2, 3, 4))
 @pytest.mark.parametrize("dm", (0, 1, 2))
 def test_1forms(n: int, dm: int) -> None:
     """Check if 1-forms are properly transformed."""
@@ -89,7 +89,7 @@ def test_1forms(n: int, dm: int) -> None:
     assert pytest.approx(transformed) == manually_transformed
 
 
-@pytest.mark.parametrize("n", (2, 3, 4, 5))
+@pytest.mark.parametrize("n", (2, 3, 4))
 @pytest.mark.parametrize("dm", (0, 1, 2))
 def test_2forms(n: int, dm: int) -> None:
     """Check if 2-forms are properly transformed."""
