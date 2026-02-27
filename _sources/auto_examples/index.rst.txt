@@ -19,52 +19,86 @@ Some examples.
 
 .. raw:: html
 
-    <div class="sphx-glr-thumbcontainer" tooltip="This example shows how the Python module can be used to solve the direct formulation of the Poisson equation in 1D. This is probably the simplest differential equation in 1D that can be solved while meaningfully illustrating the way mimetic methods work.">
+    <div class="sphx-glr-thumbcontainer" tooltip="This example demonstrates how to create and visualize different function spaces.">
 
 .. only:: html
 
-  .. image:: /auto_examples/images/thumb/sphx_glr_plot_poisson_direct_thumb.png
+  .. image:: /auto_examples/images/thumb/sphx_glr_plot_function_spaces_thumb.png
     :alt:
 
-  :ref:`sphx_glr_auto_examples_plot_poisson_direct.py`
+  :doc:`/auto_examples/plot_function_spaces`
 
 .. raw:: html
 
-      <div class="sphx-glr-thumbnail-title">Example 1: Direct Formulation of Poisson Equation in 1D</div>
+      <div class="sphx-glr-thumbnail-title">Function Space Examples</div>
     </div>
 
 
 .. raw:: html
 
-    <div class="sphx-glr-thumbcontainer" tooltip="This example shows how the Python module can be used to solve the direct formulation of the Poisson equation in 1D. This is probably the simplest differential equation in 1D that can be solved while meaningfully illustrating the way mimetic methods work.">
+    <div class="sphx-glr-thumbcontainer" tooltip="This example demonstrates how different basis sets look for polynomial orders. We compare Lagrange, Legendre, and Bernstein-type bases using different node distributions (uniform, Gauss, Gauss-Lobatto, Chebyshev-Gauss).">
 
 .. only:: html
 
-  .. image:: /auto_examples/images/thumb/sphx_glr_plot_poisson_direct-2_thumb.png
+  .. image:: /auto_examples/images/thumb/sphx_glr_plot_basis_sets_thumb.png
     :alt:
 
-  :ref:`sphx_glr_auto_examples_plot_poisson_direct-2.py`
+  :doc:`/auto_examples/plot_basis_sets`
 
 .. raw:: html
 
-      <div class="sphx-glr-thumbnail-title">Example 1: Direct Formulation of Poisson Equation in 1D</div>
+      <div class="sphx-glr-thumbnail-title">Basis Sets Visualization</div>
     </div>
 
 
 .. raw:: html
 
-    <div class="sphx-glr-thumbcontainer" tooltip="This example shows how the Python module can be used to solve the mixed formulation of the Poisson equation in 1D. This formulation is typically regarded as more difficult way to solve the Poisson equation, but allows for higher order accuracy in the gradient of the solution, which may be more desirable in some cases.">
+    <div class="sphx-glr-thumbcontainer" tooltip="This example is intended to showcase how integration rules work. There are currently two supported rules:">
 
 .. only:: html
 
-  .. image:: /auto_examples/images/thumb/sphx_glr_plot_poisson_mixed_thumb.png
+  .. image:: /auto_examples/images/thumb/sphx_glr_plot_integration_rules_thumb.png
     :alt:
 
-  :ref:`sphx_glr_auto_examples_plot_poisson_mixed.py`
+  :doc:`/auto_examples/plot_integration_rules`
 
 .. raw:: html
 
-      <div class="sphx-glr-thumbnail-title">Example 2: Mixed Formulation of Poisson Equation in 1D</div>
+      <div class="sphx-glr-thumbnail-title">Integration Rules</div>
+    </div>
+
+
+.. raw:: html
+
+    <div class="sphx-glr-thumbcontainer" tooltip="This example demonstrates how different domains look and behave like.">
+
+.. only:: html
+
+  .. image:: /auto_examples/images/thumb/sphx_glr_plot_domains_thumb.png
+    :alt:
+
+  :doc:`/auto_examples/plot_domains`
+
+.. raw:: html
+
+      <div class="sphx-glr-thumbnail-title">Domain Examples</div>
+    </div>
+
+
+.. raw:: html
+
+    <div class="sphx-glr-thumbcontainer" tooltip="Gradients">
+
+.. only:: html
+
+  .. image:: /auto_examples/images/thumb/sphx_glr_plot_gradients_thumb.png
+    :alt:
+
+  :doc:`/auto_examples/plot_gradients`
+
+.. raw:: html
+
+      <div class="sphx-glr-thumbnail-title">Gradients</div>
     </div>
 
 
@@ -78,9 +112,11 @@ Some examples.
 .. toctree::
    :hidden:
 
-   /auto_examples/plot_poisson_direct
-   /auto_examples/plot_poisson_direct-2
-   /auto_examples/plot_poisson_mixed
+   /auto_examples/plot_function_spaces
+   /auto_examples/plot_basis_sets
+   /auto_examples/plot_integration_rules
+   /auto_examples/plot_domains
+   /auto_examples/plot_gradients
 
 
 .. only:: html

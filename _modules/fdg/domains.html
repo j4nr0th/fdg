@@ -1,0 +1,903 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>fdg.domains &#8212; fdg 0.0.1a documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/jupyter-sphinx.css" />
+    <link rel="stylesheet" type="text/css" href="../../_static/thebelab.css" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sg_gallery.css?v=d2d258e8" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sg_gallery-binder.css?v=f4aeca0c" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sg_gallery-dataframe.css?v=2082cf3c" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sg_gallery-rendered-html.css?v=1277b6f3" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=8c8a9e14"></script>
+    <script src="../../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/thebelab-helper.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.4/require.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@jupyter-widgets/html-manager@^1.0.1/dist/embed-amd.js"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/fdg/domains';</script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class="col-lg-3 navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">fdg 0.0.1a documentation</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class="col-lg-9 navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../source/index.html">
+    Documentation for Exported Types and Functions
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../auto_examples/index.html">
+    Examples
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../source/index.html">
+    Documentation for Exported Types and Functions
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../auto_examples/index.html">
+    Examples
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">fdg.domains</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for fdg.domains</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;Types to simplify specifying domains.&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Self</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy.typing</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">npt</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">fdg._fdg</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">DEFAULT_BASIS_REGISTRY</span><span class="p">,</span>
+    <span class="n">DEFAULT_INTEGRATION_REGISTRY</span><span class="p">,</span>
+    <span class="n">BasisRegistry</span><span class="p">,</span>
+    <span class="n">BasisSpecs</span><span class="p">,</span>
+    <span class="n">CoordinateMap</span><span class="p">,</span>
+    <span class="n">DegreesOfFreedom</span><span class="p">,</span>
+    <span class="n">FunctionSpace</span><span class="p">,</span>
+    <span class="n">IntegrationRegistry</span><span class="p">,</span>
+    <span class="n">IntegrationSpace</span><span class="p">,</span>
+    <span class="n">IntegrationSpecs</span><span class="p">,</span>
+    <span class="n">SpaceMap</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">fdg.degrees_of_freedom</span><span class="w"> </span><span class="kn">import</span> <span class="n">reconstruct</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">fdg.enum_type</span><span class="w"> </span><span class="kn">import</span> <span class="n">BasisType</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">fdg.integration</span><span class="w"> </span><span class="kn">import</span> <span class="n">Integrable</span><span class="p">,</span> <span class="n">integrate_callable</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_array_axis_slice</span><span class="p">(</span><span class="n">a</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">,</span> <span class="n">idx</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">axis</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Take a slice from a numpy array along the specified axis.&quot;&quot;&quot;</span>
+    <span class="n">slices</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">slice</span> <span class="o">|</span> <span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="nb">slice</span><span class="p">(</span><span class="kc">None</span><span class="p">)]</span> <span class="o">*</span> <span class="n">a</span><span class="o">.</span><span class="n">ndim</span>
+    <span class="n">slices</span><span class="p">[</span><span class="n">axis</span><span class="p">]</span> <span class="o">=</span> <span class="nb">slice</span><span class="p">(</span><span class="n">idx</span><span class="p">,</span> <span class="n">idx</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="k">if</span> <span class="n">idx</span> <span class="o">&gt;=</span> <span class="mi">0</span> <span class="k">else</span> <span class="nb">slice</span><span class="p">(</span><span class="n">idx</span><span class="p">,</span> <span class="n">idx</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">a</span><span class="p">[</span><span class="nb">tuple</span><span class="p">(</span><span class="n">slices</span><span class="p">)]</span>
+
+
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">HypercubeDomain</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Base type for all domains.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    *dofs : DegreesOfFreedom</span>
+<span class="sd">        Degrees of freedom for each of the output coordinates.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">dofs</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">DegreesOfFreedom</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">dofs</span><span class="p">:</span> <span class="n">DegreesOfFreedom</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">len</span><span class="p">(</span><span class="n">dofs</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;At least one coordinate must have its DoFs specified.&quot;</span><span class="p">)</span>
+
+        <span class="n">fs</span><span class="p">:</span> <span class="n">FunctionSpace</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">d</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">dofs</span><span class="p">):</span>
+            <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">dofs</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;Argument </span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2"> was not </span><span class="si">{</span><span class="n">DegreesOfFreedom</span><span class="si">}</span><span class="s2">, but </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">dofs</span><span class="p">)</span><span class="si">}</span><span class="s2">.&quot;</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">fs</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">fs</span> <span class="o">=</span> <span class="n">d</span><span class="o">.</span><span class="n">function_space</span>
+            <span class="k">elif</span> <span class="n">d</span><span class="o">.</span><span class="n">function_space</span> <span class="o">!=</span> <span class="n">fs</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;Function spaces of the DoFs </span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2"> does not match the rest!&quot;</span>
+                <span class="p">)</span>
+
+        <span class="nb">object</span><span class="o">.</span><span class="fm">__setattr__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;dofs&quot;</span><span class="p">,</span> <span class="n">dofs</span><span class="p">)</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">ndim_physical</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Number of physical dimensions of the domain.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dofs</span><span class="p">)</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">ndim_reference</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Number of reference dimensions of the domain.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dofs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__call__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">space</span><span class="p">:</span> <span class="n">IntegrationSpace</span><span class="p">,</span>
+        <span class="o">/</span><span class="p">,</span>
+        <span class="o">*</span><span class="p">,</span>
+        <span class="n">integration_registry</span><span class="p">:</span> <span class="n">IntegrationRegistry</span> <span class="o">=</span> <span class="n">DEFAULT_INTEGRATION_REGISTRY</span><span class="p">,</span>
+        <span class="n">basis_registry</span><span class="p">:</span> <span class="n">BasisRegistry</span> <span class="o">=</span> <span class="n">DEFAULT_BASIS_REGISTRY</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">SpaceMap</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Create a space map based on the integration space.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        space : IntegratinoSpace</span>
+<span class="sd">            Integration space to base the space map on.</span>
+
+<span class="sd">        integration_registry : IntegrationRegistry, optional</span>
+<span class="sd">            Integration registry to use for retrieving the integration nodes and weights.</span>
+
+<span class="sd">        basis_registry : BasisRegistry</span>
+<span class="sd">            Basis registry to use for retrieving basis values from.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        SpaceMap</span>
+<span class="sd">            Space mapping of the domain for the specified integration space.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">SpaceMap</span><span class="p">(</span>
+            <span class="o">*</span><span class="p">(</span>
+                <span class="n">CoordinateMap</span><span class="p">(</span><span class="n">dof</span><span class="p">,</span> <span class="n">space</span><span class="p">,</span> <span class="n">integration_registry</span><span class="p">,</span> <span class="n">basis_registry</span><span class="p">)</span>
+                <span class="k">for</span> <span class="n">dof</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">dofs</span>
+            <span class="p">)</span>
+        <span class="p">)</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">endpoints</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">double</span><span class="p">],</span> <span class="o">...</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return the end points of the domain.&quot;&quot;&quot;</span>
+        <span class="n">int_space</span> <span class="o">=</span> <span class="n">IntegrationSpace</span><span class="p">(</span>
+            <span class="o">*</span><span class="p">(</span>
+                <span class="n">IntegrationSpecs</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="s2">&quot;gauss-lobatto&quot;</span><span class="p">)</span>
+                <span class="k">for</span> <span class="n">_idim</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ndim_reference</span><span class="p">)</span>
+            <span class="p">)</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="nb">tuple</span><span class="p">(</span>
+            <span class="n">dof</span><span class="o">.</span><span class="n">reconstruct_at_integration_points</span><span class="p">(</span><span class="n">int_space</span><span class="p">)</span> <span class="k">for</span> <span class="n">dof</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">dofs</span>
+        <span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">compute_size</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">int_space</span><span class="p">:</span> <span class="n">IntegrationSpace</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="o">*</span><span class="p">,</span>
+        <span class="n">integration_registry</span><span class="p">:</span> <span class="n">IntegrationRegistry</span> <span class="o">=</span> <span class="n">DEFAULT_INTEGRATION_REGISTRY</span><span class="p">,</span>
+        <span class="n">basis_registry</span><span class="p">:</span> <span class="n">BasisRegistry</span> <span class="o">=</span> <span class="n">DEFAULT_BASIS_REGISTRY</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute the size of the domain.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        int_space : IntegrationSpace, optional</span>
+<span class="sd">            Integration space to use for computing the size of the domain. If it is not</span>
+<span class="sd">            given, a new one will be created, such that the size is computed exactly.</span>
+
+<span class="sd">        integration_registry : IntegrationRegistry, optional</span>
+<span class="sd">            Integration registry to use for retrieving the integration nodes and weights.</span>
+
+<span class="sd">        basis_registry : BasisRegistry</span>
+<span class="sd">            Basis registry to use for retrieving basis values from.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        float</span>
+<span class="sd">            Size of the domain. For a 1D domain this is the lenght, for a 2D domain this</span>
+<span class="sd">            is the surface area, for a 3D domain it is the volume, and so on.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">int_space</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">int_space</span> <span class="o">=</span> <span class="n">IntegrationSpace</span><span class="p">(</span>
+                <span class="o">*</span><span class="p">(</span>
+                    <span class="n">IntegrationSpecs</span><span class="p">((</span><span class="n">order</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">//</span> <span class="mi">2</span><span class="p">)</span>
+                    <span class="k">for</span> <span class="n">order</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">dofs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">function_space</span><span class="o">.</span><span class="n">orders</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+        <span class="n">smap</span> <span class="o">=</span> <span class="bp">self</span><span class="p">(</span>
+            <span class="n">int_space</span><span class="p">,</span>
+            <span class="n">integration_registry</span><span class="o">=</span><span class="n">integration_registry</span><span class="p">,</span>
+            <span class="n">basis_registry</span><span class="o">=</span><span class="n">basis_registry</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">int_space</span><span class="o">.</span><span class="n">weights</span><span class="p">(</span><span class="n">integration_registry</span><span class="p">)</span> <span class="o">*</span> <span class="n">smap</span><span class="o">.</span><span class="n">determinant</span><span class="p">))</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">sample</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">x</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">double</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">double</span><span class="p">],</span> <span class="o">...</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Sample coordinates in the physical domain.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        *x : array</span>
+<span class="sd">            Arrays of coordinate positions to evaluate the points in domain at.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        tuple of array</span>
+<span class="sd">            Arrays with the shape of ``x``, containing values of coordinates</span>
+<span class="sd">            at the specified points.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">reconstruct</span><span class="p">(</span><span class="n">dof</span><span class="p">,</span> <span class="o">*</span><span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">dof</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">dofs</span><span class="p">)</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">function_space</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">FunctionSpace</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Function space used by all the DoFs.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">dofs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">function_space</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">integrate</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">fn</span><span class="p">:</span> <span class="n">Integrable</span><span class="p">,</span>
+        <span class="n">int_space</span><span class="p">:</span> <span class="n">IntegrationSpace</span><span class="p">,</span>
+        <span class="o">*</span><span class="p">,</span>
+        <span class="n">integration_registry</span><span class="p">:</span> <span class="n">IntegrationRegistry</span> <span class="o">=</span> <span class="n">DEFAULT_INTEGRATION_REGISTRY</span><span class="p">,</span>
+        <span class="n">basis_registry</span><span class="p">:</span> <span class="n">BasisRegistry</span> <span class="o">=</span> <span class="n">DEFAULT_BASIS_REGISTRY</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Integrates the callable.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        fn : Integrable</span>
+<span class="sd">            Callable to integrate.</span>
+
+<span class="sd">        int_space : IntegrationSpace</span>
+<span class="sd">            Integration space to use for integration.</span>
+
+<span class="sd">        integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY</span>
+<span class="sd">            Integration registry to use for retrieving integration rules.</span>
+
+<span class="sd">        basis_registry : BasisRegistry, default: DEFAULT_BASIS_REGISTRY</span>
+<span class="sd">            Basis registry to use for retrieving basis values.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        float</span>
+<span class="sd">            Result of integrating the callable on the domain.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">integrate_callable</span><span class="p">(</span>
+            <span class="n">fn</span><span class="p">,</span>
+            <span class="bp">self</span><span class="p">(</span>
+                <span class="n">int_space</span><span class="p">,</span>
+                <span class="n">integration_registry</span><span class="o">=</span><span class="n">integration_registry</span><span class="p">,</span>
+                <span class="n">basis_registry</span><span class="o">=</span><span class="n">basis_registry</span><span class="p">,</span>
+            <span class="p">),</span>
+            <span class="n">registry</span><span class="o">=</span><span class="n">integration_registry</span><span class="p">,</span>
+        <span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">subregion</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">ranges</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">HypercubeDomain</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Split self into a sub-region of the domain.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        *ranges : (float, float)</span>
+<span class="sd">            Range of the domain to include for each dimension.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        HypercubeDomain</span>
+<span class="sd">            Subregion of the domain, where the boundaries are determined from where the</span>
+<span class="sd">            ``ranges`` parameters constrain the original domain.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">n_dim_ref</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">ndim_reference</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">ranges</span><span class="p">)</span> <span class="o">&lt;</span> <span class="n">n_dim_ref</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;At most </span><span class="si">{</span><span class="n">n_dim_ref</span><span class="si">}</span><span class="s2"> pairs of divisions can be specified.&quot;</span><span class="p">)</span>
+        <span class="n">limits</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[(</span><span class="nb">float</span><span class="p">(</span><span class="n">vl</span><span class="p">),</span> <span class="nb">float</span><span class="p">(</span><span class="n">vh</span><span class="p">))</span> <span class="k">for</span> <span class="n">vl</span><span class="p">,</span> <span class="n">vh</span> <span class="ow">in</span> <span class="n">ranges</span><span class="p">]</span>
+        <span class="k">while</span> <span class="nb">len</span><span class="p">(</span><span class="n">limits</span><span class="p">)</span> <span class="o">&lt;</span> <span class="n">n_dim_ref</span><span class="p">:</span>
+            <span class="n">limits</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="o">-</span><span class="mf">1.0</span><span class="p">,</span> <span class="o">+</span><span class="mf">1.0</span><span class="p">))</span>
+
+        <span class="n">shape</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dofs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span>
+
+        <span class="n">grid</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">meshgrid</span><span class="p">(</span>
+            <span class="o">*</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="n">vl</span><span class="p">,</span> <span class="n">vh</span><span class="p">,</span> <span class="n">n</span><span class="p">)</span> <span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="p">(</span><span class="n">vl</span><span class="p">,</span> <span class="n">vh</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">shape</span><span class="p">,</span> <span class="n">limits</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">True</span><span class="p">)),</span>
+            <span class="n">indexing</span><span class="o">=</span><span class="s2">&quot;ij&quot;</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">new_fs</span> <span class="o">=</span> <span class="n">FunctionSpace</span><span class="p">(</span>
+            <span class="o">*</span><span class="p">(</span><span class="n">BasisSpecs</span><span class="p">(</span><span class="n">BasisType</span><span class="o">.</span><span class="n">LAGRANGE_UNIFORM</span><span class="p">,</span> <span class="n">s</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">shape</span><span class="p">)</span>
+        <span class="p">)</span>
+        <span class="n">new_dofs</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">DegreesOfFreedom</span><span class="p">]</span> <span class="o">=</span> <span class="nb">list</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">new_vals</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">sample</span><span class="p">(</span><span class="o">*</span><span class="n">grid</span><span class="p">):</span>
+            <span class="n">new_dofs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">DegreesOfFreedom</span><span class="p">(</span><span class="n">new_fs</span><span class="p">,</span> <span class="n">new_vals</span><span class="p">))</span>
+
+        <span class="k">return</span> <span class="n">HypercubeDomain</span><span class="p">(</span><span class="o">*</span><span class="n">new_dofs</span><span class="p">)</span>
+
+    <span class="c1"># @classmethod</span>
+    <span class="c1"># def from_boundaries(cls, *boundaries: HypercubeDomain) -&gt; Self:</span>
+    <span class="c1">#     &quot;&quot;&quot;Create a domain from its boundaries.&quot;&quot;&quot;</span>
+    <span class="c1">#     nbnd = len(boundaries)</span>
+    <span class="c1">#     if nbnd &amp; 1:</span>
+    <span class="c1">#         raise ValueError(&quot;Domain must have an even number of boundaries.&quot;)</span>
+
+    <span class="c1">#     ndim_in = nbnd // 2</span>
+    <span class="c1">#     if ndim_in &lt;= 1:</span>
+    <span class="c1">#         raise ValueError(</span>
+    <span class="c1">#             &quot;Domain must have at least two dimensions for this way of constructing</span>
+    <span class="c1">#  it&quot;</span>
+    <span class="c1">#             &quot; to work.&quot;</span>
+    <span class="c1">#         )</span>
+
+    <span class="c1">#     for ib, bnd in enumerate(boundaries):</span>
+    <span class="c1">#         if bnd.ndim_reference + 1 != ndim_in:</span>
+    <span class="c1">#             raise ValueError(</span>
+    <span class="c1">#                 f&quot;Boundary {ib} is not defined on the reference domain with &quot;</span>
+    <span class="c1">#                 f&quot;{ndim_in - 1} dimension as is expected for a new domain.&quot;</span>
+    <span class="c1">#             )</span>
+    <span class="c1">#         if bnd.ndim_physical != boundaries[0].ndim_physical:</span>
+    <span class="c1">#             raise ValueError(</span>
+    <span class="c1">#                 f&quot;Boundary {ib} does not have the matching number of physical &quot;</span>
+    <span class="c1">#                 &quot;dimension with other boundaries that have &quot;</span>
+    <span class="c1">#                 f&quot;{boundaries[0].ndim_physical}&quot;</span>
+    <span class="c1">#             )</span>
+
+    <span class="c1">#     start_boundaries = boundaries[:ndim_in]</span>
+    <span class="c1">#     end_boundaries = boundaries[ndim_in:]</span>
+
+    <span class="c1">#     max_orders = np.zeros(ndim_in, dtype=np.uint64)</span>
+    <span class="c1">#     for idim in range(ndim_in):</span>
+    <span class="c1">#         start = start_boundaries[idim]</span>
+    <span class="c1">#         end = end_boundaries[idim]</span>
+    <span class="c1">#         orders = np.max(</span>
+    <span class="c1">#             (start.function_space.orders, end.function_space.orders), axis=0</span>
+    <span class="c1">#         )</span>
+    <span class="c1">#         padded = np.concatenate((orders[:idim], (0,), orders[idim:]))</span>
+    <span class="c1">#         max_orders = np.max((max_orders, padded), axis=0)</span>
+
+    <span class="c1">#     fs_target = FunctionSpace(</span>
+    <span class="c1">#         *(BasisSpecs(BasisType.LAGRANGE_UNIFORM, int(order)) for order in max_orders</span>
+    <span class="c1"># )</span>
+    <span class="c1">#     )</span>
+    <span class="c1">#     sample_points = np.meshgrid(</span>
+    <span class="c1">#         *(np.linspace(-1, +1, order + 1) for order in max_orders)</span>
+    <span class="c1">#     )</span>
+    <span class="c1">#     start_bnd_pts = [</span>
+    <span class="c1">#         start_boundaries[idim].sample(</span>
+    <span class="c1">#             *(_array_axis_slice(pts, 0, idim) for pts in sample_points)</span>
+    <span class="c1">#         )</span>
+    <span class="c1">#         for idim in range(ndim_in)</span>
+    <span class="c1">#     ]</span>
+    <span class="c1">#     end_bnd_pts = [</span>
+    <span class="c1">#         end_boundaries[idim].sample(</span>
+    <span class="c1">#             *(_array_axis_slice(pts, 0, idim) for pts in sample_points)</span>
+    <span class="c1">#         )</span>
+    <span class="c1">#         for idim in range(ndim_in)</span>
+    <span class="c1">#     ]</span>
+
+    <span class="c1">#     # TODO: check for adjacency between neighboring boundaries</span>
+
+    <span class="c1">#     raise NotImplementedError</span>
+
+
+<div class="viewcode-block" id="Line">
+<a class="viewcode-back" href="../../source/domain_types.html#fdg.Line">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">Line</span><span class="p">(</span><span class="n">HypercubeDomain</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;One dimensional object connecting two points.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    *knots : npt.ArrayLike</span>
+<span class="sd">        Values of knot points, that are used to interpolate the position</span>
+<span class="sd">        along the line using Bernstein polynomials. All knots must have</span>
+<span class="sd">        the same number of entries, but their number is not limited.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">knots</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">double</span><span class="p">]</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">knots</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">ArrayLike</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">pts</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">knots</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">pts</span><span class="o">.</span><span class="n">ndim</span> <span class="o">!=</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Line must be specified by an array of points.&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">pts</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;At least two points must be given for a line.&quot;</span><span class="p">)</span>
+        <span class="n">ndim</span> <span class="o">=</span> <span class="n">pts</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+        <span class="n">basis</span> <span class="o">=</span> <span class="n">BasisSpecs</span><span class="p">(</span><span class="n">BasisType</span><span class="o">.</span><span class="n">BERNSTEIN</span><span class="p">,</span> <span class="n">pts</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="n">func_space</span> <span class="o">=</span> <span class="n">FunctionSpace</span><span class="p">(</span><span class="n">basis</span><span class="p">)</span>
+        <span class="n">dofs</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">DegreesOfFreedom</span><span class="p">]</span> <span class="o">=</span> <span class="nb">list</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">idim</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">ndim</span><span class="p">):</span>
+            <span class="n">dofs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">DegreesOfFreedom</span><span class="p">(</span><span class="n">func_space</span><span class="p">,</span> <span class="n">pts</span><span class="p">[:,</span> <span class="n">idim</span><span class="p">]))</span>
+        <span class="nb">object</span><span class="o">.</span><span class="fm">__setattr__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;knots&quot;</span><span class="p">,</span> <span class="n">pts</span><span class="p">)</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="o">*</span><span class="n">dofs</span><span class="p">)</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">start</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">double</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;The start point of the line.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">knots</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="p">:]</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">end</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">double</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;The end point of the line.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">knots</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="p">:]</span>
+
+<div class="viewcode-block" id="Line.reverse">
+<a class="viewcode-back" href="../../source/domain_types.html#fdg.Line.reverse">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">reverse</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Line</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Reverse the orientation of the line.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        Line</span>
+<span class="sd">            Line which has its orientation flipped.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">Line</span><span class="p">(</span><span class="o">*</span><span class="n">np</span><span class="o">.</span><span class="n">flip</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">knots</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">))</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="Quad">
+<a class="viewcode-back" href="../../source/domain_types.html#fdg.Quad">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">Quad</span><span class="p">(</span><span class="n">HypercubeDomain</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Two dimensional object with four corners.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    bottom : Line</span>
+<span class="sd">        Bottom boundary along which the second dimension is -1. Starts where</span>
+<span class="sd">        the left boundary ends and ends where the right boundary starts.</span>
+
+<span class="sd">    right : Line</span>
+<span class="sd">        Right boundary along which the first dimension is +1. Starts where</span>
+<span class="sd">        the bottom boundary ends and ends where the top boundary starts.</span>
+
+<span class="sd">    top : Line</span>
+<span class="sd">        Top boundary along which the second dimension is +1. Starts where</span>
+<span class="sd">        the right boundary ends and ends where the left boundary starts.</span>
+
+<span class="sd">    left : Line</span>
+<span class="sd">        Left boundary along which the first dimension is -1. Starts where</span>
+<span class="sd">        the top boundary ends and ends where the bottom boundary starts.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">bottom</span><span class="p">:</span> <span class="n">Line</span><span class="p">,</span> <span class="n">right</span><span class="p">:</span> <span class="n">Line</span><span class="p">,</span> <span class="n">top</span><span class="p">:</span> <span class="n">Line</span><span class="p">,</span> <span class="n">left</span><span class="p">:</span> <span class="n">Line</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="c1"># Check we&#39;re dealing with the real types</span>
+        <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="p">(</span><span class="n">bottom</span><span class="p">,</span> <span class="n">right</span><span class="p">,</span> <span class="n">top</span><span class="p">,</span> <span class="n">left</span><span class="p">):</span>
+            <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">line</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">Line</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Only </span><span class="si">{</span><span class="n">Line</span><span class="si">}</span><span class="s2"> objects can be used as inputs for a Quad&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Check the surface is closed</span>
+        <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">bottom</span><span class="o">.</span><span class="n">end</span> <span class="o">!=</span> <span class="n">right</span><span class="o">.</span><span class="n">start</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;The right side does not start where the bottom ends.&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">right</span><span class="o">.</span><span class="n">end</span> <span class="o">!=</span> <span class="n">top</span><span class="o">.</span><span class="n">start</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;The top side does not start where the right ends.&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">top</span><span class="o">.</span><span class="n">end</span> <span class="o">!=</span> <span class="n">left</span><span class="o">.</span><span class="n">start</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;The left side does not start where the top ends.&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">left</span><span class="o">.</span><span class="n">end</span> <span class="o">!=</span> <span class="n">bottom</span><span class="o">.</span><span class="n">start</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;The bottom side does not start where the left ends.&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Determine the function spaces we&#39;re dealing with</span>
+        <span class="n">fs_b</span> <span class="o">=</span> <span class="n">bottom</span><span class="o">.</span><span class="n">function_space</span>
+        <span class="n">fs_r</span> <span class="o">=</span> <span class="n">right</span><span class="o">.</span><span class="n">function_space</span>
+        <span class="n">fs_t</span> <span class="o">=</span> <span class="n">top</span><span class="o">.</span><span class="n">function_space</span>
+        <span class="n">fs_l</span> <span class="o">=</span> <span class="n">left</span><span class="o">.</span><span class="n">function_space</span>
+        <span class="k">assert</span> <span class="n">fs_b</span><span class="o">.</span><span class="n">dimension</span> <span class="o">==</span> <span class="mi">1</span>
+        <span class="k">assert</span> <span class="n">fs_r</span><span class="o">.</span><span class="n">dimension</span> <span class="o">==</span> <span class="mi">1</span>
+        <span class="k">assert</span> <span class="n">fs_t</span><span class="o">.</span><span class="n">dimension</span> <span class="o">==</span> <span class="mi">1</span>
+        <span class="k">assert</span> <span class="n">fs_l</span><span class="o">.</span><span class="n">dimension</span> <span class="o">==</span> <span class="mi">1</span>
+
+        <span class="c1"># Find the highest orders we must represent</span>
+        <span class="n">max_h</span> <span class="o">=</span> <span class="nb">max</span><span class="p">((</span><span class="mi">1</span><span class="p">,</span> <span class="n">fs_b</span><span class="o">.</span><span class="n">orders</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">fs_t</span><span class="o">.</span><span class="n">orders</span><span class="p">[</span><span class="mi">0</span><span class="p">]))</span>  <span class="c1"># horizontal edges</span>
+        <span class="n">max_v</span> <span class="o">=</span> <span class="nb">max</span><span class="p">((</span><span class="mi">1</span><span class="p">,</span> <span class="n">fs_r</span><span class="o">.</span><span class="n">orders</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">fs_l</span><span class="o">.</span><span class="n">orders</span><span class="p">[</span><span class="mi">0</span><span class="p">]))</span>  <span class="c1"># vertical edges</span>
+
+        <span class="n">fs_quad</span> <span class="o">=</span> <span class="n">FunctionSpace</span><span class="p">(</span>
+            <span class="n">BasisSpecs</span><span class="p">(</span><span class="n">BasisType</span><span class="o">.</span><span class="n">LAGRANGE_UNIFORM</span><span class="p">,</span> <span class="n">max_h</span><span class="p">),</span>
+            <span class="n">BasisSpecs</span><span class="p">(</span><span class="n">BasisType</span><span class="o">.</span><span class="n">LAGRANGE_UNIFORM</span><span class="p">,</span> <span class="n">max_v</span><span class="p">),</span>
+        <span class="p">)</span>
+
+        <span class="n">xh</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="o">+</span><span class="mi">1</span><span class="p">,</span> <span class="n">max_h</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="n">xv</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="o">+</span><span class="mi">1</span><span class="p">,</span> <span class="n">max_v</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+
+        <span class="n">coords_c1</span> <span class="o">=</span> <span class="n">bottom</span><span class="o">.</span><span class="n">sample</span><span class="p">(</span><span class="n">xh</span><span class="p">)</span>
+        <span class="n">coords_c2</span> <span class="o">=</span> <span class="n">right</span><span class="o">.</span><span class="n">sample</span><span class="p">(</span><span class="n">xv</span><span class="p">)</span>
+        <span class="n">coords_c3</span> <span class="o">=</span> <span class="n">top</span><span class="o">.</span><span class="n">sample</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">flip</span><span class="p">(</span><span class="n">xh</span><span class="p">))</span>
+        <span class="n">coords_c4</span> <span class="o">=</span> <span class="n">left</span><span class="o">.</span><span class="n">sample</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">flip</span><span class="p">(</span><span class="n">xv</span><span class="p">))</span>
+
+        <span class="n">gx</span><span class="p">,</span> <span class="n">gy</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">meshgrid</span><span class="p">(</span><span class="n">xh</span><span class="p">,</span> <span class="n">xv</span><span class="p">)</span>  <span class="c1"># TODO: check if this gives correct results</span>
+
+        <span class="n">new_dofs</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">DegreesOfFreedom</span><span class="p">]</span> <span class="o">=</span> <span class="nb">list</span><span class="p">()</span>
+
+        <span class="n">p_bl</span> <span class="o">=</span> <span class="n">bottom</span><span class="o">.</span><span class="n">start</span>
+        <span class="n">p_br</span> <span class="o">=</span> <span class="n">right</span><span class="o">.</span><span class="n">start</span>
+        <span class="n">p_tr</span> <span class="o">=</span> <span class="n">top</span><span class="o">.</span><span class="n">start</span>
+        <span class="n">p_tl</span> <span class="o">=</span> <span class="n">left</span><span class="o">.</span><span class="n">start</span>
+        <span class="c1"># TODO: fix</span>
+        <span class="k">for</span> <span class="n">c1</span><span class="p">,</span> <span class="n">c2</span><span class="p">,</span> <span class="n">c3</span><span class="p">,</span> <span class="n">c4</span><span class="p">,</span> <span class="n">bl</span><span class="p">,</span> <span class="n">br</span><span class="p">,</span> <span class="n">tr</span><span class="p">,</span> <span class="n">tl</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span>
+            <span class="n">coords_c1</span><span class="p">,</span>
+            <span class="n">coords_c2</span><span class="p">,</span>
+            <span class="n">coords_c3</span><span class="p">,</span>
+            <span class="n">coords_c4</span><span class="p">,</span>
+            <span class="n">p_bl</span><span class="p">,</span>
+            <span class="n">p_br</span><span class="p">,</span>
+            <span class="n">p_tr</span><span class="p">,</span>
+            <span class="n">p_tl</span><span class="p">,</span>
+            <span class="n">strict</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+        <span class="p">):</span>
+            <span class="n">dof_vals</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="n">c1</span><span class="p">[</span><span class="kc">None</span><span class="p">,</span> <span class="p">:]</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">gy</span><span class="p">)</span> <span class="o">/</span> <span class="mi">2</span>
+                <span class="o">+</span> <span class="n">c2</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">+</span> <span class="n">gx</span><span class="p">)</span> <span class="o">/</span> <span class="mi">2</span>
+                <span class="o">+</span> <span class="n">c3</span><span class="p">[</span><span class="kc">None</span><span class="p">,</span> <span class="p">:]</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">+</span> <span class="n">gy</span><span class="p">)</span> <span class="o">/</span> <span class="mi">2</span>
+                <span class="o">+</span> <span class="n">c4</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">gx</span><span class="p">)</span> <span class="o">/</span> <span class="mi">2</span>
+            <span class="p">)</span> <span class="o">-</span> <span class="p">(</span>
+                <span class="n">bl</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">gy</span><span class="p">)</span> <span class="o">/</span> <span class="mi">2</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">gx</span><span class="p">)</span> <span class="o">/</span> <span class="mi">2</span>
+                <span class="o">+</span> <span class="n">br</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">gy</span><span class="p">)</span> <span class="o">/</span> <span class="mi">2</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">+</span> <span class="n">gx</span><span class="p">)</span> <span class="o">/</span> <span class="mi">2</span>
+                <span class="o">+</span> <span class="n">tr</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">+</span> <span class="n">gy</span><span class="p">)</span> <span class="o">/</span> <span class="mi">2</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">+</span> <span class="n">gx</span><span class="p">)</span> <span class="o">/</span> <span class="mi">2</span>
+                <span class="o">+</span> <span class="n">tl</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">+</span> <span class="n">gy</span><span class="p">)</span> <span class="o">/</span> <span class="mi">2</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">gx</span><span class="p">)</span> <span class="o">/</span> <span class="mi">2</span>
+            <span class="p">)</span>
+            <span class="n">new_dofs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">DegreesOfFreedom</span><span class="p">(</span><span class="n">fs_quad</span><span class="p">,</span> <span class="n">dof_vals</span><span class="o">.</span><span class="n">T</span><span class="p">))</span>
+
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="o">*</span><span class="n">new_dofs</span><span class="p">)</span>
+
+<div class="viewcode-block" id="Quad.from_corners">
+<a class="viewcode-back" href="../../source/domain_types.html#fdg.Quad.from_corners">[docs]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_corners</span><span class="p">(</span>
+        <span class="bp">cls</span><span class="p">,</span>
+        <span class="n">bottom_left</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">ArrayLike</span><span class="p">,</span>
+        <span class="n">bottom_right</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">ArrayLike</span><span class="p">,</span>
+        <span class="n">top_right</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">ArrayLike</span><span class="p">,</span>
+        <span class="n">top_left</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">ArrayLike</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Self</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Create a new (linear) Quad based on four corners.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        bottom_left : npt.ArrayLike</span>
+<span class="sd">            Bottom left corner.</span>
+
+<span class="sd">        bottom_right : npt.ArrayLike</span>
+<span class="sd">            Bottom right corner.</span>
+
+<span class="sd">        top_right : npt.ArrayLike</span>
+<span class="sd">            Top right corner.</span>
+
+<span class="sd">        top_left : npt.ArrayLike</span>
+<span class="sd">            Top left corner.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        Quad</span>
+<span class="sd">            Quad domain that has straight lines for its edges.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span>
+            <span class="n">bottom</span><span class="o">=</span><span class="n">Line</span><span class="p">(</span><span class="n">bottom_left</span><span class="p">,</span> <span class="n">bottom_right</span><span class="p">),</span>
+            <span class="n">right</span><span class="o">=</span><span class="n">Line</span><span class="p">(</span><span class="n">bottom_right</span><span class="p">,</span> <span class="n">top_right</span><span class="p">),</span>
+            <span class="n">top</span><span class="o">=</span><span class="n">Line</span><span class="p">(</span><span class="n">top_right</span><span class="p">,</span> <span class="n">top_left</span><span class="p">),</span>
+            <span class="n">left</span><span class="o">=</span><span class="n">Line</span><span class="p">(</span><span class="n">top_left</span><span class="p">,</span> <span class="n">bottom_left</span><span class="p">),</span>
+        <span class="p">)</span></div>
+</div>
+
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2024, Jan Roth.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 8.2.3.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

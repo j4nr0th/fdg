@@ -6,7 +6,7 @@
 
 Computation times
 =================
-**00:00.922** total execution time for 3 files **from auto_examples**:
+**00:04.862** total execution time for 5 files **from auto_examples**:
 
 .. container::
 
@@ -32,12 +32,18 @@ Computation times
    * - Example
      - Time
      - Mem (MB)
-   * - :ref:`sphx_glr_auto_examples_plot_poisson_direct.py` (``plot_poisson_direct.py``)
-     - 00:00.472
+   * - :ref:`sphx_glr_auto_examples_plot_basis_sets.py` (``plot_basis_sets.py``)
+     - 00:01.518
      - 0.0
-   * - :ref:`sphx_glr_auto_examples_plot_poisson_mixed.py` (``plot_poisson_mixed.py``)
-     - 00:00.302
+   * - :ref:`sphx_glr_auto_examples_plot_gradients.py` (``plot_gradients.py``)
+     - 00:01.367
      - 0.0
-   * - :ref:`sphx_glr_auto_examples_plot_poisson_direct-2.py` (``plot_poisson_direct-2.py``)
-     - 00:00.148
+   * - :ref:`sphx_glr_auto_examples_plot_function_spaces.py` (``plot_function_spaces.py``)
+     - 00:01.169
+     - 0.0
+   * - :ref:`sphx_glr_auto_examples_plot_domains.py` (``plot_domains.py``)
+     - 00:00.535
+     - 0.0
+   * - :ref:`sphx_glr_auto_examples_plot_integration_rules.py` (``plot_integration_rules.py``)
+     - 00:00.272
      - 0.0

@@ -1,0 +1,773 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Basis Functions &#8212; fdg 0.0.1a documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/jupyter-sphinx.css" />
+    <link rel="stylesheet" type="text/css" href="../_static/thebelab.css" />
+    <link rel="stylesheet" type="text/css" href="../_static/sg_gallery.css?v=d2d258e8" />
+    <link rel="stylesheet" type="text/css" href="../_static/sg_gallery-binder.css?v=f4aeca0c" />
+    <link rel="stylesheet" type="text/css" href="../_static/sg_gallery-dataframe.css?v=2082cf3c" />
+    <link rel="stylesheet" type="text/css" href="../_static/sg_gallery-rendered-html.css?v=1277b6f3" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../_static/documentation_options.js?v=8c8a9e14"></script>
+    <script src="../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/thebelab-helper.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.4/require.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@jupyter-widgets/html-manager@^1.0.1/dist/embed-amd.js"></script>
+    <script async="async" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'source/basis_functions';</script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Covector Basis" href="covector_basis.html" />
+    <link rel="prev" title="Integration" href="integration.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class="col-lg-3 navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">fdg 0.0.1a documentation</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class="col-lg-9 navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    Documentation for Exported Types and Functions
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../auto_examples/index.html">
+    Examples
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    Documentation for Exported Types and Functions
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../auto_examples/index.html">
+    Examples
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="integration.html">Integration</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Basis Functions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="covector_basis.html">Covector Basis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="degrees_of_freedom.html">Degrees of Freedom</a></li>
+<li class="toctree-l1"><a class="reference internal" href="space_map.html">Space Map</a></li>
+<li class="toctree-l1"><a class="reference internal" href="domain_types.html">Domain Types</a></li>
+<li class="toctree-l1"><a class="reference internal" href="kform_types.html"><span class="math notranslate nohighlight">\(k\)</span>-form Type</a></li>
+<li class="toctree-l1"><a class="reference internal" href="kform_transformations.html">Transforming <span class="math notranslate nohighlight">\(k\)</span>-forms</a></li>
+<li class="toctree-l1"><a class="reference internal" href="inner_product.html">Inner Product Mass Matrix</a></li>
+<li class="toctree-l1"><a class="reference internal" href="incidence.html">Exterior Derivative</a></li>
+<li class="toctree-l1"><a class="reference internal" href="interior_product.html">Interior Product</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Documentation for Exported Types and Functions</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Basis Functions</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="basis-functions">
+<span id="fdg-basis-functions"></span><h1>Basis Functions<a class="headerlink" href="#basis-functions" title="Link to this heading">#</a></h1>
+<p>Besides <a class="reference internal" href="integration.html#fdg-integration"><span class="std std-ref">Integration</span></a>, another basic building block of dealing with
+finite differential forms is basis functions. These determine values of the
+degrees of freedom actually mean. For a demonstration of what types of basis
+are available, see <a class="reference internal" href="../auto_examples/plot_basis_sets.html#sphx-glr-auto-examples-plot-basis-sets-py"><span class="std std-ref">Basis Sets Visualization</span></a>.</p>
+<section id="basis-specifications">
+<h2>Basis Specifications<a class="headerlink" href="#basis-specifications" title="Link to this heading">#</a></h2>
+<p>To specify the basis that are to be used, the <a class="reference internal" href="#fdg.BasisSpecs" title="fdg.BasisSpecs"><code class="xref py py-class docutils literal notranslate"><span class="pre">BasisSpecs</span></code></a> type is used.
+This specifies the order of the basis and their type (using <a class="reference internal" href="#fdg.BasisType" title="fdg.BasisType"><code class="xref py py-class docutils literal notranslate"><span class="pre">BasisType</span></code></a>) for a single dimension.</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="fdg.BasisSpecs">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fdg.</span></span><span class="sig-name descname"><span class="pre">BasisSpecs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">basis_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#fdg.BasisType" title="fdg.enum_type.BasisType"><span class="pre">fdg.enum_type.BasisType</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">order</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fdg.BasisSpecs" title="Link to this definition">#</a></dt>
+<dd><p>Type that describes a set of basis functions.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>basis_type</strong> (<a class="reference internal" href="#fdg.BasisType" title="fdg.enum_type.BasisType"><em>fdg.enum_type.BasisType</em></a>) – Type of the basis used for the set.</p></li>
+<li><p><strong>order</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>) – Order of the basis in the set.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="fdg.BasisSpecs.derivatives">
+<span class="sig-name descname"><span class="pre">derivatives</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.typing.ArrayLike</span></span></em>, <em class="sig-param"><span class="positional-only-separator o"><abbr title="Positional-only parameter separator (PEP 570)"><span class="pre">/</span></abbr></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">numpy.typing.NDArray</span><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.double" title="(in NumPy v2.4)"><span class="pre">numpy.double</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#fdg.BasisSpecs.derivatives" title="Link to this definition">#</a></dt>
+<dd><p>Evaluate basis function derivatives at given locations.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>x</strong> (<em>array_like</em>) – Locations where the basis function derivatives should be evaluated.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Array of basis function derivatives at the specified locations.
+It has one more dimension than <code class="docutils literal notranslate"><span class="pre">x</span></code>, with the last dimension
+corresponding to the basis function index.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>array</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="fdg.BasisSpecs.values">
+<span class="sig-name descname"><span class="pre">values</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.typing.ArrayLike</span></span></em>, <em class="sig-param"><span class="positional-only-separator o"><abbr title="Positional-only parameter separator (PEP 570)"><span class="pre">/</span></abbr></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">numpy.typing.NDArray</span><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.double" title="(in NumPy v2.4)"><span class="pre">numpy.double</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#fdg.BasisSpecs.values" title="Link to this definition">#</a></dt>
+<dd><p>Evaluate basis functions at given locations.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>x</strong> (<em>array_like</em>) – Locations where the basis functions should be evaluated.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Array of basis function values at the specified locations.
+It has one more dimension than <code class="docutils literal notranslate"><span class="pre">x</span></code>, with the last dimension
+corresponding to the basis function index.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>array</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="fdg.BasisSpecs.order">
+<span class="sig-name descname"><span class="pre">order</span></span><a class="headerlink" href="#fdg.BasisSpecs.order" title="Link to this definition">#</a></dt>
+<dd><p>Order of the basis set.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="fdg.BasisSpecs.type">
+<span class="sig-name descname"><span class="pre">type</span></span><a class="headerlink" href="#fdg.BasisSpecs.type" title="Link to this definition">#</a></dt>
+<dd><p>Type of the basis used for the set.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>_BasisTypeHint</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="fdg.BasisType">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fdg.</span></span><span class="sig-name descname"><span class="pre">BasisType</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">values</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/fdg/enum_type.html#BasisType"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#fdg.BasisType" title="Link to this definition">#</a></dt>
+<dd><p>Type of basis that can be used for basis sets.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="fdg.BasisType.BERNSTEIN">
+<span class="sig-name descname"><span class="pre">BERNSTEIN</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'bernstein'</span></em><a class="headerlink" href="#fdg.BasisType.BERNSTEIN" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="fdg.BasisType.LAGRANGE_CHEBYSHEV_GAUSS">
+<span class="sig-name descname"><span class="pre">LAGRANGE_CHEBYSHEV_GAUSS</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'lagrange-chebyshev-gauss'</span></em><a class="headerlink" href="#fdg.BasisType.LAGRANGE_CHEBYSHEV_GAUSS" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="fdg.BasisType.LAGRANGE_UNIFORM">
+<span class="sig-name descname"><span class="pre">LAGRANGE_UNIFORM</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'lagrange-uniform'</span></em><a class="headerlink" href="#fdg.BasisType.LAGRANGE_UNIFORM" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="fdg.BasisType.LAGRNAGE_GAUSS">
+<span class="sig-name descname"><span class="pre">LAGRNAGE_GAUSS</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'lagrange-gauss'</span></em><a class="headerlink" href="#fdg.BasisType.LAGRNAGE_GAUSS" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="fdg.BasisType.LAGRNAGE_GAUSS_LOBATTO">
+<span class="sig-name descname"><span class="pre">LAGRNAGE_GAUSS_LOBATTO</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'lagrange-gauss-lobatto'</span></em><a class="headerlink" href="#fdg.BasisType.LAGRNAGE_GAUSS_LOBATTO" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="fdg.BasisType.LEGENDRE">
+<span class="sig-name descname"><span class="pre">LEGENDRE</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'legendre'</span></em><a class="headerlink" href="#fdg.BasisType.LEGENDRE" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<p>While values of all basis functions can be computed with <a class="reference internal" href="#fdg.BasisSpecs" title="fdg.BasisSpecs"><code class="xref py py-class docutils literal notranslate"><span class="pre">BasisSpecs</span></code></a>, these are not cached.
+However, values of these bases at integration points are cached using <a class="reference internal" href="#fdg.BasisRegistry" title="fdg.BasisRegistry"><code class="xref py py-class docutils literal notranslate"><span class="pre">BasisRegistry</span></code></a>. Similarly
+to what was the case with <a class="reference internal" href="integration.html#fdg.IntegrationRegistry" title="fdg.IntegrationRegistry"><code class="xref py py-class docutils literal notranslate"><span class="pre">IntegrationRegistry</span></code></a>, there is a default one provided that is
+used if no other is specified.</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="fdg.BasisRegistry">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fdg.</span></span><span class="sig-name descname"><span class="pre">BasisRegistry</span></span><a class="headerlink" href="#fdg.BasisRegistry" title="Link to this definition">#</a></dt>
+<dd><p>Registry for basis sets.</p>
+<p>This registry contains all available basis sets and caches them for efficient
+retrieval.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="fdg.BasisRegistry.clear">
+<span class="sig-name descname"><span class="pre">clear</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#fdg.BasisRegistry.clear" title="Link to this definition">#</a></dt>
+<dd><p>Release all held basis sets to reduce the memory usage.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="fdg.BasisRegistry.usage">
+<span class="sig-name descname"><span class="pre">usage</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.14)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.14)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#fdg.BasisSpecs" title="fdg.BasisSpecs"><span class="pre">BasisSpecs</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="integration.html#fdg.IntegrationSpecs" title="fdg.IntegrationSpecs"><span class="pre">IntegrationSpecs</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#fdg.BasisRegistry.usage" title="Link to this definition">#</a></dt>
+<dd><p>Return the basis-integration pairs that are held by the registry.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Tuple of basis-integration specifications pair for each of basis set
+held in the registry.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.14)">tuple</a> of (<a class="reference internal" href="#fdg.BasisSpecs" title="fdg.BasisSpecs">BasisSpecs</a>, <a class="reference internal" href="integration.html#fdg.IntegrationSpecs" title="fdg.IntegrationSpecs">IntegrationSpecs</a>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py data">
+<dt class="sig sig-object py" id="fdg.DEFAULT_BASIS_REGISTRY">
+<span class="sig-prename descclassname"><span class="pre">fdg.</span></span><span class="sig-name descname"><span class="pre">DEFAULT_BASIS_REGISTRY</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">&lt;fdg._fdg.BasisRegistry</span> <span class="pre">object&gt;</span></em><a class="headerlink" href="#fdg.DEFAULT_BASIS_REGISTRY" title="Link to this definition">#</a></dt>
+<dd><p>Registry for basis sets.</p>
+<p>This registry contains all available basis sets and caches them for efficient
+retrieval.</p>
+<p>The <a class="reference internal" href="#fdg.BasisRegistry" title="fdg.BasisRegistry"><code class="xref py py-class docutils literal notranslate"><span class="pre">BasisRegistry</span></code></a> registry used when another is not provided.</p>
+</dd></dl>
+
+</section>
+<section id="function-spaces">
+<h2>Function Spaces<a class="headerlink" href="#function-spaces" title="Link to this heading">#</a></h2>
+<p>Just as was the case with <a class="reference internal" href="integration.html#fdg.IntegrationSpecs" title="fdg.IntegrationSpecs"><code class="xref py py-class docutils literal notranslate"><span class="pre">IntegrationSpecs</span></code></a>, when dealing with <cite>N</cite>-dimensional spaces
+<a class="reference internal" href="#fdg.BasisSpecs" title="fdg.BasisSpecs"><code class="xref py py-class docutils literal notranslate"><span class="pre">BasisSpecs</span></code></a> objects are bundled together into a <a class="reference internal" href="#fdg.FunctionSpace" title="fdg.FunctionSpace"><code class="xref py py-class docutils literal notranslate"><span class="pre">FunctionSpace</span></code></a> objects. These
+define the function space based on outer product of basis.</p>
+<p>Given basis sets <span class="math notranslate nohighlight">\(b^k = \left\{ b^k_1, \dots, b^k_{n_1} \right\}\)</span> for <span class="math notranslate nohighlight">\(k = 1, \dots, N\)</span>,
+the value of the different basis functions at point with position <span class="math notranslate nohighlight">\(\vec{r} = \begin{bmatrix} x_1 \\ \vdots \\ x_N \end{bmatrix}\)</span> is
+given by Equation <a class="reference internal" href="#equation-eq-outer-product-basis">(1)</a>. Based on this it is quite clear that the total number of basis functions in this case is
+<span class="math notranslate nohighlight">\(\prod\limits_{i=1}^N n_i\)</span>.</p>
+<div class="math notranslate nohighlight" id="equation-eq-outer-product-basis">
+<span class="eqno">(1)<a class="headerlink" href="#equation-eq-outer-product-basis" title="Link to this equation">#</a></span>\[\psi_{i_1, \dots, i_N} (\vec{r}) = \prod\limits_{j = 1}^N b^{j}_{i_1}(x_j)\]</div>
+<dl class="py class">
+<dt class="sig sig-object py" id="fdg.FunctionSpace">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fdg.</span></span><span class="sig-name descname"><span class="pre">FunctionSpace</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">specs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">BasisSpec</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#fdg.FunctionSpace" title="Link to this definition">#</a></dt>
+<dd><p>Function space defined with basis.</p>
+<p>Function space defined by tensor product of basis functions in each dimension.
+Basis for each dimension are defined by a BasisSpecs object.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>*basis_specs</strong> (<a class="reference internal" href="#fdg.BasisSpecs" title="fdg.BasisSpecs"><em>BasisSpecs</em></a>) – Basis specifications for each dimension of the function space.</p>
+</dd>
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="fdg.FunctionSpace.evaluate">
+<span class="sig-name descname"><span class="pre">evaluate</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">x</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.typing.NDArray</span><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.double" title="(in NumPy v2.4)"><span class="pre">numpy.double</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">out</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.typing.NDArray</span><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.double" title="(in NumPy v2.4)"><span class="pre">numpy.double</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">numpy.typing.NDArray[numpy.double]:</span></span></span><a class="headerlink" href="#fdg.FunctionSpace.evaluate" title="Link to this definition">#</a></dt>
+<dd><p>Evaluate basis functions at given locations.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>*x</strong> (<em>array</em>) – Coordinates where the basis functions should be evaluated.
+Each array corresponds to a dimension in the function space.</p></li>
+<li><p><strong>out</strong> (<em>array</em><em>, </em><em>optional</em>) – Array where the results should be written to. If not given, a new one
+will be created and returned. It should have the same shape as <code class="docutils literal notranslate"><span class="pre">x</span></code>,
+but with an extra dimension added, the length of which is the total
+number of basis functions in the function space.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Array of basis function values at the specified locations.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>array</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="fdg.FunctionSpace.lower_order">
+<span class="sig-name descname"><span class="pre">lower_order</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">idim</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#fdg.FunctionSpace" title="fdg.FunctionSpace"><span class="pre">FunctionSpace</span></a></span></span><a class="headerlink" href="#fdg.FunctionSpace.lower_order" title="Link to this definition">#</a></dt>
+<dd><p>Create a copy of the space with a lowered order in the specified dimension.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>idim</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>) – Index of the dimension to lower the order on.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>New function space with a lower order in the specified dimension.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="#fdg.FunctionSpace" title="fdg.FunctionSpace">FunctionSpace</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="fdg.FunctionSpace.values_at_integration_nodes">
+<span class="sig-name descname"><span class="pre">values_at_integration_nodes</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">integration</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="integration.html#fdg.IntegrationSpace" title="fdg.IntegrationSpace"><span class="pre">IntegrationSpace</span></a></span></em>, <em class="sig-param"><span class="positional-only-separator o"><abbr title="Positional-only parameter separator (PEP 570)"><span class="pre">/</span></abbr></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">integration_registry</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="integration.html#fdg.IntegrationRegistry" title="fdg.IntegrationRegistry"><span class="pre">IntegrationRegistry</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">DEFAULT_INTEGRATION_REGISTRY</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">basis_registry</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#fdg.BasisRegistry" title="fdg.BasisRegistry"><span class="pre">BasisRegistry</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">DEFAULT_BASIS_REGISTRY</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">numpy.typing.NDArray</span><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.double" title="(in NumPy v2.4)"><span class="pre">numpy.double</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#fdg.FunctionSpace.values_at_integration_nodes" title="Link to this definition">#</a></dt>
+<dd><p>Return values of basis at integration points.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>integration</strong> (<a class="reference internal" href="integration.html#fdg.IntegrationSpace" title="fdg.IntegrationSpace"><em>IntegrationSpace</em></a>) – Integration space, the nodes of which are used to evaluate basis at.</p></li>
+<li><p><strong>integration_registry</strong> (<a class="reference internal" href="integration.html#fdg.IntegrationRegistry" title="fdg.IntegrationRegistry"><em>IntegrationRegistry</em></a><em>, </em><em>defaul: DEFAULT_INTEGRATION_REGISTRY</em>) – Registry used to obtain the integration rules from.</p></li>
+<li><p><strong>basis_registry</strong> (<a class="reference internal" href="#fdg.BasisRegistry" title="fdg.BasisRegistry"><em>BasisRegistry</em></a><em>, </em><em>default: DEFAULT_BASIS_REGISTRY</em>) – Registry used to look up basis values.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Array of basis function values at the integration points locations.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>array</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="fdg.FunctionSpace.basis_specs">
+<span class="sig-name descname"><span class="pre">basis_specs</span></span><a class="headerlink" href="#fdg.FunctionSpace.basis_specs" title="Link to this definition">#</a></dt>
+<dd><p>Basis specifications that define the function space.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.14)">tuple</a>[<a class="reference internal" href="#fdg.BasisSpecs" title="fdg.BasisSpecs">BasisSpecs</a>, …]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="fdg.FunctionSpace.dimension">
+<span class="sig-name descname"><span class="pre">dimension</span></span><a class="headerlink" href="#fdg.FunctionSpace.dimension" title="Link to this definition">#</a></dt>
+<dd><p>Number of dimensions in the function space.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="fdg.FunctionSpace.orders">
+<span class="sig-name descname"><span class="pre">orders</span></span><a class="headerlink" href="#fdg.FunctionSpace.orders" title="Link to this definition">#</a></dt>
+<dd><p>Orders of the basis functions in the function space.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.14)">tuple</a>[<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)">int</a>, …]</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="integration.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Integration</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="covector_basis.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Covector Basis</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#basis-specifications">Basis Specifications</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fdg.BasisSpecs"><code class="docutils literal notranslate"><span class="pre">BasisSpecs</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#fdg.BasisSpecs.derivatives"><code class="docutils literal notranslate"><span class="pre">BasisSpecs.derivatives()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#fdg.BasisSpecs.values"><code class="docutils literal notranslate"><span class="pre">BasisSpecs.values()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#fdg.BasisSpecs.order"><code class="docutils literal notranslate"><span class="pre">BasisSpecs.order</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#fdg.BasisSpecs.type"><code class="docutils literal notranslate"><span class="pre">BasisSpecs.type</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fdg.BasisType"><code class="docutils literal notranslate"><span class="pre">BasisType</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#fdg.BasisType.BERNSTEIN"><code class="docutils literal notranslate"><span class="pre">BasisType.BERNSTEIN</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#fdg.BasisType.LAGRANGE_CHEBYSHEV_GAUSS"><code class="docutils literal notranslate"><span class="pre">BasisType.LAGRANGE_CHEBYSHEV_GAUSS</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#fdg.BasisType.LAGRANGE_UNIFORM"><code class="docutils literal notranslate"><span class="pre">BasisType.LAGRANGE_UNIFORM</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#fdg.BasisType.LAGRNAGE_GAUSS"><code class="docutils literal notranslate"><span class="pre">BasisType.LAGRNAGE_GAUSS</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#fdg.BasisType.LAGRNAGE_GAUSS_LOBATTO"><code class="docutils literal notranslate"><span class="pre">BasisType.LAGRNAGE_GAUSS_LOBATTO</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#fdg.BasisType.LEGENDRE"><code class="docutils literal notranslate"><span class="pre">BasisType.LEGENDRE</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fdg.BasisRegistry"><code class="docutils literal notranslate"><span class="pre">BasisRegistry</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#fdg.BasisRegistry.clear"><code class="docutils literal notranslate"><span class="pre">BasisRegistry.clear()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#fdg.BasisRegistry.usage"><code class="docutils literal notranslate"><span class="pre">BasisRegistry.usage()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fdg.DEFAULT_BASIS_REGISTRY"><code class="docutils literal notranslate"><span class="pre">DEFAULT_BASIS_REGISTRY</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#function-spaces">Function Spaces</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fdg.FunctionSpace"><code class="docutils literal notranslate"><span class="pre">FunctionSpace</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#fdg.FunctionSpace.evaluate"><code class="docutils literal notranslate"><span class="pre">FunctionSpace.evaluate()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#fdg.FunctionSpace.lower_order"><code class="docutils literal notranslate"><span class="pre">FunctionSpace.lower_order()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#fdg.FunctionSpace.values_at_integration_nodes"><code class="docutils literal notranslate"><span class="pre">FunctionSpace.values_at_integration_nodes()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#fdg.FunctionSpace.basis_specs"><code class="docutils literal notranslate"><span class="pre">FunctionSpace.basis_specs</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#fdg.FunctionSpace.dimension"><code class="docutils literal notranslate"><span class="pre">FunctionSpace.dimension</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#fdg.FunctionSpace.orders"><code class="docutils literal notranslate"><span class="pre">FunctionSpace.orders</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+  <div role="note" aria-label="source link">
+    <h3>This Page</h3>
+    <ul class="this-page-menu">
+      <li><a href="../_sources/source/basis_functions.rst.txt"
+            rel="nofollow">Show Source</a></li>
+    </ul>
+   </div></div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2024, Jan Roth.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 8.2.3.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

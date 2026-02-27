@@ -1,22 +1,18 @@
-.. interplib documentation master file, created by
-   sphinx-quickstart on Mon Nov  4 18:47:57 2024.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
-
-.. currentmodule:: interplib
+.. currentmodule:: fdg
 
 
-InterpLib documentation
-=======================
+``fdg`` documentation
+=====================
 
-The purpose of interplib is to allow for interpolation using various basis functions
-in both 1D and higher dimensions. The quantities which are to be interpolated can
-be associated with different topological forms and be interpolated using basis functions.
+The ``fdg`` Python module exists to allow working with differential geometry
+objects, mainly :math:`k`-forms, which are defined in terms of finite number
+of degrees of freedom. As such the acronym ``fdg`` stands for "Finite Differential Geometry".
+It is intended to serve as a basic building block that can be used to construct
+element matrices for FEM solvers. It also provides types that can help with
+post-processing of the computed results.
 
 .. toctree::
    :maxdepth: 2
 
-   source/basis1d
-   source/splines1d
-   source/product_basis
+   source/index
    auto_examples/index
