@@ -9,14 +9,15 @@ jobs:
   docs:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
           cache: pip
-      - name: Build the Package
-        run: |
-          pip install .[docs]
+      - name: Install the extension
+        run: pip install --group dev --group docs .
       - name: Build the docs
         run: |
           sphinx-build doc _build
