@@ -54,5 +54,7 @@ from fdg.enum_type import IntegrationMethod as IntegrationMethod
 
 # Integration functions
 from fdg.integration import integrate_callable as integrate_callable
+from fdg.integration import projection_kform_l2_dual as projection_kform_l2_dual
+from fdg.integration import projection_kform_l2_primal as projection_kform_l2_primal
 from fdg.integration import projection_l2_dual as projection_l2_dual
 from fdg.integration import projection_l2_primal as projection_l2_primal

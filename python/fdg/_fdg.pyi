@@ -8,6 +8,7 @@ import numpy.typing as npt
 
 from fdg.enum_type import _BasisTypeHint, _IntegrationMethodHint
 
+# TODO: add missing docstrings that are not yet in on the C side due to me being lazy
 # TODO: check each time an input array is taken as a parameter, there's a check for
 #  dimensions, types, and continuity
 
@@ -102,11 +103,23 @@ class BasisRegistry:
     """
 
     def __new__(cls) -> Self: ...
-    def usage(self) -> tuple[tuple[BasisSpecs, IntegrationSpecs], ...]: ...
-    def clear(self) -> None: ...
+    def usage(self) -> tuple[tuple[BasisSpecs, IntegrationSpecs], ...]:
+        """Return the basis-integration pairs that are held by the registry.
+
+        Returns
+        -------
+        tuple of (BasisSpecs, IntegrationSpecs)
+            Tuple of basis-integration specifications pair for each of basis set
+            held in the registry.
+        """
+        ...
+    def clear(self) -> None:
+        """Release all held basis sets to reduce the memory usage."""
+        ...
 
 DEFAULT_BASIS_REGISTRY: BasisRegistry = ...
 
+# TODO: some option to set the sign
 @final
 class CovectorBasis:
     """Type used to specify covector basis bundle.
@@ -203,7 +216,7 @@ class BasisSpecs:
 
     Parameters
     ----------
-    basis_type : fdg._typing.BasisType
+    basis_type : fdg.enum_type.BasisType
         Type of the basis used for the set.
 
     order : int
@@ -523,7 +536,17 @@ class DegreesOfFreedom:
 
 @final
 class KFormSpecs:
-    """Differential k-form specification."""
+    """Differential k-form specification.
+
+    Parameters
+    ----------
+    order : int
+        Order of the k-form.
+
+    base_space : FunctionSpace
+        Base space to use for the k-forms. This is also the space in which 0-forms
+        are defined.
+    """
 
     def __new__(cls, order: int, base_space: FunctionSpace) -> Self: ...
     @property
@@ -546,11 +569,34 @@ class KFormSpecs:
         ...
 
     def get_component_function_space(self, idx: int) -> FunctionSpace:
-        """Get the function space for a component."""
+        """Get the function space for a component.
+
+        Parameters
+        ----------
+        idx : int
+            Index of the component.
+
+        Returns
+        -------
+        FunctionSpace
+            Function space corresponding to the k-form component with the specified index.
+        """
         ...
 
     def get_component_basis(self, idx: int) -> CovectorBasis:
-        """Get covector basis bundle for a component."""
+        """Get covector basis bundle for a component.
+
+        Parameters
+        ----------
+        idx : int
+            Index of the component.
+
+        Returns
+        -------
+        CovectorBasis
+            Covector basis bundle corresponding to the k-form component with the specified
+            index.
+        """
         ...
 
     def get_component_slice(self, idx: int) -> slice:
@@ -579,12 +625,18 @@ class KFormSpecs:
 
 @final
 class KForm:
-    """Degrees of freedom of a k-form."""
+    """Type holding the degrees of freedom of a k-form.
+
+    Parameters
+    ----------
+    specs : KFormSpecs
+        Specification of the k-form that is to be created.
+    """
 
     def __new__(cls, specs: KFormSpecs) -> Self: ...
     @property
     def specs(self) -> KFormSpecs:
-        """KFormSpecs : Specifications of the k-form."""
+        """Specifications of the k-form."""
         ...
 
     @property
@@ -846,6 +898,7 @@ def compute_kform_interior_product_matrix(
     """
     ...
 
+# TODO: add the option to apply it on the right side!
 def incidence_kform_operator(
     specs: KFormSpecs,
     values: npt.NDArray[np.double],

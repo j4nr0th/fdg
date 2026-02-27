@@ -244,7 +244,6 @@ def projection_l2_primal(
     return DegreesOfFreedom(function_space, primal_dofs)
 
 
-# TODO: Needs another transformation function for basis only.
 def projection_kform_l2_dual(
     funcs: Sequence[Integrable],
     specs: KFormSpecs,
@@ -254,15 +253,16 @@ def projection_kform_l2_dual(
     integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
     basis_registry: BasisRegistry = DEFAULT_BASIS_REGISTRY,
 ) -> tuple[npt.NDArray[np.double], ...]:
-    """Compute the dual L2 projection of the k-form.
+    """Compute the dual L2 projection of the :math:`k`-form.
 
     Parameters
     ----------
-    func : Integratable
-        Function to project. It has to be possible to integrate it.
+    funcs : Sequence of Integratable
+        Functions to project. There must be the same number of them as the number
+        of the :math:`k`-form components.
 
     specs : KFormSpecs
-        Specifications of the k-form to project.
+        Specifications of the :math:`k`-form to project.
 
     integration : IntegrationSpace or SpaceMap
         Specification of the integration domain.
@@ -350,15 +350,16 @@ def projection_kform_l2_primal(
     integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
     basis_registry: BasisRegistry = DEFAULT_BASIS_REGISTRY,
 ) -> tuple[npt.NDArray[np.double], ...]:
-    """Compute the primal L2 projection of the k-form.
+    """Compute the primal L2 projection of the :math:`k`-form.
 
     Parameters
     ----------
-    func : Integratable
-        Function to project. It has to be possible to integrate it.
+    funcs : Sequence of Integratable
+        Functions to project. There must be the same number of them as the number
+        of the :math:`k`-form components.
 
     specs : KFormSpecs
-        Specifications of the k-form to project.
+        Specifications of the :math:`k`-form to project.
 
     integration : IntegrationSpace or SpaceMap
         Specification of the integration domain.

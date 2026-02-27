@@ -107,7 +107,15 @@ static int ensure_basis_registry_and_state(PyObject *self, PyTypeObject *definin
     return 0;
 }
 
-PyDoc_STRVAR(basis_registry_usage_docstring, "usage() -> tuple[tuple[BasisSpecs, IntegrationSpecs], ...]\n");
+PyDoc_STRVAR(basis_registry_usage_docstring,
+             "usage() -> tuple[tuple[BasisSpecs, IntegrationSpecs], ...]\n"
+             "Return the basis-integration pairs that are held by the registry.\n"
+             "\n"
+             "Returns\n"
+             "-------\n"
+             "tuple of (BasisSpecs, IntegrationSpecs)\n"
+             "    Tuple of basis-integration specifications pair for each of basis set\n"
+             "    held in the registry.\n");
 
 static PyObject *basis_registry_usage(PyObject *self, PyTypeObject *defining_class, PyObject *const *Py_UNUSED(args),
                                       const Py_ssize_t nargs, const PyObject *kwnames)
@@ -172,7 +180,8 @@ static PyObject *basis_registry_usage(PyObject *self, PyTypeObject *defining_cla
     return (PyObject *)out;
 }
 
-PyDoc_STRVAR(basis_registry_clear_docstring, "clear() -> None\n");
+PyDoc_STRVAR(basis_registry_clear_docstring,
+             "clear() -> None\nRelease all held basis sets to reduce the memory usage.\n");
 
 static PyObject *basis_registry_clear(PyObject *self, PyTypeObject *defining_class, PyObject *const *Py_UNUSED(args),
                                       const Py_ssize_t nargs, const PyObject *kwnames)
@@ -292,12 +301,12 @@ static PyGetSetDef basis_getset[] = {
     {},
 };
 
-PyDoc_STRVAR(basis_specs_docstring, "BasisSpecs(basis_type: fdg._typing.BasisType, order: int)\n"
+PyDoc_STRVAR(basis_specs_docstring, "BasisSpecs(basis_type: fdg.enum_type.BasisType, order: int)\n"
                                     "Type that describes a set of basis functions.\n"
                                     "\n"
                                     "Parameters\n"
                                     "----------\n"
-                                    "basis_type : fdg._typing.BasisType\n"
+                                    "basis_type : fdg.enum_type.BasisType\n"
                                     "    Type of the basis used for the set.\n"
                                     "\n"
                                     "order : int\n"

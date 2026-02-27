@@ -10,7 +10,7 @@ supported rules:
 """  # noqa: D205 D400
 
 import numpy as np
-from fdg import IntegrationMethod, IntegrationSpecs, bernstein1d
+from fdg import IntegrationMethod, IntegrationSpecs
 from matplotlib import pyplot as plt
 
 # %%
@@ -48,11 +48,7 @@ plt.show()
 rng = np.random.default_rng(seed=0)  # Make rng predictable
 N_POLY = 14
 coeffs = rng.uniform(0, 1, size=N_POLY + 1)
-
-
-def eval_polynomial(x):
-    """Evaluate polynomial with Bernstein basis."""
-    return bernstein1d(N_POLY, x) @ coeffs
+poly = np.polynomial.Legendre(coeffs, domain=(-1, +1))
 
 
 # %%
@@ -66,7 +62,7 @@ gauss_integral_values: list[float] = list()
 gauss_order = 0
 while True:
     rule = IntegrationSpecs(gauss_order, IntegrationMethod.GAUSS)
-    value = np.dot(rule.weights(), eval_polynomial((rule.nodes() - 1) / 2)) / 2
+    value = np.dot(rule.weights(), poly((rule.nodes() - 1) / 2)) / 2
     gauss_integral_values.append(value)
     if rule.accuracy >= N_POLY + 2:
         # Go one further
@@ -85,7 +81,7 @@ gauss_lobatto_integral_values: list[float] = list()
 gauss_lobatto_order = 0
 while True:
     rule = IntegrationSpecs(gauss_lobatto_order, IntegrationMethod.GAUSS_LOBATTO)
-    value = np.dot(rule.weights(), eval_polynomial((rule.nodes() - 1) / 2)) / 2
+    value = np.dot(rule.weights(), poly((rule.nodes() - 1) / 2)) / 2
     gauss_lobatto_integral_values.append(value)
     if rule.accuracy >= N_POLY + 2:
         # Go one further

@@ -35,7 +35,13 @@ def _array_axis_slice(a: npt.NDArray, idx: int, axis: int):
 
 @dataclass(frozen=True)
 class HypercubeDomain:
-    """Base type for all domains."""
+    """Base type for all domains.
+
+    Parameters
+    ----------
+    *dofs : DegreesOfFreedom
+        Degrees of freedom for each of the output coordinates.
+    """
 
     dofs: tuple[DegreesOfFreedom, ...]
 
@@ -76,7 +82,24 @@ class HypercubeDomain:
         integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
         basis_registry: BasisRegistry = DEFAULT_BASIS_REGISTRY,
     ) -> SpaceMap:
-        """Create a space map based on the integration space."""
+        """Create a space map based on the integration space.
+
+        Parameters
+        ----------
+        space : IntegratinoSpace
+            Integration space to base the space map on.
+
+        integration_registry : IntegrationRegistry, optional
+            Integration registry to use for retrieving the integration nodes and weights.
+
+        basis_registry : BasisRegistry
+            Basis registry to use for retrieving basis values from.
+
+        Returns
+        -------
+        SpaceMap
+            Space mapping of the domain for the specified integration space.
+        """
         return SpaceMap(
             *(
                 CoordinateMap(dof, space, integration_registry, basis_registry)
@@ -104,7 +127,26 @@ class HypercubeDomain:
         integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
         basis_registry: BasisRegistry = DEFAULT_BASIS_REGISTRY,
     ) -> float:
-        """Compute the size of the domain."""
+        """Compute the size of the domain.
+
+        Parameters
+        ----------
+        int_space : IntegrationSpace, optional
+            Integration space to use for computing the size of the domain. If it is not
+            given, a new one will be created, such that the size is computed exactly.
+
+        integration_registry : IntegrationRegistry, optional
+            Integration registry to use for retrieving the integration nodes and weights.
+
+        basis_registry : BasisRegistry
+            Basis registry to use for retrieving basis values from.
+
+        Returns
+        -------
+        float
+            Size of the domain. For a 1D domain this is the lenght, for a 2D domain this
+            is the surface area, for a 3D domain it is the volume, and so on.
+        """
         if int_space is None:
             int_space = IntegrationSpace(
                 *(
@@ -180,7 +222,19 @@ class HypercubeDomain:
         )
 
     def subregion(self, *ranges: tuple[float, float]) -> HypercubeDomain:
-        """Split self into a sub-region of the domain."""
+        """Split self into a sub-region of the domain.
+
+        Parameters
+        ----------
+        *ranges : (float, float)
+            Range of the domain to include for each dimension.
+
+        Returns
+        -------
+        HypercubeDomain
+            Subregion of the domain, where the boundaries are determined from where the
+            ``ranges`` parameters constrain the original domain.
+        """
         n_dim_ref = self.ndim_reference
         if len(ranges) < n_dim_ref:
             raise ValueError(f"At most {n_dim_ref} pairs of divisions can be specified.")
@@ -271,7 +325,15 @@ class HypercubeDomain:
 
 @dataclass(frozen=True)
 class Line(HypercubeDomain):
-    """One dimensional object connecting two points."""
+    """One dimensional object connecting two points.
+
+    Parameters
+    ----------
+    *knots : npt.ArrayLike
+        Values of knot points, that are used to interpolate the position
+        along the line using Bernstein polynomials. All knots must have
+        the same number of entries, but their number is not limited.
+    """
 
     knots: npt.NDArray[np.double]
 
@@ -301,12 +363,37 @@ class Line(HypercubeDomain):
         return self.knots[-1, :]
 
     def reverse(self) -> Line:
-        """Reverse the orientation of the line."""
+        """Reverse the orientation of the line.
+
+        Returns
+        -------
+        Line
+            Line which has its orientation flipped.
+        """
         return Line(*np.flip(self.knots, axis=0))
 
 
 class Quad(HypercubeDomain):
-    """Two dimensional object with four corners."""
+    """Two dimensional object with four corners.
+
+    Parameters
+    ----------
+    bottom : Line
+        Bottom boundary along which the second dimension is -1. Starts where
+        the left boundary ends and ends where the right boundary starts.
+
+    right : Line
+        Right boundary along which the first dimension is +1. Starts where
+        the bottom boundary ends and ends where the top boundary starts.
+
+    top : Line
+        Top boundary along which the second dimension is +1. Starts where
+        the right boundary ends and ends where the left boundary starts.
+
+    left : Line
+        Left boundary along which the first dimension is -1. Starts where
+        the top boundary ends and ends where the bottom boundary starts.
+    """
 
     def __init__(self, bottom: Line, right: Line, top: Line, left: Line) -> None:
         # Check we're dealing with the real types
@@ -394,7 +481,27 @@ class Quad(HypercubeDomain):
         top_right: npt.ArrayLike,
         top_left: npt.ArrayLike,
     ) -> Self:
-        """Create a new (linear) Quad based on four corners."""
+        """Create a new (linear) Quad based on four corners.
+
+        Parameters
+        ----------
+        bottom_left : npt.ArrayLike
+            Bottom left corner.
+
+        bottom_right : npt.ArrayLike
+            Bottom right corner.
+
+        top_right : npt.ArrayLike
+            Top right corner.
+
+        top_left : npt.ArrayLike
+            Top left corner.
+
+        Returns
+        -------
+        Quad
+            Quad domain that has straight lines for its edges.
+        """
         return cls(
             bottom=Line(bottom_left, bottom_right),
             right=Line(bottom_right, top_right),
