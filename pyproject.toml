@@ -49,6 +49,8 @@ docs = [
     "sphinxcontrib-asciinema",
     "jupyter-sphinx",
     "matplotlib",
+    "hawkmoth>=0.22.0",
+    "clang>=21.1.7",
 ]
 
 

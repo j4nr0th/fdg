@@ -569,7 +569,7 @@ static PyObject *space_map_get_coordinate_map(PyObject *self, PyTypeObject *defi
 }
 
 PyDoc_STRVAR(space_map_get_coordinate_map_docstring,
-             "get_coordinate_map(idx: int) -> CoordinateMap\n"
+             "coordinate_map(idx: int) -> CoordinateMap\n"
              "Return the coordinate map for the specified dimension.\n"
              "\n"
              "Parameters\n"
@@ -593,8 +593,8 @@ PyDoc_STRVAR(space_map_docstring, "SpaceMap(*coordinates: CoordinateMap)\n"
                                   "Parameters\n"
                                   "----------\n"
                                   "*coordinates : CoordinateMap\n"
-                                  "Maps for each coordinate of physical space. All of these must be\n"
-                                  "defined on the same :class:`IntegrationSpace`.\n");
+                                  "    Maps for each coordinate of physical space. All of these must be\n"
+                                  "    defined on the same :class:`IntegrationSpace`.\n");
 
 static PyObject *space_map_get_input_dimension(PyObject *self, void *Py_UNUSED(closure))
 {
@@ -907,7 +907,7 @@ PyType_Spec space_map_type_spec = {
                  {
                      .name = "determinant",
                      .get = space_map_get_determinant,
-                     .doc = "numpy.typing.NDArray[numpy.double] : Array with the values of determinant at integration "
+                     .doc = "numpy.typing.NDArray[numpy.double] : Array with the values of determinant at integration."
                             "points.",
                  },
                  {

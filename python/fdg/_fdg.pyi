@@ -107,6 +107,7 @@ class BasisRegistry:
 
 DEFAULT_BASIS_REGISTRY: BasisRegistry = ...
 
+# TODO: some option to set the sign
 @final
 class CovectorBasis:
     """Type used to specify covector basis bundle.
@@ -846,6 +847,7 @@ def compute_kform_interior_product_matrix(
     """
     ...
 
+# TODO: add the option to apply it on the right side!
 def incidence_kform_operator(
     specs: KFormSpecs,
     values: npt.NDArray[np.double],

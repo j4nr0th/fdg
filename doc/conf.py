@@ -3,6 +3,8 @@
 For the full list of built-in configuration values, see the documentation:
 https://www.sphinx-doc.org/en/master/usage/configuration.html"""
 
+from pathlib import Path
+
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
@@ -23,6 +25,8 @@ extensions = [
     "sphinx_gallery.gen_gallery",
     "jupyter_sphinx",
     "pydata_sphinx_theme",
+    "hawkmoth",
+    "hawkmoth.ext.javadoc",
 ]
 
 templates_path = ["_templates"]
@@ -41,8 +45,6 @@ html_static_path = ["_static"]
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
     "numpy": ("https://numpy.org/doc/stable/", None),
-    "scipy": ("https://docs.scipy.org/doc/scipy/", None),
-    "pyvista": ("https://docs.pyvista.org/" , None),
 }
 
 # -- Options for Napoleon ----------------------------------------------------
@@ -60,7 +62,12 @@ napoleon_type_aliases = None
 # -- Options for Autodoc -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/extensions/autodoc.html
 
-
+autodoc_default_options = {
+    "members": True,
+    "undoc-members": True,
+    "inherited-members": True,
+    "show-inheritence": True,
+}
 autodoc_member_order = "groupwise"
 autodoc_type_aliases = {
     "npt.NDArray": "array",
@@ -76,7 +83,11 @@ sphinx_gallery_conf = {
          # The module you locally document uses None
         "fdg": None,
     },
-    "image_scrapers": ("matplotlib", "pyvista"),
+    "image_scrapers": ("matplotlib"),
 }
-import pyvista
-pyvista.BUILDING_GALLERY = True
+
+# -- Options for C hawkmoth --------------------------------------------------
+# https://hawkmoth.readthedocs.io/en/stable/extension.html#configuration
+hawkmoth_root = (Path(__file__).parent / "src").absolute()
+hawkmoth_transform_default = "javadoc"
+hawkmoth_clang = ["--std=c17"]
