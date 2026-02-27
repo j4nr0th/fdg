@@ -1589,6 +1589,89 @@ static PyObject *transform_kform_component_to_target(PyObject *mod, PyObject *co
     return (PyObject *)out_array;
 }
 
+PyDoc_STRVAR(transform_covariant_to_target_docstring,
+             "transform_covariant_to_target(smap: SpaceMap, components: numpy.typing.ArrayLike, *, out: "
+             "numpy.typing.NDArray[numpy.double] "
+             "| None = None) -> numpy.typing.NDArray[numpy.double]\n"
+             "Transform covariant 1-form components from reference to target domain.\n"
+             "\n"
+             "Parameters\n"
+             "----------\n"
+             "smap : SpaceMap\n"
+             "    Mapping from the reference space to the physical space to use to transform the\n"
+             "    components.\n"
+             "\n"
+             "components : array_like\n"
+             "    Array where the first dimension indexes the components in the reference space. All\n"
+             "    other dimensions will be treated as if flattened.\n"
+             "\n"
+             "out : array, optional\n"
+             "    Array to used to write the resulting transformed components to. If it is not\n"
+             "    specified, a new array is created.\n"
+             "\n"
+             "Returns\n"
+             "-------\n"
+             "array\n"
+             "    Array of transformed covariant components. If the ``out`` parameter was given,\n"
+             "    a new reference to it is returned, otherwise a reference to the newly created\n"
+             "    output array is returned.\n"
+
+);
+
+PyDoc_STRVAR(transform_kform_to_target_docstring,
+             "transform_kform_to_target(order: int,smap: SpaceMap, components: numpy.typing.ArrayLike, *, out: "
+             "numpy.typing.NDArray[numpy.double] | None = None) -> numpy.typing.NDArray[numpy.double]\n"
+             "Transform k-form values based on a space mapping.\n"
+             "\n"
+             "Parameters\n"
+             "----------\n"
+             "order : int\n"
+             "    Order of the k-form being transformed.\n"
+             "\n"
+             "smap : SpaceMap\n"
+             "    Mapping between the reference and target domain to use.\n"
+             "\n"
+             "components : array_like\n"
+             "    Array with values of components of the k-form in the reference domain at\n"
+             "    integration points associated with the space mapping.\n"
+             "\n"
+             "out : array, optional\n"
+             "    Array to use to store the output in.\n"
+             "\n"
+             "Returns\n"
+             "-------\n"
+             "array\n"
+             "    Array with values of the components in the physical space.\n");
+
+PyDoc_STRVAR(
+    transform_kform_component_to_target_docstring,
+    "transform_kform_component_to_target(order: int, smap: SpaceMap, component: numpy.typing.ArrayLike, index: int, *, "
+    "out: numpy.typing.NDArray[numpy.double] | None = None) -> numpy.typing.NDArray[numpy.double]\n"
+    "Transform k-form values based on a space mapping.\n"
+    "\n"
+    "Parameters\n"
+    "----------\n"
+    "order : int\n"
+    "    Order of the k-form being transformed.\n"
+    "\n"
+    "smap : SpaceMap\n"
+    "    Mapping between the reference and target domain to use.\n"
+    "\n"
+    "component : array_like\n"
+    "    Values of component in the reference domain at integration points associated\n"
+    "    with the space mapping.\n"
+    "\n"
+    "index : int\n"
+    "    Index of the component that is to be computed.\n"
+    "\n"
+    "out : array, optional\n"
+    "    Array to use to store the output in.\n"
+    "\n"
+    "Returns\n"
+    "-------\n"
+    "array\n"
+    "    Array with values of the components in the physical space.\n");
+
 PyMethodDef transformation_functions[] = {
     {
         .ml_name = "transform_contravariant_to_target",
@@ -1600,19 +1683,19 @@ PyMethodDef transformation_functions[] = {
         .ml_name = "transform_covariant_to_target",
         .ml_meth = (void *)transform_covariant_to_target,
         .ml_flags = METH_FASTCALL | METH_KEYWORDS,
-        .ml_doc = NULL, // TODO
+        .ml_doc = transform_covariant_to_target_docstring,
     },
     {
         .ml_name = "transform_kform_to_target",
         .ml_meth = (void *)transform_kform_to_target,
         .ml_flags = METH_FASTCALL | METH_KEYWORDS,
-        .ml_doc = NULL, // TODO
+        .ml_doc = transform_kform_to_target_docstring,
     },
     {
         .ml_name = "transform_kform_component_to_target",
         .ml_meth = (void *)transform_kform_component_to_target,
         .ml_flags = METH_FASTCALL | METH_KEYWORDS,
-        .ml_doc = NULL, // TODO
+        .ml_doc = transform_kform_component_to_target_docstring,
     },
     {}, // sentinel
 };

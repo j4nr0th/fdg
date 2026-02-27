@@ -290,6 +290,64 @@ static PyObject *kform_specs_get_component_slice(PyObject *self, PyTypeObject *d
     return slice;
 }
 
+PyDoc_STRVAR(kform_spec_get_component_function_space_docstring,
+             "get_component_function_space(idx: int) -> FunctionSpace\n"
+             "Get the function space for a component.\n"
+             "        \n"
+             "Parameters\n"
+             "----------\n"
+             "idx : int\n"
+             "    Index of the component.\n"
+             "\n"
+             "Returns\n"
+             "-------\n"
+             "FunctionSpace\n"
+             "    Function space corresponding to the k-form component with the specified index.\n");
+
+PyDoc_STRVAR(kform_spec_get_component_covector_basis_docstring,
+             "get_component_basis(idx: int) -> CovectorBasis\n"
+             "Get covector basis bundle for a component.\n"
+             "\n"
+             "Parameters\n"
+             "----------\n"
+             "idx : int\n"
+             "    Index of the component.\n"
+             "\n"
+             "Returns\n"
+             "-------\n"
+             "CovectorBasis\n"
+             "    Covector basis bundle corresponding to the k-form component with the specified index.\n");
+
+PyDoc_STRVAR(kform_specs_get_component_slice_docstring,
+             "get_component_slice(idx: int) -> slice\n"
+             "Get the slice corresponding to degrees of freedom of a k-form component.\n"
+             "\n"
+             "The resulting slice can be used to index into the flattened array of degrees\n"
+             "of freedom to get the DoFs corresponding to a praticular component.\n"
+             "\n"
+             "Parameters\n"
+             "----------\n"
+             "idx : int\n"
+             "    Index of the k-form component.\n"
+             "\n"
+             "Returns\n"
+             "-------\n"
+             "slice\n"
+             "    Slice of the flattened array of all k-form degrees of freedom that corresponds\n"
+             "    to degrees of freedom of the specified component.\n");
+
+PyDoc_STRVAR(kform_specs_docstring, "KFormSpecs(order: int, base_space: FunctionSpace)\n"
+                                    "Differential k-form specification.\n"
+                                    "\n"
+                                    "Parameters\n"
+                                    "----------\n"
+                                    "order : int\n"
+                                    "    Order of the k-form.\n"
+                                    "\n"
+                                    "base_space : FunctionSpace\n"
+                                    "    Base space to use for the k-forms. This is also the space in which 0-forms\n"
+                                    "    are defined.\n");
+
 PyType_Spec kform_spec_type_spec = {
     .name = FDG_TYPE_NAME("KFormSpecs"),
     .basicsize = sizeof(kform_spec_object),
@@ -334,22 +392,23 @@ PyType_Spec kform_spec_type_spec = {
                  .ml_name = "get_component_function_space",
                  .ml_meth = (void *)kform_spec_get_component_function_space,
                  .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
-                 .ml_doc = NULL, // TODO
+                 .ml_doc = kform_spec_get_component_function_space_docstring,
              },
              {
                  .ml_name = "get_component_basis",
                  .ml_meth = (void *)kform_spec_get_component_covector_basis,
                  .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
-                 .ml_doc = NULL, // TODO
+                 .ml_doc = kform_spec_get_component_covector_basis_docstring,
              },
              {
                  .ml_name = "get_component_slice",
                  .ml_meth = (void *)kform_specs_get_component_slice,
                  .ml_flags = METH_FASTCALL | METH_KEYWORDS | METH_METHOD,
-                 .ml_doc = NULL, // TODO
+                 .ml_doc = kform_specs_get_component_slice_docstring,
              },
              {},
          }},
+        {Py_tp_doc, (char *)kform_specs_docstring},
         {},
     }};
 
@@ -543,6 +602,29 @@ static PyObject *kform_get_values(PyObject *self, void *Py_UNUSED(closure))
     return (PyObject *)out;
 }
 
+PyDoc_STRVAR(kform_get_component_dofs_docstring,
+             "get_component_dofs(idx: int) -> numpy.tying.NDArray[numpy.double]\n"
+             "Get the array containing the degrees of freedom for a k-form component.\n"
+             "\n"
+             "Parameters\n"
+             "----------\n"
+             "idx : int\n"
+             "    Index of the k-form component.\n"
+             "\n"
+             "Returns\n"
+             "-------\n"
+             "array\n"
+             "    Array containing the degrees of freedom. This is not a copy, so changing\n"
+             "    values in it will change the values of degrees of freedom.\n");
+
+PyDoc_STRVAR(kform_docstring, "KForm(specs: KFormSpecs)\n"
+                              "Type holding the degrees of freedom of a k-form.\n"
+                              "\n"
+                              "Parameters\n"
+                              "----------\n"
+                              "specs : KFormSpecs\n"
+                              "    Specification of the k-form that is to be created.\n");
+
 PyType_Spec kform_type_spec = {
     .name = FDG_TYPE_NAME("KForm"),
     .basicsize = sizeof(kform_object),
@@ -558,7 +640,7 @@ PyType_Spec kform_type_spec = {
                  .ml_name = "get_component_dofs",
                  .ml_meth = (void *)kform_get_component_dofs,
                  .ml_flags = METH_FASTCALL | METH_KEYWORDS | METH_METHOD,
-                 .ml_doc = NULL, // TODO
+                 .ml_doc = kform_get_component_dofs_docstring,
              },
              {},
          }},
@@ -576,5 +658,6 @@ PyType_Spec kform_type_spec = {
              },
              {},
          }},
+        {Py_tp_doc, (char *)kform_docstring},
         {},
     }};
