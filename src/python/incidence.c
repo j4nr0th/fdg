@@ -1107,12 +1107,6 @@ static PyObject *incidence_kform_operator(PyObject *mod, PyObject *const *args, 
         py_out = NULL;
     }
 
-    if (b_right)
-    {
-        PyErr_SetString(PyExc_NotImplementedError, "Right application is not yet implemented.");
-        return NULL;
-    }
-
     const function_space_object *fn_space = specs->function_space;
     const unsigned n = Py_SIZE(fn_space);
     const unsigned order = specs->order;
@@ -1151,7 +1145,7 @@ static PyObject *incidence_kform_operator(PyObject *mod, PyObject *const *args, 
             {.size = combination_iterator_required_memory(order), .p_ptr = (void **)&iter_component_low},
             {.size = combination_iterator_required_memory(order + 1), .p_ptr = (void **)&iter_component_high},
             {.size = sizeof(*basis_components) * (order + 1), .p_ptr = (void **)&basis_components},
-            {.size = sizeof(*high_k_component_offsets) * ((b_transpose ? n_components_in : n_components_out) + 1),
+            {.size = sizeof(*high_k_component_offsets) * (n_components_high + 1),
              .p_ptr = (void **)&high_k_component_offsets},
             {.size = sizeof(*work_buffer) * ((max_order + 1) * max_order + max_order + (max_order + 1)),
              .p_ptr = (void **)&work_buffer},
@@ -1222,7 +1216,7 @@ static PyObject *incidence_kform_operator(PyObject *mod, PyObject *const *args, 
 
     // Fill out output dimensions
     const npy_intp out_dims_left[2] = {(npy_intp)out_dofs, (npy_intp)repetitions};
-    const npy_intp out_dims_right[2] = {(npy_intp)repetitions, (npy_intp)out_dofs};
+    const npy_intp out_dims_right[2] = {(npy_intp)(in_array_ndim == 1 ? out_dofs : repetitions), (npy_intp)out_dofs};
     const npy_intp *out_dims = (b_right ? out_dims_right : out_dims_left);
     // Create output if need be
     if (py_out == NULL)
@@ -1291,7 +1285,8 @@ static PyObject *incidence_kform_operator(PyObject *mod, PyObject *const *args, 
                 size_t offset_in, offset_out;
                 determine_hlio_order(high_offset, low_offset, b_transpose, b_right, &offset_out, &offset_in);
                 // printf("Working on block (l-%zu, h-%u) with in offset %zu and out offset %zu\n", idx_comp_low,
-                //        idx_comp_high, offset_in, offset_out);
+                //        idx_comp_high, offset_in * repetition_specs.stride_dof,
+                //        offset_out * repetition_specs.stride_dof);
                 // incidence_operator_apply_block(n, fn_space->specs, order + 1, basis_components, repetitions,
                 //                                basis_components[pv], pv & 1u, in_data + offset_in * cols,
                 //                                out_data + offset_out * cols, work_buffer, b_transpose);
@@ -1301,7 +1296,7 @@ static PyObject *incidence_kform_operator(PyObject *mod, PyObject *const *args, 
                     .work = work_buffer,
                 };
                 incidence_operator_apply_block(n, fn_space->specs, order + 1, basis_components, basis_components[pv],
-                                               &repetition_specs, &array_specs, b_transpose, pv & 1u);
+                                               &repetition_specs, &array_specs, b_transpose ^ b_right, pv & 1u);
                 basis_components[pv] += 1;
             }
             basis_components[pv + 1] += 1;
@@ -1314,7 +1309,7 @@ static PyObject *incidence_kform_operator(PyObject *mod, PyObject *const *args, 
             size_t offset_in, offset_out;
             determine_hlio_order(high_offset, low_offset, b_transpose, b_right, &offset_out, &offset_in);
             // printf("Working on block (l-%zu, h-%u) with in offset %zu and out offset %zu\n", idx_comp_low,
-            //        idx_comp_high, offset_in, offset_out);
+            //        idx_comp_high, offset_in * repetition_specs.stride_dof, offset_out * repetition_specs.stride_dof);
             // incidence_operator_apply_block(n, fn_space->specs, order + 1, basis_components, repetitions,
             //                                basis_components[order], order & 1u, in_data + offset_in * cols,
             //                                out_data + offset_out * cols, work_buffer, b_transpose);
@@ -1324,7 +1319,7 @@ static PyObject *incidence_kform_operator(PyObject *mod, PyObject *const *args, 
                 .work = work_buffer,
             };
             incidence_operator_apply_block(n, fn_space->specs, order + 1, basis_components, basis_components[order],
-                                           &repetition_specs, &array_specs, b_transpose, order & 1u);
+                                           &repetition_specs, &array_specs, b_transpose ^ b_right, order & 1u);
             basis_components[order] += 1;
         }
     }

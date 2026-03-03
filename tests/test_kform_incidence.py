@@ -280,110 +280,72 @@ def test_3d_operator(
     assert pytest.approx(dofs_3) == dofs_computed_23
 
 
+def _test_incidence_operators(specs_k: KFormSpecs, k: int) -> None:
+    """Check that the k-form incidence operators work correctly."""
+    # First assemble the incidence matrix
+    e_mat = compute_kform_incidence_matrix(specs_k.base_space, k)
+
+    eye_low = np.eye(e_mat.shape[1])
+    eye_high = np.eye(e_mat.shape[0])
+
+    # Check that applying it also works
+    e = incidence_kform_operator(specs_k, eye_low, transpose=False, right=False)
+    assert pytest.approx(e) == e_mat
+    # print("C1")
+
+    # Check that applying transpose also works
+    et = incidence_kform_operator(specs_k, eye_high, transpose=True, right=False)
+    assert pytest.approx(et) == e_mat.T
+    # print("C2")
+
+    # Check that right applying transpose also works
+    ert = incidence_kform_operator(specs_k, eye_low, transpose=True, right=True)
+    assert pytest.approx(ert) == e_mat.T
+    # print("C3")
+
+    # Check that right applying it also works
+    er = incidence_kform_operator(specs_k, eye_high, transpose=False, right=True)
+    assert pytest.approx(er) == e_mat
+    # print("C4")
+
+
 @pytest.mark.parametrize("o1", (1, 2, 4))
 @pytest.mark.parametrize("b1", BasisType)
-@pytest.mark.parametrize("cols", (1, 12, 50))
-def test_1d_operator_matrix(o1: int, b1: BasisType, cols: int) -> None:
+def test_1d_operator_matrix(o1: int, b1: BasisType) -> None:
     """Check that operator matrices for k-forms in 2D work as intended."""
-    # Init PRNG
-    rng = np.random.default_rng(o1 + hash(b1) ** 2)
     # Create base function space
     base_space = FunctionSpace(BasisSpecs(b1, o1))
 
     # Run through all k-forms until 2-form
     for k in range(0, 1):
         specs_k = KFormSpecs(k, base_space)
-        dofs_kform = rng.random((sum(specs_k.component_dof_counts), cols))
-        e_mat = compute_kform_incidence_matrix(base_space, k)
-
-        ## Use the incidence matrix first
-        dofs_derivative_expected = e_mat @ dofs_kform
-
-        ## Try using the operator instead
-        dofs_derivative_computed = incidence_kform_operator(specs_k, dofs_kform)
-
-        ## Check that computed values are correct
-        assert pytest.approx(dofs_derivative_expected) == dofs_derivative_computed
-
-        # Check the transpose works correctly
-        n_high = dofs_derivative_expected.shape[0]
-        eye_high = np.eye(n_high)
-        et = incidence_kform_operator(specs_k, eye_high, transpose=True)
-
-        ## Check incidence matrix is transposed
-        assert pytest.approx(et) == e_mat.T
+        _test_incidence_operators(specs_k, k)
 
 
 @pytest.mark.parametrize(("o1", "o2", "b1", "b2"), _TEST_VALUES_2D)
-@pytest.mark.parametrize("cols", (1, 12, 50))
-def test_2d_operator_matrix(
-    o1: int, o2: int, b1: BasisType, b2: BasisType, cols: int
-) -> None:
+def test_2d_operator_matrix(o1: int, o2: int, b1: BasisType, b2: BasisType) -> None:
     """Check that operator matrices for k-forms in 2D work as intended."""
-    # Init PRNG
-    rng = np.random.default_rng(o1 + 2 * o2 + hash(b1) ** 2 + hash(b2) ** 2)
     # Create base function space
     base_space = FunctionSpace(BasisSpecs(b1, o1), BasisSpecs(b2, o2))
 
     # Run through all k-forms until 2-form
     for k in range(0, 2):
         specs_k = KFormSpecs(k, base_space)
-        dofs_kform = rng.random((sum(specs_k.component_dof_counts), cols))
-        e_mat = compute_kform_incidence_matrix(base_space, k)
-
-        ## Use the incidence matrix first
-        dofs_derivative_expected = e_mat @ dofs_kform
-
-        ## Try using the operator instead
-        dofs_derivative_computed = incidence_kform_operator(specs_k, dofs_kform)
-
-        ## Check that computed values are correct
-        assert pytest.approx(dofs_derivative_expected) == dofs_derivative_computed
-
-        # Check the transpose works correctly
-        n_high = dofs_derivative_expected.shape[0]
-        eye_high = np.eye(n_high)
-        et = incidence_kform_operator(specs_k, eye_high, transpose=True)
-
-        ## Check incidence matrix is transposed
-        assert pytest.approx(et) == e_mat.T
+        _test_incidence_operators(specs_k, k)
 
 
 @pytest.mark.parametrize(("o1", "o2", "o3", "b1", "b2", "b3"), _TEST_VALUES_3D)
-@pytest.mark.parametrize("cols", (1, 12, 50))
 def test_3d_operator_matrix(
-    o1: int, o2: int, o3: int, b1: BasisType, b2: BasisType, b3: BasisType, cols: int
+    o1: int, o2: int, o3: int, b1: BasisType, b2: BasisType, b3: BasisType
 ) -> None:
     """Check that operator matrices for k-forms in 3D work as intended."""
-    # Init PRNG
-    rng = np.random.default_rng(
-        o1 + 2 * o2 + 3 * o3 + hash(b1) ** 2 + hash(b2) ** 2 + hash(b3) ** 2
-    )
     # Create base function space
     base_space = FunctionSpace(BasisSpecs(b1, o1), BasisSpecs(b2, o2), BasisSpecs(b3, o3))
 
     # Run through all k-forms until 3-form
     for k in range(0, 3):
         specs_k = KFormSpecs(k, base_space)
-        dofs_kform = rng.random((sum(specs_k.component_dof_counts), cols))
-        e_mat = compute_kform_incidence_matrix(base_space, k)
-
-        ## Use the incidence matrix first
-        dofs_derivative_expected = e_mat @ dofs_kform
-
-        ## Try using the operator instead
-        dofs_derivative_computed = incidence_kform_operator(specs_k, dofs_kform)
-
-        ## Check that computed values are correct
-        assert pytest.approx(dofs_derivative_expected) == dofs_derivative_computed
-
-        # Check the transpose works correctly
-        n_high = dofs_derivative_expected.shape[0]
-        eye_high = np.eye(n_high)
-        et = incidence_kform_operator(specs_k, eye_high, transpose=True)
-
-        ## Check incidence matrix is transposed
-        assert pytest.approx(et) == e_mat.T
+        _test_incidence_operators(specs_k, k)
 
 
 if __name__ == "__main__":
@@ -394,19 +356,17 @@ if __name__ == "__main__":
         b1=BasisType.LAGRANGE_UNIFORM,  # b1=BasisType.LEGENDRE,
         b2=BasisType.BERNSTEIN,  # b2=BasisType.LAGRNAGE_GAUSS,
         b3=BasisType.BERNSTEIN,  # b3=BasisType.LEGENDRE,
-        cols=1,
     )
+
     for o1 in (1, 2, 4):
         for b1 in BasisType:
-            for cols in (1, 5, 12):
-                test_1d_operator_matrix(o1, b1, cols)
+            test_1d_operator_matrix(o1, b1)
+
     for args in _TEST_VALUES_2D:
-        for cols in (1, 2, 3, 4):
-            test_2d_operator_matrix(*args, cols)
+        test_2d_operator_matrix(*args)
 
     test_3d_operator_matrix(
-        3, 2, 4, BasisType.LAGRNAGE_GAUSS, BasisType.LEGENDRE, BasisType.LEGENDRE, cols=1
+        3, 2, 4, BasisType.LAGRNAGE_GAUSS, BasisType.LEGENDRE, BasisType.LEGENDRE
     )
     for args3 in _TEST_VALUES_3D:
-        for cols in (1, 2, 3, 4):
-            test_3d_operator_matrix(*args3, cols)
+        test_3d_operator_matrix(*args3)
