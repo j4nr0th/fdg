@@ -49,12 +49,12 @@ static inline const double *integration_rule_weights_const(const integration_rul
 }
 
 FDG_INTERNAL
-interp_result_t integration_rule_for_accuracy(integration_rule_t **out, integration_rule_type_t type, unsigned accuracy,
-                                              const cutl_allocator_t *allocator);
+fdg_result_t integration_rule_for_accuracy(integration_rule_t **out, integration_rule_type_t type, unsigned accuracy,
+                                           const cutl_allocator_t *allocator);
 
 FDG_INTERNAL
-interp_result_t integration_rule_for_order(integration_rule_t **out, integration_rule_type_t type, unsigned order,
-                                           const cutl_allocator_t *allocator);
+fdg_result_t integration_rule_for_order(integration_rule_t **out, integration_rule_type_t type, unsigned order,
+                                        const cutl_allocator_t *allocator);
 
 typedef struct integration_rule_registry_t integration_rule_registry_t;
 
@@ -79,8 +79,8 @@ typedef struct integration_rule_registry_t integration_rule_registry_t;
  * cleanup function when it is no longer necessary.
  */
 FDG_INTERNAL
-interp_result_t integration_rule_registry_create(integration_rule_registry_t **out, int should_cache,
-                                                 const cutl_allocator_t *allocator);
+fdg_result_t integration_rule_registry_create(integration_rule_registry_t **out, int should_cache,
+                                              const cutl_allocator_t *allocator);
 
 /**
  * @brief Destroys an integration rule registry.
@@ -129,8 +129,8 @@ void integration_rule_registry_destroy(integration_rule_registry_t *this);
  * `integration_rule_registry_release_unused_rules` has been called.
  */
 FDG_INTERNAL
-interp_result_t integration_rule_registry_get_rule(integration_rule_registry_t *this, integration_spec_t spec,
-                                                   const integration_rule_t **p_rule);
+fdg_result_t integration_rule_registry_get_rule(integration_rule_registry_t *this, integration_spec_t spec,
+                                                const integration_rule_t **p_rule);
 
 /**
  * @brief Batched version of `integration_rule_registry_get_rule`
@@ -155,9 +155,9 @@ interp_result_t integration_rule_registry_get_rule(integration_rule_registry_t *
  * `integration_rule_registry_release_unused_rules` has been called.
  */
 FDG_INTERNAL
-interp_result_t integration_rule_registry_get_rules(integration_rule_registry_t *this, unsigned cnt,
-                                                    const integration_spec_t FDG_ARRAY_ARG(specs, static cnt),
-                                                    const integration_rule_t *FDG_ARRAY_ARG(p_rules, cnt));
+fdg_result_t integration_rule_registry_get_rules(integration_rule_registry_t *this, unsigned cnt,
+                                                 const integration_spec_t FDG_ARRAY_ARG(specs, static cnt),
+                                                 const integration_rule_t *FDG_ARRAY_ARG(p_rules, cnt));
 
 /**
  * @brief Releases a specific integration rule from the integration rule registry.
@@ -177,8 +177,7 @@ interp_result_t integration_rule_registry_get_rules(integration_rule_registry_t 
  * concurrently.
  */
 FDG_INTERNAL
-interp_result_t integration_rule_registry_release_rule(integration_rule_registry_t *this,
-                                                       const integration_rule_t *rule);
+fdg_result_t integration_rule_registry_release_rule(integration_rule_registry_t *this, const integration_rule_t *rule);
 /**
  * @brief Releases unused integration rules from the registry.
  *

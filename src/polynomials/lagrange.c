@@ -733,11 +733,11 @@ void lagrange_polynomial_first_derivative_transposed_2(const unsigned n_pos,
 }
 
 FDG_INTERNAL
-interp_result_t lagrange_polynomial_second_derivative(unsigned n_in, const double FDG_ARRAY_ARG(pos, static n_in),
-                                                      unsigned n_nodes, const double FDG_ARRAY_ARG(x, static n_nodes),
-                                                      double FDG_ARRAY_ARG(weights, restrict n_nodes *n_in),
-                                                      double FDG_ARRAY_ARG(work1, restrict n_nodes),
-                                                      double FDG_ARRAY_ARG(work2, restrict n_nodes))
+fdg_result_t lagrange_polynomial_second_derivative(unsigned n_in, const double FDG_ARRAY_ARG(pos, static n_in),
+                                                   unsigned n_nodes, const double FDG_ARRAY_ARG(x, static n_nodes),
+                                                   double FDG_ARRAY_ARG(weights, restrict n_nodes *n_in),
+                                                   double FDG_ARRAY_ARG(work1, restrict n_nodes),
+                                                   double FDG_ARRAY_ARG(work2, restrict n_nodes))
 {
     // compute denominators
     lagrange_polynomial_denominators(n_nodes, x, work1);

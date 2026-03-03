@@ -17,7 +17,7 @@ typedef struct
  * @returns FDG_SUCCESS if successful, FDG_ERROR_MATRIX_DIMS_MISMATCH if matrices
  * do not have correct dimensions.
  */
-interp_result_t matrix_qr_decompose(const matrix_t *ar, const matrix_t *q);
+fdg_result_t matrix_qr_decompose(const matrix_t *ar, const matrix_t *q);
 
 /**
  * Perform matrix multiplication of two input matrices.
@@ -29,7 +29,7 @@ interp_result_t matrix_qr_decompose(const matrix_t *ar, const matrix_t *q);
  * @returns FDG_SUCCESS if successful, FDG_ERROR_MATRIX_DIMS_MISMATCH if the dimensions of the matrices are
  * incompatible.
  */
-interp_result_t matrix_multiply(const matrix_t *a, const matrix_t *b, const matrix_t *c);
+fdg_result_t matrix_multiply(const matrix_t *a, const matrix_t *b, const matrix_t *c);
 
 /** Solve the system U X = B using back substitution for an upper-triangular U.
  *
@@ -42,6 +42,6 @@ interp_result_t matrix_multiply(const matrix_t *a, const matrix_t *b, const matr
  * @returns FDG_SUCCESS if successful, FDG_ERROR_MATRIX_DIMS_MISMATCH if the dimensions of the matrices are
  * incompatible.
  */
-interp_result_t matrix_back_substitute(const matrix_t *upper, const matrix_t *b);
+fdg_result_t matrix_back_substitute(const matrix_t *upper, const matrix_t *b);
 
 #endif // FDG_MATRICES_H

@@ -7,75 +7,92 @@
 #include "function_space_objects.h"
 #include "kform_objects.h"
 
-void bernstein_apply_incidence_operator(
-    const unsigned n, const size_t pre_stride, const size_t post_stride, const unsigned cols,
-    const double FDG_ARRAY_ARG(values_in, restrict const static pre_stride *(n + 1) * post_stride * cols),
-    double FDG_ARRAY_ARG(values_out, restrict const pre_stride * n * post_stride * cols), const int negate)
+static void bernstein_apply_incidence_single(const incidence_base_strides_t *base_strides, const size_t stride_dofs,
+                                             const incidence_array_specifications_t *array_specs, const int negate)
 {
+    const unsigned n = base_strides->n;
+    const size_t pre_stride = base_strides->pre_stride;
+    const size_t post_stride = base_strides->post_stride;
+    const double *restrict const vin = array_specs->values_in;
+    double *restrict const vout = array_specs->values_out;
+
     npy_double coeff = (double)n / 2.0;
     if (negate)
         coeff = -coeff;
-
-#pragma omp simd
-    for (unsigned i_col = 0; i_col < cols; ++i_col)
+    for (size_t i_pre = 0; i_pre < pre_stride; ++i_pre)
     {
-        double *const vout = values_out + i_col;
-        const double *const vin = values_in + i_col;
-
-        for (size_t i_pre = 0; i_pre < pre_stride; ++i_pre)
+        for (size_t i_post = 0; i_post < post_stride; ++i_post)
         {
-            for (size_t i_post = 0; i_post < post_stride; ++i_post)
-            {
-                const size_t i_out = i_pre * n * post_stride + i_post;
-                const size_t i_in = i_pre * (n + 1) * post_stride + i_post;
+            const size_t i_out = i_pre * n * post_stride + i_post;
+            const size_t i_in = i_pre * (n + 1) * post_stride + i_post;
 
-                vout[(i_out + 0) * cols] -= coeff * vin[(i_in + 0) * cols];
-                for (unsigned col = 1; col < n; ++col)
-                {
-                    const npy_double x = coeff * vin[(i_in + col * post_stride) * cols];
-                    vout[(i_out + col * post_stride) * cols] -= x;
-                    vout[(i_out + (col - 1) * post_stride) * cols] += x;
-                }
-                vout[(i_out + (n - 1) * post_stride) * cols] += coeff * vin[(i_in + n * post_stride) * cols];
+            vout[(i_out + 0) * stride_dofs] -= coeff * vin[(i_in + 0) * stride_dofs];
+            for (unsigned col = 1; col < n; ++col)
+            {
+                const npy_double x = coeff * vin[(i_in + col * post_stride) * stride_dofs];
+                vout[(i_out + col * post_stride) * stride_dofs] -= x;
+                vout[(i_out + (col - 1) * post_stride) * stride_dofs] += x;
             }
+            vout[(i_out + (n - 1) * post_stride) * stride_dofs] += coeff * vin[(i_in + n * post_stride) * stride_dofs];
         }
     }
 }
 
-void bernstein_apply_incidence_operator_transpose(
-    const unsigned n, const size_t pre_stride, const size_t post_stride, const unsigned cols,
-    const double FDG_ARRAY_ARG(values_in, restrict const static pre_stride * n * post_stride * cols),
-    double FDG_ARRAY_ARG(values_out, restrict const pre_stride *(n + 1) * post_stride * cols), const int negate)
+static void bernstein_apply_incidence_single_transpose(const incidence_base_strides_t *base_strides,
+                                                       const size_t stride_dofs,
+                                                       const incidence_array_specifications_t *array_specs,
+                                                       const int negate)
 {
+
+    const unsigned n = base_strides->n;
+    const size_t pre_stride = base_strides->pre_stride;
+    const size_t post_stride = base_strides->post_stride;
+    const double *restrict const vin = array_specs->values_in;
+    double *restrict const vout = array_specs->values_out;
+
     npy_double coeff = (double)n / 2.0;
     if (negate)
         coeff = -coeff;
-
-#pragma omp simd
-    for (unsigned i_col = 0; i_col < cols; ++i_col)
+    for (size_t i_pre = 0; i_pre < pre_stride; ++i_pre)
     {
-        double *const vout = values_out + i_col;
-        const double *const vin = values_in + i_col;
-
-        for (size_t i_pre = 0; i_pre < pre_stride; ++i_pre)
+        for (size_t i_post = 0; i_post < post_stride; ++i_post)
         {
-            for (size_t i_post = 0; i_post < post_stride; ++i_post)
-            {
-                const size_t i_out = i_pre * (n + 1) * post_stride + i_post;
-                const size_t i_in = i_pre * n * post_stride + i_post;
+            const size_t i_out = i_pre * (n + 1) * post_stride + i_post;
+            const size_t i_in = i_pre * n * post_stride + i_post;
 
-                vout[(i_out + 0) * cols] -= coeff * vin[(i_in + 0) * cols];
-                for (unsigned col = 1; col < n; ++col)
-                {
-                    // const npy_double x = coeff * vin[(i_in + col * post_stride) * cols];
-                    // vout[(i_out + col * post_stride) * cols] -= x;
-                    // vout[(i_out + (col - 1) * post_stride) * cols] += x;
-                    vout[(i_out + col * post_stride) * cols] += coeff * vin[(i_in + (col - 1) * post_stride) * cols];
-                    vout[(i_out + col * post_stride) * cols] -= coeff * vin[(i_in + col * post_stride) * cols];
-                }
-                vout[(i_out + n * post_stride) * cols] += coeff * vin[(i_in + (n - 1) * post_stride) * cols];
+            vout[(i_out + 0) * stride_dofs] -= coeff * vin[(i_in + 0) * stride_dofs];
+            for (unsigned col = 1; col < n; ++col)
+            {
+                vout[(i_out + col * post_stride) * stride_dofs] +=
+                    coeff * vin[(i_in + (col - 1) * post_stride) * stride_dofs];
+                vout[(i_out + col * post_stride) * stride_dofs] -=
+                    coeff * vin[(i_in + col * post_stride) * stride_dofs];
             }
+            vout[(i_out + n * post_stride) * stride_dofs] += coeff * vin[(i_in + (n - 1) * post_stride) * stride_dofs];
         }
+    }
+}
+
+void bernstein_apply_incidence_operator(const incidence_base_strides_t *base_strides, const incidence_repeat_t *repeats,
+                                        const incidence_array_specifications_t *array_specs, const int transpose,
+                                        const int negate)
+{
+    const double *restrict const values_in = array_specs->values_in;
+    double *restrict const values_out = array_specs->values_out;
+#pragma omp simd
+    for (unsigned i_rep = 0; i_rep < repeats->repetitions; ++i_rep)
+    {
+        double *const vout = values_out + i_rep * repeats->stride_rep_out;
+        const double *const vin = values_in + i_rep * repeats->stride_rep_in;
+
+        if (transpose)
+            bernstein_apply_incidence_single_transpose(
+                base_strides, repeats->stride_dof,
+                &(const incidence_array_specifications_t){.values_out = vout, .values_in = vin}, negate);
+        else
+            bernstein_apply_incidence_single(
+                base_strides, repeats->stride_dof,
+                &(const incidence_array_specifications_t){.values_out = vout, .values_in = vin}, negate);
     }
 }
 
@@ -108,83 +125,104 @@ void bernstein_matrix_incidence_operator(const unsigned n, const size_t pre_stri
     }
 }
 
-void legendre_apply_incidence_operator(
-    const unsigned n, const size_t pre_stride, const size_t post_stride, const unsigned cols,
-    const double FDG_ARRAY_ARG(values_in, restrict const static pre_stride *(n + 1) * post_stride * cols),
-    double FDG_ARRAY_ARG(values_out, restrict const pre_stride * n * post_stride * cols), const int negate)
+void legendre_apply_incidence_single(const incidence_base_strides_t *base_strides, const size_t stride_dofs,
+                                     const incidence_array_specifications_t *array_specs, const int negate)
 {
-#pragma omp simd
-    for (unsigned i_col = 0; i_col < cols; ++i_col)
+    const unsigned n = base_strides->n;
+    const size_t pre_stride = base_strides->pre_stride;
+    const size_t post_stride = base_strides->post_stride;
+    const double *restrict const vin = array_specs->values_in;
+    double *restrict const vout = array_specs->values_out;
+
+    for (size_t i_pre = 0; i_pre < pre_stride; ++i_pre)
     {
-        double *const vout = values_out + i_col;
-        const double *const vin = values_in + i_col;
-
-        for (size_t i_pre = 0; i_pre < pre_stride; ++i_pre)
+        for (size_t i_post = 0; i_post < post_stride; ++i_post)
         {
-            for (size_t i_post = 0; i_post < post_stride; ++i_post)
-            {
-                const size_t i_out = i_pre * n * post_stride + i_post;
-                const size_t i_in = i_pre * (n + 1) * post_stride + i_post;
+            const size_t i_out = i_pre * n * post_stride + i_post;
+            const size_t i_in = i_pre * (n + 1) * post_stride + i_post;
 
-                for (unsigned col = n; col > 0; --col)
+            for (unsigned col = n; col > 0; --col)
+            {
+                unsigned coeff = 2 * col - 1;
+                for (unsigned c_row = 0; 2 * c_row < col; ++c_row)
                 {
-                    unsigned coeff = 2 * col - 1;
-                    for (unsigned c_row = 0; 2 * c_row < col; ++c_row)
+                    const unsigned r = col - 1 - 2 * c_row;
+                    if (negate)
                     {
-                        const unsigned r = (col - 1 - 2 * c_row);
-                        if (negate)
-                        {
-                            vout[(i_out + r * post_stride) * cols] -= coeff * vin[(i_in + col * post_stride) * cols];
-                        }
-                        else
-                        {
-                            vout[(i_out + r * post_stride) * cols] += coeff * vin[(i_in + col * post_stride) * cols];
-                        }
-                        coeff -= 4;
+                        vout[(i_out + r * post_stride) * stride_dofs] -=
+                            coeff * vin[(i_in + col * post_stride) * stride_dofs];
                     }
+                    else
+                    {
+                        vout[(i_out + r * post_stride) * stride_dofs] +=
+                            coeff * vin[(i_in + col * post_stride) * stride_dofs];
+                    }
+                    coeff -= 4;
                 }
             }
         }
     }
 }
 
-void legendre_apply_incidence_operator_transpose(
-    const unsigned n, const size_t pre_stride, const size_t post_stride, const unsigned cols,
-    const double FDG_ARRAY_ARG(values_in, restrict const static pre_stride * n * post_stride * cols),
-    double FDG_ARRAY_ARG(values_out, restrict const pre_stride *(n + 1) * post_stride * cols), const int negate)
+static void legendre_apply_incidence_single_transpose(const incidence_base_strides_t *base_strides,
+                                                      const size_t stride_dofs,
+                                                      const incidence_array_specifications_t *array_specs,
+                                                      const int negate)
 {
-#pragma omp simd
-    for (unsigned i_col = 0; i_col < cols; ++i_col)
+    const unsigned n = base_strides->n;
+    const size_t pre_stride = base_strides->pre_stride;
+    const size_t post_stride = base_strides->post_stride;
+    const double *restrict const vin = array_specs->values_in;
+    double *restrict const vout = array_specs->values_out;
+
+    for (size_t i_pre = 0; i_pre < pre_stride; ++i_pre)
     {
-        double *const vout = values_out + i_col;
-        const double *const vin = values_in + i_col;
-
-        for (size_t i_pre = 0; i_pre < pre_stride; ++i_pre)
+        for (size_t i_post = 0; i_post < post_stride; ++i_post)
         {
-            for (size_t i_post = 0; i_post < post_stride; ++i_post)
-            {
-                const size_t i_out = i_pre * (n + 1) * post_stride + i_post;
-                const size_t i_in = i_pre * n * post_stride + i_post;
+            const size_t i_out = i_pre * (n + 1) * post_stride + i_post;
+            const size_t i_in = i_pre * n * post_stride + i_post;
 
-                for (unsigned col = n; col > 0; --col)
+            for (unsigned col = n; col > 0; --col)
+            {
+                unsigned coeff = 2 * col - 1;
+                for (unsigned c_row = 0; 2 * c_row < col; ++c_row)
                 {
-                    unsigned coeff = 2 * col - 1;
-                    for (unsigned c_row = 0; 2 * c_row < col; ++c_row)
+                    const unsigned r = col - 1 - 2 * c_row;
+                    if (negate)
                     {
-                        const unsigned r = (col - 1 - 2 * c_row);
-                        if (negate)
-                        {
-                            vout[(i_out + col * post_stride) * cols] -= coeff * vin[(i_in + r * post_stride) * cols];
-                        }
-                        else
-                        {
-                            vout[(i_out + col * post_stride) * cols] += coeff * vin[(i_in + r * post_stride) * cols];
-                        }
-                        coeff -= 4;
+                        vout[(i_out + col * post_stride) * stride_dofs] -=
+                            coeff * vin[(i_in + r * post_stride) * stride_dofs];
                     }
+                    else
+                    {
+                        vout[(i_out + col * post_stride) * stride_dofs] +=
+                            coeff * vin[(i_in + r * post_stride) * stride_dofs];
+                    }
+                    coeff -= 4;
                 }
             }
         }
+    }
+}
+
+void legendre_apply_incidence_operator(const incidence_base_strides_t *base_strides, const incidence_repeat_t *repeats,
+                                       const incidence_array_specifications_t *array_specs, const int transpose,
+                                       const int negate)
+{
+#pragma omp simd
+    for (unsigned i_rep = 0; i_rep < repeats->repetitions; ++i_rep)
+    {
+        double *const vout = array_specs->values_out + i_rep * repeats->stride_rep_out;
+        const double *const vin = array_specs->values_in + i_rep * repeats->stride_rep_in;
+
+        if (transpose)
+            legendre_apply_incidence_single_transpose(
+                base_strides, repeats->stride_dof,
+                &(const incidence_array_specifications_t){.values_in = vin, .values_out = vout}, negate);
+        else
+            legendre_apply_incidence_single(
+                base_strides, repeats->stride_dof,
+                &(const incidence_array_specifications_t){.values_in = vin, .values_out = vout}, negate);
     }
 }
 
@@ -204,7 +242,7 @@ void legendre_matrix_incidence_operator(const unsigned n, const size_t pre_strid
                 unsigned coeff = 2 * col - 1;
                 for (unsigned c_row = 0; 2 * c_row < col; ++c_row)
                 {
-                    const unsigned r = (col - 1 - 2 * c_row);
+                    const unsigned r = col - 1 - 2 * c_row;
                     // i_out[r * post_stride] += coeff * i_in[col * post_stride];
                     if (negate)
                     {
@@ -221,122 +259,112 @@ void legendre_matrix_incidence_operator(const unsigned n, const size_t pre_strid
     }
 }
 
-void lagrange_apply_incidence_operator(
-    const basis_set_type_t type, const unsigned n, const size_t pre_stride, const size_t post_stride,
-    const unsigned cols,
-    const double FDG_ARRAY_ARG(values_in, restrict const static pre_stride *(n + 1) * post_stride * cols),
-    double FDG_ARRAY_ARG(values_out, restrict const pre_stride * n * post_stride * cols),
-    double FDG_ARRAY_ARG(work, restrict const n + (n + 1) + n * (n + 1)), const int negate)
+void lagrange_prepare_incidence_transformation(const basis_set_type_t type, const unsigned n,
+                                               double FDG_ARRAY_ARG(work, n + (n + 1) + n * (n + 1)))
 {
-    // Divide up the work array
-    double *restrict const out_nodes = work + 0;
-    double *restrict const in_nodes = work + n;
-    double *restrict const trans_matrix = work + n + (n + 1);
+    double *restrict const trans_matrix = work + 0;
+    double *restrict const out_nodes = work + (size_t)n * (n + 1);    // old: 0;
+    double *restrict const in_nodes = work + n + (size_t)n * (n + 1); // old: n;
 
     // Compute nodes for the output set
-    interp_result_t res = generate_lagrange_roots(n - 1, type, out_nodes);
+    fdg_result_t res = generate_lagrange_roots(n - 1, type, out_nodes);
     CPYUTL_ASSERT(res == FDG_SUCCESS, "Somehow an invalid enum?");
-    if (res != FDG_SUCCESS)
-        return;
+    (void)res;
 
     res = generate_lagrange_roots(n, type, in_nodes);
     CPYUTL_ASSERT(res == FDG_SUCCESS, "Somehow an invalid enum?");
-    if (res != FDG_SUCCESS)
-        return;
+    (void)res;
 
     lagrange_polynomial_first_derivative_2(n, out_nodes, n + 1, in_nodes, trans_matrix);
-    if (negate)
+}
+
+void lagrange_apply_incidence_single(const incidence_base_strides_t *base_strides, const size_t stride_dofs,
+                                     const incidence_array_specifications_t *array_specs, const int negate)
+{
+    const unsigned n = base_strides->n;
+    const size_t pre_stride = base_strides->pre_stride;
+    const size_t post_stride = base_strides->post_stride;
+    const double *restrict const vin = array_specs->values_in;
+    double *restrict const vout = array_specs->values_out;
+    const double *restrict const trans_matrix = array_specs->work;
+
+    for (size_t i_pre = 0; i_pre < pre_stride; ++i_pre)
     {
-        for (unsigned i = 0; i < n * (n + 1); ++i)
+        for (size_t i_post = 0; i_post < post_stride; ++i_post)
         {
-            trans_matrix[i] = -trans_matrix[i];
+            const size_t i_out = i_pre * n * post_stride + i_post;
+            const size_t i_in = i_pre * (n + 1) * post_stride + i_post;
+
+            // Apply the transformation matrix
+            for (unsigned row = 0; row < n; ++row)
+            {
+                double v = 0;
+                for (unsigned col = 0; col < n + 1; ++col)
+                {
+                    v += trans_matrix[row * (n + 1) + col] * vin[(i_in + col * post_stride) * stride_dofs];
+                }
+                if (negate)
+                    v = -v;
+
+                vout[(i_out + row * post_stride) * stride_dofs] += v;
+            }
         }
     }
+}
 
-#pragma omp simd
-    for (unsigned i_col = 0; i_col < cols; ++i_col)
+void lagrange_apply_incidence_single_transpose(const incidence_base_strides_t *base_strides, const size_t stride_dofs,
+                                               const incidence_array_specifications_t *array_specs, const int negate)
+{
+    const unsigned n = base_strides->n;
+    const size_t pre_stride = base_strides->pre_stride;
+    const size_t post_stride = base_strides->post_stride;
+    const double *restrict const vin = array_specs->values_in;
+    double *restrict const vout = array_specs->values_out;
+    const double *restrict const trans_matrix = array_specs->work;
+
+    for (size_t i_pre = 0; i_pre < pre_stride; ++i_pre)
     {
-        double *const vout = values_out + i_col;
-        const double *const vin = values_in + i_col;
-
-        for (size_t i_pre = 0; i_pre < pre_stride; ++i_pre)
+        for (size_t i_post = 0; i_post < post_stride; ++i_post)
         {
-            for (size_t i_post = 0; i_post < post_stride; ++i_post)
-            {
-                const size_t i_out = i_pre * n * post_stride + i_post;
-                const size_t i_in = i_pre * (n + 1) * post_stride + i_post;
+            const size_t i_out = i_pre * (n + 1) * post_stride + i_post;
+            const size_t i_in = i_pre * n * post_stride + i_post;
 
-                // Apply the transformation matrix
-                for (unsigned row = 0; row < n; ++row)
+            // Apply the transformation matrix
+            for (unsigned row = 0; row < n; ++row)
+            {
+                double v = vin[(i_in + row * post_stride) * stride_dofs];
+                if (negate)
+                    v = -v;
+                for (unsigned col = 0; col < n + 1; ++col)
                 {
-                    double v = 0;
-                    for (unsigned col = 0; col < n + 1; ++col)
-                    {
-                        v += trans_matrix[row * (n + 1) + col] * vin[(i_in + col * post_stride) * cols];
-                    }
-                    vout[(i_out + row * post_stride) * cols] += v;
+                    vout[(i_out + col * post_stride) * stride_dofs] += trans_matrix[row * (n + 1) + col] * v;
                 }
             }
         }
     }
 }
 
-void lagrange_apply_incidence_operator_transpose(
-    const basis_set_type_t type, const unsigned n, const size_t pre_stride, const size_t post_stride,
-    const unsigned cols,
-    const double FDG_ARRAY_ARG(values_in, restrict const static pre_stride * n * post_stride * cols),
-    double FDG_ARRAY_ARG(values_out, restrict const pre_stride *(n + 1) * post_stride * cols),
-    double FDG_ARRAY_ARG(work, restrict const n + (n + 1) + n * (n + 1)), const int negate)
+void lagrange_apply_incidence_operator(const basis_set_type_t type, const incidence_base_strides_t *base_strides,
+                                       const incidence_repeat_t *repeats,
+                                       const incidence_array_specifications_t *array_specs, const int transpose,
+                                       const int negate)
 {
-    // Divide up the work array
-    double *restrict const out_nodes = work + 0;
-    double *restrict const in_nodes = work + n;
-    double *restrict const trans_matrix = work + n + (n + 1);
-
-    // Compute nodes for the output set
-    interp_result_t res = generate_lagrange_roots(n - 1, type, out_nodes);
-    CPYUTL_ASSERT(res == FDG_SUCCESS, "Somehow an invalid enum?");
-    if (res != FDG_SUCCESS)
-        return;
-
-    res = generate_lagrange_roots(n, type, in_nodes);
-    CPYUTL_ASSERT(res == FDG_SUCCESS, "Somehow an invalid enum?");
-    if (res != FDG_SUCCESS)
-        return;
-
-    lagrange_polynomial_first_derivative_2(n, out_nodes, n + 1, in_nodes, trans_matrix);
-    if (negate)
-    {
-        for (unsigned i = 0; i < n * (n + 1); ++i)
-        {
-            trans_matrix[i] = -trans_matrix[i];
-        }
-    }
+    lagrange_prepare_incidence_transformation(type, base_strides->n, array_specs->work);
 
 #pragma omp simd
-    for (unsigned i_col = 0; i_col < cols; ++i_col)
+    for (unsigned i_rep = 0; i_rep < repeats->repetitions; ++i_rep)
     {
-        double *const vout = values_out + i_col;
-        const double *const vin = values_in + i_col;
+        double *const vout = array_specs->values_out + i_rep * repeats->stride_rep_out;
+        const double *const vin = array_specs->values_in + i_rep * repeats->stride_rep_in;
 
-        for (size_t i_pre = 0; i_pre < pre_stride; ++i_pre)
-        {
-            for (size_t i_post = 0; i_post < post_stride; ++i_post)
-            {
-                const size_t i_out = i_pre * (n + 1) * post_stride + i_post;
-                const size_t i_in = i_pre * n * post_stride + i_post;
-
-                // Apply the transformation matrix
-                for (unsigned row = 0; row < n; ++row)
-                {
-                    const double v = vin[(i_in + row * post_stride) * cols];
-                    for (unsigned col = 0; col < n + 1; ++col)
-                    {
-                        vout[(i_out + col * post_stride) * cols] += trans_matrix[row * (n + 1) + col] * v;
-                    }
-                }
-            }
-        }
+        if (transpose)
+            lagrange_apply_incidence_single_transpose(
+                base_strides, repeats->stride_dof,
+                &(const incidence_array_specifications_t){.values_in = vin, .values_out = vout}, negate);
+        else
+            lagrange_apply_incidence_single(
+                base_strides, repeats->stride_dof,
+                &(const incidence_array_specifications_t){.values_in = vin, .values_out = vout}, negate);
     }
 }
 
@@ -353,15 +381,13 @@ void lagrange_matrix_incidence_operator(const basis_set_type_t type, const unsig
     double *restrict const trans_matrix = work + n + (n + 1);
 
     // Compute nodes for the output set
-    interp_result_t res = generate_lagrange_roots(n - 1, type, out_nodes);
+    fdg_result_t res = generate_lagrange_roots(n - 1, type, out_nodes);
     CPYUTL_ASSERT(res == FDG_SUCCESS, "Somehow an invalid enum?");
-    if (res != FDG_SUCCESS)
-        return;
+    (void)res;
 
     res = generate_lagrange_roots(n, type, in_nodes);
     CPYUTL_ASSERT(res == FDG_SUCCESS, "Somehow an invalid enum?");
-    if (res != FDG_SUCCESS)
-        return;
+    (void)res;
 
     lagrange_polynomial_first_derivative_2(n, out_nodes, n + 1, in_nodes, trans_matrix);
     if (negate)
@@ -388,6 +414,66 @@ void lagrange_matrix_incidence_operator(const basis_set_type_t type, const unsig
                 }
             }
         }
+    }
+}
+
+void apply_incidence_operator_single(const basis_set_type_t type, const incidence_base_strides_t *base_strides,
+                                     const size_t stride_dof, const int transpose, const int negate,
+                                     const incidence_array_specifications_t *array_specs)
+{
+    switch (type)
+    {
+    case BASIS_BERNSTEIN:
+        if (transpose)
+            bernstein_apply_incidence_single_transpose(base_strides, stride_dof, array_specs, negate);
+        else
+            bernstein_apply_incidence_single(base_strides, stride_dof, array_specs, negate);
+        break;
+
+    case BASIS_LEGENDRE:
+        if (transpose)
+            legendre_apply_incidence_single_transpose(base_strides, stride_dof, array_specs, negate);
+        else
+            legendre_apply_incidence_single(base_strides, stride_dof, array_specs, negate);
+        break;
+
+    case BASIS_LAGRANGE_UNIFORM:
+    case BASIS_LAGRANGE_CHEBYSHEV_GAUSS:
+    case BASIS_LAGRANGE_GAUSS:
+    case BASIS_LAGRANGE_GAUSS_LOBATTO:
+        if (transpose)
+            lagrange_apply_incidence_single_transpose(base_strides, stride_dof, array_specs, negate);
+        else
+            lagrange_apply_incidence_single(base_strides, stride_dof, array_specs, negate);
+        break;
+
+    default:
+        CPYUTL_ASSERT(0, "Unsupported basis type.");
+    }
+}
+
+void apply_incidence_operator(const basis_set_type_t type, const incidence_base_strides_t *base_strides,
+                              const incidence_repeat_t *repeats, const incidence_array_specifications_t *array_specs,
+                              const int transpose, const int negate)
+{
+    if (type == BASIS_LAGRANGE_UNIFORM || type == BASIS_LAGRANGE_GAUSS || type == BASIS_LAGRANGE_GAUSS_LOBATTO ||
+        type == BASIS_LAGRANGE_CHEBYSHEV_GAUSS)
+    {
+        lagrange_prepare_incidence_transformation(type, base_strides->n, array_specs->work);
+    }
+
+#pragma omp simd
+    for (unsigned i_rep = 0; i_rep < repeats->repetitions; ++i_rep)
+    {
+        double *const vout = array_specs->values_out + i_rep * repeats->stride_rep_out;
+        const double *const vin = array_specs->values_in + i_rep * repeats->stride_rep_in;
+        const incidence_array_specifications_t iter_array_specs = {
+            .values_in = vin,
+            .values_out = vout,
+            .work = array_specs->work,
+        };
+
+        apply_incidence_operator_single(type, base_strides, repeats->stride_dof, transpose, negate, &iter_array_specs);
     }
 }
 
@@ -448,7 +534,7 @@ static PyObject *incidence_matrix(PyObject *mod, PyObject *const *args, const Py
                 unsigned coeff = 2 * col - 1;
                 for (unsigned c_row = 0; 2 * c_row < col; ++c_row)
                 {
-                    const unsigned r = (col - 1 - 2 * c_row);
+                    const unsigned r = col - 1 - 2 * c_row;
                     data[r * (n + 1) + col] = coeff;
                     coeff -= 4;
                 }
@@ -469,7 +555,7 @@ static PyObject *incidence_matrix(PyObject *mod, PyObject *const *args, const Py
                 Py_DECREF(out);
                 return NULL;
             }
-            interp_result_t res = generate_lagrange_roots(n - 1, basis_specs->spec.type, out_nodes);
+            fdg_result_t res = generate_lagrange_roots(n - 1, basis_specs->spec.type, out_nodes);
             (void)res;
             CPYUTL_ASSERT(res == FDG_SUCCESS, "Somehow an invalid enum?");
             double *const in_nodes = PyMem_Malloc(sizeof(*in_nodes) * (n + 1));
@@ -608,23 +694,30 @@ static PyObject *incidence_operator(PyObject *mod, PyObject *const *args, const 
     npy_double *const out_ptr = PyArray_DATA(out);
     memset(out_ptr, 0, pre_stride * post_stride * order * sizeof(*out_ptr));
 
+    const incidence_base_strides_t base_strides = {.n = order, .pre_stride = pre_stride, .post_stride = post_stride};
+    const incidence_array_specifications_t array_specs = {
+        .values_in = vals_in,
+        .values_out = out_ptr,
+        .work = work,
+    };
+
     // Apply the incidence and write the result to the output array
     switch (basis_specs->spec.type)
     {
     case BASIS_BERNSTEIN:
-        bernstein_apply_incidence_operator(order, pre_stride, post_stride, 1, vals_in, out_ptr, 0);
+        bernstein_apply_incidence_single(&base_strides, 1, &array_specs, 0);
         break;
 
     case BASIS_LEGENDRE:
-        legendre_apply_incidence_operator(order, pre_stride, post_stride, 1, vals_in, out_ptr, 0);
+        legendre_apply_incidence_single(&base_strides, 1, &array_specs, 0);
         break;
 
     case BASIS_LAGRANGE_UNIFORM:
     case BASIS_LAGRANGE_GAUSS:
     case BASIS_LAGRANGE_GAUSS_LOBATTO:
     case BASIS_LAGRANGE_CHEBYSHEV_GAUSS:
-        lagrange_apply_incidence_operator(basis_specs->spec.type, order, pre_stride, post_stride, 1, vals_in, out_ptr,
-                                          work, 0);
+        lagrange_prepare_incidence_transformation(basis_specs->spec.type, order, work);
+        lagrange_apply_incidence_single(&base_strides, 1, &array_specs, 0);
         break;
 
     default:
@@ -732,11 +825,11 @@ static void incidence_matrix_fill_block(const unsigned ndim, const basis_spec_t 
     }
 }
 
-static void incidence_operator_apply_block(const unsigned ndim, const basis_spec_t basis[static ndim],
-                                           const unsigned order, const uint8_t components[static order],
-                                           const unsigned cols, const unsigned derivative_dim, const int flip_sign,
-                                           const double *restrict in_array, double *restrict out_array, double *work,
-                                           const int transpose)
+static incidence_base_strides_t calculate_derivative_base_strides(const unsigned ndim,
+                                                                  const basis_spec_t basis[static const ndim],
+                                                                  const unsigned order,
+                                                                  const uint8_t components[static const order],
+                                                                  const unsigned derivative_dim)
 {
     size_t pre_stride = 1, post_stride = 1;
     unsigned idim, i_component;
@@ -775,41 +868,21 @@ static void incidence_operator_apply_block(const unsigned ndim, const basis_spec
     }
     ASSERT(i_component == order, "I miscounted the components somehow (i_component = %u, order = %u).", i_component,
            order);
-
-    const basis_set_type_t btype = basis[derivative_dim].type;
     const unsigned n = basis[derivative_dim].order;
-    switch (btype)
-    {
-    case BASIS_BERNSTEIN:
-        if (!transpose)
-            bernstein_apply_incidence_operator(n, pre_stride, post_stride, cols, in_array, out_array, flip_sign);
-        else
-            bernstein_apply_incidence_operator_transpose(n, pre_stride, post_stride, cols, in_array, out_array,
-                                                         flip_sign);
-        break;
-    case BASIS_LEGENDRE:
-        if (!transpose)
-            legendre_apply_incidence_operator(n, pre_stride, post_stride, cols, in_array, out_array, flip_sign);
-        else
-            legendre_apply_incidence_operator_transpose(n, pre_stride, post_stride, cols, in_array, out_array,
-                                                        flip_sign);
-        break;
-    case BASIS_LAGRANGE_UNIFORM:
-    case BASIS_LAGRANGE_GAUSS:
-    case BASIS_LAGRANGE_GAUSS_LOBATTO:
-    case BASIS_LAGRANGE_CHEBYSHEV_GAUSS:
-        ASSERT(work != NULL, "Work array was not given!");
-        if (!transpose)
-            lagrange_apply_incidence_operator(btype, n, pre_stride, post_stride, cols, in_array, out_array, work,
-                                              flip_sign);
-        else
-            lagrange_apply_incidence_operator_transpose(btype, n, pre_stride, post_stride, cols, in_array, out_array,
-                                                        work, flip_sign);
-        break;
-    case BASIS_INVALID:
-        ASSERT(0, "Invalid basis type.");
-        return;
-    }
+
+    return (incidence_base_strides_t){.n = n, .pre_stride = pre_stride, .post_stride = post_stride};
+}
+
+static void incidence_operator_apply_block(const unsigned ndim, const basis_spec_t basis[static ndim],
+                                           const unsigned order, const uint8_t components[static order],
+                                           const unsigned derivative_dim, const incidence_repeat_t *repeat_info,
+                                           const incidence_array_specifications_t *array_specs, const int transpose,
+                                           const int flip_sign)
+{
+    const incidence_base_strides_t base_strides =
+        calculate_derivative_base_strides(ndim, basis, order, components, derivative_dim);
+
+    apply_incidence_operator(basis[derivative_dim].type, &base_strides, repeat_info, array_specs, transpose, flip_sign);
 }
 
 static PyObject *compute_kform_incidence_matrix(PyObject *mod, PyObject *const *args, const Py_ssize_t nargs,
@@ -979,6 +1052,32 @@ PyDoc_STRVAR(
     "    Matrix, which maps degrees of freedom for the input k-form to the degrees of\n"
     "    freedom of its (k + 1)-form derivative.\n");
 
+/**
+ * Determine the output rows and cols based on the number of DoFs from low and high k-forms based on
+ * the transposing and right application options.
+ *
+ * @param n_high Number of DoFs of the higher order k-form.
+ * @param n_low Number of DoFs of the lower order k-form.
+ * @param b_transposed Is the operator transposed?
+ * @param b_right Is the operator applied on the right instead?
+ * @param n_out Pointer that receives the number of output DoFs.
+ * @param n_in Pointer that receives the number of input DoFs.
+ */
+static void determine_hlio_order(const size_t n_high, const size_t n_low, const int b_transposed, const int b_right,
+                                 size_t *const n_out, size_t *const n_in)
+{
+    if (b_transposed ^ b_right)
+    {
+        *n_out = n_low;
+        *n_in = n_high;
+    }
+    else
+    {
+        *n_out = n_high;
+        *n_in = n_low;
+    }
+}
+
 static PyObject *incidence_kform_operator(PyObject *mod, PyObject *const *args, const Py_ssize_t nargs,
                                           const PyObject *kwnames)
 {
@@ -988,12 +1087,13 @@ static PyObject *incidence_kform_operator(PyObject *mod, PyObject *const *args, 
 
     const kform_spec_object *specs;
     PyArrayObject *py_vals, *py_out = NULL;
-    int b_transpose = 0;
+    int b_transpose = 0, b_right = 0;
     if (parse_arguments_check(
             (cpyutl_argument_t[]){
                 {.type = CPYARG_TYPE_PYTHON, .p_val = &specs, .type_check = state->kform_specs_type, .kwname = "specs"},
                 {.type = CPYARG_TYPE_PYTHON, .p_val = &py_vals, .type_check = &PyArray_Type, .kwname = "values"},
                 {.type = CPYARG_TYPE_BOOL, .p_val = &b_transpose, .kwname = "transpose", .optional = 1},
+                {.type = CPYARG_TYPE_BOOL, .p_val = &b_right, .kwname = "right", .optional = 1},
                 {.type = CPYARG_TYPE_PYTHON, .p_val = &py_out, .kwname = "out", .optional = 1, .kw_only = 1},
                 {},
                 {},
@@ -1007,25 +1107,25 @@ static PyObject *incidence_kform_operator(PyObject *mod, PyObject *const *args, 
         py_out = NULL;
     }
 
+    if (b_right)
+    {
+        PyErr_SetString(PyExc_NotImplementedError, "Right application is not yet implemented.");
+        return NULL;
+    }
+
     const function_space_object *fn_space = specs->function_space;
     const unsigned n = Py_SIZE(fn_space);
     const unsigned order = specs->order;
 
-    unsigned order_in, order_out;
-    if (b_transpose)
-    {
-        order_in = order + 1;
-        order_out = order;
-    }
-    else
-    {
-        order_in = order;
-        order_out = order + 1;
-        (void)order_out;
-    }
+    const size_t n_components_low = combination_total_count(n, order);
+    const size_t n_components_high = combination_total_count(n, order + 1);
 
-    const size_t n_components_in = combination_total_count(n, order_in);
-    const size_t n_components_out = combination_total_count(n, order_out);
+    size_t order_in, order_out;
+    determine_hlio_order(order + 1, order, b_transpose, b_right, &order_out, &order_in);
+
+    size_t n_components_in, n_components_out;
+    determine_hlio_order(n_components_high, n_components_low, b_transpose, b_right, &n_components_out,
+                         &n_components_in);
 
     // Compute the number of input and output degrees of freedom
     const size_t *const low_k_component_offsets = specs->component_offsets;
@@ -1072,24 +1172,15 @@ static PyObject *incidence_kform_operator(PyObject *mod, PyObject *const *args, 
             high_k_component_offsets[idx_high] +
             kform_basis_get_num_dofs(n, fn_space->specs, order + 1, p_basis_components);
     }
-    // ASSERT(idx_high == n_components_out, "I miscounted the components somehow (idx_out = %zu, n_components_out =
-    // %zu).",
-    //        idx_high, n_components_out);
+    ASSERT(idx_high == n_components_high,
+           "I miscounted the components somehow (idx_out = %zu, n_components_out = %zu).", idx_high, n_components_high);
 
     size_t in_dofs, out_dofs;
-    if (b_transpose)
-    {
-        in_dofs = high_k_component_offsets[n_components_in];
-        out_dofs = low_k_component_offsets[n_components_out];
-    }
-    else
-    {
-        in_dofs = low_k_component_offsets[n_components_in];
-        out_dofs = high_k_component_offsets[n_components_out];
-    }
+    determine_hlio_order(high_k_component_offsets[n_components_high], low_k_component_offsets[n_components_low],
+                         b_transpose, b_right, &out_dofs, &in_dofs);
 
     // Check that the input array has "in_dofs" for its last axis size
-    size_t cols = 1;
+    size_t repetitions = 1;
     if (in_array_ndim == 1)
     {
         if (check_input_array(py_vals, 1, (const npy_intp[1]){(npy_intp)in_dofs}, NPY_DOUBLE,
@@ -1101,12 +1192,25 @@ static PyObject *incidence_kform_operator(PyObject *mod, PyObject *const *args, 
     }
     else if (in_array_ndim == 2)
     {
-        cols = PyArray_DIM(py_vals, 1);
-        if (check_input_array(py_vals, 2, (const npy_intp[2]){(npy_intp)in_dofs, (npy_intp)cols}, NPY_DOUBLE,
-                              NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS, "values") < 0)
+        if (b_right)
         {
-            cutl_dealloc(&PYTHON_ALLOCATOR, mem);
-            return NULL;
+            repetitions = PyArray_DIM(py_vals, 0);
+            if (check_input_array(py_vals, 2, (const npy_intp[2]){(npy_intp)repetitions, (npy_intp)in_dofs}, NPY_DOUBLE,
+                                  NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS, "values") < 0)
+            {
+                cutl_dealloc(&PYTHON_ALLOCATOR, mem);
+                return NULL;
+            }
+        }
+        else
+        {
+            repetitions = PyArray_DIM(py_vals, 1);
+            if (check_input_array(py_vals, 2, (const npy_intp[2]){(npy_intp)in_dofs, (npy_intp)repetitions}, NPY_DOUBLE,
+                                  NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS, "values") < 0)
+            {
+                cutl_dealloc(&PYTHON_ALLOCATOR, mem);
+                return NULL;
+            }
         }
     }
     else
@@ -1117,7 +1221,9 @@ static PyObject *incidence_kform_operator(PyObject *mod, PyObject *const *args, 
     }
 
     // Fill out output dimensions
-    const npy_intp out_dims[2] = {(npy_intp)out_dofs, (npy_intp)cols};
+    const npy_intp out_dims_left[2] = {(npy_intp)out_dofs, (npy_intp)repetitions};
+    const npy_intp out_dims_right[2] = {(npy_intp)repetitions, (npy_intp)out_dofs};
+    const npy_intp *out_dims = (b_right ? out_dims_right : out_dims_left);
     // Create output if need be
     if (py_out == NULL)
     {
@@ -1145,6 +1251,22 @@ static PyObject *incidence_kform_operator(PyObject *mod, PyObject *const *args, 
     const npy_double *restrict const in_data = PyArray_DATA(py_vals);
     memset(out_data, 0, PyArray_SIZE(py_out) * sizeof(*out_data));
 
+    incidence_repeat_t repetition_specs = {
+        .repetitions = repetitions,
+    };
+    if (b_right)
+    {
+        repetition_specs.stride_dof = 1;
+        repetition_specs.stride_rep_in = in_dofs;
+        repetition_specs.stride_rep_out = out_dofs;
+    }
+    else
+    {
+        repetition_specs.stride_dof = repetitions;
+        repetition_specs.stride_rep_in = 1;
+        repetition_specs.stride_rep_out = 1;
+    }
+
     // Loop over input k-form components
     size_t idx_comp_low = 0;
     combination_iterator_init(iter_component_low, n, order);
@@ -1167,21 +1289,19 @@ static PyObject *incidence_kform_operator(PyObject *mod, PyObject *const *args, 
                 const unsigned idx_comp_high = combination_get_index(n, order + 1, basis_components);
                 const size_t high_offset = high_k_component_offsets[idx_comp_high];
                 size_t offset_in, offset_out;
-                if (b_transpose)
-                {
-                    offset_in = high_offset;
-                    offset_out = low_offset;
-                }
-                else
-                {
-                    offset_in = low_offset;
-                    offset_out = high_offset;
-                }
+                determine_hlio_order(high_offset, low_offset, b_transpose, b_right, &offset_out, &offset_in);
                 // printf("Working on block (l-%zu, h-%u) with in offset %zu and out offset %zu\n", idx_comp_low,
                 //        idx_comp_high, offset_in, offset_out);
-                incidence_operator_apply_block(n, fn_space->specs, order + 1, basis_components, cols,
-                                               basis_components[pv], pv & 1u, in_data + offset_in * cols,
-                                               out_data + offset_out * cols, work_buffer, b_transpose);
+                // incidence_operator_apply_block(n, fn_space->specs, order + 1, basis_components, repetitions,
+                //                                basis_components[pv], pv & 1u, in_data + offset_in * cols,
+                //                                out_data + offset_out * cols, work_buffer, b_transpose);
+                const incidence_array_specifications_t array_specs = {
+                    .values_in = in_data + offset_in * repetition_specs.stride_dof,
+                    .values_out = out_data + offset_out * repetition_specs.stride_dof,
+                    .work = work_buffer,
+                };
+                incidence_operator_apply_block(n, fn_space->specs, order + 1, basis_components, basis_components[pv],
+                                               &repetition_specs, &array_specs, b_transpose, pv & 1u);
                 basis_components[pv] += 1;
             }
             basis_components[pv + 1] += 1;
@@ -1192,21 +1312,19 @@ static PyObject *incidence_kform_operator(PyObject *mod, PyObject *const *args, 
             const unsigned idx_comp_high = combination_get_index(n, order + 1, basis_components);
             const size_t high_offset = high_k_component_offsets[idx_comp_high];
             size_t offset_in, offset_out;
-            if (b_transpose)
-            {
-                offset_in = high_offset;
-                offset_out = low_offset;
-            }
-            else
-            {
-                offset_in = low_offset;
-                offset_out = high_offset;
-            }
+            determine_hlio_order(high_offset, low_offset, b_transpose, b_right, &offset_out, &offset_in);
             // printf("Working on block (l-%zu, h-%u) with in offset %zu and out offset %zu\n", idx_comp_low,
             //        idx_comp_high, offset_in, offset_out);
-            incidence_operator_apply_block(n, fn_space->specs, order + 1, basis_components, cols,
-                                           basis_components[order], order & 1u, in_data + offset_in * cols,
-                                           out_data + offset_out * cols, work_buffer, b_transpose);
+            // incidence_operator_apply_block(n, fn_space->specs, order + 1, basis_components, repetitions,
+            //                                basis_components[order], order & 1u, in_data + offset_in * cols,
+            //                                out_data + offset_out * cols, work_buffer, b_transpose);
+            const incidence_array_specifications_t array_specs = {
+                .values_in = in_data + offset_in * repetition_specs.stride_dof,
+                .values_out = out_data + offset_out * repetition_specs.stride_dof,
+                .work = work_buffer,
+            };
+            incidence_operator_apply_block(n, fn_space->specs, order + 1, basis_components, basis_components[order],
+                                           &repetition_specs, &array_specs, b_transpose, order & 1u);
             basis_components[order] += 1;
         }
     }

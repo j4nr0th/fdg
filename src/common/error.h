@@ -22,12 +22,12 @@ typedef enum
     FDG_ERROR_MATRIX_DIMS_MISMATCH,
 
     FDG_ERROR_COUNT,
-} interp_result_t;
+} fdg_result_t;
 
 FDG_INTERNAL
-const char *interp_error_str(interp_result_t error);
+const char *fdg_error_str(fdg_result_t error);
 
 FDG_INTERNAL
-const char *interp_error_msg(interp_result_t error);
+const char *fdg_error_msg(fdg_result_t error);
 
 #endif // ERROR_H

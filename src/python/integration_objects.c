@@ -8,11 +8,11 @@ integration_registry_object *integration_registry_object_create(PyTypeObject *ty
     if (!self)
         return NULL;
     self->registry = NULL;
-    const interp_result_t res = integration_rule_registry_create(&self->registry, 1, &SYSTEM_ALLOCATOR);
+    const fdg_result_t res = integration_rule_registry_create(&self->registry, 1, &SYSTEM_ALLOCATOR);
     if (res != FDG_SUCCESS)
     {
-        PyErr_Format(PyExc_RuntimeError, "Could not initialize integration rule registry: %s (%s)",
-                     interp_error_str(res), interp_error_msg(res));
+        PyErr_Format(PyExc_RuntimeError, "Could not initialize integration rule registry: %s (%s)", fdg_error_str(res),
+                     fdg_error_msg(res));
         Py_DECREF(self);
         return NULL;
     }
@@ -355,11 +355,11 @@ static PyArrayObject *integration_specs_prepare_array(PyObject *self, PyTypeObje
     integration_rule_registry_t *const registry = registry_object->registry;
 
     const integration_rule_t *rule;
-    const interp_result_t res = integration_rule_registry_get_rule(registry, this->spec, &rule);
+    const fdg_result_t res = integration_rule_registry_get_rule(registry, this->spec, &rule);
     if (res != FDG_SUCCESS)
     {
-        PyErr_Format(PyExc_RuntimeError, "Failed to retrieve integration rule: %s (%s).", interp_error_str(res),
-                     interp_error_msg(res));
+        PyErr_Format(PyExc_RuntimeError, "Failed to retrieve integration rule: %s (%s).", fdg_error_str(res),
+                     fdg_error_msg(res));
         return NULL;
     }
 
@@ -400,7 +400,7 @@ static PyObject *integration_specs_nodes(PyObject *self, PyTypeObject *defining_
             p_out[i] = nodes[i];
         }
     }
-    const interp_result_t res = integration_rule_registry_release_rule(registry, rule);
+    const fdg_result_t res = integration_rule_registry_release_rule(registry, rule);
     (void)res;
     ASSERT(res == FDG_SUCCESS, "Rule from the registry had to be successfully returned.");
     return (PyObject *)out;
@@ -436,7 +436,7 @@ static PyObject *integration_specs_weights(PyObject *self, PyTypeObject *definin
             p_out[i] = weights[i];
         }
     }
-    const interp_result_t res = integration_rule_registry_release_rule(registry, rule);
+    const fdg_result_t res = integration_rule_registry_release_rule(registry, rule);
     (void)res;
     ASSERT(res == FDG_SUCCESS, "Rule from the registry had to be successfully returned.");
     return (PyObject *)out;
@@ -678,7 +678,7 @@ static PyObject *integration_space_weights(PyObject *self, PyTypeObject *definin
     {
         multidim_iterator_init_dim(iter, i, this->specs[i].order + 1);
     }
-    interp_result_t res = FDG_SUCCESS;
+    fdg_result_t res = FDG_SUCCESS;
     Py_BEGIN_ALLOW_THREADS;
 
     p_out[0] = 1.0;
@@ -709,8 +709,8 @@ static PyObject *integration_space_weights(PyObject *self, PyTypeObject *definin
     if (res != FDG_SUCCESS)
     {
         Py_DECREF(out);
-        PyErr_Format(PyExc_RuntimeError, "Failed to retrieve integration rule: %s (%s).", interp_error_str(res),
-                     interp_error_msg(res));
+        PyErr_Format(PyExc_RuntimeError, "Failed to retrieve integration rule: %s (%s).", fdg_error_str(res),
+                     fdg_error_msg(res));
         return NULL;
     }
 
@@ -781,7 +781,7 @@ static PyObject *integration_space_nodes(PyObject *self, PyTypeObject *defining_
     {
         multidim_iterator_init_dim(iter, i, this->specs[i].order + 1);
     }
-    interp_result_t res = FDG_SUCCESS;
+    fdg_result_t res = FDG_SUCCESS;
     Py_BEGIN_ALLOW_THREADS;
 
     for (unsigned idim = 0; idim < ndim; ++idim)
@@ -807,8 +807,8 @@ static PyObject *integration_space_nodes(PyObject *self, PyTypeObject *defining_
     if (res != FDG_SUCCESS)
     {
         Py_DECREF(out);
-        PyErr_Format(PyExc_RuntimeError, "Failed to retrieve integration rule: %s (%s).", interp_error_str(res),
-                     interp_error_msg(res));
+        PyErr_Format(PyExc_RuntimeError, "Failed to retrieve integration rule: %s (%s).", fdg_error_str(res),
+                     fdg_error_msg(res));
         return NULL;
     }
 
@@ -907,11 +907,11 @@ const integration_rule_t **python_integration_rules_get(const unsigned n_rules,
         return NULL;
     for (unsigned irule = 0; irule < n_rules; ++irule)
     {
-        const interp_result_t res = integration_rule_registry_get_rule(registry, specs[irule], array + irule);
+        const fdg_result_t res = integration_rule_registry_get_rule(registry, specs[irule], array + irule);
         if (res != FDG_SUCCESS)
         {
-            PyErr_Format(PyExc_RuntimeError, "Failed to retrieve integration rule: %s (%s).", interp_error_str(res),
-                         interp_error_msg(res));
+            PyErr_Format(PyExc_RuntimeError, "Failed to retrieve integration rule: %s (%s).", fdg_error_str(res),
+                         fdg_error_msg(res));
             for (unsigned i = 0; i < irule; ++i)
             {
                 integration_rule_registry_release_rule(registry, array[i]);

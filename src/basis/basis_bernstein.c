@@ -6,8 +6,8 @@
 #include "../polynomials/bernstein.h"
 
 FDG_INTERNAL
-interp_result_t bernstein_basis_create(basis_set_t **out, const basis_spec_t spec, const integration_rule_t *rule,
-                                       const cutl_allocator_t *allocator)
+fdg_result_t bernstein_basis_create(basis_set_t **out, const basis_spec_t spec, const integration_rule_t *rule,
+                                    const cutl_allocator_t *allocator)
 {
     basis_set_t *const this =
         cutl_alloc(allocator, sizeof *this + 2 * sizeof(*this->_data) * (spec.order + 1) * rule->n_nodes);

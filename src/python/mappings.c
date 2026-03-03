@@ -325,7 +325,7 @@ static void calculate_determinants_and_inverse_maps(
         const matrix_t q_matrix = (matrix_t){.rows = rows, .cols = rows, .values = q_mat};
 
         // Decompose Jacobian into QR decomposition
-        interp_result_t res = matrix_qr_decompose(&jacobian_mat, &q_matrix);
+        fdg_result_t res = matrix_qr_decompose(&jacobian_mat, &q_matrix);
         (void)res;
         CPYUTL_ASSERT(res == FDG_SUCCESS, "QR decomposition failed.");
         // Compute the determinant from the diagonal of the matrix

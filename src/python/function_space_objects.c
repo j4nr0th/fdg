@@ -403,8 +403,8 @@ static PyObject *function_space_values_at_integration_nodes(PyObject *self, PyTy
     for (unsigned idim = 0; idim < ndim; ++idim)
     {
         const integration_rule_t *int_rule;
-        interp_result_t res = integration_rule_registry_get_rule(integration_registry->registry,
-                                                                 integration_space->specs[idim], &int_rule);
+        fdg_result_t res = integration_rule_registry_get_rule(integration_registry->registry,
+                                                              integration_space->specs[idim], &int_rule);
         if (res == FDG_SUCCESS)
         {
             const basis_set_t *basis;
@@ -426,7 +426,7 @@ static PyObject *function_space_values_at_integration_nodes(PyObject *self, PyTy
             PyMem_Free(iterator_nodes);
             Py_DECREF(out);
             PyErr_Format(PyExc_ValueError, "Failed to get basis for dimension %u, reason: %s (%s)", idim,
-                         interp_error_str(res), interp_error_msg(res));
+                         fdg_error_str(res), fdg_error_msg(res));
             return NULL;
         }
     }

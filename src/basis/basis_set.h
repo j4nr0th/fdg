@@ -57,21 +57,20 @@ static inline const double *basis_set_basis_derivatives(const basis_set_t *this,
 typedef struct basis_set_registry_t basis_set_registry_t;
 
 FDG_INTERNAL
-interp_result_t basis_set_registry_create(basis_set_registry_t **out, int should_cache,
-                                          const cutl_allocator_t *allocator);
+fdg_result_t basis_set_registry_create(basis_set_registry_t **out, int should_cache, const cutl_allocator_t *allocator);
 
 FDG_INTERNAL
-interp_result_t basis_set_registry_get_basis_set(basis_set_registry_t *this, const basis_set_t **p_basis,
-                                                 const integration_rule_t *integration_rule, basis_spec_t spec);
+fdg_result_t basis_set_registry_get_basis_set(basis_set_registry_t *this, const basis_set_t **p_basis,
+                                              const integration_rule_t *integration_rule, basis_spec_t spec);
 
 FDG_INTERNAL
-interp_result_t basis_set_registry_get_basis_sets(basis_set_registry_t *this, unsigned cnt,
-                                                  const basis_set_t *FDG_ARRAY_ARG(p_basis, cnt),
-                                                  const integration_rule_t *FDG_ARRAY_ARG(integration_rule, static cnt),
-                                                  const basis_spec_t FDG_ARRAY_ARG(specs, static cnt));
+fdg_result_t basis_set_registry_get_basis_sets(basis_set_registry_t *this, unsigned cnt,
+                                               const basis_set_t *FDG_ARRAY_ARG(p_basis, cnt),
+                                               const integration_rule_t *FDG_ARRAY_ARG(integration_rule, static cnt),
+                                               const basis_spec_t FDG_ARRAY_ARG(specs, static cnt));
 
 FDG_INTERNAL
-interp_result_t basis_set_registry_release_basis_set(basis_set_registry_t *this, const basis_set_t *basis);
+fdg_result_t basis_set_registry_release_basis_set(basis_set_registry_t *this, const basis_set_t *basis);
 
 FDG_INTERNAL
 void basis_set_registry_destroy(basis_set_registry_t *this);

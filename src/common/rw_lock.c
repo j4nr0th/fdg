@@ -2,7 +2,7 @@
 #include <threads.h>
 
 FDG_INTERNAL
-interp_result_t rw_lock_init(rw_lock_t *this)
+fdg_result_t rw_lock_init(rw_lock_t *this)
 {
     *this = (rw_lock_t){};
     if (mtx_init(&this->lock, mtx_plain) != thrd_success)

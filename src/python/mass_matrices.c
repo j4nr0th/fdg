@@ -950,7 +950,7 @@ static PyObject *compute_kform_mass_matrix(PyObject *module, PyObject *const *ar
     }
 
     // Get integration rules
-    interp_result_t res =
+    fdg_result_t res =
         integration_rule_registry_get_rules(integration_registry->registry, n, space_map->int_specs, integration_rules);
     if (res != FDG_SUCCESS)
     {
@@ -1491,7 +1491,7 @@ static PyObject *compute_kform_interior_product_matrix(PyObject *module, PyObjec
     }
 
     // Get integration rules
-    interp_result_t res =
+    fdg_result_t res =
         integration_rule_registry_get_rules(integration_registry->registry, n, space_map->int_specs, integration_rules);
     if (res != FDG_SUCCESS)
     {

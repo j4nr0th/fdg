@@ -15,7 +15,7 @@ struct rw_lock_t
 };
 
 FDG_INTERNAL
-interp_result_t rw_lock_init(rw_lock_t *this);
+fdg_result_t rw_lock_init(rw_lock_t *this);
 
 FDG_INTERNAL
 void rw_lock_destroy(rw_lock_t *this);
