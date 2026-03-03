@@ -557,11 +557,11 @@ basis_registry_object *basis_registry_object_create(PyTypeObject *type)
     if (!this)
         return NULL;
     this->registry = NULL;
-    const interp_result_t res = basis_set_registry_create(&this->registry, 1, &SYSTEM_ALLOCATOR);
+    const fdg_result_t res = basis_set_registry_create(&this->registry, 1, &SYSTEM_ALLOCATOR);
     if (res != FDG_SUCCESS)
     {
-        PyErr_Format(PyExc_RuntimeError, "Could not initialize basis set registry: %s (%s)", interp_error_str(res),
-                     interp_error_msg(res));
+        PyErr_Format(PyExc_RuntimeError, "Could not initialize basis set registry: %s (%s)", fdg_error_str(res),
+                     fdg_error_msg(res));
         Py_DECREF(this);
         return NULL;
     }
@@ -585,12 +585,12 @@ const basis_set_t **python_basis_sets_get(const unsigned n_basis, const basis_sp
         return NULL;
     for (unsigned ibasis = 0; ibasis < n_basis; ++ibasis)
     {
-        const interp_result_t res =
+        const fdg_result_t res =
             basis_set_registry_get_basis_set(registry, array + ibasis, rules[ibasis], specs[ibasis]);
         if (res != FDG_SUCCESS)
         {
-            PyErr_Format(PyExc_RuntimeError, "Failed to retrieve basis set: %s (%s).", interp_error_str(res),
-                         interp_error_msg(res));
+            PyErr_Format(PyExc_RuntimeError, "Failed to retrieve basis set: %s (%s).", fdg_error_str(res),
+                         fdg_error_msg(res));
             for (unsigned i = 0; i < ibasis; ++i)
             {
                 basis_set_registry_release_basis_set(registry, array[i]);

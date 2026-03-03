@@ -34,7 +34,7 @@ int main()
     };
     const matrix_t test_input_matrix = {.rows = 5, .cols = 3, .values = test_input};
     matrix_t result = {.rows = 6, .cols = 3, .values = (double[6 * 3]){}};
-    interp_result_t res = matrix_multiply(&upper, &test_input_matrix, &result);
+    fdg_result_t res = matrix_multiply(&upper, &test_input_matrix, &result);
     TEST_ASSERTION(res == FDG_SUCCESS, "Matrix multiplication failed");
 
     printf("Matrix A:\n");

@@ -7,8 +7,8 @@
 #include "basis_set.h"
 
 FDG_INTERNAL
-interp_result_t lagrange_basis_create(basis_set_t **out, basis_spec_t spec, const integration_rule_t *rule,
-                                      const cutl_allocator_t *allocator);
+fdg_result_t lagrange_basis_create(basis_set_t **out, basis_spec_t spec, const integration_rule_t *rule,
+                                   const cutl_allocator_t *allocator);
 
 static inline const double *lagrange_basis_roots(const basis_set_t *this)
 {
@@ -19,6 +19,6 @@ static inline const double *lagrange_basis_roots(const basis_set_t *this)
 }
 
 FDG_INTERNAL
-interp_result_t generate_lagrange_roots(unsigned order, basis_set_type_t type, double roots[const order + 1]);
+fdg_result_t generate_lagrange_roots(unsigned order, basis_set_type_t type, double roots[const order + 1]);
 
 #endif // FDG_BASIS_LAGRANGE_H

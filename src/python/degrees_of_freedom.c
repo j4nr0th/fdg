@@ -716,43 +716,23 @@ PyObject *dof_derivative(PyObject *self, PyTypeObject *defining_class, PyObject 
 
     const double *const values_in = this->values;
     double *const values_out = new_dofs->values;
+    double *const work_buffer = PyMem_Malloc(sizeof(*work_buffer) * (n + (n + 1) + n * (n + 1)));
+    const incidence_array_specifications_t array_specs = {
+        .values_in = values_in,
+        .values_out = values_out,
+        .work = work_buffer,
+    };
+    const incidence_base_strides_t strides = {
+        .pre_stride = pre_stride,
+        .post_stride = post_stride,
+        .n = n,
+    };
+    if (type == BASIS_LAGRANGE_CHEBYSHEV_GAUSS || type == BASIS_LAGRANGE_GAUSS ||
+        type == BASIS_LAGRANGE_GAUSS_LOBATTO || type == BASIS_LAGRANGE_UNIFORM)
+        lagrange_prepare_incidence_transformation(type, n, work_buffer);
+    apply_incidence_operator_single(type, &strides, 1, 0, 0, &array_specs);
 
-    switch (type)
-    {
-    case BASIS_BERNSTEIN:
-        // Use recurrence relation
-        bernstein_apply_incidence_operator(n, pre_stride, post_stride, 1, values_in, values_out, 0);
-        break;
-
-    case BASIS_LEGENDRE:
-        // Use recurrence relation
-        legendre_apply_incidence_operator(n, pre_stride, post_stride, 1, values_in, values_out, 0);
-        break;
-
-    case BASIS_LAGRANGE_GAUSS:
-    case BASIS_LAGRANGE_CHEBYSHEV_GAUSS:
-    case BASIS_LAGRANGE_GAUSS_LOBATTO:
-    case BASIS_LAGRANGE_UNIFORM: {
-        // Allocate memory needed for Lagrange incidence
-        double *const work_buffer = PyMem_Malloc(sizeof(*work_buffer) * (n + (n + 1) + n * (n + 1)));
-        if (!work_buffer)
-        {
-            Py_DECREF(new_dofs);
-            return NULL;
-        }
-
-        // Use the real transformation matrix
-        lagrange_apply_incidence_operator(type, n, pre_stride, post_stride, 1, values_in, values_out, work_buffer, 0);
-        PyMem_Free(work_buffer);
-    }
-    break;
-
-    default: {
-        PyErr_Format(PyExc_ValueError, "Unsupported basis type %d.", type);
-        Py_DECREF(new_dofs);
-        return NULL;
-    }
-    }
+    PyMem_Free(work_buffer);
 
     return (PyObject *)new_dofs;
 }

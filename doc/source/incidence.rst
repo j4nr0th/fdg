@@ -11,9 +11,20 @@ the so-called "incidence" matrix, then multiplying the vector with degrees of fr
 with it. Alternatively, one can instead just apply the effect of such a matrix to
 the vector/matrix in question. This is typically the preferred way, since for many
 types of basis the incidence matrix is sparse and the entries are values that are
-very cheap to compute.
+very cheap to compute. Still, both options are available for use.
 
-Still, both options are available for use.
+For the k-form operator function, there are four ways the operator can be applied in.
+These four ways are the result of being able to choose to whether or not to transpose
+the incidence operator, and if it should be applied on the right.
+
++-----------------+--------------------------------------------------+-----------------------------------------------------------------+
+|                 | ``transpose=False``                              | ``transpose=True``                                              |
++-----------------+--------------------------------------------------+-----------------------------------------------------------------+
+| ``right=False`` | :math:`\mathbb{E}^{(k+1,k)} x^{(k)} = y^{(k+1)}` | :math:`\left(\mathbb{E}^{(k+1,k)}\right)^T x^{(k+1)} = y^{(k)}` |
++-----------------+--------------------------------------------------+-----------------------------------------------------------------+
+| ``right=True``  | :math:`x^{(k+1)} \mathbb{E}^{(k+1,k)} = y^{(k)}` | :math:`x^{(k)} \left(\mathbb{E}^{(k+1,k)}\right)^T = y^{(k+1)}` |
++-----------------+--------------------------------------------------+-----------------------------------------------------------------+
+
 
 .. autofunction:: incidence_matrix
 

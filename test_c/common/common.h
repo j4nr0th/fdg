@@ -33,12 +33,12 @@ static void failed_assertion(const char *file, const int line, const char *funct
 }
 
 static void test_interp_result(const char *file, const int line, const char *function, const char *expr,
-                               const interp_result_t res)
+                               const fdg_result_t res)
 {
     if (res == FDG_SUCCESS)
         return;
-    fprintf(stderr, "%s:%d - %s (Assertion failed: %s): %s (%s)\n", file, line, function, expr, interp_error_str(res),
-            interp_error_msg(res));
+    fprintf(stderr, "%s:%d - %s (Assertion failed: %s): %s (%s)\n", file, line, function, expr, fdg_error_str(res),
+            fdg_error_msg(res));
 #ifdef __GNUC__
     __builtin_trap();
 #endif

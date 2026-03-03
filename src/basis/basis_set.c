@@ -46,15 +46,14 @@ struct basis_set_registry_t
     basis_bucket_btype_t *buckets;
 };
 
-interp_result_t basis_set_registry_create(basis_set_registry_t **out, int should_cache,
-                                          const cutl_allocator_t *allocator)
+fdg_result_t basis_set_registry_create(basis_set_registry_t **out, int should_cache, const cutl_allocator_t *allocator)
 {
     basis_set_registry_t *const this = cutl_alloc(allocator, sizeof *this);
     if (!this)
         return FDG_ERROR_FAILED_ALLOCATION;
     *this = (basis_set_registry_t){
         .allocator = *allocator, .should_cache = should_cache != 0, .n_buckets = 0, .buckets = NULL};
-    const interp_result_t res = rw_lock_init(&this->lock);
+    const fdg_result_t res = rw_lock_init(&this->lock);
     if (res != FDG_SUCCESS)
     {
         cutl_dealloc(allocator, this);
@@ -65,8 +64,8 @@ interp_result_t basis_set_registry_create(basis_set_registry_t **out, int should
     return FDG_SUCCESS;
 }
 
-static inline interp_result_t basis_set_bucket_btype_init(basis_bucket_btype_t *this, basis_set_type_t type,
-                                                          unsigned starting_size, const cutl_allocator_t *allocator)
+static inline fdg_result_t basis_set_bucket_btype_init(basis_bucket_btype_t *this, basis_set_type_t type,
+                                                       unsigned starting_size, const cutl_allocator_t *allocator)
 {
     this->type = type;
     this->count = 0;
@@ -80,8 +79,8 @@ static inline interp_result_t basis_set_bucket_btype_init(basis_bucket_btype_t *
     return FDG_SUCCESS;
 }
 
-static inline interp_result_t basis_set_bucket_itype_init(basis_bucket_itype_t *this, integration_rule_type_t type,
-                                                          unsigned starting_size, const cutl_allocator_t *allocator)
+static inline fdg_result_t basis_set_bucket_itype_init(basis_bucket_itype_t *this, integration_rule_type_t type,
+                                                       unsigned starting_size, const cutl_allocator_t *allocator)
 {
     this->type = type;
     this->count = 0;
@@ -102,10 +101,10 @@ static inline interp_result_t basis_set_bucket_itype_init(basis_bucket_itype_t *
     return FDG_SUCCESS;
 }
 
-static inline interp_result_t basis_set_create(basis_set_t **out, const integration_rule_t *integration_rule,
-                                               const basis_spec_t spec, const cutl_allocator_t *allocator)
+static inline fdg_result_t basis_set_create(basis_set_t **out, const integration_rule_t *integration_rule,
+                                            const basis_spec_t spec, const cutl_allocator_t *allocator)
 {
-    interp_result_t res;
+    fdg_result_t res;
     switch (spec.type)
     {
     case BASIS_LEGENDRE:
@@ -130,9 +129,8 @@ static inline interp_result_t basis_set_create(basis_set_t **out, const integrat
     return res;
 }
 
-static inline interp_result_t basis_set_registry_add_btype_bucket(basis_set_registry_t *this,
-                                                                  const basis_set_type_t type,
-                                                                  const unsigned starting_size)
+static inline fdg_result_t basis_set_registry_add_btype_bucket(basis_set_registry_t *this, const basis_set_type_t type,
+                                                               const unsigned starting_size)
 {
     basis_bucket_btype_t *new_buckets =
         cutl_realloc(&this->allocator, this->buckets, (this->n_buckets + 1) * sizeof *new_buckets);
@@ -143,7 +141,7 @@ static inline interp_result_t basis_set_registry_add_btype_bucket(basis_set_regi
     this->buckets = new_buckets;
     basis_bucket_btype_t *const first_bucket = this->buckets + this->n_buckets;
     this->n_buckets += 1;
-    const interp_result_t res = basis_set_bucket_btype_init(first_bucket, type, starting_size, &this->allocator);
+    const fdg_result_t res = basis_set_bucket_btype_init(first_bucket, type, starting_size, &this->allocator);
     if (res != FDG_SUCCESS)
     {
         return res;
@@ -151,10 +149,10 @@ static inline interp_result_t basis_set_registry_add_btype_bucket(basis_set_regi
     return FDG_SUCCESS;
 }
 
-static inline interp_result_t basis_set_registry_add_itype_bucket(const basis_set_registry_t *this,
-                                                                  basis_bucket_btype_t *first_bucket,
-                                                                  const integration_rule_type_t type,
-                                                                  const unsigned starting_size)
+static inline fdg_result_t basis_set_registry_add_itype_bucket(const basis_set_registry_t *this,
+                                                               basis_bucket_btype_t *first_bucket,
+                                                               const integration_rule_type_t type,
+                                                               const unsigned starting_size)
 {
     if (first_bucket->count == first_bucket->capacity)
     {
@@ -168,17 +166,17 @@ static inline interp_result_t basis_set_registry_add_itype_bucket(const basis_se
     }
     basis_bucket_itype_t *const second_bucket = first_bucket->buckets + first_bucket->count;
     first_bucket->count += 1;
-    const interp_result_t res = basis_set_bucket_itype_init(second_bucket, type, starting_size, &this->allocator);
+    const fdg_result_t res = basis_set_bucket_itype_init(second_bucket, type, starting_size, &this->allocator);
     if (res != FDG_SUCCESS)
         return res;
     return FDG_SUCCESS;
 }
 
-static inline interp_result_t basis_set_registry_add_basis_set(const basis_set_registry_t *this,
-                                                               basis_bucket_itype_t *second_bucket,
-                                                               const basis_set_t **p_basis,
-                                                               const integration_rule_t *integration_rule,
-                                                               const basis_spec_t spec)
+static inline fdg_result_t basis_set_registry_add_basis_set(const basis_set_registry_t *this,
+                                                            basis_bucket_itype_t *second_bucket,
+                                                            const basis_set_t **p_basis,
+                                                            const integration_rule_t *integration_rule,
+                                                            const basis_spec_t spec)
 {
     if (second_bucket->count == second_bucket->capacity)
     {
@@ -197,7 +195,7 @@ static inline interp_result_t basis_set_registry_add_basis_set(const basis_set_r
     }
 
     basis_set_t *basis;
-    const interp_result_t res = basis_set_create(&basis, integration_rule, spec, &this->allocator);
+    const fdg_result_t res = basis_set_create(&basis, integration_rule, spec, &this->allocator);
     if (res != FDG_SUCCESS)
         return res;
 
@@ -209,8 +207,8 @@ static inline interp_result_t basis_set_registry_add_basis_set(const basis_set_r
     return FDG_SUCCESS;
 }
 
-interp_result_t basis_set_registry_get_basis_set(basis_set_registry_t *this, const basis_set_t **p_basis,
-                                                 const integration_rule_t *integration_rule, const basis_spec_t spec)
+fdg_result_t basis_set_registry_get_basis_set(basis_set_registry_t *this, const basis_set_t **p_basis,
+                                              const integration_rule_t *integration_rule, const basis_spec_t spec)
 {
     rw_lock_acquire_read(&this->lock);
     enum
@@ -255,7 +253,7 @@ interp_result_t basis_set_registry_get_basis_set(basis_set_registry_t *this, con
     rw_lock_acquire_write(&this->lock);
     if (!first_bucket)
     {
-        const interp_result_t res = basis_set_registry_add_btype_bucket(this, spec.type, BUCKET_STARTING_SIZE);
+        const fdg_result_t res = basis_set_registry_add_btype_bucket(this, spec.type, BUCKET_STARTING_SIZE);
         if (res != FDG_SUCCESS)
         {
             rw_lock_release_write(&this->lock);
@@ -265,7 +263,7 @@ interp_result_t basis_set_registry_get_basis_set(basis_set_registry_t *this, con
     }
     if (!second_bucket)
     {
-        const interp_result_t res =
+        const fdg_result_t res =
             basis_set_registry_add_itype_bucket(this, first_bucket, integration_rule->spec.type, BUCKET_STARTING_SIZE);
         if (res != FDG_SUCCESS)
         {
@@ -276,7 +274,7 @@ interp_result_t basis_set_registry_get_basis_set(basis_set_registry_t *this, con
     }
 
     const basis_set_t *basis;
-    const interp_result_t res = basis_set_registry_add_basis_set(this, second_bucket, &basis, integration_rule, spec);
+    const fdg_result_t res = basis_set_registry_add_basis_set(this, second_bucket, &basis, integration_rule, spec);
     rw_lock_release_write(&this->lock);
     if (res != FDG_SUCCESS)
     {
@@ -286,15 +284,15 @@ interp_result_t basis_set_registry_get_basis_set(basis_set_registry_t *this, con
     return FDG_SUCCESS;
 }
 
-interp_result_t basis_set_registry_get_basis_sets(basis_set_registry_t *this, unsigned cnt,
-                                                  const basis_set_t *FDG_ARRAY_ARG(p_basis, cnt),
-                                                  const integration_rule_t *FDG_ARRAY_ARG(integration_rule, static cnt),
-                                                  const basis_spec_t FDG_ARRAY_ARG(specs, static cnt))
+fdg_result_t basis_set_registry_get_basis_sets(basis_set_registry_t *this, unsigned cnt,
+                                               const basis_set_t *FDG_ARRAY_ARG(p_basis, cnt),
+                                               const integration_rule_t *FDG_ARRAY_ARG(integration_rule, static cnt),
+                                               const basis_spec_t FDG_ARRAY_ARG(specs, static cnt))
 {
     for (unsigned i = 0; i < cnt; ++i)
     {
         const basis_set_t *basis;
-        const interp_result_t res = basis_set_registry_get_basis_set(this, &basis, integration_rule[i], specs[i]);
+        const fdg_result_t res = basis_set_registry_get_basis_set(this, &basis, integration_rule[i], specs[i]);
         if (res != FDG_SUCCESS)
         {
             // Release all the basis acquired thus far
@@ -308,7 +306,7 @@ interp_result_t basis_set_registry_get_basis_sets(basis_set_registry_t *this, un
     return FDG_SUCCESS;
 }
 
-interp_result_t basis_set_registry_release_basis_set(basis_set_registry_t *this, const basis_set_t *basis)
+fdg_result_t basis_set_registry_release_basis_set(basis_set_registry_t *this, const basis_set_t *basis)
 {
     rw_lock_acquire_read(&this->lock);
     basis_bucket_btype_t *first_bucket = NULL;

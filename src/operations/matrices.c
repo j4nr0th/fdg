@@ -12,7 +12,7 @@
 //     }
 // }
 
-interp_result_t matrix_qr_decompose(const matrix_t *const ar, const matrix_t *const q)
+fdg_result_t matrix_qr_decompose(const matrix_t *const ar, const matrix_t *const q)
 {
     // printf("matrix_qr_decompose called with A:\n");
     // dbg_print_matrix(ar);
@@ -85,7 +85,7 @@ interp_result_t matrix_qr_decompose(const matrix_t *const ar, const matrix_t *co
     return FDG_SUCCESS;
 }
 
-interp_result_t matrix_multiply(const matrix_t *a, const matrix_t *b, const matrix_t *c)
+fdg_result_t matrix_multiply(const matrix_t *a, const matrix_t *b, const matrix_t *c)
 {
     const unsigned rows = a->rows;
     const unsigned cols = b->cols;
@@ -114,7 +114,7 @@ interp_result_t matrix_multiply(const matrix_t *a, const matrix_t *b, const matr
     return FDG_SUCCESS;
 }
 
-interp_result_t matrix_back_substitute(const matrix_t *upper, const matrix_t *b)
+fdg_result_t matrix_back_substitute(const matrix_t *upper, const matrix_t *b)
 {
     const unsigned u_cols = upper->cols;
     if (u_cols > b->rows)

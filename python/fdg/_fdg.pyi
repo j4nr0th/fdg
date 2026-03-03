@@ -903,6 +903,7 @@ def incidence_kform_operator(
     specs: KFormSpecs,
     values: npt.NDArray[np.double],
     transpose: bool = False,
+    right: bool = False,
     *,
     out: npt.NDArray[np.double] | None = None,
 ) -> npt.NDArray[np.double]:
@@ -919,6 +920,11 @@ def incidence_kform_operator(
 
     transpose : bool, default: False
         Apply the transpose of the incidence operator instead.
+
+    right : bool, default: False
+        Apply the incidence operator from the right side. This is equivalent to the
+        transpose of the operator to the left to the transpose of the input, then
+        transposing the result back.
 
     out : array, optional
         Array to which the result is written to. The first axis must have the same size

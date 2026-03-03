@@ -23,14 +23,14 @@ static const struct
     ERROR_ENUM_ENTRY(FDG_ERROR_MATRIX_DIMS_MISMATCH, "Matrix dimensions do not match."),
 };
 
-const char *interp_error_str(interp_result_t error)
+const char *fdg_error_str(fdg_result_t error)
 {
     if (error < 0 || error >= FDG_ERROR_COUNT)
         return "UNKNOWN";
     return error_messages[error].str;
 }
 
-const char *interp_error_msg(interp_result_t error)
+const char *fdg_error_msg(fdg_result_t error)
 {
     if (error < 0 || error >= FDG_ERROR_COUNT)
         return "UNKNOWN";

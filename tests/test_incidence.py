@@ -200,4 +200,4 @@ def test_derivative_3d(
 
 
 if __name__ == "__main__":
-    test_derivative_1d(5, BasisType.BERNSTEIN)
+    test_derivative_1d(1, BasisType.LAGRANGE_UNIFORM)

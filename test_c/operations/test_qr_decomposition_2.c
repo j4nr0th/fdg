@@ -41,7 +41,7 @@ int main()
             r.values[i * DIM_2 + j] = a.values[i * DIM_2 + j];
     }
 
-    interp_result_t res = matrix_qr_decompose(&r, &q);
+    fdg_result_t res = matrix_qr_decompose(&r, &q);
     printf("Matrix Q^T:\n");
     print_matrix(&q);
     printf("Matrix R:\n");
