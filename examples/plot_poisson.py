@@ -52,19 +52,19 @@ from fdg import (
 # The manufactured solution for the general N-dimensional case uses
 # the following for the manufactured solution:
 #
-# ..math::
+# .. math::
 #     :label: examples_nd_poisson_man_sol
 #
-#     u^{(n)}(x_1, \dots, x_n) = \left(\prod\limits_{i=1}^n \cos\left( \frac{\pi}{2} x_i
+#     u^{(n)}(x_1, \dots, x_n) = k \left(\prod\limits_{i=1}^n \cos\left( \frac{\pi}{2} x_i
 #     \right)\right) \mathrm{d} x_1 \wedge \dots \wedge \mathrm{d} x_n
 #
 #
 # This gives the forcing function:
 #
-# ..math::
+# .. math::
 #     :label: examples_nd_poisson_man_for
 #
-#     f^{(n)}(x_1, \dots, x_n) = - n \left(\frac{\pi}{2}\right)^2 \left(
+#     f^{(n)}(x_1, \dots, x_n) = - k n \left(\frac{\pi}{2}\right)^2 \left(
 #     \prod\limits_{i=1}^n \cos\left( \frac{\pi}{2} x_i
 #     \right)\right) \mathrm{d} x_1 \wedge \dots \wedge \mathrm{d} x_n
 #
@@ -92,8 +92,18 @@ def manufactured_source_poisson(*x: npt.NDArray[np.double]) -> npt.NDArray[np.do
 
 # %%
 #
-# First we need to define how we discretize our k-forms and integration. This means
-# defining the order of basis and integration method, as well as their types.
+# First the geometry of the space this will be solved on will be defined. For this case,
+# we use the unit square, where the interior is deformed, while boundaries are the same.
+# The mapping for each coordinate is based on Equation
+# :eq:`examples_nd_poisson_deformation`, with :math:`c` being the parameter that
+# determines the scale of deformation.
+#
+#
+# .. math::
+#     :label: examples_nd_poisson_deformation
+#
+#     x_i = \xi_i + c \prod\limits_{j=1}^n \left( 1 - {x_j}^2 \right) \sin \pi x_j
+#
 
 
 def disturbed_mapping(
@@ -120,8 +130,15 @@ def disturbed_mapping(
     base = x[idx]
     d = np.full_like(base, c)
     for v in x:
-        d *= (1 - v**2) * np.sin(np.pi * v) * 0
+        d *= (1 - v**2) * np.sin(np.pi * v)
     return base + d
+
+
+# %%
+#
+# Mappings for every coordinate are collected into a joined :class:`SpaceMap`,
+# which is then used to map :math:`k`-form components between the reference domain
+# and the physical domain.
 
 
 def create_space_map(
@@ -146,35 +163,71 @@ def create_space_map(
     )
 
 
-def compute_l2_error(
-    order_integration: int,
-    type_integration: IntegrationMethod,
-    order_basis: int,
-    type_basis: BasisType,
-    ndim: int,
-    dp: int,
-) -> float:
-    """Solve the N-dimensional Poisson equation and compute the L^2 error."""
+# %%
+#
+# With these two utilities, we can start working on computing convergence
+# of the FEM discretization in the :math:`L^2`-norm
+#
+# First we must define how integration will be done. Here two
+# :class:`IntegrationSpace` objects are defined - one for computing our
+# results and another, finer, for computing the error.
+#
+# With these discretizations defined, we can use previously written functions to
+# create the space mappings.
+
+
+def create_space_maps(order_integration, type_integration, ndim, dp):
+    """Create integration spaces."""
     int_space = IntegrationSpace(
         *((IntegrationSpecs(order_integration, type_integration),) * ndim)
     )
     int_space_higher = IntegrationSpace(
         *((IntegrationSpecs(order_integration + dp, type_integration),) * ndim)
     )
-    base_space = FunctionSpace(*((BasisSpecs(type_basis, order_basis),) * ndim))
+    space_map = create_space_map(0.1, [5] * ndim, int_space)
+    space_map_high = create_space_map(0.1, [5] * ndim, int_space_higher)
+    return space_map, space_map_high
 
-    space_map = create_space_map(0.1, base_space.orders, int_space)
-    space_map_high = create_space_map(0.1, base_space.orders, int_space_higher)
+
+# %%
+#
+# Along with the :class:`IntegrationSpace` objects to define integration we
+# must define the discretization of the :math:`k`-forms using a :math:`FunctionSpace`
+# object.
+#
+# With base function space defined, we can define some :math:`k`-form
+# specifications using :class:`KFormSpecs`. These do not contain any degrees of
+# freedom themselves, but provide information about the order and function spaces.
+
+
+def create_kform_specs(type_basis, order_basis, ndim):
+    """Create k-form specifications."""
+    base_space = FunctionSpace(*((BasisSpecs(type_basis, order_basis),) * ndim))
 
     specs_u = KFormSpecs(ndim, base_space)
     specs_q = KFormSpecs(ndim - 1, base_space)
+    return specs_u, specs_q
 
-    source_vals = projection_kform_l2_dual(
-        [manufactured_source_poisson], specs_u, space_map_high
-    )[0]
 
-    mq = compute_kform_mass_matrix(space_map, ndim - 1, base_space, base_space)
-    mu = compute_kform_mass_matrix(space_map, ndim, base_space, base_space)
+# %%
+# While for left side symmetry could be exploited, there's no harm to compute
+# it in full for this example. To that end, we first compute the two mass
+# matrices for the two :math:`k`-forms, then apply the incidence operators
+# as needed.
+#
+# Now that we have the required blocks, we can assemble the system matrix.
+# Alternatively we could have used Schur's complement to compute the solution,
+# but for the sake of simplicity here we use the full dense solve.
+
+
+def assemble_lhs(sm, specs_q, specs_u):
+    """Crate the system matrix."""
+    mq = compute_kform_mass_matrix(
+        sm, specs_q.order, specs_q.base_space, specs_q.base_space
+    )
+    mu = compute_kform_mass_matrix(
+        sm, specs_u.order, specs_u.base_space, specs_u.base_space
+    )
 
     mu_e = incidence_kform_operator(specs_q, mu, right=True)
     et_mu = incidence_kform_operator(specs_q, mu, transpose=True)
@@ -185,42 +238,98 @@ def compute_l2_error(
             [mu_e, np.zeros_like(mu)],
         ]
     )
-    rhs = np.concatenate((np.zeros(mq.shape[0]), source_vals.flatten()))
+    return system_matrix
 
-    solution_dofs = np.linalg.solve(system_matrix, rhs)
 
+# %%
+# The right side of the Poisson equation can be computed from the "dual projection"
+# of the manufactured source term on the function space.
+
+
+def assemble_rhs(specs_u, specs_q, sm_h):
+    """Assemble the system's RHS."""
+    source_vals = projection_kform_l2_dual([manufactured_source_poisson], specs_u, sm_h)[
+        0
+    ]
+
+    rhs = np.concatenate(
+        (np.zeros(sum(specs_q.component_dof_counts)), source_vals.flatten())
+    )
+    return rhs
+
+
+# %%
+# From here we can split solution vector into degrees of freedom of individual
+# :math:`k`-forms represented by :class:`KForm` objects.
+# To compute the :math:`L^2` error, we need to reconstruct the computed solution,
+# subtract the manufactured solution, then integrate the square of the error.
+def reconstruct_error_l2(specs_q, specs_u, solution_dofs, ndim, sm_h):
+    """Reconstruct the solution and compute the L2 error."""
     sol_q = KForm(specs_q)
     sol_u = KForm(specs_u)
 
-    sol_q.values[:] = solution_dofs[: mq.shape[0]]
-    sol_u.values[:] = solution_dofs[mq.shape[0] :]
+    nq = sum(specs_q.component_dof_counts)
+
+    sol_q.values[:] = solution_dofs[:nq]
+    sol_u.values[:] = solution_dofs[nq:]
+
     u_dofs = DegreesOfFreedom(
         specs_u.get_component_function_space(0), sol_u.get_component_dofs(0)
     )
-    # Compute the L^2 error
-
     # K-form computed values at integration nodes
     computed_values = transform_kform_to_target(
         ndim,
-        space_map_high,
-        [reconstruct(u_dofs, *space_map_high.integration_space.nodes())],
+        sm_h,
+        [reconstruct(u_dofs, *sm_h.integration_space.nodes())],
     )[0]
     # K-form exact values at integration nodes
     real_values = manufactured_solution(
-        *[space_map_high.coordinate_map(idx).values for idx in range(ndim)]
+        *[sm_h.coordinate_map(idx).values for idx in range(ndim)]
     )
-
+    # Error
     err_l2 = np.sum(
         (computed_values - real_values) ** 2
-        * space_map_high.determinant
-        * space_map_high.integration_space.weights()
+        * sm_h.determinant
+        * sm_h.integration_space.weights()
     )
+    return err_l2
+
+
+# %%
+# All the small building blocks discussed before can now be put together
+# to form the error calculation function.
+
+
+def compute_l2_error(
+    order_integration: int,
+    type_integration: IntegrationMethod,
+    order_basis: int,
+    type_basis: BasisType,
+    ndim: int,
+    dp: int,
+) -> float:
+    """Solve the N-dimensional Poisson equation and compute the L^2 error."""
+    # Space maps
+    sm, sm_h = create_space_maps(order_integration, type_integration, ndim, dp)
+    # K-form specs
+    specs_u, specs_q = create_kform_specs(type_basis, order_basis, ndim)
+    # LHS of the system
+    lhs = assemble_lhs(sm, specs_q, specs_u)
+    # RHS
+    rhs = assemble_rhs(specs_u, specs_q, sm_h)
+    # Solve
+    solution_dofs = np.linalg.solve(lhs, rhs)
+    # Compute error squared
+    err_l2 = reconstruct_error_l2(specs_q, specs_u, solution_dofs, ndim, sm_h)
+    # Retur the error
     return float(np.sqrt(err_l2))
 
 
-NDIM = 1
+# %%
+# For this test, we will use Bernstein basis, Gauss integration rule, and the order
+# difference of 1 between the lower and higher order integration rules.
 BTYPE = BasisType.BERNSTEIN
-ITYPE = IntegrationMethod.GAUSS_LOBATTO
+ITYPE = IntegrationMethod.GAUSS
 DP = 1
 
 pvals = np.arange(1, 7)
@@ -234,9 +343,6 @@ for ndim in range(1, 4):
         t1 = perf_counter()
         evals[ip] = l2
         tvals[ip] = t1 - t0
-        # print(
-        # f"Computed error for {ndim=} with {pv=}: {l2:.14e} (took {t1 - t0:g} seconds)"
-        # )
 
     k1, k0 = np.polyfit(pvals, np.log(evals), deg=1)
     c = np.exp(k0)
