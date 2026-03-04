@@ -340,8 +340,27 @@ the so-called “incidence” matrix, then multiplying the vector with degrees o
 with it. Alternatively, one can instead just apply the effect of such a matrix to
 the vector/matrix in question. This is typically the preferred way, since for many
 types of basis the incidence matrix is sparse and the entries are values that are
-very cheap to compute.</p>
-<p>Still, both options are available for use.</p>
+very cheap to compute. Still, both options are available for use.</p>
+<p>For the k-form operator function, there are four ways the operator can be applied in.
+These four ways are the result of being able to choose to whether or not to transpose
+the incidence operator, and if it should be applied on the right.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<tbody>
+<tr class="row-odd"><td></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">transpose=False</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">transpose=True</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">right=False</span></code></p></td>
+<td><p><span class="math notranslate nohighlight">\(\mathbb{E}^{(k+1,k)} x^{(k)} = y^{(k+1)}\)</span></p></td>
+<td><p><span class="math notranslate nohighlight">\(\left(\mathbb{E}^{(k+1,k)}\right)^T x^{(k+1)} = y^{(k)}\)</span></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">right=True</span></code></p></td>
+<td><p><span class="math notranslate nohighlight">\(x^{(k+1)} \mathbb{E}^{(k+1,k)} = y^{(k)}\)</span></p></td>
+<td><p><span class="math notranslate nohighlight">\(x^{(k)} \left(\mathbb{E}^{(k+1,k)}\right)^T = y^{(k+1)}\)</span></p></td>
+</tr>
+</tbody>
+</table>
+</div>
 <dl class="py function">
 <dt class="sig sig-object py" id="fdg.incidence_matrix">
 <span class="sig-prename descclassname"><span class="pre">fdg.</span></span><span class="sig-name descname"><span class="pre">incidence_matrix</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">basis_specs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="basis_functions.html#fdg.BasisSpecs" title="fdg.BasisSpecs"><span class="pre">BasisSpecs</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">numpy.typing.NDArray</span><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.double" title="(in NumPy v2.4)"><span class="pre">numpy.double</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#fdg.incidence_matrix" title="Link to this definition">#</a></dt>

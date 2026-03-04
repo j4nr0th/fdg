@@ -1,0 +1,770 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>N-D Poisson &#8212; fdg 0.0.1a documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/jupyter-sphinx.css" />
+    <link rel="stylesheet" type="text/css" href="../_static/thebelab.css" />
+    <link rel="stylesheet" type="text/css" href="../_static/sg_gallery.css?v=d2d258e8" />
+    <link rel="stylesheet" type="text/css" href="../_static/sg_gallery-binder.css?v=f4aeca0c" />
+    <link rel="stylesheet" type="text/css" href="../_static/sg_gallery-dataframe.css?v=2082cf3c" />
+    <link rel="stylesheet" type="text/css" href="../_static/sg_gallery-rendered-html.css?v=1277b6f3" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../_static/documentation_options.js?v=8c8a9e14"></script>
+    <script src="../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/thebelab-helper.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.4/require.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@jupyter-widgets/html-manager@^1.0.1/dist/embed-amd.js"></script>
+    <script async="async" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'auto_examples/plot_poisson';</script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Gradients" href="plot_gradients.html" />
+    <link rel="prev" title="Domain Examples" href="plot_domains.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class="col-lg-3 navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">fdg 0.0.1a documentation</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class="col-lg-9 navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../source/index.html">
+    Documentation for Exported Types and Functions
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    Examples
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../source/index.html">
+    Documentation for Exported Types and Functions
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    Examples
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="plot_function_spaces.html">Function Space Examples</a></li>
+<li class="toctree-l1"><a class="reference internal" href="plot_basis_sets.html">Basis Sets Visualization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="plot_integration_rules.html">Integration Rules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="plot_domains.html">Domain Examples</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">N-D Poisson</a></li>
+<li class="toctree-l1"><a class="reference internal" href="plot_gradients.html">Gradients</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Examples</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">N-D Poisson</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <div class="sphx-glr-download-link-note admonition note">
+<p class="admonition-title">Note</p>
+<p><a class="reference internal" href="#sphx-glr-download-auto-examples-plot-poisson-py"><span class="std std-ref">Go to the end</span></a>
+to download the full example code.</p>
+</div>
+<section class="sphx-glr-example-title" id="n-d-poisson">
+<span id="sphx-glr-auto-examples-plot-poisson-py"></span><h1>N-D Poisson<a class="headerlink" href="#n-d-poisson" title="Link to this heading">#</a></h1>
+<p>This example demonstrates system for N-dimensional mixed Poisson equation can be set up.</p>
+<p>Mixed Poisson equation is defined in the weak form as:</p>
+<div class="math notranslate nohighlight" id="equation-examples-nd-poisson-1">
+<span class="eqno">(1)<a class="headerlink" href="#equation-examples-nd-poisson-1" title="Link to this equation">#</a></span>\[\left( p^{(n - 1)}, q^{(n - 1)} \right)_\Omega + \left( \mathrm{d} p^{(n - 1)},
+u^{(n)} \right)_\Omega = \int_{\partial \Omega} p^{(n - 1)} \wedge \star u^{(n)}\]</div>
+<div class="math notranslate nohighlight" id="equation-examples-nd-poisson-2">
+<span class="eqno">(2)<a class="headerlink" href="#equation-examples-nd-poisson-2" title="Link to this equation">#</a></span>\[\left( v^{(n)}, \mathrm{d} q^{(n - 1)} \right)_\Omega =
+\left( v^{(n)}, f^{(n)} \right)_\Omega\]</div>
+<div class="highlight-Python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">time</span><span class="w"> </span><span class="kn">import</span> <a href="https://docs.python.org/3/library/time.html#time.perf_counter" title="time.perf_counter" class="sphx-glr-backref-module-time sphx-glr-backref-type-py-function"><span class="n">perf_counter</span></a>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <a href="https://docs.python.org/3/library/typing.html#typing.Sequence" title="typing.Sequence" class="sphx-glr-backref-module-typing sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">Sequence</span></a>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">matplotlib.pyplot</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">plt</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy.typing</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">npt</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">fdg</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <a href="../source/basis_functions.html#fdg.BasisSpecs" title="fdg.BasisSpecs" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class"><span class="n">BasisSpecs</span></a><span class="p">,</span>
+    <a href="../source/basis_functions.html#fdg.BasisType" title="fdg.BasisType" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class"><span class="n">BasisType</span></a><span class="p">,</span>
+    <a href="../source/space_map.html#fdg.CoordinateMap" title="fdg.CoordinateMap" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class"><span class="n">CoordinateMap</span></a><span class="p">,</span>
+    <a href="../source/degrees_of_freedom.html#fdg.DegreesOfFreedom" title="fdg.DegreesOfFreedom" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class"><span class="n">DegreesOfFreedom</span></a><span class="p">,</span>
+    <a href="../source/basis_functions.html#fdg.FunctionSpace" title="fdg.FunctionSpace" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class"><span class="n">FunctionSpace</span></a><span class="p">,</span>
+    <a href="../source/integration.html#fdg.IntegrationMethod" title="fdg.IntegrationMethod" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class"><span class="n">IntegrationMethod</span></a><span class="p">,</span>
+    <a href="../source/integration.html#fdg.IntegrationSpace" title="fdg.IntegrationSpace" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class"><span class="n">IntegrationSpace</span></a><span class="p">,</span>
+    <a href="../source/integration.html#fdg.IntegrationSpecs" title="fdg.IntegrationSpecs" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class"><span class="n">IntegrationSpecs</span></a><span class="p">,</span>
+    <a href="../source/kform_types.html#fdg.KForm" title="fdg.KForm" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class"><span class="n">KForm</span></a><span class="p">,</span>
+    <a href="../source/kform_types.html#fdg.KFormSpecs" title="fdg.KFormSpecs" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class"><span class="n">KFormSpecs</span></a><span class="p">,</span>
+    <a href="../source/space_map.html#fdg.SpaceMap" title="fdg.SpaceMap" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class"><span class="n">SpaceMap</span></a><span class="p">,</span>
+    <a href="../source/inner_product.html#fdg.compute_kform_mass_matrix" title="fdg.compute_kform_mass_matrix" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-function"><span class="n">compute_kform_mass_matrix</span></a><span class="p">,</span>
+    <a href="../source/incidence.html#fdg.incidence_kform_operator" title="fdg.incidence_kform_operator" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-function"><span class="n">incidence_kform_operator</span></a><span class="p">,</span>
+    <a href="../source/inner_product.html#fdg.projection_kform_l2_dual" title="fdg.projection_kform_l2_dual" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-function"><span class="n">projection_kform_l2_dual</span></a><span class="p">,</span>
+    <a href="../source/degrees_of_freedom.html#fdg.reconstruct" title="fdg.reconstruct" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">reconstruct</span></a><span class="p">,</span>
+    <a href="../source/kform_transformations.html#fdg.transform_kform_to_target" title="fdg.transform_kform_to_target" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-function"><span class="n">transform_kform_to_target</span></a><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>The manufactured solution for the general N-dimensional case uses
+the following for the manufactured solution:</p>
+<div class="math notranslate nohighlight" id="equation-examples-nd-poisson-man-sol">
+<span class="eqno">(3)<a class="headerlink" href="#equation-examples-nd-poisson-man-sol" title="Link to this equation">#</a></span>\[u^{(n)}(x_1, \dots, x_n) = k \left(\prod\limits_{i=1}^n \cos\left( \frac{\pi}{2} x_i
+\right)\right) \mathrm{d} x_1 \wedge \dots \wedge \mathrm{d} x_n\]</div>
+<p>This gives the forcing function:</p>
+<div class="math notranslate nohighlight" id="equation-examples-nd-poisson-man-for">
+<span class="eqno">(4)<a class="headerlink" href="#equation-examples-nd-poisson-man-for" title="Link to this equation">#</a></span>\[f^{(n)}(x_1, \dots, x_n) = - k n \left(\frac{\pi}{2}\right)^2 \left(
+\prod\limits_{i=1}^n \cos\left( \frac{\pi}{2} x_i
+\right)\right) \mathrm{d} x_1 \wedge \dots \wedge \mathrm{d} x_n\]</div>
+<div class="highlight-Python notranslate"><div class="highlight"><pre><span></span><a href="https://docs.python.org/3/library/functions.html#float" title="builtins.float" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">SCALE</span></a> <span class="o">=</span> <span class="mf">0.1</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">manufactured_solution</span><span class="p">(</span><span class="o">*</span><span class="n">x</span><span class="p">:</span> <a href="https://docs.python.org/3/library/types.html#types.GenericAlias" title="types.GenericAlias" class="sphx-glr-backref-module-types sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span></a><span class="p">[</span><a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">np</span><span class="o">.</span><span class="n">double</span></a><span class="p">])</span> <span class="o">-&gt;</span> <a href="https://docs.python.org/3/library/types.html#types.GenericAlias" title="types.GenericAlias" class="sphx-glr-backref-module-types sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span></a><span class="p">[</span><a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">np</span><span class="o">.</span><span class="n">double</span></a><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Exact manufactured solution.&quot;&quot;&quot;</span>
+    <span class="n">res</span> <span class="o">=</span> <a href="https://numpy.org/doc/stable/reference/generated/numpy.ufunc.html#numpy.ufunc" title="numpy.ufunc" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">np</span><span class="o">.</span><span class="n">cos</span></a><span class="p">(</span><span class="n">x</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">*</span> <a href="https://docs.python.org/3/library/functions.html#float" title="builtins.float" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">np</span><span class="o">.</span><span class="n">pi</span></a> <span class="o">/</span> <span class="mi">2</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">x</span><span class="p">[</span><span class="mi">1</span><span class="p">:]:</span>
+        <span class="n">res</span> <span class="o">*=</span> <a href="https://numpy.org/doc/stable/reference/generated/numpy.ufunc.html#numpy.ufunc" title="numpy.ufunc" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">np</span><span class="o">.</span><span class="n">cos</span></a><span class="p">(</span><span class="n">v</span> <span class="o">*</span> <a href="https://docs.python.org/3/library/functions.html#float" title="builtins.float" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">np</span><span class="o">.</span><span class="n">pi</span></a> <span class="o">/</span> <span class="mi">2</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">res</span> <span class="o">*</span> <a href="https://docs.python.org/3/library/functions.html#float" title="builtins.float" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">SCALE</span></a>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">manufactured_source_poisson</span><span class="p">(</span><span class="o">*</span><span class="n">x</span><span class="p">:</span> <a href="https://docs.python.org/3/library/types.html#types.GenericAlias" title="types.GenericAlias" class="sphx-glr-backref-module-types sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span></a><span class="p">[</span><a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">np</span><span class="o">.</span><span class="n">double</span></a><span class="p">])</span> <span class="o">-&gt;</span> <a href="https://docs.python.org/3/library/types.html#types.GenericAlias" title="types.GenericAlias" class="sphx-glr-backref-module-types sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span></a><span class="p">[</span><a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">np</span><span class="o">.</span><span class="n">double</span></a><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Exact manufactured source term.&quot;&quot;&quot;</span>
+    <span class="n">res</span> <span class="o">=</span> <a href="https://numpy.org/doc/stable/reference/generated/numpy.ufunc.html#numpy.ufunc" title="numpy.ufunc" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">np</span><span class="o">.</span><span class="n">cos</span></a><span class="p">(</span><span class="n">x</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">*</span> <a href="https://docs.python.org/3/library/functions.html#float" title="builtins.float" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">np</span><span class="o">.</span><span class="n">pi</span></a> <span class="o">/</span> <span class="mi">2</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">x</span><span class="p">[</span><span class="mi">1</span><span class="p">:]:</span>
+        <span class="n">res</span> <span class="o">*=</span> <a href="https://numpy.org/doc/stable/reference/generated/numpy.ufunc.html#numpy.ufunc" title="numpy.ufunc" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">np</span><span class="o">.</span><span class="n">cos</span></a><span class="p">(</span><span class="n">v</span> <span class="o">*</span> <a href="https://docs.python.org/3/library/functions.html#float" title="builtins.float" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">np</span><span class="o">.</span><span class="n">pi</span></a> <span class="o">/</span> <span class="mi">2</span><span class="p">)</span>
+    <span class="n">res</span> <span class="o">*=</span> <span class="o">-</span><span class="p">((</span><a href="https://docs.python.org/3/library/functions.html#float" title="builtins.float" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">np</span><span class="o">.</span><span class="n">pi</span></a> <span class="o">/</span> <span class="mi">2</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span><span class="p">)</span> <span class="o">*</span> <span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">res</span> <span class="o">*</span> <a href="https://docs.python.org/3/library/functions.html#float" title="builtins.float" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">SCALE</span></a>
+</pre></div>
+</div>
+<p>First the geometry of the space this will be solved on will be defined. For this case,
+we use the unit square, where the interior is deformed, while boundaries are the same.
+The mapping for each coordinate is based on Equation
+<a class="reference internal" href="#equation-examples-nd-poisson-deformation">(5)</a>, with <span class="math notranslate nohighlight">\(c\)</span> being the parameter that
+determines the scale of deformation.</p>
+<div class="math notranslate nohighlight" id="equation-examples-nd-poisson-deformation">
+<span class="eqno">(5)<a class="headerlink" href="#equation-examples-nd-poisson-deformation" title="Link to this equation">#</a></span>\[x_i = \xi_i + c \prod\limits_{j=1}^n \left( 1 - {x_j}^2 \right) \sin \pi x_j\]</div>
+<div class="highlight-Python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">disturbed_mapping</span><span class="p">(</span>
+    <a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">c</span></a><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">idx</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="o">*</span><span class="n">x</span><span class="p">:</span> <a href="https://docs.python.org/3/library/types.html#types.GenericAlias" title="types.GenericAlias" class="sphx-glr-backref-module-types sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span></a><span class="p">[</span><a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">np</span><span class="o">.</span><span class="n">double</span></a><span class="p">]</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <a href="https://docs.python.org/3/library/types.html#types.GenericAlias" title="types.GenericAlias" class="sphx-glr-backref-module-types sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span></a><span class="p">[</span><a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">np</span><span class="o">.</span><span class="n">double</span></a><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return a perturbed map, where the boundaries are not affected, but the interior is.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    c : float</span>
+<span class="sd">        Strenght of the disturbance.</span>
+
+<span class="sd">    idx : int</span>
+<span class="sd">        Index of the input to base the mapping on.</span>
+
+<span class="sd">    *x : array</span>
+<span class="sd">        Coordinates where the mapping should be computed.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    array</span>
+<span class="sd">        Input coordinate ``idx``, but somewhat.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">base</span> <span class="o">=</span> <span class="n">x</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span>
+    <span class="n">d</span> <span class="o">=</span> <a href="https://numpy.org/doc/stable/reference/generated/numpy.full_like.html#numpy.full_like" title="numpy.full_like" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-function"><span class="n">np</span><span class="o">.</span><span class="n">full_like</span></a><span class="p">(</span><span class="n">base</span><span class="p">,</span> <a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">c</span></a><span class="p">)</span>
+    <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">x</span><span class="p">:</span>
+        <span class="n">d</span> <span class="o">*=</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">v</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span> <span class="o">*</span> <a href="https://numpy.org/doc/stable/reference/generated/numpy.ufunc.html#numpy.ufunc" title="numpy.ufunc" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">np</span><span class="o">.</span><span class="n">sin</span></a><span class="p">(</span><a href="https://docs.python.org/3/library/functions.html#float" title="builtins.float" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">np</span><span class="o">.</span><span class="n">pi</span></a> <span class="o">*</span> <span class="n">v</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">base</span> <span class="o">+</span> <span class="n">d</span>
+</pre></div>
+</div>
+<p>Mappings for every coordinate are collected into a joined <a class="reference internal" href="../source/space_map.html#fdg.SpaceMap" title="fdg.SpaceMap"><code class="xref py py-class docutils literal notranslate"><span class="pre">SpaceMap</span></code></a>,
+which is then used to map <span class="math notranslate nohighlight">\(k\)</span>-form components between the reference domain
+and the physical domain.</p>
+<div class="highlight-Python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">create_space_map</span><span class="p">(</span>
+    <a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">c</span></a><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">orders</span><span class="p">:</span> <a href="https://docs.python.org/3/library/typing.html#typing.Sequence" title="typing.Sequence" class="sphx-glr-backref-module-typing sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">Sequence</span></a><span class="p">[</span><span class="nb">int</span><span class="p">],</span> <span class="n">space</span><span class="p">:</span> <a href="../source/integration.html#fdg.IntegrationSpace" title="fdg.IntegrationSpace" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class"><span class="n">IntegrationSpace</span></a>
+<span class="p">)</span> <span class="o">-&gt;</span> <a href="../source/space_map.html#fdg.SpaceMap" title="fdg.SpaceMap" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class"><span class="n">SpaceMap</span></a><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Create space map that are is disturbed.&quot;&quot;&quot;</span>
+    <span class="n">func_space</span> <span class="o">=</span> <a href="../source/basis_functions.html#fdg.FunctionSpace" title="fdg.FunctionSpace" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class"><span class="n">FunctionSpace</span></a><span class="p">(</span>
+        <span class="o">*</span><span class="p">(</span><a href="../source/basis_functions.html#fdg.BasisSpecs" title="fdg.BasisSpecs" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class"><span class="n">BasisSpecs</span></a><span class="p">(</span><a href="../source/basis_functions.html#fdg.BasisType" title="fdg.BasisType" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">BasisType</span><span class="o">.</span><span class="n">LAGRANGE_UNIFORM</span></a><span class="p">,</span> <span class="n">order</span><span class="p">)</span> <span class="k">for</span> <span class="n">order</span> <span class="ow">in</span> <span class="n">orders</span><span class="p">)</span>
+    <span class="p">)</span>
+    <a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">ndim</span></a> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">orders</span><span class="p">)</span>
+    <span class="n">points</span> <span class="o">=</span> <a href="https://numpy.org/doc/stable/reference/generated/numpy.meshgrid.html#numpy.meshgrid" title="numpy.meshgrid" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-function"><span class="n">np</span><span class="o">.</span><span class="n">meshgrid</span></a><span class="p">(</span>
+        <span class="o">*</span><span class="p">[</span><a href="https://numpy.org/doc/stable/reference/generated/numpy.linspace.html#numpy.linspace" title="numpy.linspace" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-function"><span class="n">np</span><span class="o">.</span><span class="n">linspace</span></a><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="o">+</span><span class="mi">1</span><span class="p">,</span> <span class="n">order</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="k">for</span> <span class="n">order</span> <span class="ow">in</span> <span class="n">orders</span><span class="p">],</span> <span class="n">indexing</span><span class="o">=</span><span class="s2">&quot;ij&quot;</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <a href="../source/space_map.html#fdg.SpaceMap" title="fdg.SpaceMap" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class"><span class="n">SpaceMap</span></a><span class="p">(</span>
+        <span class="o">*</span><span class="p">[</span>
+            <a href="../source/space_map.html#fdg.CoordinateMap" title="fdg.CoordinateMap" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class"><span class="n">CoordinateMap</span></a><span class="p">(</span>
+                <a href="../source/degrees_of_freedom.html#fdg.DegreesOfFreedom" title="fdg.DegreesOfFreedom" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class"><span class="n">DegreesOfFreedom</span></a><span class="p">(</span><span class="n">func_space</span><span class="p">,</span> <span class="n">disturbed_mapping</span><span class="p">(</span><a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">c</span></a><span class="p">,</span> <span class="n">idim</span><span class="p">,</span> <span class="o">*</span><span class="n">points</span><span class="p">)),</span>
+                <span class="n">space</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="k">for</span> <span class="n">idim</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">ndim</span></a><span class="p">)</span>
+        <span class="p">]</span>
+    <span class="p">)</span>
+</pre></div>
+</div>
+<p>With these two utilities, we can start working on computing convergence
+of the FEM discretization in the <span class="math notranslate nohighlight">\(L^2\)</span>-norm</p>
+<p>First we must define how integration will be done. Here two
+<a class="reference internal" href="../source/integration.html#fdg.IntegrationSpace" title="fdg.IntegrationSpace"><code class="xref py py-class docutils literal notranslate"><span class="pre">IntegrationSpace</span></code></a> objects are defined - one for computing our
+results and another, finer, for computing the error.</p>
+<p>With these discretizations defined, we can use previously written functions to
+create the space mappings.</p>
+<div class="highlight-Python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">create_space_maps</span><span class="p">(</span><span class="n">order_integration</span><span class="p">,</span> <span class="n">type_integration</span><span class="p">,</span> <a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">ndim</span></a><span class="p">,</span> <span class="n">dp</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Create integration spaces.&quot;&quot;&quot;</span>
+    <span class="n">int_space</span> <span class="o">=</span> <a href="../source/integration.html#fdg.IntegrationSpace" title="fdg.IntegrationSpace" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class"><span class="n">IntegrationSpace</span></a><span class="p">(</span>
+        <span class="o">*</span><span class="p">((</span><a href="../source/integration.html#fdg.IntegrationSpecs" title="fdg.IntegrationSpecs" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class"><span class="n">IntegrationSpecs</span></a><span class="p">(</span><span class="n">order_integration</span><span class="p">,</span> <span class="n">type_integration</span><span class="p">),)</span> <span class="o">*</span> <a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">ndim</span></a><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">int_space_higher</span> <span class="o">=</span> <a href="../source/integration.html#fdg.IntegrationSpace" title="fdg.IntegrationSpace" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class"><span class="n">IntegrationSpace</span></a><span class="p">(</span>
+        <span class="o">*</span><span class="p">((</span><a href="../source/integration.html#fdg.IntegrationSpecs" title="fdg.IntegrationSpecs" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class"><span class="n">IntegrationSpecs</span></a><span class="p">(</span><span class="n">order_integration</span> <span class="o">+</span> <span class="n">dp</span><span class="p">,</span> <span class="n">type_integration</span><span class="p">),)</span> <span class="o">*</span> <a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">ndim</span></a><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">space_map</span> <span class="o">=</span> <span class="n">create_space_map</span><span class="p">(</span><span class="mf">0.1</span><span class="p">,</span> <span class="p">[</span><span class="mi">5</span><span class="p">]</span> <span class="o">*</span> <a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">ndim</span></a><span class="p">,</span> <span class="n">int_space</span><span class="p">)</span>
+    <span class="n">space_map_high</span> <span class="o">=</span> <span class="n">create_space_map</span><span class="p">(</span><span class="mf">0.1</span><span class="p">,</span> <span class="p">[</span><span class="mi">5</span><span class="p">]</span> <span class="o">*</span> <a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">ndim</span></a><span class="p">,</span> <span class="n">int_space_higher</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">space_map</span><span class="p">,</span> <span class="n">space_map_high</span>
+</pre></div>
+</div>
+<p>Along with the <a class="reference internal" href="../source/integration.html#fdg.IntegrationSpace" title="fdg.IntegrationSpace"><code class="xref py py-class docutils literal notranslate"><span class="pre">IntegrationSpace</span></code></a> objects to define integration we
+must define the discretization of the <span class="math notranslate nohighlight">\(k\)</span>-forms using a <span class="math notranslate nohighlight">\(FunctionSpace\)</span>
+object.</p>
+<p>With base function space defined, we can define some <span class="math notranslate nohighlight">\(k\)</span>-form
+specifications using <a class="reference internal" href="../source/kform_types.html#fdg.KFormSpecs" title="fdg.KFormSpecs"><code class="xref py py-class docutils literal notranslate"><span class="pre">KFormSpecs</span></code></a>. These do not contain any degrees of
+freedom themselves, but provide information about the order and function spaces.</p>
+<div class="highlight-Python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">create_kform_specs</span><span class="p">(</span><span class="n">type_basis</span><span class="p">,</span> <span class="n">order_basis</span><span class="p">,</span> <a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">ndim</span></a><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Create k-form specifications.&quot;&quot;&quot;</span>
+    <span class="n">base_space</span> <span class="o">=</span> <a href="../source/basis_functions.html#fdg.FunctionSpace" title="fdg.FunctionSpace" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class"><span class="n">FunctionSpace</span></a><span class="p">(</span><span class="o">*</span><span class="p">((</span><a href="../source/basis_functions.html#fdg.BasisSpecs" title="fdg.BasisSpecs" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class"><span class="n">BasisSpecs</span></a><span class="p">(</span><span class="n">type_basis</span><span class="p">,</span> <span class="n">order_basis</span><span class="p">),)</span> <span class="o">*</span> <a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">ndim</span></a><span class="p">))</span>
+
+    <span class="n">specs_u</span> <span class="o">=</span> <a href="../source/kform_types.html#fdg.KFormSpecs" title="fdg.KFormSpecs" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class"><span class="n">KFormSpecs</span></a><span class="p">(</span><a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">ndim</span></a><span class="p">,</span> <span class="n">base_space</span><span class="p">)</span>
+    <span class="n">specs_q</span> <span class="o">=</span> <a href="../source/kform_types.html#fdg.KFormSpecs" title="fdg.KFormSpecs" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class"><span class="n">KFormSpecs</span></a><span class="p">(</span><a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">ndim</span></a> <span class="o">-</span> <span class="mi">1</span><span class="p">,</span> <span class="n">base_space</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">specs_u</span><span class="p">,</span> <span class="n">specs_q</span>
+</pre></div>
+</div>
+<p>While for left side symmetry could be exploited, there’s no harm to compute
+it in full for this example. To that end, we first compute the two mass
+matrices for the two <span class="math notranslate nohighlight">\(k\)</span>-forms, then apply the incidence operators
+as needed.</p>
+<p>Now that we have the required blocks, we can assemble the system matrix.
+Alternatively we could have used Schur’s complement to compute the solution,
+but for the sake of simplicity here we use the full dense solve.</p>
+<div class="highlight-Python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">assemble_lhs</span><span class="p">(</span><span class="n">sm</span><span class="p">,</span> <span class="n">specs_q</span><span class="p">,</span> <span class="n">specs_u</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Crate the system matrix.&quot;&quot;&quot;</span>
+    <span class="n">mq</span> <span class="o">=</span> <a href="../source/inner_product.html#fdg.compute_kform_mass_matrix" title="fdg.compute_kform_mass_matrix" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-function"><span class="n">compute_kform_mass_matrix</span></a><span class="p">(</span>
+        <span class="n">sm</span><span class="p">,</span> <span class="n">specs_q</span><span class="o">.</span><span class="n">order</span><span class="p">,</span> <span class="n">specs_q</span><span class="o">.</span><span class="n">base_space</span><span class="p">,</span> <span class="n">specs_q</span><span class="o">.</span><span class="n">base_space</span>
+    <span class="p">)</span>
+    <span class="n">mu</span> <span class="o">=</span> <a href="../source/inner_product.html#fdg.compute_kform_mass_matrix" title="fdg.compute_kform_mass_matrix" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-function"><span class="n">compute_kform_mass_matrix</span></a><span class="p">(</span>
+        <span class="n">sm</span><span class="p">,</span> <span class="n">specs_u</span><span class="o">.</span><span class="n">order</span><span class="p">,</span> <span class="n">specs_u</span><span class="o">.</span><span class="n">base_space</span><span class="p">,</span> <span class="n">specs_u</span><span class="o">.</span><span class="n">base_space</span>
+    <span class="p">)</span>
+
+    <span class="n">mu_e</span> <span class="o">=</span> <a href="../source/incidence.html#fdg.incidence_kform_operator" title="fdg.incidence_kform_operator" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-function"><span class="n">incidence_kform_operator</span></a><span class="p">(</span><span class="n">specs_q</span><span class="p">,</span> <span class="n">mu</span><span class="p">,</span> <span class="n">right</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="n">et_mu</span> <span class="o">=</span> <a href="../source/incidence.html#fdg.incidence_kform_operator" title="fdg.incidence_kform_operator" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-function"><span class="n">incidence_kform_operator</span></a><span class="p">(</span><span class="n">specs_q</span><span class="p">,</span> <span class="n">mu</span><span class="p">,</span> <span class="n">transpose</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+    <span class="n">system_matrix</span> <span class="o">=</span> <a href="https://numpy.org/doc/stable/reference/generated/numpy.block.html#numpy.block" title="numpy.block" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-function"><span class="n">np</span><span class="o">.</span><span class="n">block</span></a><span class="p">(</span>
+        <span class="p">[</span>
+            <span class="p">[</span><span class="n">mq</span><span class="p">,</span> <span class="n">et_mu</span><span class="p">],</span>
+            <span class="p">[</span><span class="n">mu_e</span><span class="p">,</span> <a href="https://numpy.org/doc/stable/reference/generated/numpy.zeros_like.html#numpy.zeros_like" title="numpy.zeros_like" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-function"><span class="n">np</span><span class="o">.</span><span class="n">zeros_like</span></a><span class="p">(</span><span class="n">mu</span><span class="p">)],</span>
+        <span class="p">]</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">system_matrix</span>
+</pre></div>
+</div>
+<p>The right side of the Poisson equation can be computed from the “dual projection”
+of the manufactured source term on the function space.</p>
+<div class="highlight-Python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">assemble_rhs</span><span class="p">(</span><span class="n">specs_u</span><span class="p">,</span> <span class="n">specs_q</span><span class="p">,</span> <span class="n">sm_h</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Assemble the system&#39;s RHS.&quot;&quot;&quot;</span>
+    <span class="n">source_vals</span> <span class="o">=</span> <a href="../source/inner_product.html#fdg.projection_kform_l2_dual" title="fdg.projection_kform_l2_dual" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-function"><span class="n">projection_kform_l2_dual</span></a><span class="p">([</span><span class="n">manufactured_source_poisson</span><span class="p">],</span> <span class="n">specs_u</span><span class="p">,</span> <span class="n">sm_h</span><span class="p">)[</span>
+        <span class="mi">0</span>
+    <span class="p">]</span>
+
+    <span class="n">rhs</span> <span class="o">=</span> <a href="https://numpy.org/doc/stable/reference/generated/numpy.concatenate.html#numpy.concatenate" title="numpy.concatenate" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-function"><span class="n">np</span><span class="o">.</span><span class="n">concatenate</span></a><span class="p">(</span>
+        <span class="p">(</span><a href="https://numpy.org/doc/stable/reference/generated/numpy.zeros.html#numpy.zeros" title="numpy.zeros" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-function"><span class="n">np</span><span class="o">.</span><span class="n">zeros</span></a><span class="p">(</span><span class="nb">sum</span><span class="p">(</span><span class="n">specs_q</span><span class="o">.</span><span class="n">component_dof_counts</span><span class="p">)),</span> <span class="n">source_vals</span><span class="o">.</span><span class="n">flatten</span><span class="p">())</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">rhs</span>
+</pre></div>
+</div>
+<p>From here we can split solution vector into degrees of freedom of individual
+<span class="math notranslate nohighlight">\(k\)</span>-forms represented by <a class="reference internal" href="../source/kform_types.html#fdg.KForm" title="fdg.KForm"><code class="xref py py-class docutils literal notranslate"><span class="pre">KForm</span></code></a> objects.
+To compute the <span class="math notranslate nohighlight">\(L^2\)</span> error, we need to reconstruct the computed solution,
+subtract the manufactured solution, then integrate the square of the error.</p>
+<div class="highlight-Python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">reconstruct_error_l2</span><span class="p">(</span><span class="n">specs_q</span><span class="p">,</span> <span class="n">specs_u</span><span class="p">,</span> <span class="n">solution_dofs</span><span class="p">,</span> <a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">ndim</span></a><span class="p">,</span> <span class="n">sm_h</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Reconstruct the solution and compute the L2 error.&quot;&quot;&quot;</span>
+    <span class="n">sol_q</span> <span class="o">=</span> <a href="../source/kform_types.html#fdg.KForm" title="fdg.KForm" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class"><span class="n">KForm</span></a><span class="p">(</span><span class="n">specs_q</span><span class="p">)</span>
+    <span class="n">sol_u</span> <span class="o">=</span> <a href="../source/kform_types.html#fdg.KForm" title="fdg.KForm" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class"><span class="n">KForm</span></a><span class="p">(</span><span class="n">specs_u</span><span class="p">)</span>
+
+    <span class="n">nq</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">specs_q</span><span class="o">.</span><span class="n">component_dof_counts</span><span class="p">)</span>
+
+    <span class="n">sol_q</span><span class="o">.</span><span class="n">values</span><span class="p">[:]</span> <span class="o">=</span> <span class="n">solution_dofs</span><span class="p">[:</span><span class="n">nq</span><span class="p">]</span>
+    <span class="n">sol_u</span><span class="o">.</span><span class="n">values</span><span class="p">[:]</span> <span class="o">=</span> <span class="n">solution_dofs</span><span class="p">[</span><span class="n">nq</span><span class="p">:]</span>
+
+    <span class="n">u_dofs</span> <span class="o">=</span> <a href="../source/degrees_of_freedom.html#fdg.DegreesOfFreedom" title="fdg.DegreesOfFreedom" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class"><span class="n">DegreesOfFreedom</span></a><span class="p">(</span>
+        <span class="n">specs_u</span><span class="o">.</span><span class="n">get_component_function_space</span><span class="p">(</span><span class="mi">0</span><span class="p">),</span> <span class="n">sol_u</span><span class="o">.</span><span class="n">get_component_dofs</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="c1"># K-form computed values at integration nodes</span>
+    <span class="n">computed_values</span> <span class="o">=</span> <a href="../source/kform_transformations.html#fdg.transform_kform_to_target" title="fdg.transform_kform_to_target" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-function"><span class="n">transform_kform_to_target</span></a><span class="p">(</span>
+        <a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">ndim</span></a><span class="p">,</span>
+        <span class="n">sm_h</span><span class="p">,</span>
+        <span class="p">[</span><a href="../source/degrees_of_freedom.html#fdg.reconstruct" title="fdg.reconstruct" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">reconstruct</span></a><span class="p">(</span><span class="n">u_dofs</span><span class="p">,</span> <span class="o">*</span><span class="n">sm_h</span><span class="o">.</span><span class="n">integration_space</span><span class="o">.</span><span class="n">nodes</span><span class="p">())],</span>
+    <span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="c1"># K-form exact values at integration nodes</span>
+    <span class="n">real_values</span> <span class="o">=</span> <span class="n">manufactured_solution</span><span class="p">(</span>
+        <span class="o">*</span><span class="p">[</span><span class="n">sm_h</span><span class="o">.</span><span class="n">coordinate_map</span><span class="p">(</span><span class="n">idx</span><span class="p">)</span><span class="o">.</span><span class="n">values</span> <span class="k">for</span> <span class="n">idx</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">ndim</span></a><span class="p">)]</span>
+    <span class="p">)</span>
+    <span class="c1"># Error</span>
+    <span class="n">err_l2</span> <span class="o">=</span> <a href="https://numpy.org/doc/stable/reference/generated/numpy.sum.html#numpy.sum" title="numpy.sum" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-function"><span class="n">np</span><span class="o">.</span><span class="n">sum</span></a><span class="p">(</span>
+        <span class="p">(</span><span class="n">computed_values</span> <span class="o">-</span> <span class="n">real_values</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span>
+        <span class="o">*</span> <span class="n">sm_h</span><span class="o">.</span><span class="n">determinant</span>
+        <span class="o">*</span> <span class="n">sm_h</span><span class="o">.</span><span class="n">integration_space</span><span class="o">.</span><span class="n">weights</span><span class="p">()</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">err_l2</span>
+</pre></div>
+</div>
+<p>All the small building blocks discussed before can now be put together
+to form the error calculation function.</p>
+<div class="highlight-Python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">compute_l2_error</span><span class="p">(</span>
+    <span class="n">order_integration</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">type_integration</span><span class="p">:</span> <a href="../source/integration.html#fdg.IntegrationMethod" title="fdg.IntegrationMethod" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class"><span class="n">IntegrationMethod</span></a><span class="p">,</span>
+    <span class="n">order_basis</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">type_basis</span><span class="p">:</span> <a href="../source/basis_functions.html#fdg.BasisType" title="fdg.BasisType" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class"><span class="n">BasisType</span></a><span class="p">,</span>
+    <a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">ndim</span></a><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">dp</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Solve the N-dimensional Poisson equation and compute the L^2 error.&quot;&quot;&quot;</span>
+    <span class="c1"># Space maps</span>
+    <span class="n">sm</span><span class="p">,</span> <span class="n">sm_h</span> <span class="o">=</span> <span class="n">create_space_maps</span><span class="p">(</span><span class="n">order_integration</span><span class="p">,</span> <span class="n">type_integration</span><span class="p">,</span> <a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">ndim</span></a><span class="p">,</span> <span class="n">dp</span><span class="p">)</span>
+    <span class="c1"># K-form specs</span>
+    <span class="n">specs_u</span><span class="p">,</span> <span class="n">specs_q</span> <span class="o">=</span> <span class="n">create_kform_specs</span><span class="p">(</span><span class="n">type_basis</span><span class="p">,</span> <span class="n">order_basis</span><span class="p">,</span> <a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">ndim</span></a><span class="p">)</span>
+    <span class="c1"># LHS of the system</span>
+    <span class="n">lhs</span> <span class="o">=</span> <span class="n">assemble_lhs</span><span class="p">(</span><span class="n">sm</span><span class="p">,</span> <span class="n">specs_q</span><span class="p">,</span> <span class="n">specs_u</span><span class="p">)</span>
+    <span class="c1"># RHS</span>
+    <span class="n">rhs</span> <span class="o">=</span> <span class="n">assemble_rhs</span><span class="p">(</span><span class="n">specs_u</span><span class="p">,</span> <span class="n">specs_q</span><span class="p">,</span> <span class="n">sm_h</span><span class="p">)</span>
+    <span class="c1"># Solve</span>
+    <span class="n">solution_dofs</span> <span class="o">=</span> <a href="https://numpy.org/doc/stable/reference/generated/numpy.linalg.solve.html#numpy.linalg.solve" title="numpy.linalg.solve" class="sphx-glr-backref-module-numpy-linalg sphx-glr-backref-type-py-function"><span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">solve</span></a><span class="p">(</span><span class="n">lhs</span><span class="p">,</span> <span class="n">rhs</span><span class="p">)</span>
+    <span class="c1"># Compute error squared</span>
+    <span class="n">err_l2</span> <span class="o">=</span> <span class="n">reconstruct_error_l2</span><span class="p">(</span><span class="n">specs_q</span><span class="p">,</span> <span class="n">specs_u</span><span class="p">,</span> <span class="n">solution_dofs</span><span class="p">,</span> <a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">ndim</span></a><span class="p">,</span> <span class="n">sm_h</span><span class="p">)</span>
+    <span class="c1"># Retur the error</span>
+    <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><a href="https://numpy.org/doc/stable/reference/generated/numpy.ufunc.html#numpy.ufunc" title="numpy.ufunc" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">np</span><span class="o">.</span><span class="n">sqrt</span></a><span class="p">(</span><span class="n">err_l2</span><span class="p">))</span>
+</pre></div>
+</div>
+<p>For this test, we will use Bernstein basis, Gauss integration rule, and the order
+difference of 1 between the lower and higher order integration rules.</p>
+<div class="highlight-Python notranslate"><div class="highlight"><pre><span></span><a href="../source/basis_functions.html#fdg.BasisType" title="fdg.BasisType" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">BTYPE</span></a> <span class="o">=</span> <a href="../source/basis_functions.html#fdg.BasisType" title="fdg.BasisType" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">BasisType</span><span class="o">.</span><span class="n">BERNSTEIN</span></a>
+<a href="../source/integration.html#fdg.IntegrationMethod" title="fdg.IntegrationMethod" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">ITYPE</span></a> <span class="o">=</span> <a href="../source/integration.html#fdg.IntegrationMethod" title="fdg.IntegrationMethod" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">IntegrationMethod</span><span class="o">.</span><span class="n">GAUSS</span></a>
+<a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">DP</span></a> <span class="o">=</span> <span class="mi">1</span>
+
+<a href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="numpy.ndarray" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">pvals</span></a> <span class="o">=</span> <a href="https://numpy.org/doc/stable/reference/generated/numpy.arange.html#numpy.arange" title="numpy.arange" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-function"><span class="n">np</span><span class="o">.</span><span class="n">arange</span></a><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">7</span><span class="p">)</span>
+<a href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="numpy.ndarray" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">evals</span></a> <span class="o">=</span> <a href="https://numpy.org/doc/stable/reference/generated/numpy.zeros.html#numpy.zeros" title="numpy.zeros" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-function"><span class="n">np</span><span class="o">.</span><span class="n">zeros</span></a><span class="p">(</span><a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">pvals</span><span class="o">.</span><span class="n">size</span></a><span class="p">)</span>
+<a href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="numpy.ndarray" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">tvals</span></a> <span class="o">=</span> <a href="https://numpy.org/doc/stable/reference/generated/numpy.zeros.html#numpy.zeros" title="numpy.zeros" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-function"><span class="n">np</span><span class="o">.</span><span class="n">zeros</span></a><span class="p">(</span><a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">pvals</span><span class="o">.</span><span class="n">size</span></a><span class="p">)</span>
+<span class="k">for</span> <a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">ndim</span></a> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">4</span><span class="p">):</span>
+    <span class="k">for</span> <a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">ip</span></a><span class="p">,</span> <a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.int64" title="numpy.int64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">p</span></a> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><a href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="numpy.ndarray" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">pvals</span></a><span class="p">):</span>
+        <a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">pv</span></a> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.int64" title="numpy.int64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">p</span></a><span class="p">)</span>
+        <a href="https://docs.python.org/3/library/functions.html#float" title="builtins.float" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">t0</span></a> <span class="o">=</span> <a href="https://docs.python.org/3/library/time.html#time.perf_counter" title="time.perf_counter" class="sphx-glr-backref-module-time sphx-glr-backref-type-py-function"><span class="n">perf_counter</span></a><span class="p">()</span>
+        <a href="https://docs.python.org/3/library/functions.html#float" title="builtins.float" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">l2</span></a> <span class="o">=</span> <span class="n">compute_l2_error</span><span class="p">(</span><a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">pv</span></a> <span class="o">+</span> <span class="mi">0</span><span class="p">,</span> <a href="../source/integration.html#fdg.IntegrationMethod" title="fdg.IntegrationMethod" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">ITYPE</span></a><span class="p">,</span> <a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">pv</span></a><span class="p">,</span> <a href="../source/basis_functions.html#fdg.BasisType" title="fdg.BasisType" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">BTYPE</span></a><span class="p">,</span> <a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">ndim</span></a><span class="p">,</span> <a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">DP</span></a><span class="p">)</span>
+        <a href="https://docs.python.org/3/library/functions.html#float" title="builtins.float" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">t1</span></a> <span class="o">=</span> <a href="https://docs.python.org/3/library/time.html#time.perf_counter" title="time.perf_counter" class="sphx-glr-backref-module-time sphx-glr-backref-type-py-function"><span class="n">perf_counter</span></a><span class="p">()</span>
+        <a href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="numpy.ndarray" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">evals</span></a><span class="p">[</span><a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">ip</span></a><span class="p">]</span> <span class="o">=</span> <a href="https://docs.python.org/3/library/functions.html#float" title="builtins.float" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">l2</span></a>
+        <a href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="numpy.ndarray" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">tvals</span></a><span class="p">[</span><a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">ip</span></a><span class="p">]</span> <span class="o">=</span> <a href="https://docs.python.org/3/library/functions.html#float" title="builtins.float" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">t1</span></a> <span class="o">-</span> <a href="https://docs.python.org/3/library/functions.html#float" title="builtins.float" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">t0</span></a>
+
+    <a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">k1</span></a><span class="p">,</span> <a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">k0</span></a> <span class="o">=</span> <a href="https://numpy.org/doc/stable/reference/generated/numpy.polyfit.html#numpy.polyfit" title="numpy.polyfit" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-function"><span class="n">np</span><span class="o">.</span><span class="n">polyfit</span></a><span class="p">(</span><a href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="numpy.ndarray" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">pvals</span></a><span class="p">,</span> <a href="https://numpy.org/doc/stable/reference/generated/numpy.ufunc.html#numpy.ufunc" title="numpy.ufunc" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">np</span><span class="o">.</span><span class="n">log</span></a><span class="p">(</span><a href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="numpy.ndarray" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">evals</span></a><span class="p">),</span> <span class="n">deg</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+    <a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">c</span></a> <span class="o">=</span> <a href="https://numpy.org/doc/stable/reference/generated/numpy.ufunc.html#numpy.ufunc" title="numpy.ufunc" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">np</span><span class="o">.</span><span class="n">exp</span></a><span class="p">(</span><a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">k0</span></a><span class="p">)</span>
+    <a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">b</span></a> <span class="o">=</span> <a href="https://numpy.org/doc/stable/reference/generated/numpy.ufunc.html#numpy.ufunc" title="numpy.ufunc" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">np</span><span class="o">.</span><span class="n">exp</span></a><span class="p">(</span><a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">k1</span></a><span class="p">)</span>
+
+    <span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">subplots</span><span class="p">()</span>
+
+    <span class="n">ax</span><span class="o">.</span><span class="n">scatter</span><span class="p">(</span><a href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="numpy.ndarray" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">pvals</span></a><span class="p">,</span> <a href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="numpy.ndarray" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">evals</span></a><span class="p">)</span>
+    <span class="n">ax</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span>
+        <a href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="numpy.ndarray" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">pvals</span></a><span class="p">,</span>
+        <a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">c</span></a> <span class="o">*</span> <a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">b</span></a><span class="o">**</span><a href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="numpy.ndarray" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">pvals</span></a><span class="p">,</span>
+        <span class="n">linestyle</span><span class="o">=</span><span class="s2">&quot;dashed&quot;</span><span class="p">,</span>
+        <span class="n">label</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;$</span><span class="se">\\</span><span class="s2">varepsilon = </span><span class="si">{</span><a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">c</span></a><span class="si">:</span><span class="s2">.2g</span><span class="si">}</span><span class="s2"> </span><span class="se">\\</span><span class="s2">cdot </span><span class="si">{</span><a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">b</span></a><span class="si">:</span><span class="s2">.2g</span><span class="si">}</span><span class="s2">^</span><span class="se">{{</span><span class="s2">p</span><span class="se">}}</span><span class="s2">$&quot;</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">ax</span><span class="o">.</span><span class="n">set</span><span class="p">(</span>
+        <span class="n">yscale</span><span class="o">=</span><span class="s2">&quot;log&quot;</span><span class="p">,</span>
+        <span class="n">xlabel</span><span class="o">=</span><span class="s2">&quot;$p$&quot;</span><span class="p">,</span>
+        <span class="n">ylabel</span><span class="o">=</span><span class="s2">&quot;$</span><span class="se">\\</span><span class="s2">left|</span><span class="se">\\</span><span class="s2">left| </span><span class="se">\\</span><span class="s2">varepsilon </span><span class="se">\\</span><span class="s2">right|</span><span class="se">\\</span><span class="s2">right|_{ L^2 }$&quot;</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">ax</span><span class="o">.</span><span class="n">grid</span><span class="p">()</span>
+    <span class="n">ax</span><span class="o">.</span><span class="n">legend</span><span class="p">()</span>
+    <span class="n">ax</span><span class="o">.</span><span class="n">set_title</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">ndim</span></a><span class="si">}</span><span class="s2">-dimensional Poisson equation convergence&quot;</span><span class="p">)</span>
+    <span class="n">fig</span><span class="o">.</span><span class="n">tight_layout</span><span class="p">()</span>
+
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+</pre></div>
+</div>
+<ul class="sphx-glr-horizontal">
+<li><img src="../_images/sphx_glr_plot_poisson_001.png" srcset="../_images/sphx_glr_plot_poisson_001.png" alt="1-dimensional Poisson equation convergence" class = "sphx-glr-multi-img"/></li>
+<li><img src="../_images/sphx_glr_plot_poisson_002.png" srcset="../_images/sphx_glr_plot_poisson_002.png" alt="2-dimensional Poisson equation convergence" class = "sphx-glr-multi-img"/></li>
+<li><img src="../_images/sphx_glr_plot_poisson_003.png" srcset="../_images/sphx_glr_plot_poisson_003.png" alt="3-dimensional Poisson equation convergence" class = "sphx-glr-multi-img"/></li>
+</ul>
+<p class="sphx-glr-timing"><strong>Total running time of the script:</strong> (0 minutes 7.996 seconds)</p>
+<div class="sphx-glr-footer sphx-glr-footer-example docutils container" id="sphx-glr-download-auto-examples-plot-poisson-py">
+<div class="sphx-glr-download sphx-glr-download-jupyter docutils container">
+<p><a class="reference download internal" download="" href="../_downloads/dd813bd6c271f52b87c333d66fec2e6d/plot_poisson.ipynb"><code class="xref download docutils literal notranslate"><span class="pre">Download</span> <span class="pre">Jupyter</span> <span class="pre">notebook:</span> <span class="pre">plot_poisson.ipynb</span></code></a></p>
+</div>
+<div class="sphx-glr-download sphx-glr-download-python docutils container">
+<p><a class="reference download internal" download="" href="../_downloads/9c3b78077773ad526d8571ce8d23cb02/plot_poisson.py"><code class="xref download docutils literal notranslate"><span class="pre">Download</span> <span class="pre">Python</span> <span class="pre">source</span> <span class="pre">code:</span> <span class="pre">plot_poisson.py</span></code></a></p>
+</div>
+<div class="sphx-glr-download sphx-glr-download-zip docutils container">
+<p><a class="reference download internal" download="" href="../_downloads/b262ac3697f90fd49a2a5c1da2e7fa68/plot_poisson.zip"><code class="xref download docutils literal notranslate"><span class="pre">Download</span> <span class="pre">zipped:</span> <span class="pre">plot_poisson.zip</span></code></a></p>
+</div>
+</div>
+<p class="sphx-glr-signature"><a class="reference external" href="https://sphinx-gallery.github.io">Gallery generated by Sphinx-Gallery</a></p>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="plot_domains.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Domain Examples</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="plot_gradients.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Gradients</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+  <div role="note" aria-label="source link">
+    <h3>This Page</h3>
+    <ul class="this-page-menu">
+      <li><a href="../_sources/auto_examples/plot_poisson.rst.txt"
+            rel="nofollow">Show Source</a></li>
+    </ul>
+   </div></div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2024, Jan Roth.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 8.2.3.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

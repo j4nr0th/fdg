@@ -353,7 +353,9 @@
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_prepare_integration</span><span class="p">(</span>
-    <span class="n">integration</span><span class="p">:</span> <span class="n">IntegrationSpace</span> <span class="o">|</span> <span class="n">SpaceMap</span><span class="p">,</span> <span class="n">registry</span><span class="p">:</span> <span class="n">IntegrationRegistry</span>
+    <span class="n">integration</span><span class="p">:</span> <span class="n">IntegrationSpace</span> <span class="o">|</span> <span class="n">SpaceMap</span><span class="p">,</span>
+    <span class="n">registry</span><span class="p">:</span> <span class="n">IntegrationRegistry</span><span class="p">,</span>
+    <span class="n">mapped_input</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">double</span><span class="p">],</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">double</span><span class="p">]]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Prepare nodes and weights.</span>
 
@@ -364,6 +366,10 @@
 
 <span class="sd">    registry : IntegrationRegistry</span>
 <span class="sd">        Registry to get the integration nodes and weights from.</span>
+
+<span class="sd">    mapped_input : bool</span>
+<span class="sd">        Function takes coordinates in the physical domain instead of reference domain.</span>
+<span class="sd">        When ``False``, the reference domain coordinates are used instead.</span>
 
 <span class="sd">    Returns</span>
 <span class="sd">    -------</span>
@@ -380,12 +386,15 @@
         <span class="k">case</span> <span class="n">SpaceMap</span><span class="p">()</span> <span class="k">as</span> <span class="n">smap</span><span class="p">:</span>
             <span class="n">int_space</span> <span class="o">=</span> <span class="n">smap</span><span class="o">.</span><span class="n">integration_space</span>
             <span class="n">weights</span> <span class="o">=</span> <span class="n">int_space</span><span class="o">.</span><span class="n">weights</span><span class="p">(</span><span class="n">registry</span><span class="p">)</span> <span class="o">*</span> <span class="n">smap</span><span class="o">.</span><span class="n">determinant</span>
-            <span class="n">nodes</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span>
-                <span class="p">[</span>
-                    <span class="n">smap</span><span class="o">.</span><span class="n">coordinate_map</span><span class="p">(</span><span class="n">idim</span><span class="p">)</span><span class="o">.</span><span class="n">values</span>
-                    <span class="k">for</span> <span class="n">idim</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">smap</span><span class="o">.</span><span class="n">output_dimensions</span><span class="p">)</span>
-                <span class="p">]</span>
-            <span class="p">)</span>
+            <span class="k">if</span> <span class="n">mapped_input</span><span class="p">:</span>
+                <span class="n">nodes</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span>
+                    <span class="p">[</span>
+                        <span class="n">smap</span><span class="o">.</span><span class="n">coordinate_map</span><span class="p">(</span><span class="n">idim</span><span class="p">)</span><span class="o">.</span><span class="n">values</span>
+                        <span class="k">for</span> <span class="n">idim</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">smap</span><span class="o">.</span><span class="n">output_dimensions</span><span class="p">)</span>
+                    <span class="p">]</span>
+                <span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">nodes</span> <span class="o">=</span> <span class="n">int_space</span><span class="o">.</span><span class="n">nodes</span><span class="p">(</span><span class="n">registry</span><span class="p">)</span>
         <span class="k">case</span><span class="w"> </span><span class="k">_</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span>
                 <span class="sa">f</span><span class="s2">&quot;Only </span><span class="si">{</span><span class="n">IntegrationSpace</span><span class="si">}</span><span class="s2"> or </span><span class="si">{</span><span class="n">SpaceMap</span><span class="si">}</span><span class="s2"> can be passed, but instead &quot;</span>
@@ -399,6 +408,7 @@
     <span class="n">func</span><span class="p">:</span> <span class="n">Integrable</span><span class="p">,</span>
     <span class="n">integration</span><span class="p">:</span> <span class="n">IntegrationSpace</span> <span class="o">|</span> <span class="n">SpaceMap</span><span class="p">,</span>
     <span class="o">/</span><span class="p">,</span>
+    <span class="n">mapped_input</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">registry</span><span class="p">:</span> <span class="n">IntegrationRegistry</span> <span class="o">=</span> <span class="n">DEFAULT_INTEGRATION_REGISTRY</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
@@ -415,6 +425,10 @@
 <span class="sd">        integration domain, which is an :math:`N`-dimensional :math:`[-1, +1]` hypercube,</span>
 <span class="sd">        and the physical domain.</span>
 
+<span class="sd">    mapped_input : bool, default: True</span>
+<span class="sd">        Function takes coordinates in the physical domain instead of reference domain.</span>
+<span class="sd">        When ``False``, the reference domain coordinates are used instead.</span>
+
 <span class="sd">    registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY</span>
 <span class="sd">        The registry to use for obtaining the integrator.</span>
 
@@ -423,7 +437,9 @@
 <span class="sd">    float</span>
 <span class="sd">        The result of the integration.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">nodes</span><span class="p">,</span> <span class="n">weights</span> <span class="o">=</span> <span class="n">_prepare_integration</span><span class="p">(</span><span class="n">integration</span><span class="o">=</span><span class="n">integration</span><span class="p">,</span> <span class="n">registry</span><span class="o">=</span><span class="n">registry</span><span class="p">)</span>
+    <span class="n">nodes</span><span class="p">,</span> <span class="n">weights</span> <span class="o">=</span> <span class="n">_prepare_integration</span><span class="p">(</span>
+        <span class="n">integration</span><span class="o">=</span><span class="n">integration</span><span class="p">,</span> <span class="n">registry</span><span class="o">=</span><span class="n">registry</span><span class="p">,</span> <span class="n">mapped_input</span><span class="o">=</span><span class="n">mapped_input</span>
+    <span class="p">)</span>
     <span class="k">return</span> <span class="nb">float</span><span class="p">(</span>
         <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span>
             <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">func</span><span class="p">(</span><span class="o">*</span><span class="p">[</span><span class="n">nodes</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">nodes</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">])]))</span> <span class="o">*</span> <span class="n">weights</span>
@@ -438,6 +454,7 @@
     <span class="n">function_space</span><span class="p">:</span> <span class="n">FunctionSpace</span><span class="p">,</span>
     <span class="n">integration</span><span class="p">:</span> <span class="n">IntegrationSpace</span> <span class="o">|</span> <span class="n">SpaceMap</span><span class="p">,</span>
     <span class="o">/</span><span class="p">,</span>
+    <span class="n">mapped_input</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">integration_registry</span><span class="p">:</span> <span class="n">IntegrationRegistry</span> <span class="o">=</span> <span class="n">DEFAULT_INTEGRATION_REGISTRY</span><span class="p">,</span>
     <span class="n">basis_registry</span><span class="p">:</span> <span class="n">BasisRegistry</span> <span class="o">=</span> <span class="n">DEFAULT_BASIS_REGISTRY</span><span class="p">,</span>
@@ -455,6 +472,10 @@
 <span class="sd">    integration : IntegrationSpace or SpaceMap</span>
 <span class="sd">        Specification of the integration domain.</span>
 
+<span class="sd">    mapped_input : bool, default: True</span>
+<span class="sd">        Function takes coordinates in the physical domain instead of reference domain.</span>
+<span class="sd">        When ``False``, the reference domain coordinates are used instead.</span>
+
 <span class="sd">    integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY</span>
 <span class="sd">        The registry to use for obtaining the integrator.</span>
 
@@ -467,7 +488,7 @@
 <span class="sd">        Dual degrees of freedom of the projection.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">nodes</span><span class="p">,</span> <span class="n">weights</span> <span class="o">=</span> <span class="n">_prepare_integration</span><span class="p">(</span>
-        <span class="n">integration</span><span class="o">=</span><span class="n">integration</span><span class="p">,</span> <span class="n">registry</span><span class="o">=</span><span class="n">integration_registry</span>
+        <span class="n">integration</span><span class="o">=</span><span class="n">integration</span><span class="p">,</span> <span class="n">registry</span><span class="o">=</span><span class="n">integration_registry</span><span class="p">,</span> <span class="n">mapped_input</span><span class="o">=</span><span class="n">mapped_input</span>
     <span class="p">)</span>
 
     <span class="n">func_vals</span> <span class="o">=</span> <span class="p">(</span>
@@ -504,6 +525,7 @@
     <span class="n">function_space</span><span class="p">:</span> <span class="n">FunctionSpace</span><span class="p">,</span>
     <span class="n">integration</span><span class="p">:</span> <span class="n">IntegrationSpace</span> <span class="o">|</span> <span class="n">SpaceMap</span><span class="p">,</span>
     <span class="o">/</span><span class="p">,</span>
+    <span class="n">mapped_input</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">integration_registry</span><span class="p">:</span> <span class="n">IntegrationRegistry</span> <span class="o">=</span> <span class="n">DEFAULT_INTEGRATION_REGISTRY</span><span class="p">,</span>
     <span class="n">basis_registry</span><span class="p">:</span> <span class="n">BasisRegistry</span> <span class="o">=</span> <span class="n">DEFAULT_BASIS_REGISTRY</span><span class="p">,</span>
@@ -521,6 +543,10 @@
 <span class="sd">    integration : IntegrationSpace or SpaceMap</span>
 <span class="sd">        Specification of the integration domain.</span>
 
+<span class="sd">    mapped_input : bool, default: True</span>
+<span class="sd">        Function takes coordinates in the physical domain instead of reference domain.</span>
+<span class="sd">        When ``False``, the reference domain coordinates are used instead.</span>
+
 <span class="sd">    integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY</span>
 <span class="sd">        The registry to use for obtaining the integrator.</span>
 
@@ -536,6 +562,7 @@
         <span class="n">func</span><span class="p">,</span>
         <span class="n">function_space</span><span class="p">,</span>
         <span class="n">integration</span><span class="p">,</span>
+        <span class="n">mapped_input</span><span class="o">=</span><span class="n">mapped_input</span><span class="p">,</span>
         <span class="n">integration_registry</span><span class="o">=</span><span class="n">integration_registry</span><span class="p">,</span>
         <span class="n">basis_registry</span><span class="o">=</span><span class="n">basis_registry</span><span class="p">,</span>
     <span class="p">)</span>
@@ -561,6 +588,7 @@
     <span class="n">specs</span><span class="p">:</span> <span class="n">KFormSpecs</span><span class="p">,</span>
     <span class="n">integration</span><span class="p">:</span> <span class="n">IntegrationSpace</span> <span class="o">|</span> <span class="n">SpaceMap</span><span class="p">,</span>
     <span class="o">/</span><span class="p">,</span>
+    <span class="n">mapped_input</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">integration_registry</span><span class="p">:</span> <span class="n">IntegrationRegistry</span> <span class="o">=</span> <span class="n">DEFAULT_INTEGRATION_REGISTRY</span><span class="p">,</span>
     <span class="n">basis_registry</span><span class="p">:</span> <span class="n">BasisRegistry</span> <span class="o">=</span> <span class="n">DEFAULT_BASIS_REGISTRY</span><span class="p">,</span>
@@ -579,6 +607,10 @@
 <span class="sd">    integration : IntegrationSpace or SpaceMap</span>
 <span class="sd">        Specification of the integration domain.</span>
 
+<span class="sd">    mapped_input : bool, default: True</span>
+<span class="sd">        Function takes coordinates in the physical domain instead of reference domain.</span>
+<span class="sd">        When ``False``, the reference domain coordinates are used instead.</span>
+
 <span class="sd">    integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY</span>
 <span class="sd">        The registry to use for obtaining the integrator.</span>
 
@@ -591,7 +623,7 @@
 <span class="sd">        Dual degrees of freedom of the projection for each of the components.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">nodes</span><span class="p">,</span> <span class="n">weights</span> <span class="o">=</span> <span class="n">_prepare_integration</span><span class="p">(</span>
-        <span class="n">integration</span><span class="o">=</span><span class="n">integration</span><span class="p">,</span> <span class="n">registry</span><span class="o">=</span><span class="n">integration_registry</span>
+        <span class="n">integration</span><span class="o">=</span><span class="n">integration</span><span class="p">,</span> <span class="n">registry</span><span class="o">=</span><span class="n">integration_registry</span><span class="p">,</span> <span class="n">mapped_input</span><span class="o">=</span><span class="n">mapped_input</span>
     <span class="p">)</span>
 
     <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">funcs</span><span class="p">)</span> <span class="o">!=</span> <span class="n">specs</span><span class="o">.</span><span class="n">component_count</span><span class="p">:</span>
@@ -617,21 +649,17 @@
         <span class="k">case</span><span class="w"> </span><span class="k">_</span><span class="p">:</span>
             <span class="k">assert</span> <span class="kc">False</span>
 
-    <span class="k">for</span> <span class="n">idim</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">int_space</span><span class="o">.</span><span class="n">dimension</span><span class="p">):</span>
-        <span class="n">func_vals</span> <span class="o">=</span> <span class="n">func_vals</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="kc">None</span><span class="p">]</span>
-
     <span class="n">basis_functions</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">]</span> <span class="o">=</span> <span class="nb">list</span><span class="p">()</span>
     <span class="k">for</span> <span class="n">idx</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">specs</span><span class="o">.</span><span class="n">component_count</span><span class="p">):</span>
         <span class="n">fn_space</span> <span class="o">=</span> <span class="n">specs</span><span class="o">.</span><span class="n">get_component_function_space</span><span class="p">(</span><span class="n">idx</span><span class="p">)</span>
         <span class="n">basis_functions</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
             <span class="n">fn_space</span><span class="o">.</span><span class="n">values_at_integration_nodes</span><span class="p">(</span>
                 <span class="n">int_space</span><span class="p">,</span>
+                <span class="n">transpose</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
                 <span class="n">integration_registry</span><span class="o">=</span><span class="n">integration_registry</span><span class="p">,</span>
                 <span class="n">basis_registry</span><span class="o">=</span><span class="n">basis_registry</span><span class="p">,</span>
             <span class="p">)</span>
         <span class="p">)</span>
-
-    <span class="k">del</span> <span class="n">integration_registry</span><span class="p">,</span> <span class="n">basis_registry</span>
 
     <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">integration</span><span class="p">)</span> <span class="ow">is</span> <span class="n">SpaceMap</span><span class="p">:</span>
         <span class="n">transformed_basis</span> <span class="o">=</span> <span class="p">[</span>
@@ -641,12 +669,17 @@
             <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">specs</span><span class="o">.</span><span class="n">component_count</span><span class="p">)</span>
         <span class="p">]</span>
         <span class="n">dual_dofs</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span>
-            <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">func_vals</span> <span class="o">*</span> <span class="n">b</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="nb">tuple</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="n">int_space</span><span class="o">.</span><span class="n">dimension</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)))</span>
+            <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span>
+                <span class="n">func_vals</span> <span class="o">*</span> <span class="n">b</span><span class="p">,</span>
+                <span class="n">axis</span><span class="o">=</span><span class="nb">tuple</span><span class="p">(</span><span class="o">-</span><span class="p">(</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">int_space</span><span class="o">.</span><span class="n">dimension</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)),</span>
+            <span class="p">)</span>
             <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">transformed_basis</span>
         <span class="p">)</span>
     <span class="k">else</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">idim</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">int_space</span><span class="o">.</span><span class="n">dimension</span><span class="p">):</span>
+            <span class="n">func_vals</span> <span class="o">=</span> <span class="n">func_vals</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span>
         <span class="n">dual_dofs</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span>
-            <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">f</span> <span class="o">*</span> <span class="n">b</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="nb">tuple</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="n">int_space</span><span class="o">.</span><span class="n">dimension</span><span class="p">)))</span>
+            <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">f</span> <span class="o">*</span> <span class="n">b</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="nb">tuple</span><span class="p">(</span><span class="o">-</span><span class="p">(</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">int_space</span><span class="o">.</span><span class="n">dimension</span><span class="p">)))</span>
             <span class="k">for</span> <span class="n">f</span><span class="p">,</span> <span class="n">b</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">func_vals</span><span class="p">,</span> <span class="n">basis_functions</span><span class="p">)</span>
         <span class="p">)</span>
 
@@ -659,6 +692,7 @@
     <span class="n">specs</span><span class="p">:</span> <span class="n">KFormSpecs</span><span class="p">,</span>
     <span class="n">integration</span><span class="p">:</span> <span class="n">IntegrationSpace</span> <span class="o">|</span> <span class="n">SpaceMap</span><span class="p">,</span>
     <span class="o">/</span><span class="p">,</span>
+    <span class="n">mapped_input</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">integration_registry</span><span class="p">:</span> <span class="n">IntegrationRegistry</span> <span class="o">=</span> <span class="n">DEFAULT_INTEGRATION_REGISTRY</span><span class="p">,</span>
     <span class="n">basis_registry</span><span class="p">:</span> <span class="n">BasisRegistry</span> <span class="o">=</span> <span class="n">DEFAULT_BASIS_REGISTRY</span><span class="p">,</span>
@@ -676,6 +710,9 @@
 
 <span class="sd">    integration : IntegrationSpace or SpaceMap</span>
 <span class="sd">        Specification of the integration domain.</span>
+<span class="sd">    mapped_input : bool, default: True</span>
+<span class="sd">        Function takes coordinates in the physical domain instead of reference domain.</span>
+<span class="sd">        When ``False``, the reference domain coordinates are used instead.</span>
 
 <span class="sd">    integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY</span>
 <span class="sd">        The registry to use for obtaining the integrator.</span>
@@ -692,6 +729,7 @@
         <span class="n">funcs</span><span class="p">,</span>
         <span class="n">specs</span><span class="p">,</span>
         <span class="n">integration</span><span class="p">,</span>
+        <span class="n">mapped_input</span><span class="o">=</span><span class="n">mapped_input</span><span class="p">,</span>
         <span class="n">integration_registry</span><span class="o">=</span><span class="n">integration_registry</span><span class="p">,</span>
         <span class="n">basis_registry</span><span class="o">=</span><span class="n">basis_registry</span><span class="p">,</span>
     <span class="p">)</span>
@@ -703,7 +741,7 @@
                 <span class="n">specs</span><span class="o">.</span><span class="n">order</span><span class="p">,</span>
                 <span class="n">specs</span><span class="o">.</span><span class="n">base_space</span><span class="p">,</span>
                 <span class="n">specs</span><span class="o">.</span><span class="n">base_space</span><span class="p">,</span>
-                <span class="n">int_registry</span><span class="o">=</span><span class="n">integration_registry</span><span class="p">,</span>
+                <span class="n">integration_registry</span><span class="o">=</span><span class="n">integration_registry</span><span class="p">,</span>
                 <span class="n">basis_registry</span><span class="o">=</span><span class="n">basis_registry</span><span class="p">,</span>
             <span class="p">)</span>
             <span class="n">flat_primal</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">solve</span><span class="p">(</span><span class="n">mass_matrix</span><span class="p">,</span> <span class="n">flat_dual</span><span class="p">)</span>
@@ -718,7 +756,9 @@
                     <span class="n">integration_registry</span><span class="o">=</span><span class="n">integration_registry</span><span class="p">,</span>
                     <span class="n">basis_registry</span><span class="o">=</span><span class="n">basis_registry</span><span class="p">,</span>
                 <span class="p">)</span>
-                <span class="n">primal_vals</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">solve</span><span class="p">(</span><span class="n">mass_matrix</span><span class="p">,</span> <span class="n">dd</span><span class="o">.</span><span class="n">flatten</span><span class="p">()))</span>
+                <span class="n">primal_vals</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                    <span class="n">np</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">solve</span><span class="p">(</span><span class="n">mass_matrix</span><span class="p">,</span> <span class="n">dd</span><span class="o">.</span><span class="n">flatten</span><span class="p">()),</span> <span class="n">np</span><span class="o">.</span><span class="n">double</span><span class="p">)</span>
+                <span class="p">)</span>
             <span class="n">flat_primal</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">(</span><span class="n">primal_vals</span><span class="p">)</span>
 
         <span class="k">case</span><span class="w"> </span><span class="k">_</span><span class="p">:</span>

@@ -87,6 +87,23 @@ Some examples.
 
 .. raw:: html
 
+    <div class="sphx-glr-thumbcontainer" tooltip="This example demonstrates system for N-dimensional mixed Poisson equation can be set up.">
+
+.. only:: html
+
+  .. image:: /auto_examples/images/thumb/sphx_glr_plot_poisson_thumb.png
+    :alt:
+
+  :doc:`/auto_examples/plot_poisson`
+
+.. raw:: html
+
+      <div class="sphx-glr-thumbnail-title">N-D Poisson</div>
+    </div>
+
+
+.. raw:: html
+
     <div class="sphx-glr-thumbcontainer" tooltip="Gradients">
 
 .. only:: html
@@ -116,6 +133,7 @@ Some examples.
    /auto_examples/plot_basis_sets
    /auto_examples/plot_integration_rules
    /auto_examples/plot_domains
+   /auto_examples/plot_poisson
    /auto_examples/plot_gradients
 
 
