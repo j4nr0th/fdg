@@ -322,6 +322,7 @@ class FunctionSpace:
         self,
         integration: IntegrationSpace,
         /,
+        transpose: bool = False,
         *,
         integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
         basis_registry: BasisRegistry = DEFAULT_BASIS_REGISTRY,
@@ -332,6 +333,10 @@ class FunctionSpace:
         ----------
         integration : IntegrationSpace
             Integration space, the nodes of which are used to evaluate basis at.
+
+        transpose : bool, defaul: False
+            Order the array so that axes indexing the integration points come before
+            the ones indexing the bases.
 
         integration_registry : IntegrationRegistry, defaul: DEFAULT_INTEGRATION_REGISTRY
             Registry used to obtain the integration rules from.
@@ -800,7 +805,7 @@ def compute_kform_mass_matrix(
     left_bases: FunctionSpace,
     right_bases: FunctionSpace,
     *,
-    int_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
+    integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
     basis_registry: BasisRegistry = DEFAULT_BASIS_REGISTRY,
 ) -> npt.NDArray[np.double]:
     """Compute the k-form mass matrix.
@@ -819,7 +824,7 @@ def compute_kform_mass_matrix(
     right_bases : FunctionSpace
         Function space of 0-forms used as trial forms.
 
-    int_registry : IntegrationRegistry, optional
+    integration_registry : IntegrationRegistry, optional
         Registry to get the integration rules from.
 
     basis_registry : BasisRegistry, optional

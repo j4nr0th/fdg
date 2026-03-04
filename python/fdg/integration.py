@@ -46,7 +46,9 @@ class Integrable(Protocol):
 
 
 def _prepare_integration(
-    integration: IntegrationSpace | SpaceMap, registry: IntegrationRegistry
+    integration: IntegrationSpace | SpaceMap,
+    registry: IntegrationRegistry,
+    mapped_input: bool,
 ) -> tuple[npt.NDArray[np.double], npt.NDArray[np.double]]:
     """Prepare nodes and weights.
 
@@ -57,6 +59,10 @@ def _prepare_integration(
 
     registry : IntegrationRegistry
         Registry to get the integration nodes and weights from.
+
+    mapped_input : bool
+        Function takes coordinates in the physical domain instead of reference domain.
+        When ``False``, the reference domain coordinates are used instead.
 
     Returns
     -------
@@ -73,12 +79,15 @@ def _prepare_integration(
         case SpaceMap() as smap:
             int_space = smap.integration_space
             weights = int_space.weights(registry) * smap.determinant
-            nodes = np.array(
-                [
-                    smap.coordinate_map(idim).values
-                    for idim in range(smap.output_dimensions)
-                ]
-            )
+            if mapped_input:
+                nodes = np.array(
+                    [
+                        smap.coordinate_map(idim).values
+                        for idim in range(smap.output_dimensions)
+                    ]
+                )
+            else:
+                nodes = int_space.nodes(registry)
         case _:
             raise TypeError(
                 f"Only {IntegrationSpace} or {SpaceMap} can be passed, but instead "
@@ -92,6 +101,7 @@ def integrate_callable(
     func: Integrable,
     integration: IntegrationSpace | SpaceMap,
     /,
+    mapped_input: bool = True,
     *,
     registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
 ) -> float:
@@ -108,6 +118,10 @@ def integrate_callable(
         integration domain, which is an :math:`N`-dimensional :math:`[-1, +1]` hypercube,
         and the physical domain.
 
+    mapped_input : bool, default: True
+        Function takes coordinates in the physical domain instead of reference domain.
+        When ``False``, the reference domain coordinates are used instead.
+
     registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY
         The registry to use for obtaining the integrator.
 
@@ -116,7 +130,9 @@ def integrate_callable(
     float
         The result of the integration.
     """
-    nodes, weights = _prepare_integration(integration=integration, registry=registry)
+    nodes, weights = _prepare_integration(
+        integration=integration, registry=registry, mapped_input=mapped_input
+    )
     return float(
         np.sum(
             np.asarray(func(*[nodes[i, ...] for i in range(nodes.shape[0])])) * weights
@@ -129,6 +145,7 @@ def projection_l2_dual(
     function_space: FunctionSpace,
     integration: IntegrationSpace | SpaceMap,
     /,
+    mapped_input: bool = True,
     *,
     integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
     basis_registry: BasisRegistry = DEFAULT_BASIS_REGISTRY,
@@ -146,6 +163,10 @@ def projection_l2_dual(
     integration : IntegrationSpace or SpaceMap
         Specification of the integration domain.
 
+    mapped_input : bool, default: True
+        Function takes coordinates in the physical domain instead of reference domain.
+        When ``False``, the reference domain coordinates are used instead.
+
     integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY
         The registry to use for obtaining the integrator.
 
@@ -158,7 +179,7 @@ def projection_l2_dual(
         Dual degrees of freedom of the projection.
     """
     nodes, weights = _prepare_integration(
-        integration=integration, registry=integration_registry
+        integration=integration, registry=integration_registry, mapped_input=mapped_input
     )
 
     func_vals = (
@@ -194,6 +215,7 @@ def projection_l2_primal(
     function_space: FunctionSpace,
     integration: IntegrationSpace | SpaceMap,
     /,
+    mapped_input: bool = True,
     *,
     integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
     basis_registry: BasisRegistry = DEFAULT_BASIS_REGISTRY,
@@ -211,6 +233,10 @@ def projection_l2_primal(
     integration : IntegrationSpace or SpaceMap
         Specification of the integration domain.
 
+    mapped_input : bool, default: True
+        Function takes coordinates in the physical domain instead of reference domain.
+        When ``False``, the reference domain coordinates are used instead.
+
     integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY
         The registry to use for obtaining the integrator.
 
@@ -226,6 +252,7 @@ def projection_l2_primal(
         func,
         function_space,
         integration,
+        mapped_input=mapped_input,
         integration_registry=integration_registry,
         basis_registry=basis_registry,
     )
@@ -249,6 +276,7 @@ def projection_kform_l2_dual(
     specs: KFormSpecs,
     integration: IntegrationSpace | SpaceMap,
     /,
+    mapped_input: bool = True,
     *,
     integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
     basis_registry: BasisRegistry = DEFAULT_BASIS_REGISTRY,
@@ -267,6 +295,10 @@ def projection_kform_l2_dual(
     integration : IntegrationSpace or SpaceMap
         Specification of the integration domain.
 
+    mapped_input : bool, default: True
+        Function takes coordinates in the physical domain instead of reference domain.
+        When ``False``, the reference domain coordinates are used instead.
+
     integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY
         The registry to use for obtaining the integrator.
 
@@ -279,7 +311,7 @@ def projection_kform_l2_dual(
         Dual degrees of freedom of the projection for each of the components.
     """
     nodes, weights = _prepare_integration(
-        integration=integration, registry=integration_registry
+        integration=integration, registry=integration_registry, mapped_input=mapped_input
     )
 
     if len(funcs) != specs.component_count:
@@ -305,21 +337,17 @@ def projection_kform_l2_dual(
         case _:
             assert False
 
-    for idim in range(int_space.dimension):
-        func_vals = func_vals[..., None]
-
     basis_functions: list[npt.NDArray] = list()
     for idx in range(specs.component_count):
         fn_space = specs.get_component_function_space(idx)
         basis_functions.append(
             fn_space.values_at_integration_nodes(
                 int_space,
+                transpose=True,
                 integration_registry=integration_registry,
                 basis_registry=basis_registry,
             )
         )
-
-    del integration_registry, basis_registry
 
     if type(integration) is SpaceMap:
         transformed_basis = [
@@ -329,12 +357,17 @@ def projection_kform_l2_dual(
             for i in range(specs.component_count)
         ]
         dual_dofs = tuple(
-            np.sum(func_vals * b, axis=tuple(range(int_space.dimension + 1)))
+            np.sum(
+                func_vals * b,
+                axis=tuple(-(i + 1) for i in range(int_space.dimension + 1)),
+            )
             for b in transformed_basis
         )
     else:
+        for idim in range(int_space.dimension):
+            func_vals = func_vals[:, None, ...]
         dual_dofs = tuple(
-            np.sum(f * b, axis=tuple(range(int_space.dimension)))
+            np.sum(f * b, axis=tuple(-(i + 1) for i in range(int_space.dimension)))
             for f, b in zip(func_vals, basis_functions)
         )
 
@@ -346,6 +379,7 @@ def projection_kform_l2_primal(
     specs: KFormSpecs,
     integration: IntegrationSpace | SpaceMap,
     /,
+    mapped_input: bool = True,
     *,
     integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
     basis_registry: BasisRegistry = DEFAULT_BASIS_REGISTRY,
@@ -363,6 +397,9 @@ def projection_kform_l2_primal(
 
     integration : IntegrationSpace or SpaceMap
         Specification of the integration domain.
+    mapped_input : bool, default: True
+        Function takes coordinates in the physical domain instead of reference domain.
+        When ``False``, the reference domain coordinates are used instead.
 
     integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY
         The registry to use for obtaining the integrator.
@@ -379,6 +416,7 @@ def projection_kform_l2_primal(
         funcs,
         specs,
         integration,
+        mapped_input=mapped_input,
         integration_registry=integration_registry,
         basis_registry=basis_registry,
     )
@@ -390,7 +428,7 @@ def projection_kform_l2_primal(
                 specs.order,
                 specs.base_space,
                 specs.base_space,
-                int_registry=integration_registry,
+                integration_registry=integration_registry,
                 basis_registry=basis_registry,
             )
             flat_primal = np.linalg.solve(mass_matrix, flat_dual)
@@ -405,7 +443,9 @@ def projection_kform_l2_primal(
                     integration_registry=integration_registry,
                     basis_registry=basis_registry,
                 )
-                primal_vals.append(np.linalg.solve(mass_matrix, dd.flatten()))
+                primal_vals.append(
+                    np.astype(np.linalg.solve(mass_matrix, dd.flatten()), np.double)
+                )
             flat_primal = np.concatenate(primal_vals)
 
         case _:

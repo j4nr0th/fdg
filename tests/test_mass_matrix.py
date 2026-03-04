@@ -12,20 +12,21 @@ from fdg import (
     compute_mass_matrix,
 )
 
+_TEST_CASES_1D = (
+    (1, BasisType.LEGENDRE, 1, BasisType.LEGENDRE),
+    (3, BasisType.LEGENDRE, 3, BasisType.LEGENDRE),
+    (2, BasisType.LAGRANGE_CHEBYSHEV_GAUSS, 2, BasisType.LAGRANGE_CHEBYSHEV_GAUSS),
+    (3, BasisType.LAGRANGE_CHEBYSHEV_GAUSS, 3, BasisType.LAGRANGE_CHEBYSHEV_GAUSS),
+    (2, BasisType.LEGENDRE, 3, BasisType.LAGRANGE_CHEBYSHEV_GAUSS),
+    (3, BasisType.LAGRANGE_CHEBYSHEV_GAUSS, 2, BasisType.LEGENDRE),
+    (4, BasisType.LEGENDRE, 5, BasisType.BERNSTEIN),
+)
+
 
 @pytest.mark.parametrize(
-    ("order_1,basis_type_1,order_2,basis_type_2"),
-    (
-        (1, BasisType.LEGENDRE, 1, BasisType.LEGENDRE),
-        (3, BasisType.LEGENDRE, 3, BasisType.LEGENDRE),
-        (2, BasisType.LAGRANGE_CHEBYSHEV_GAUSS, 2, BasisType.LAGRANGE_CHEBYSHEV_GAUSS),
-        (3, BasisType.LAGRANGE_CHEBYSHEV_GAUSS, 3, BasisType.LAGRANGE_CHEBYSHEV_GAUSS),
-        (2, BasisType.LEGENDRE, 3, BasisType.LAGRANGE_CHEBYSHEV_GAUSS),
-        (3, BasisType.LAGRANGE_CHEBYSHEV_GAUSS, 2, BasisType.LEGENDRE),
-        (4, BasisType.LEGENDRE, 5, BasisType.BERNSTEIN),
-    ),
+    ("order_1", "basis_type_1", "order_2", "basis_type_2"), _TEST_CASES_1D
 )
-def test_mass_matrix_1d(
+def test_mass_matrix_1d_undeformed(
     order_1: int, basis_type_1: BasisType, order_2: int, basis_type_2: BasisType
 ) -> None:
     """Check mass matrix computation in 1D."""

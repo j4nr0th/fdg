@@ -149,7 +149,7 @@ static PyObject *kform_spec_get_component_function_space(PyObject *self, PyTypeO
     for (unsigned i = 0, i_covector = 0; i < n; ++i)
     {
         const basis_spec_t *const spec = this->function_space->specs + i;
-        if (i_covector < k && covector_indices[i_covector] == k)
+        if (i_covector < k && covector_indices[i_covector] == i)
         {
             out_specs[i] = (basis_spec_t){.type = spec->type, .order = spec->order - 1};
             i_covector += 1;
