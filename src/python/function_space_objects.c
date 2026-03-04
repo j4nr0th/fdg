@@ -307,15 +307,13 @@ static PyObject *function_space_values_at_integration_nodes(PyObject *self, PyTy
     if (ensure_function_space_state(self, defining_class, &this, &state) < 0)
         return NULL;
     integration_space_object *integration_space;
+    int b_transpose = 0;
     integration_registry_object *integration_registry = (integration_registry_object *)state->registry_integration;
     basis_registry_object *basis_registry = (basis_registry_object *)state->registry_basis;
     if (parse_arguments_check(
             (cpyutl_argument_t[]){
-                {
-                    .type = CPYARG_TYPE_PYTHON,
-                    .p_val = &integration_space,
-                    .type_check = state->integration_space_type,
-                },
+                {.type = CPYARG_TYPE_PYTHON, .p_val = &integration_space, .type_check = state->integration_space_type},
+                {.type = CPYARG_TYPE_BOOL, .p_val = &b_transpose, .kwname = "transpose", .optional = 1},
                 {
                     .type = CPYARG_TYPE_PYTHON,
                     .p_val = &integration_registry,
@@ -352,19 +350,30 @@ static PyObject *function_space_values_at_integration_nodes(PyObject *self, PyTy
     {
         return NULL;
     }
-    // unsigned total_nodes_cnt = 1;
+
+    unsigned off_dim_nodes = 0, off_dim_basis = 0;
+    if (b_transpose)
+    {
+        off_dim_nodes = ndim;
+    }
+    else
+    {
+        off_dim_basis = ndim;
+    }
+
+    size_t total_nodes_cnt = 1;
     for (unsigned i = 0; i < ndim; ++i)
     {
-
         const unsigned n_nodes = integration_space->specs[i].order + 1;
-        p_dim_out[i] = n_nodes;
-        // total_nodes_cnt *= n_nodes;
+        p_dim_out[i + off_dim_nodes] = n_nodes;
+        total_nodes_cnt *= n_nodes;
     }
-    unsigned total_basis_cnt = 1;
+
+    size_t total_basis_cnt = 1;
     for (unsigned i = 0; i < ndim; ++i)
     {
         const unsigned n_basis = this->specs[i].order + 1;
-        p_dim_out[i + ndim] = n_basis;
+        p_dim_out[i + off_dim_basis] = n_basis;
         total_basis_cnt *= n_basis;
     }
 
@@ -431,12 +440,22 @@ static PyObject *function_space_values_at_integration_nodes(PyObject *self, PyTy
         }
     }
 
+    size_t basis_stride = 1, node_stride = 1;
+    if (b_transpose)
+    {
+        basis_stride = total_nodes_cnt;
+    }
+    else
+    {
+        node_stride = total_basis_cnt;
+    }
+
     npy_double *const p_out = (npy_double *)PyArray_DATA(out);
     multidim_iterator_set_to_start(iterator_basis);
     while (!multidim_iterator_is_at_end(iterator_basis))
     {
         const size_t basis_idx = multidim_iterator_get_flat_index(iterator_basis);
-        npy_double *const ptr = p_out + basis_idx;
+        npy_double *const ptr = p_out + basis_idx * basis_stride;
 
         multidim_iterator_set_to_start(iterator_nodes);
         while (!multidim_iterator_is_at_end(iterator_nodes))
@@ -449,7 +468,7 @@ static PyObject *function_space_values_at_integration_nodes(PyObject *self, PyTy
                 basis_value *= basis[multidim_iterator_get_offset(iterator_nodes, idim)];
             }
 
-            ptr[multidim_iterator_get_flat_index(iterator_nodes) * total_basis_cnt] = basis_value;
+            ptr[multidim_iterator_get_flat_index(iterator_nodes) * node_stride] = basis_value;
 
             // Advance to the next node
             multidim_iterator_advance(iterator_nodes, ndim - 1, 1);

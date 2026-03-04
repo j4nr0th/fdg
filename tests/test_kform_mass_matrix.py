@@ -5,17 +5,23 @@ from itertools import combinations
 import numpy as np
 import numpy.typing as npt
 import pytest
+from fdg import transform_kform_to_target
 from fdg._fdg import (
     BasisSpecs,
     CovectorBasis,
+    DegreesOfFreedom,
     FunctionSpace,
     IntegrationSpace,
     IntegrationSpecs,
+    KForm,
+    KFormSpecs,
     SpaceMap,
     compute_kform_mass_matrix,
 )
+from fdg.degrees_of_freedom import reconstruct
 from fdg.domains import Line, Quad
 from fdg.enum_type import BasisType
+from fdg.integration import integrate_callable
 
 
 def component_inner_prod_mass_matrix_block(
@@ -145,14 +151,72 @@ def check_matrix_correctness(
     assert pytest.approx(mat_expected) == mat_computed
 
 
+def check_correct_innerprod(
+    space_map: SpaceMap,
+    order: int,
+    fn_space_left: FunctionSpace,
+    fn_space_right: FunctionSpace,
+) -> None:
+    """Assert the mass matrix actually produces the same as inner product of k-forms."""
+    rng = np.random.default_rng(2140)
+
+    # Compute the mass matrix
+    mat = compute_kform_mass_matrix(space_map, order, fn_space_left, fn_space_right)
+
+    # Create the k-forms
+    kleft = KForm(KFormSpecs(order, fn_space_left))
+    kright = KForm(KFormSpecs(order, fn_space_right))
+    # Fill them with random DoFs
+    kleft.values[:] = rng.random(sum(kleft.specs.component_dof_counts))
+    kright.values[:] = rng.random(sum(kright.specs.component_dof_counts))
+
+    # Compute the real inner product
+    dofs_left: list[DegreesOfFreedom] = [
+        DegreesOfFreedom(
+            kleft.specs.get_component_function_space(idx), kleft.get_component_dofs(idx)
+        )
+        for idx in range(kleft.specs.component_count)
+    ]
+    dofs_right: list[DegreesOfFreedom] = [
+        DegreesOfFreedom(
+            kright.specs.get_component_function_space(idx), kright.get_component_dofs(idx)
+        )
+        for idx in range(kright.specs.component_count)
+    ]
+
+    def get_inner_prod_value(*args: npt.NDArray[np.double]) -> npt.NDArray[np.double]:
+        """Compute value of the inner product at a point."""
+        comps_left = transform_kform_to_target(
+            kleft.specs.order, space_map, [reconstruct(dof, *args) for dof in dofs_left]
+        )
+        comps_right = transform_kform_to_target(
+            kright.specs.order, space_map, [reconstruct(dof, *args) for dof in dofs_right]
+        )
+        return np.sum(comps_left * comps_right, axis=0)
+
+    expected_ip = integrate_callable(
+        get_inner_prod_value,
+        space_map,
+        mapped_input=False,
+    )
+
+    # Compute matrix inner product
+    matrix_ip = kleft.values @ mat @ kright.values
+
+    assert pytest.approx(expected_ip) == matrix_ip
+
+
+_TEST_CASES_1D = (
+    (6, 7, 2, 3, BasisType.BERNSTEIN, BasisType.BERNSTEIN, 1),
+    (4, 5, 3, 3, BasisType.LEGENDRE, BasisType.LEGENDRE, 2),
+    (4, 5, 2, 1, BasisType.BERNSTEIN, BasisType.LEGENDRE, 4),
+    (6, 8, 6, 7, BasisType.LAGRANGE_UNIFORM, BasisType.LAGRNAGE_GAUSS, 5),
+)
+
+
 @pytest.mark.parametrize(
     ("order_1", "order_2", "order_left", "order_right", "btype_1", "btype_2", "m"),
-    (
-        (6, 7, 2, 3, BasisType.BERNSTEIN, BasisType.BERNSTEIN, 1),
-        (4, 5, 3, 3, BasisType.LEGENDRE, BasisType.LEGENDRE, 2),
-        (4, 5, 2, 1, BasisType.BERNSTEIN, BasisType.LEGENDRE, 4),
-        (6, 8, 6, 7, BasisType.LAGRANGE_UNIFORM, BasisType.LAGRNAGE_GAUSS, 5),
-    ),
+    _TEST_CASES_1D,
 )
 def test_1d_to_md(
     order_1: int,
@@ -179,8 +243,9 @@ def test_1d_to_md(
     int_space = IntegrationSpace(IntegrationSpecs(order_2))
     space_map = line(int_space)
 
-    check_matrix_correctness(space_map, 0, fn_space_left, fn_space_right)
-    check_matrix_correctness(space_map, 1, fn_space_left, fn_space_right)
+    for k in range(0, 2):
+        check_matrix_correctness(space_map, k, fn_space_left, fn_space_right)
+        check_correct_innerprod(space_map, k, fn_space_left, fn_space_right)
 
 
 @pytest.mark.parametrize(
@@ -266,9 +331,9 @@ def test_2d_to_2d(
     int_space = IntegrationSpace(IntegrationSpecs(order_i1), IntegrationSpecs(order_i2))
     space_map = quad(int_space)
 
-    check_matrix_correctness(space_map, 0, fn_space_left, fn_space_right)
-    check_matrix_correctness(space_map, 2, fn_space_left, fn_space_right)
-    check_matrix_correctness(space_map, 1, fn_space_left, fn_space_right)
+    for k in range(0, 3):
+        check_matrix_correctness(space_map, k, fn_space_left, fn_space_right)
+        check_correct_innerprod(space_map, k, fn_space_left, fn_space_right)
 
 
 @pytest.mark.parametrize(
@@ -386,6 +451,6 @@ def test_2d_to_3d(
     int_space = IntegrationSpace(IntegrationSpecs(order_i1), IntegrationSpecs(order_i2))
     space_map = quad(int_space)
 
-    check_matrix_correctness(space_map, 0, fn_space_left, fn_space_right)
-    check_matrix_correctness(space_map, 2, fn_space_left, fn_space_right)
-    check_matrix_correctness(space_map, 1, fn_space_left, fn_space_right)
+    for k in range(0, 3):
+        check_matrix_correctness(space_map, k, fn_space_left, fn_space_right)
+        check_correct_innerprod(space_map, k, fn_space_left, fn_space_right)

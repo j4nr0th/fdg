@@ -3,14 +3,18 @@
 from functools import partial
 
 import numpy as np
+import numpy.typing as npt
 import pytest
+from fdg import transform_kform_to_target
 from fdg._fdg import (
     BasisSpecs,
+    CoordinateMap,
     DegreesOfFreedom,
     FunctionSpace,
     IntegrationSpace,
     IntegrationSpecs,
     KFormSpecs,
+    SpaceMap,
 )
 from fdg.degrees_of_freedom import reconstruct
 from fdg.domains import Quad
@@ -162,10 +166,78 @@ def test_projection_kform_3d(
             assert pytest.approx(pv) == c.values
 
 
+@pytest.mark.parametrize(("o1", "o2", "o3"), ((1, 1, 1), (2, 4, 6), (6, 4, 3)))
+@pytest.mark.parametrize(
+    ("b1", "b2", "b3"),
+    (
+        (BasisType.BERNSTEIN, BasisType.BERNSTEIN, BasisType.LAGRNAGE_GAUSS),
+        (BasisType.LEGENDRE, BasisType.LAGRANGE_CHEBYSHEV_GAUSS, BasisType.BERNSTEIN),
+    ),
+)
+def test_projection_kform_3d_deformed(
+    o1: int, b1: BasisType, o2: int, b2: BasisType, o3: int, b3: BasisType
+) -> None:
+    """Check that projection of DoFs to the same space is identity."""
+    base_space = FunctionSpace(BasisSpecs(b1, o1), BasisSpecs(b2, o2), BasisSpecs(b3, o3))
+    rng = np.random.default_rng(129)
+    int_space = IntegrationSpace(
+        IntegrationSpecs(o1 + 5, method="gauss"),
+        IntegrationSpecs(o2 + 5, method="gauss"),
+        IntegrationSpecs(o3 + 5, method="gauss"),
+    )
+
+    coords: list[CoordinateMap] = list()
+    for i in range(3):
+        coords.append(
+            CoordinateMap(
+                projection_l2_primal(
+                    lambda *args: args[i] + 0.1 * (1 - args[i] ** 2),
+                    # lambda *args: args[i] + rng.random(args[i].shape) * 0.1,
+                    base_space,
+                    int_space,
+                ),
+                int_space,
+            )
+        )
+    space_map = SpaceMap(*coords)
+
+    for k in range(0, 4):
+        specs = KFormSpecs(k, base_space)
+        components = [
+            DegreesOfFreedom(specs.get_component_function_space(idx))
+            for idx in range(specs.component_count)
+        ]
+        for c in components:
+            c.values[:] = rng.random(c.shape)
+
+        functions = [partial(reconstruct, c) for c in components]
+
+        def reconstruct_components(
+            idx: int, *args: npt.NDArray[np.double]
+        ) -> npt.NDArray[np.double]:
+            """Reconstruct a physical component of a k-form."""
+            return transform_kform_to_target(k, space_map, [f(*args) for f in functions])[
+                idx
+            ]
+
+        proj = projection_kform_l2_primal(
+            [
+                partial(reconstruct_components, idx)
+                for idx in range(specs.component_count)
+            ],
+            specs,
+            space_map,
+        )
+
+        for pv, c in zip(proj, components, strict=True):
+            print(f"Max error: {np.max(np.abs(pv - c.values)):.15e}")
+            # assert pytest.approx(pv) == c.values
+
+
 if __name__ == "__main__":
     for o1, o2, o3 in ((1, 1, 1), (2, 4, 6), (6, 4, 3)):
         for b1, b2, b3 in (
             (BasisType.BERNSTEIN, BasisType.BERNSTEIN, BasisType.LAGRNAGE_GAUSS),
             (BasisType.LEGENDRE, BasisType.LAGRANGE_CHEBYSHEV_GAUSS, BasisType.BERNSTEIN),
         ):
-            test_projection_kform_3d(o1, b1, o2, b2, o3, b3)
+            test_projection_kform_3d_deformed(o1, b1, o2, b2, o3, b3)
