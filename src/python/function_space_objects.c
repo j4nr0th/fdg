@@ -185,11 +185,7 @@ static PyObject *function_space_evaluate(PyObject *self, PyTypeObject *defining_
     {
 
         const PyArrayObject *const in = (PyArrayObject *)args[i];
-        if (p_dim_in == NULL)
-        {
-            p_dim_in = PyArray_DIMS(in);
-            n_dim_in = PyArray_NDIM(in);
-        }
+
         if (check_input_array(in, n_dim_in, p_dim_in, NPY_DOUBLE, NPY_ARRAY_C_CONTIGUOUS | NPY_ARRAY_ALIGNED, "input") <
             0)
         {
@@ -197,6 +193,11 @@ static PyObject *function_space_evaluate(PyObject *self, PyTypeObject *defining_
                 PyExc_ValueError,
                 "All input arrays must have the exact same shape and have the correct data type and flags.");
             return NULL;
+        }
+        if (p_dim_in == NULL)
+        {
+            p_dim_in = PyArray_DIMS(in);
+            n_dim_in = PyArray_NDIM(in);
         }
     }
 

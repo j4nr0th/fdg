@@ -8,10 +8,6 @@ import numpy.typing as npt
 
 from fdg.enum_type import _BasisTypeHint, _IntegrationMethodHint
 
-# TODO: add missing docstrings that are not yet in on the C side due to me being lazy
-# TODO: check each time an input array is taken as a parameter, there's a check for
-#  dimensions, types, and continuity
-
 @final
 class IntegrationRegistry:
     """Registry for integration rules.
@@ -119,7 +115,6 @@ class BasisRegistry:
 
 DEFAULT_BASIS_REGISTRY: BasisRegistry = ...
 
-# TODO: some option to set the sign
 @final
 class CovectorBasis:
     """Type used to specify covector basis bundle.
@@ -862,7 +857,6 @@ class SpaceMap:
         """
         ...
 
-# TODO: change input to be KFormSpecs
 def compute_kform_mass_matrix(
     smap: SpaceMap,
     order: int,
@@ -901,7 +895,6 @@ def compute_kform_mass_matrix(
     """
     ...
 
-# TODO: change input to be KFormSpecs
 def compute_kform_incidence_matrix(
     base_space: FunctionSpace, order: int
 ) -> npt.NDArray[np.double]:
@@ -923,7 +916,6 @@ def compute_kform_incidence_matrix(
     """
     ...
 
-# TODO: change input to be KFormSpecs
 def compute_kform_interior_product_matrix(
     smap: SpaceMap,
     order: int,
@@ -967,7 +959,6 @@ def compute_kform_interior_product_matrix(
     """
     ...
 
-# TODO: add the option to apply it on the right side!
 def incidence_kform_operator(
     specs: KFormSpecs,
     values: npt.NDArray[np.double],

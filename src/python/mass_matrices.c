@@ -1364,38 +1364,6 @@ static PyObject *compute_kform_interior_product_matrix(PyObject *module, PyObjec
         return NULL;
     }
 
-    // Check that the vector components have the shape which matches integration space
-    if (n_coords != PyArray_DIM(vector_components, 0))
-    {
-        PyErr_Format(PyExc_ValueError, "Vector components array has %u components, expected %u.",
-                     PyArray_DIM(vector_components, 0), n_coords);
-        return NULL;
-    }
-    if ((unsigned)PyArray_NDIM(vector_components) != n + 1)
-    {
-        PyErr_Format(PyExc_ValueError,
-                     "Vector components array has %u dimensions, expected %u (based dimension of integration space).",
-                     PyArray_NDIM(vector_components), n + 1);
-        return NULL;
-    }
-    for (unsigned idim = 0; idim < n; ++idim)
-    {
-        const npy_intp dim_size = PyArray_DIM(vector_components, (int)(idim + 1u));
-        const unsigned expected = space_map->int_specs[idim].order + 1;
-        if (dim_size != expected)
-        {
-            PyErr_Format(PyExc_ValueError, "Vector components array has %u entries in dimension %u, expected %u.",
-                         dim_size, idim + 1, expected);
-            return NULL;
-        }
-    }
-    // Check the array has correct flags
-    if (check_input_array(vector_components, 0, (const npy_intp[]){}, NPY_DOUBLE, NPY_ARRAY_IN_ARRAY,
-                          "vector_field_components") < 0)
-        return NULL;
-
-    const double *const restrict vector_components_data = PyArray_DATA(vector_components);
-
     // Function spaces must have order at least 1 in each dimension
     for (unsigned i = 0; i < n; ++i)
     {
@@ -1417,26 +1385,41 @@ static PyObject *compute_kform_interior_product_matrix(PyObject *module, PyObjec
     basis_spec_t *lower_basis_buffer;
     double *restrict integration_weights;
     uint8_t *basis_components;
-    void *const mem_1 = cutl_alloc_group(
-        &PYTHON_ALLOCATOR, (const cutl_alloc_info_t[]){
-                               {combination_iterator_required_memory(order), (void **)&iter_component_right},
-                               {combination_iterator_required_memory(order - 1), (void **)&iter_component_left},
-                               {combination_iterator_required_memory(order - 1), (void **)&iter_target_form},
-                               {multidim_iterator_needed_memory(n), (void **)&iter_basis_right},
-                               {multidim_iterator_needed_memory(n), (void **)&iter_basis_left},
-                               {multidim_iterator_needed_memory(n), (void **)&iter_int_pts},
-                               {sizeof(integration_rule_t *) * n, (void **)&integration_rules},
-                               {sizeof(basis_set_t *) * n, (void **)&basis_sets_left},
-                               {sizeof(basis_set_t *) * n, (void **)&basis_sets_left_lower},
-                               {sizeof(basis_set_t *) * n, (void **)&basis_sets_right},
-                               {sizeof(basis_set_t *) * n, (void **)&basis_sets_right_lower},
-                               {sizeof(basis_spec_t) * n, (void **)&lower_basis_buffer},
-                               {sizeof(double) * int_pts_cnt, (void **)&integration_weights},
-                               {sizeof(*basis_components) * order, (void **)&basis_components},
-                               {},
-                           });
-    if (!mem_1)
+    npy_intp *expected_vector_components_shape;
+    void *const mem = cutl_alloc_group(
+        &PYTHON_ALLOCATOR,
+        (const cutl_alloc_info_t[]){
+            {combination_iterator_required_memory(order), (void **)&iter_component_right},
+            {combination_iterator_required_memory(order - 1), (void **)&iter_component_left},
+            {combination_iterator_required_memory(order - 1), (void **)&iter_target_form},
+            {multidim_iterator_needed_memory(n), (void **)&iter_basis_right},
+            {multidim_iterator_needed_memory(n), (void **)&iter_basis_left},
+            {multidim_iterator_needed_memory(n), (void **)&iter_int_pts},
+            {sizeof(integration_rule_t *) * n, (void **)&integration_rules},
+            {sizeof(basis_set_t *) * n, (void **)&basis_sets_left},
+            {sizeof(basis_set_t *) * n, (void **)&basis_sets_left_lower},
+            {sizeof(basis_set_t *) * n, (void **)&basis_sets_right},
+            {sizeof(basis_set_t *) * n, (void **)&basis_sets_right_lower},
+            {sizeof(basis_spec_t) * n, (void **)&lower_basis_buffer},
+            {sizeof(double) * int_pts_cnt, (void **)&integration_weights},
+            {sizeof(*basis_components) * order, (void **)&basis_components},
+            {sizeof(*expected_vector_components_shape) * (n + 1), (void **)&expected_vector_components_shape},
+            {},
+        });
+    if (!mem)
         return NULL;
+
+    // Check that the vector components have the shape which matches integration space
+    expected_vector_components_shape[0] = n_coords;
+    for (unsigned idim = 0; idim < n; ++idim)
+    {
+        expected_vector_components_shape[idim + 1] = space_map->int_specs[idim].order + 1;
+    }
+    if (check_input_array(vector_components, n + 1, expected_vector_components_shape, NPY_DOUBLE, NPY_ARRAY_IN_ARRAY,
+                          "vector_field_components") < 0)
+        return NULL;
+
+    const double *const restrict vector_components_data = PyArray_DATA(vector_components);
 
     // Might as well prepare the integration point iterator now
     for (unsigned i = 0; i < n; ++i)
@@ -1463,7 +1446,7 @@ static PyObject *compute_kform_interior_product_matrix(PyObject *module, PyObjec
     PyArrayObject *const array_out = (PyArrayObject *)PyArray_SimpleNew(2, dims, NPY_DOUBLE);
     if (!array_out)
     {
-        cutl_dealloc(&PYTHON_ALLOCATOR, mem_1);
+        cutl_dealloc(&PYTHON_ALLOCATOR, mem);
         return NULL;
     }
 
@@ -1475,7 +1458,7 @@ static PyObject *compute_kform_interior_product_matrix(PyObject *module, PyObjec
         if (!transform_array_right)
         {
             Py_DECREF(array_out);
-            cutl_dealloc(&PYTHON_ALLOCATOR, mem_1);
+            cutl_dealloc(&PYTHON_ALLOCATOR, mem);
             return NULL;
         }
     }
@@ -1486,7 +1469,7 @@ static PyObject *compute_kform_interior_product_matrix(PyObject *module, PyObjec
         {
             Py_DECREF(array_out);
             Py_XDECREF(transform_array_right);
-            cutl_dealloc(&PYTHON_ALLOCATOR, mem_1);
+            cutl_dealloc(&PYTHON_ALLOCATOR, mem);
             return NULL;
         }
     }
@@ -1499,7 +1482,7 @@ static PyObject *compute_kform_interior_product_matrix(PyObject *module, PyObjec
         Py_DECREF(array_out);
         Py_XDECREF(transform_array_right);
         Py_XDECREF(transform_array_left);
-        cutl_dealloc(&PYTHON_ALLOCATOR, mem_1);
+        cutl_dealloc(&PYTHON_ALLOCATOR, mem);
         return NULL;
     }
 
@@ -1513,7 +1496,7 @@ static PyObject *compute_kform_interior_product_matrix(PyObject *module, PyObjec
         Py_DECREF(array_out);
         Py_XDECREF(transform_array_right);
         Py_XDECREF(transform_array_left);
-        cutl_dealloc(&PYTHON_ALLOCATOR, mem_1);
+        cutl_dealloc(&PYTHON_ALLOCATOR, mem);
         return NULL;
     }
 
@@ -1530,7 +1513,7 @@ static PyObject *compute_kform_interior_product_matrix(PyObject *module, PyObjec
         Py_DECREF(array_out);
         Py_XDECREF(transform_array_right);
         Py_XDECREF(transform_array_left);
-        cutl_dealloc(&PYTHON_ALLOCATOR, mem_1);
+        cutl_dealloc(&PYTHON_ALLOCATOR, mem);
         return NULL;
     }
 
@@ -1553,7 +1536,7 @@ static PyObject *compute_kform_interior_product_matrix(PyObject *module, PyObjec
         Py_DECREF(array_out);
         Py_XDECREF(transform_array_right);
         Py_XDECREF(transform_array_left);
-        cutl_dealloc(&PYTHON_ALLOCATOR, mem_1);
+        cutl_dealloc(&PYTHON_ALLOCATOR, mem);
         return NULL;
     }
 
@@ -1577,7 +1560,7 @@ static PyObject *compute_kform_interior_product_matrix(PyObject *module, PyObjec
         Py_DECREF(array_out);
         Py_XDECREF(transform_array_right);
         Py_XDECREF(transform_array_left);
-        cutl_dealloc(&PYTHON_ALLOCATOR, mem_1);
+        cutl_dealloc(&PYTHON_ALLOCATOR, mem);
         return NULL;
     }
 
@@ -1639,7 +1622,7 @@ static PyObject *compute_kform_interior_product_matrix(PyObject *module, PyObjec
         basis_set_registry_release_basis_set(basis_registry->registry, basis_sets_left_lower[j]);
         basis_set_registry_release_basis_set(basis_registry->registry, basis_sets_right_lower[j]);
     }
-    cutl_dealloc(&PYTHON_ALLOCATOR, mem_1);
+    cutl_dealloc(&PYTHON_ALLOCATOR, mem);
     Py_XDECREF(transform_array_right);
     Py_XDECREF(transform_array_left);
 
