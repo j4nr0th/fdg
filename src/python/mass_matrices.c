@@ -1134,6 +1134,7 @@ static void compute_interior_product_component_weights(
     //   + there is only 1 right component
     if (k == 1)
     {
+        // TODO: check for special case when n and k are both 1
         ASSERT(transform_array_left == NULL, "Left transform array should be NULL for k = 1.");
         ASSERT(transform_array_right != NULL, "Right transform array for right component should not be NULL.");
         // Add contributions of left, right, and vector field (but left is always 1)
@@ -1468,7 +1469,7 @@ static PyObject *compute_kform_interior_product_matrix(PyObject *module, PyObjec
 
     PyArrayObject *transform_array_right = NULL, *transform_array_left = NULL;
 
-    if (order != n)
+    if (order != n || n == 1)
     {
         transform_array_right = compute_basis_transform_impl(space_map, order);
         if (!transform_array_right)
