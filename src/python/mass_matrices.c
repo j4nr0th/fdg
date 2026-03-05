@@ -1134,6 +1134,7 @@ static void compute_interior_product_component_weights(
     //   + there is only 1 right component
     if (k == 1)
     {
+        // TODO: check for special case when n and k are both 1
         ASSERT(transform_array_left == NULL, "Left transform array should be NULL for k = 1.");
         ASSERT(transform_array_right != NULL, "Right transform array for right component should not be NULL.");
         // Add contributions of left, right, and vector field (but left is always 1)
