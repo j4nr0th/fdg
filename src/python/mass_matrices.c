@@ -1469,7 +1469,7 @@ static PyObject *compute_kform_interior_product_matrix(PyObject *module, PyObjec
 
     PyArrayObject *transform_array_right = NULL, *transform_array_left = NULL;
 
-    if (order != n)
+    if (order != n || n == 1)
     {
         transform_array_right = compute_basis_transform_impl(space_map, order);
         if (!transform_array_right)
