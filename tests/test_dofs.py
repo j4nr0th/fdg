@@ -70,14 +70,14 @@ def test_degrees_of_freedom(orders: tuple[int, ...]) -> None:
     assert pytest.approx(reconstructed_function) == expected_function
 
 
-@pytest.mark.parametrize(
-    "orders",
-    (
-        (2, 2, 2),
-        (3, 4, 5),
-        (1, 2, 3, 4, 5),
-    ),
+_TEST_ORDERS = (
+    (2, 2, 2),
+    (3, 4, 5),
+    (1, 2, 3, 4, 5),
 )
+
+
+@pytest.mark.parametrize("orders", _TEST_ORDERS)
 def test_reconstruction_at_integration_nodes(orders: tuple[int, ...]) -> None:
     """Check that reconstruction at integration nodes works correctly."""
     integration_space = IntegrationSpace(
@@ -99,14 +99,7 @@ def test_reconstruction_at_integration_nodes(orders: tuple[int, ...]) -> None:
     assert pytest.approx(expected_reconstruction) == test_reconstruction
 
 
-@pytest.mark.parametrize(
-    "orders",
-    (
-        (2, 2, 2),
-        (3, 4, 5),
-        (1, 2, 3, 4, 5),
-    ),
-)
+@pytest.mark.parametrize("orders", _TEST_ORDERS)
 def test_reconstruction_lagrange_projection(orders: tuple[int, ...]) -> None:
     """Check that lagrange projection works as one would expect."""
     function_space = FunctionSpace(
@@ -130,10 +123,76 @@ def test_reconstruction_lagrange_projection(orders: tuple[int, ...]) -> None:
     assert pytest.approx(at_int_nodes) == projected.values
 
 
+@pytest.mark.parametrize("orders", _TEST_ORDERS)
+@pytest.mark.parametrize("btype", BasisType)
+def test_plane_projection(orders: tuple[int, ...], btype: BasisType) -> None:
+    """Check the plane projection works correctly."""
+    function_space = FunctionSpace(*[BasisSpecs(btype, order) for order in orders])
+    rng = np.random.default_rng(21598)
+    int_orders = rng.integers(0, 6, len(orders))
+    integration_space = IntegrationSpace(
+        *[
+            IntegrationSpecs(int(order + 2), IntegrationMethod.GAUSS_LOBATTO)
+            for order in int_orders
+        ]
+    )
+
+    dofs = DegreesOfFreedom(function_space)
+    dofs.values = rng.random(dofs.shape)
+
+    reconstruction_grid = integration_space.nodes()
+
+    # Make a few random projections
+    for proj_val in rng.random(len(orders)):
+        for idim in range(len(orders)):
+            projection = dofs.plane_projection(idim, float(proj_val))
+            proj_recon = reconstruct(
+                projection, *reconstruction_grid[:idim], *reconstruction_grid[idim + 1 :]
+            )
+            real_recon = reconstruct(
+                dofs,
+                *reconstruction_grid[:idim],
+                np.full_like(reconstruction_grid[idim], proj_val),
+                *reconstruction_grid[idim + 1 :],
+            )
+
+            assert pytest.approx(proj_recon) == real_recon
+
+
+@pytest.mark.parametrize("orders", _TEST_ORDERS)
+@pytest.mark.parametrize("btype", BasisType)
+def test_reverse_orientation(orders: tuple[int, ...], btype: BasisType) -> None:
+    """Check the orientation reversal works correctly."""
+    function_space = FunctionSpace(*[BasisSpecs(btype, order) for order in orders])
+    rng = np.random.default_rng(21598)
+    int_orders = rng.integers(0, 6, len(orders))
+    integration_space = IntegrationSpace(
+        *[
+            IntegrationSpecs(int(order + 2), IntegrationMethod.GAUSS_LOBATTO)
+            for order in int_orders
+        ]
+    )
+
+    dofs = DegreesOfFreedom(function_space)
+    dofs.values = rng.random(dofs.shape)
+
+    reconstruction_grid = integration_space.nodes()
+
+    # Make a few random projections
+    for idim in range(len(orders)):
+        reversal = dofs.reverse_orientation(idim)
+        revs_recon = reconstruct(
+            reversal,
+            *reconstruction_grid[:idim],
+            -reconstruction_grid[idim],
+            *reconstruction_grid[idim + 1 :],
+        )
+        real_recon = reconstruct(dofs, *reconstruction_grid)
+
+        assert pytest.approx(revs_recon) == real_recon
+
+
 if __name__ == "__main__":
-    for orders in (
-        (2, 2, 2),
-        (3, 4, 5),
-        (1, 2, 3, 4, 5),
-    ):
-        test_reconstruction_lagrange_projection(orders)
+    for orders in _TEST_ORDERS:
+        for btype in BasisType:
+            test_reverse_orientation(orders, btype)

@@ -539,7 +539,6 @@ class DegreesOfFreedom:
         """
         ...
 
-    # TODO: test
     def plane_projection(self, idim: int, x: float) -> DegreesOfFreedom:
         """Compute the projection of degrees of freedom on a plane.
 
@@ -558,7 +557,6 @@ class DegreesOfFreedom:
         """
         ...
 
-    # TODO: test
     def reverse_orientation(self, idim: int) -> DegreesOfFreedom:
         """Reverse the orientation of DoFs.
 

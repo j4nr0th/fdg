@@ -830,7 +830,7 @@ PyObject *dof_at_boundary(PyObject *self, PyTypeObject *defining_class, PyObject
     switch (basis->type)
     {
     case BASIS_BERNSTEIN:
-        bernstein_interpolation_vector(value, basis->order, basis_values);
+        bernstein_interpolation_vector((value + 1.0) / 2.0, basis->order, basis_values);
         break;
 
     case BASIS_LEGENDRE:
