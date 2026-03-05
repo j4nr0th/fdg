@@ -192,7 +192,7 @@ def create_space_maps(order_integration, type_integration, ndim, dp):
 # %%
 #
 # Along with the :class:`IntegrationSpace` objects to define integration we
-# must define the discretization of the :math:`k`-forms using a :math:`FunctionSpace`
+# must define the discretization of the :math:`k`-forms using a :class:`FunctionSpace`
 # object.
 #
 # With base function space defined, we can define some :math:`k`-form

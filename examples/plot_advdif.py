@@ -1,24 +1,25 @@
 r"""
 .. currentmodule:: fdg
 
-N-D Poisson
-===========
+N-D Advection Diffusion
+=======================
 
-This example demonstrates system for N-dimensional mixed Poisson equation can be set up.
+This example demonstrates system for N-dimensional advection-diffusion equation can be set
+up.
 
-Mixed Poisson equation is defined in the weak form as:
+The equation is defined in the weak form as:
 
 .. math::
-    :label: examples_nd_poisson_1
+    :label: examples_nd_advdiff_1
 
     \left( p^{(n - 1)}, q^{(n - 1)} \right)_\Omega + \left( \mathrm{d} p^{(n - 1)},
     u^{(n)} \right)_\Omega = \int_{\partial \Omega} p^{(n - 1)} \wedge \star u^{(n)}
 
 .. math::
-    :label: examples_nd_poisson_2
+    :label: examples_nd_advdiff_2
 
-    \left( v^{(n)}, \mathrm{d} q^{(n - 1)} \right)_\Omega =
-    \left( v^{(n)}, f^{(n)} \right)_\Omega
+    \left( v^{(n)}, \mathrm{d} q^{(n - 1)} \right)_\Omega + \left( i_{\vec{a}} v^{(n)},
+    q^{(n - 1)} \right)_\Omega = \left( v^{(n)}, f^{(n)} \right)_\Omega
 
 """  # noqa: D205 D400
 
@@ -55,7 +56,7 @@ from fdg import (
 # the following for the manufactured solution:
 #
 # .. math::
-#     :label: examples_nd_poisson_man_sol
+#     :label: examples_nd_advdiff_man_sol
 #
 #     u^{(n)}(x_1, \dots, x_n) = k \left(\prod\limits_{i=1}^n \cos\left( \frac{\pi}{2} x_i
 #     \right)\right) \mathrm{d} x_1 \wedge \dots \wedge \mathrm{d} x_n
@@ -64,11 +65,14 @@ from fdg import (
 # This gives the forcing function:
 #
 # .. math::
-#     :label: examples_nd_poisson_man_for
+#     :label: examples_nd_advdiff_man_for
 #
-#     f^{(n)}(x_1, \dots, x_n) = - k n \left(\frac{\pi}{2}\right)^2 \left(
+#     f^{(n)}(x_1, \dots, x_n) = k \left( - n \left(\frac{\pi}{2}\right)^2 \left(
 #     \prod\limits_{i=1}^n \cos\left( \frac{\pi}{2} x_i
-#     \right)\right) \mathrm{d} x_1 \wedge \dots \wedge \mathrm{d} x_n
+#     \right)\right)  +
+#     \sum\limits_{i = 1}^n a_i \frac{\pi}{2} \sin \frac{\pi x_i}{2} \prod\limits_{j=1,
+#     j \ne i}^n \cos \frac{\pi x_j}{2} \right)
+#     \mathrm{d} x_1 \wedge \dots \wedge \mathrm{d} x_n
 #
 #
 
@@ -133,12 +137,12 @@ def manufactured_source(
 # First the geometry of the space this will be solved on will be defined. For this case,
 # we use the unit square, where the interior is deformed, while boundaries are the same.
 # The mapping for each coordinate is based on Equation
-# :eq:`examples_nd_poisson_deformation`, with :math:`c` being the parameter that
+# :eq:`examples_nd_advdiff_deformation`, with :math:`c` being the parameter that
 # determines the scale of deformation.
 #
 #
 # .. math::
-#     :label: examples_nd_poisson_deformation
+#     :label: examples_nd_advdiff_deformation
 #
 #     x_i = \xi_i + c \prod\limits_{j=1}^n \left( 1 - {x_j}^2 \right) \sin \pi x_j
 #
@@ -230,7 +234,7 @@ def create_space_maps(order_integration, type_integration, ndim, dp):
 # %%
 #
 # Along with the :class:`IntegrationSpace` objects to define integration we
-# must define the discretization of the :math:`k`-forms using a :math:`FunctionSpace`
+# must define the discretization of the :math:`k`-forms using a :class:`FunctionSpace`
 # object.
 #
 # With base function space defined, we can define some :math:`k`-form
@@ -412,7 +416,7 @@ BTYPE = BasisType.BERNSTEIN
 ITYPE = IntegrationMethod.GAUSS
 DP = 1
 
-for ndim, plimit in zip(range(1, 4), [15, 11, 7], strict=True):
+for ndim, plimit in zip(range(1, 4), [15, 11, 6], strict=True):
     pvals = np.arange(1, plimit)
     evals = np.zeros(pvals.size)
     tvals = np.zeros(pvals.size)
