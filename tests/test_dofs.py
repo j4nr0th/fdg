@@ -10,10 +10,10 @@ from fdg import (
     IntegrationMethod,
     IntegrationSpace,
     IntegrationSpecs,
-    compute_dual_degrees_of_freedom,
     compute_mass_matrix,
     reconstruct,
 )
+from fdg.integration import projection_l2_dual
 
 
 def test_dofs_initialization():
@@ -59,9 +59,8 @@ def test_degrees_of_freedom(orders: tuple[int, ...]) -> None:
     function_space = FunctionSpace(
         *[BasisSpecs(BasisType.LEGENDRE, order) for order in orders]
     )
-    dual_dofs = compute_dual_degrees_of_freedom(
-        test_function, integration_space, function_space
-    )
+
+    dual_dofs = projection_l2_dual(test_function, function_space, integration_space)
     mass_matrix = compute_mass_matrix(function_space, function_space, integration_space)
     dofs_values = np.linalg.solve(mass_matrix, dual_dofs.values.flatten())
     dofs = DegreesOfFreedom(function_space, dofs_values)
@@ -100,5 +99,41 @@ def test_reconstruction_at_integration_nodes(orders: tuple[int, ...]) -> None:
     assert pytest.approx(expected_reconstruction) == test_reconstruction
 
 
+@pytest.mark.parametrize(
+    "orders",
+    (
+        (2, 2, 2),
+        (3, 4, 5),
+        (1, 2, 3, 4, 5),
+    ),
+)
+def test_reconstruction_lagrange_projection(orders: tuple[int, ...]) -> None:
+    """Check that lagrange projection works as one would expect."""
+    function_space = FunctionSpace(
+        *[BasisSpecs(BasisType.LEGENDRE, order) for order in orders]
+    )
+    rng = np.random.default_rng(21598)
+    int_orders = rng.integers(0, 6, len(orders))
+    integration_space = IntegrationSpace(
+        *[
+            IntegrationSpecs(int(order + 2), IntegrationMethod.GAUSS_LOBATTO)
+            for order in int_orders
+        ]
+    )
+
+    dofs = DegreesOfFreedom(function_space)
+    dofs.values = rng.random(dofs.shape)
+
+    at_int_nodes = dofs.reconstruct_at_integration_points(integration_space)
+    projected = dofs.lagrange_projection(integration_space.orders)
+
+    assert pytest.approx(at_int_nodes) == projected.values
+
+
 if __name__ == "__main__":
-    test_dofs_initialization()
+    for orders in (
+        (2, 2, 2),
+        (3, 4, 5),
+        (1, 2, 3, 4, 5),
+    ):
+        test_reconstruction_lagrange_projection(orders)

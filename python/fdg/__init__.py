@@ -39,9 +39,6 @@ from fdg._fdg import (
 from fdg._fdg import transform_kform_to_target as transform_kform_to_target
 
 # DoFs functions
-from fdg.degrees_of_freedom import (
-    compute_dual_degrees_of_freedom as compute_dual_degrees_of_freedom,
-)
 from fdg.degrees_of_freedom import reconstruct as reconstruct
 
 # Domains

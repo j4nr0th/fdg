@@ -26,9 +26,10 @@ static PyObject *coordinate_map_new(PyTypeObject *type, PyObject *args, PyObject
 
     // Create the reconstruction state
     reconstruction_state_t recon_state;
-    if (dof_reconstruction_state_init(dofs, integration_space, integration_registry, basis_registry, &recon_state) < 0)
-        return NULL;
     const unsigned ndim = Py_SIZE(integration_space);
+    if (dof_reconstruction_state_init(dofs, ndim, integration_space->specs, integration_registry, basis_registry,
+                                      &recon_state) < 0)
+        return NULL;
     const Py_ssize_t n_vals = (Py_ssize_t)multidim_iterator_total_size(recon_state.iter_int);
     coordinate_map_object *const self = (coordinate_map_object *)type->tp_alloc(type, n_vals * (ndim + 1));
     if (!self)

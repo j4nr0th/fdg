@@ -30,7 +30,8 @@ FDG_INTERNAL
 int *reconstruction_derivative_indices(unsigned ndim, PyObject *py_indices);
 
 FDG_INTERNAL
-int dof_reconstruction_state_init(const dof_object *this, const integration_space_object *integration_space,
+int dof_reconstruction_state_init(const dof_object *this, unsigned ndim,
+                                  const integration_spec_t integration_specs[const static ndim],
                                   const integration_registry_object *python_integration_registry,
                                   const basis_registry_object *python_basis_registry,
                                   reconstruction_state_t *recon_state);

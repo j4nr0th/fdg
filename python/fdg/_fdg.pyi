@@ -539,6 +539,72 @@ class DegreesOfFreedom:
         """
         ...
 
+    # TODO: test
+    def plane_projection(self, idim: int, x: float) -> DegreesOfFreedom:
+        """Compute the projection of degrees of freedom on a plane.
+
+        Parameters
+        ----------
+        idim : int
+            Index of the dimension that is fixed.
+
+        x : float
+            Position of the plane in that dimension.
+
+        Returns
+        -------
+        DegreesOfFreedom
+            Degrees of freedom on the specified plane.
+        """
+        ...
+
+    # TODO: test
+    def reverse_orientation(self, idim: int) -> DegreesOfFreedom:
+        """Reverse the orientation of DoFs.
+
+        Maps the domain of basis functions for dimension ``idim`` from :math:`[-1, +1]`
+        to :math:`[+1, -1]`.
+
+        Parameters
+        ----------
+        idim : int
+            Index of the dimension on which the orientation should be reversed.
+
+        Returns
+        -------
+        DegreesOfFreedom
+            Degrees of freedom with reversed orientation on the specified dimension.
+        """
+        ...
+
+    def lagrange_projection(
+        self,
+        orders: npt.ArrayLike | None = None,
+        *,
+        integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
+        basis_registry: BasisRegistry = DEFAULT_BASIS_REGISTRY,
+    ) -> DegreesOfFreedom:
+        """Compute projection of degrees of freedom with Lagrange basis.
+
+        Parameters
+        ----------
+        orders : array_like
+            Orders in each dimension. If nothing is given, then orders are taken to be
+            same as needed to exactly represent the degrees of freedom.
+
+        integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY
+            Registry used to retrieve the integration rules.
+
+        basis_registry : BasisRegistry, default: DEFAULT_BASIS_REGISTRY
+            Registry used to retrieve the basis specifications.
+
+        Returns
+        -------
+        DegreesOfFreedom
+            Degrees of freedom using Lagrange basis of specified orders.
+        """
+        ...
+
 @final
 class KFormSpecs:
     """Differential k-form specification.
