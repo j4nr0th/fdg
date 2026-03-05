@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>N-D Poisson &#8212; fdg 0.0.1a documentation</title>
+    <title>N-D Advection Diffusion &#8212; fdg 0.0.1a documentation</title>
   
   
   
@@ -51,11 +51,10 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.4/require.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@jupyter-widgets/html-manager@^1.0.1/dist/embed-amd.js"></script>
     <script async="async" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'auto_examples/plot_poisson';</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'auto_examples/plot_advdif';</script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Gradients" href="plot_gradients.html" />
-    <link rel="prev" title="Domain Examples" href="plot_domains.html" />
+    <link rel="prev" title="Gradients" href="plot_gradients.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
@@ -265,9 +264,9 @@
 <li class="toctree-l1"><a class="reference internal" href="plot_basis_sets.html">Basis Sets Visualization</a></li>
 <li class="toctree-l1"><a class="reference internal" href="plot_integration_rules.html">Integration Rules</a></li>
 <li class="toctree-l1"><a class="reference internal" href="plot_domains.html">Domain Examples</a></li>
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">N-D Poisson</a></li>
+<li class="toctree-l1"><a class="reference internal" href="plot_poisson.html">N-D Poisson</a></li>
 <li class="toctree-l1"><a class="reference internal" href="plot_gradients.html">Gradients</a></li>
-<li class="toctree-l1"><a class="reference internal" href="plot_advdif.html">N-D Advection Diffusion</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">N-D Advection Diffusion</a></li>
 </ul>
 </div>
 </nav></div>
@@ -311,7 +310,7 @@
     
     <li class="breadcrumb-item"><a href="index.html" class="nav-link">Examples</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">N-D Poisson</span></li>
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">N-D Advection Diffusion</span></li>
   </ul>
 </nav>
 </div>
@@ -330,20 +329,22 @@
                   
   <div class="sphx-glr-download-link-note admonition note">
 <p class="admonition-title">Note</p>
-<p><a class="reference internal" href="#sphx-glr-download-auto-examples-plot-poisson-py"><span class="std std-ref">Go to the end</span></a>
+<p><a class="reference internal" href="#sphx-glr-download-auto-examples-plot-advdif-py"><span class="std std-ref">Go to the end</span></a>
 to download the full example code.</p>
 </div>
-<section class="sphx-glr-example-title" id="n-d-poisson">
-<span id="sphx-glr-auto-examples-plot-poisson-py"></span><h1>N-D Poisson<a class="headerlink" href="#n-d-poisson" title="Link to this heading">#</a></h1>
-<p>This example demonstrates system for N-dimensional mixed Poisson equation can be set up.</p>
-<p>Mixed Poisson equation is defined in the weak form as:</p>
-<div class="math notranslate nohighlight" id="equation-examples-nd-poisson-1">
-<span class="eqno">(1)<a class="headerlink" href="#equation-examples-nd-poisson-1" title="Link to this equation">#</a></span>\[\left( p^{(n - 1)}, q^{(n - 1)} \right)_\Omega + \left( \mathrm{d} p^{(n - 1)},
+<section class="sphx-glr-example-title" id="n-d-advection-diffusion">
+<span id="sphx-glr-auto-examples-plot-advdif-py"></span><h1>N-D Advection Diffusion<a class="headerlink" href="#n-d-advection-diffusion" title="Link to this heading">#</a></h1>
+<p>This example demonstrates system for N-dimensional advection-diffusion equation can be set
+up.</p>
+<p>The equation is defined in the weak form as:</p>
+<div class="math notranslate nohighlight" id="equation-examples-nd-advdiff-1">
+<span class="eqno">(1)<a class="headerlink" href="#equation-examples-nd-advdiff-1" title="Link to this equation">#</a></span>\[\left( p^{(n - 1)}, q^{(n - 1)} \right)_\Omega + \left( \mathrm{d} p^{(n - 1)},
 u^{(n)} \right)_\Omega = \int_{\partial \Omega} p^{(n - 1)} \wedge \star u^{(n)}\]</div>
-<div class="math notranslate nohighlight" id="equation-examples-nd-poisson-2">
-<span class="eqno">(2)<a class="headerlink" href="#equation-examples-nd-poisson-2" title="Link to this equation">#</a></span>\[\left( v^{(n)}, \mathrm{d} q^{(n - 1)} \right)_\Omega =
-\left( v^{(n)}, f^{(n)} \right)_\Omega\]</div>
-<div class="highlight-Python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">time</span><span class="w"> </span><span class="kn">import</span> <a href="https://docs.python.org/3/library/time.html#time.perf_counter" title="time.perf_counter" class="sphx-glr-backref-module-time sphx-glr-backref-type-py-function"><span class="n">perf_counter</span></a>
+<div class="math notranslate nohighlight" id="equation-examples-nd-advdiff-2">
+<span class="eqno">(2)<a class="headerlink" href="#equation-examples-nd-advdiff-2" title="Link to this equation">#</a></span>\[\left( v^{(n)}, \mathrm{d} q^{(n - 1)} \right)_\Omega + \left( i_{\vec{a}} v^{(n)},
+q^{(n - 1)} \right)_\Omega = \left( v^{(n)}, f^{(n)} \right)_\Omega\]</div>
+<div class="highlight-Python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">functools</span><span class="w"> </span><span class="kn">import</span> <a href="https://docs.python.org/3/library/functools.html#functools.partial" title="functools.partial" class="sphx-glr-backref-module-functools sphx-glr-backref-type-py-function"><span class="n">partial</span></a>
+<span class="kn">from</span><span class="w"> </span><span class="nn">time</span><span class="w"> </span><span class="kn">import</span> <a href="https://docs.python.org/3/library/time.html#time.perf_counter" title="time.perf_counter" class="sphx-glr-backref-module-time sphx-glr-backref-type-py-function"><span class="n">perf_counter</span></a>
 <span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <a href="https://docs.python.org/3/library/typing.html#typing.Sequence" title="typing.Sequence" class="sphx-glr-backref-module-typing sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">Sequence</span></a>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">matplotlib.pyplot</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">plt</span>
@@ -361,6 +362,7 @@ u^{(n)} \right)_\Omega = \int_{\partial \Omega} p^{(n - 1)} \wedge \star u^{(n)}
     <a href="../source/kform_types.html#fdg.KForm" title="fdg.KForm" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class"><span class="n">KForm</span></a><span class="p">,</span>
     <a href="../source/kform_types.html#fdg.KFormSpecs" title="fdg.KFormSpecs" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class"><span class="n">KFormSpecs</span></a><span class="p">,</span>
     <a href="../source/space_map.html#fdg.SpaceMap" title="fdg.SpaceMap" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class"><span class="n">SpaceMap</span></a><span class="p">,</span>
+    <a href="../source/interior_product.html#fdg.compute_kform_interior_product_matrix" title="fdg.compute_kform_interior_product_matrix" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-function"><span class="n">compute_kform_interior_product_matrix</span></a><span class="p">,</span>
     <a href="../source/inner_product.html#fdg.compute_kform_mass_matrix" title="fdg.compute_kform_mass_matrix" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-function"><span class="n">compute_kform_mass_matrix</span></a><span class="p">,</span>
     <a href="../source/incidence.html#fdg.incidence_kform_operator" title="fdg.incidence_kform_operator" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-function"><span class="n">incidence_kform_operator</span></a><span class="p">,</span>
     <a href="../source/inner_product.html#fdg.projection_kform_l2_dual" title="fdg.projection_kform_l2_dual" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-function"><span class="n">projection_kform_l2_dual</span></a><span class="p">,</span>
@@ -371,15 +373,19 @@ u^{(n)} \right)_\Omega = \int_{\partial \Omega} p^{(n - 1)} \wedge \star u^{(n)}
 </div>
 <p>The manufactured solution for the general N-dimensional case uses
 the following for the manufactured solution:</p>
-<div class="math notranslate nohighlight" id="equation-examples-nd-poisson-man-sol">
-<span class="eqno">(3)<a class="headerlink" href="#equation-examples-nd-poisson-man-sol" title="Link to this equation">#</a></span>\[u^{(n)}(x_1, \dots, x_n) = k \left(\prod\limits_{i=1}^n \cos\left( \frac{\pi}{2} x_i
+<div class="math notranslate nohighlight" id="equation-examples-nd-advdiff-man-sol">
+<span class="eqno">(3)<a class="headerlink" href="#equation-examples-nd-advdiff-man-sol" title="Link to this equation">#</a></span>\[u^{(n)}(x_1, \dots, x_n) = k \left(\prod\limits_{i=1}^n \cos\left( \frac{\pi}{2} x_i
 \right)\right) \mathrm{d} x_1 \wedge \dots \wedge \mathrm{d} x_n\]</div>
 <p>This gives the forcing function:</p>
-<div class="math notranslate nohighlight" id="equation-examples-nd-poisson-man-for">
-<span class="eqno">(4)<a class="headerlink" href="#equation-examples-nd-poisson-man-for" title="Link to this equation">#</a></span>\[f^{(n)}(x_1, \dots, x_n) = - k n \left(\frac{\pi}{2}\right)^2 \left(
+<div class="math notranslate nohighlight" id="equation-examples-nd-advdiff-man-for">
+<span class="eqno">(4)<a class="headerlink" href="#equation-examples-nd-advdiff-man-for" title="Link to this equation">#</a></span>\[f^{(n)}(x_1, \dots, x_n) = k \left( - n \left(\frac{\pi}{2}\right)^2 \left(
 \prod\limits_{i=1}^n \cos\left( \frac{\pi}{2} x_i
-\right)\right) \mathrm{d} x_1 \wedge \dots \wedge \mathrm{d} x_n\]</div>
+\right)\right)  +
+\sum\limits_{i = 1}^n a_i \frac{\pi}{2} \sin \frac{\pi x_i}{2} \prod\limits_{j=1,
+j \ne i}^n \cos \frac{\pi x_j}{2} \right)
+\mathrm{d} x_1 \wedge \dots \wedge \mathrm{d} x_n\]</div>
 <div class="highlight-Python notranslate"><div class="highlight"><pre><span></span><a href="https://docs.python.org/3/library/functions.html#float" title="builtins.float" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">SCALE</span></a> <span class="o">=</span> <span class="mf">0.1</span>
+<a href="https://docs.python.org/3/library/functions.html#float" title="builtins.float" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">ALPHA</span></a> <span class="o">=</span> <span class="mf">0.05</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">manufactured_solution</span><span class="p">(</span><span class="o">*</span><span class="n">x</span><span class="p">:</span> <a href="https://docs.python.org/3/library/types.html#types.GenericAlias" title="types.GenericAlias" class="sphx-glr-backref-module-types sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span></a><span class="p">[</span><a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">np</span><span class="o">.</span><span class="n">double</span></a><span class="p">])</span> <span class="o">-&gt;</span> <a href="https://docs.python.org/3/library/types.html#types.GenericAlias" title="types.GenericAlias" class="sphx-glr-backref-module-types sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span></a><span class="p">[</span><a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">np</span><span class="o">.</span><span class="n">double</span></a><span class="p">]:</span>
@@ -390,22 +396,57 @@ the following for the manufactured solution:</p>
     <span class="k">return</span> <span class="n">res</span> <span class="o">*</span> <a href="https://docs.python.org/3/library/functions.html#float" title="builtins.float" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">SCALE</span></a>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">manufactured_source_poisson</span><span class="p">(</span><span class="o">*</span><span class="n">x</span><span class="p">:</span> <a href="https://docs.python.org/3/library/types.html#types.GenericAlias" title="types.GenericAlias" class="sphx-glr-backref-module-types sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span></a><span class="p">[</span><a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">np</span><span class="o">.</span><span class="n">double</span></a><span class="p">])</span> <span class="o">-&gt;</span> <a href="https://docs.python.org/3/library/types.html#types.GenericAlias" title="types.GenericAlias" class="sphx-glr-backref-module-types sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span></a><span class="p">[</span><a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">np</span><span class="o">.</span><span class="n">double</span></a><span class="p">]:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Exact manufactured source term.&quot;&quot;&quot;</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">vector_field</span><span class="p">(</span>
+    <span class="n">coeffs</span><span class="p">:</span> <a href="https://docs.python.org/3/library/types.html#types.GenericAlias" title="types.GenericAlias" class="sphx-glr-backref-module-types sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span></a><span class="p">[</span><a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">np</span><span class="o">.</span><span class="n">double</span></a><span class="p">],</span> <span class="o">*</span><span class="n">x</span><span class="p">:</span> <a href="https://docs.python.org/3/library/types.html#types.GenericAlias" title="types.GenericAlias" class="sphx-glr-backref-module-types sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span></a><span class="p">[</span><a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">np</span><span class="o">.</span><span class="n">double</span></a><span class="p">]</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><a href="https://docs.python.org/3/library/types.html#types.GenericAlias" title="types.GenericAlias" class="sphx-glr-backref-module-types sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span></a><span class="p">[</span><a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">np</span><span class="o">.</span><span class="n">double</span></a><span class="p">],</span> <span class="o">...</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Vector field used for advecion.&quot;&quot;&quot;</span>
+    <span class="n">vals</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><a href="https://docs.python.org/3/library/types.html#types.GenericAlias" title="types.GenericAlias" class="sphx-glr-backref-module-types sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span></a><span class="p">[</span><a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">np</span><span class="o">.</span><span class="n">double</span></a><span class="p">]]</span> <span class="o">=</span> <span class="nb">list</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">c_row</span> <span class="ow">in</span> <span class="n">coeffs</span><span class="p">:</span>
+        <span class="n">vals</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><a href="https://numpy.org/doc/stable/reference/generated/numpy.sum.html#numpy.sum" title="numpy.sum" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-function"><span class="n">np</span><span class="o">.</span><span class="n">sum</span></a><span class="p">([</span><a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">c</span></a> <span class="o">*</span> <span class="n">v</span> <span class="k">for</span> <a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">c</span></a><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">c_row</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">True</span><span class="p">)],</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">))</span>
+    <span class="k">return</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">vals</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">manufactured_source_laplacian</span><span class="p">(</span><span class="o">*</span><span class="n">x</span><span class="p">:</span> <a href="https://docs.python.org/3/library/types.html#types.GenericAlias" title="types.GenericAlias" class="sphx-glr-backref-module-types sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span></a><span class="p">[</span><a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">np</span><span class="o">.</span><span class="n">double</span></a><span class="p">])</span> <span class="o">-&gt;</span> <a href="https://docs.python.org/3/library/types.html#types.GenericAlias" title="types.GenericAlias" class="sphx-glr-backref-module-types sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span></a><span class="p">[</span><a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">np</span><span class="o">.</span><span class="n">double</span></a><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Exact Laplacian source term.&quot;&quot;&quot;</span>
     <span class="n">res</span> <span class="o">=</span> <a href="https://numpy.org/doc/stable/reference/generated/numpy.ufunc.html#numpy.ufunc" title="numpy.ufunc" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">np</span><span class="o">.</span><span class="n">cos</span></a><span class="p">(</span><span class="n">x</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">*</span> <a href="https://docs.python.org/3/library/functions.html#float" title="builtins.float" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">np</span><span class="o">.</span><span class="n">pi</span></a> <span class="o">/</span> <span class="mi">2</span><span class="p">)</span>
     <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">x</span><span class="p">[</span><span class="mi">1</span><span class="p">:]:</span>
         <span class="n">res</span> <span class="o">*=</span> <a href="https://numpy.org/doc/stable/reference/generated/numpy.ufunc.html#numpy.ufunc" title="numpy.ufunc" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">np</span><span class="o">.</span><span class="n">cos</span></a><span class="p">(</span><span class="n">v</span> <span class="o">*</span> <a href="https://docs.python.org/3/library/functions.html#float" title="builtins.float" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">np</span><span class="o">.</span><span class="n">pi</span></a> <span class="o">/</span> <span class="mi">2</span><span class="p">)</span>
     <span class="n">res</span> <span class="o">*=</span> <span class="o">-</span><span class="p">((</span><a href="https://docs.python.org/3/library/functions.html#float" title="builtins.float" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">np</span><span class="o">.</span><span class="n">pi</span></a> <span class="o">/</span> <span class="mi">2</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span><span class="p">)</span> <span class="o">*</span> <span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">res</span> <span class="o">*</span> <a href="https://docs.python.org/3/library/functions.html#float" title="builtins.float" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">SCALE</span></a>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">manufactured_source_advection</span><span class="p">(</span>
+    <span class="n">coeffs</span><span class="p">:</span> <a href="https://docs.python.org/3/library/types.html#types.GenericAlias" title="types.GenericAlias" class="sphx-glr-backref-module-types sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span></a><span class="p">[</span><a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">np</span><span class="o">.</span><span class="n">double</span></a><span class="p">],</span> <span class="o">*</span><span class="n">x</span><span class="p">:</span> <a href="https://docs.python.org/3/library/types.html#types.GenericAlias" title="types.GenericAlias" class="sphx-glr-backref-module-types sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span></a><span class="p">[</span><a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">np</span><span class="o">.</span><span class="n">double</span></a><span class="p">]</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <a href="https://docs.python.org/3/library/types.html#types.GenericAlias" title="types.GenericAlias" class="sphx-glr-backref-module-types sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span></a><span class="p">[</span><a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">np</span><span class="o">.</span><span class="n">double</span></a><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Exact advection source term.&quot;&quot;&quot;</span>
+    <span class="n">vf</span> <span class="o">=</span> <span class="n">vector_field</span><span class="p">(</span><span class="n">coeffs</span><span class="p">,</span> <span class="o">*</span><span class="n">x</span><span class="p">)</span>
+    <span class="n">res</span> <span class="o">=</span> <a href="https://numpy.org/doc/stable/reference/generated/numpy.zeros_like.html#numpy.zeros_like" title="numpy.zeros_like" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-function"><span class="n">np</span><span class="o">.</span><span class="n">zeros_like</span></a><span class="p">(</span><span class="n">x</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+    <span class="k">for</span> <span class="n">idx</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">vf</span><span class="p">):</span>
+        <span class="n">grad_i</span> <span class="o">=</span> <span class="o">-</span><a href="https://docs.python.org/3/library/functions.html#float" title="builtins.float" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">np</span><span class="o">.</span><span class="n">pi</span></a> <span class="o">/</span> <span class="mi">2</span> <span class="o">*</span> <a href="https://numpy.org/doc/stable/reference/generated/numpy.ufunc.html#numpy.ufunc" title="numpy.ufunc" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">np</span><span class="o">.</span><span class="n">sin</span></a><span class="p">(</span><a href="https://docs.python.org/3/library/functions.html#float" title="builtins.float" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">np</span><span class="o">.</span><span class="n">pi</span></a> <span class="o">/</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">x</span><span class="p">[</span><span class="n">idx</span><span class="p">])</span>
+        <span class="k">for</span> <span class="n">j</span><span class="p">,</span> <span class="n">s</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">j</span> <span class="o">==</span> <span class="n">idx</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="n">grad_i</span> <span class="o">*=</span> <a href="https://numpy.org/doc/stable/reference/generated/numpy.ufunc.html#numpy.ufunc" title="numpy.ufunc" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">np</span><span class="o">.</span><span class="n">cos</span></a><span class="p">(</span><a href="https://docs.python.org/3/library/functions.html#float" title="builtins.float" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">np</span><span class="o">.</span><span class="n">pi</span></a> <span class="o">/</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">s</span><span class="p">)</span>
+        <span class="n">res</span> <span class="o">+=</span> <span class="n">grad_i</span> <span class="o">*</span> <span class="n">v</span>
+    <span class="k">return</span> <span class="n">res</span> <span class="o">*</span> <a href="https://docs.python.org/3/library/functions.html#float" title="builtins.float" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">SCALE</span></a>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">manufactured_source</span><span class="p">(</span>
+    <span class="n">coeffs</span><span class="p">:</span> <a href="https://docs.python.org/3/library/types.html#types.GenericAlias" title="types.GenericAlias" class="sphx-glr-backref-module-types sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span></a><span class="p">[</span><a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">np</span><span class="o">.</span><span class="n">double</span></a><span class="p">],</span> <span class="o">*</span><span class="n">x</span><span class="p">:</span> <a href="https://docs.python.org/3/library/types.html#types.GenericAlias" title="types.GenericAlias" class="sphx-glr-backref-module-types sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span></a><span class="p">[</span><a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">np</span><span class="o">.</span><span class="n">double</span></a><span class="p">]</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <a href="https://docs.python.org/3/library/types.html#types.GenericAlias" title="types.GenericAlias" class="sphx-glr-backref-module-types sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span></a><span class="p">[</span><a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">np</span><span class="o">.</span><span class="n">double</span></a><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Exact source term.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <a href="https://docs.python.org/3/library/functions.html#float" title="builtins.float" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">ALPHA</span></a> <span class="o">*</span> <span class="n">manufactured_source_laplacian</span><span class="p">(</span><span class="o">*</span><span class="n">x</span><span class="p">)</span> <span class="o">+</span> <span class="n">manufactured_source_advection</span><span class="p">(</span>
+        <span class="n">coeffs</span><span class="p">,</span> <span class="o">*</span><span class="n">x</span>
+    <span class="p">)</span>
 </pre></div>
 </div>
 <p>First the geometry of the space this will be solved on will be defined. For this case,
 we use the unit square, where the interior is deformed, while boundaries are the same.
 The mapping for each coordinate is based on Equation
-<a class="reference internal" href="#equation-examples-nd-poisson-deformation">(5)</a>, with <span class="math notranslate nohighlight">\(c\)</span> being the parameter that
+<a class="reference internal" href="#equation-examples-nd-advdiff-deformation">(5)</a>, with <span class="math notranslate nohighlight">\(c\)</span> being the parameter that
 determines the scale of deformation.</p>
-<div class="math notranslate nohighlight" id="equation-examples-nd-poisson-deformation">
-<span class="eqno">(5)<a class="headerlink" href="#equation-examples-nd-poisson-deformation" title="Link to this equation">#</a></span>\[x_i = \xi_i + c \prod\limits_{j=1}^n \left( 1 - {x_j}^2 \right) \sin \pi x_j\]</div>
+<div class="math notranslate nohighlight" id="equation-examples-nd-advdiff-deformation">
+<span class="eqno">(5)<a class="headerlink" href="#equation-examples-nd-advdiff-deformation" title="Link to this equation">#</a></span>\[x_i = \xi_i + c \prod\limits_{j=1}^n \left( 1 - {x_j}^2 \right) \sin \pi x_j\]</div>
 <div class="highlight-Python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">disturbed_mapping</span><span class="p">(</span>
     <a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">c</span></a><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">idx</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="o">*</span><span class="n">x</span><span class="p">:</span> <a href="https://docs.python.org/3/library/types.html#types.GenericAlias" title="types.GenericAlias" class="sphx-glr-backref-module-types sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span></a><span class="p">[</span><a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">np</span><span class="o">.</span><span class="n">double</span></a><span class="p">]</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <a href="https://docs.python.org/3/library/types.html#types.GenericAlias" title="types.GenericAlias" class="sphx-glr-backref-module-types sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span></a><span class="p">[</span><a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">np</span><span class="o">.</span><span class="n">double</span></a><span class="p">]:</span>
@@ -494,6 +535,30 @@ freedom themselves, but provide information about the order and function spaces.
     <span class="k">return</span> <span class="n">specs_u</span><span class="p">,</span> <span class="n">specs_q</span>
 </pre></div>
 </div>
+<p>Since we aim to solve a (linear) advection-diffusion problem, we need
+the vector field. In this example it is a linear function of the coordinates.
+While we could use completely coefficients, by making them depend only on
+the number of dimensions we can fairly compare subsequent solves.</p>
+<div class="highlight-Python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">creat_vector_filed_coefficients</span><span class="p">(</span><a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">ndim</span></a><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Create vector field coefficients.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <a href="https://numpy.org/doc/stable/reference/generated/numpy.array.html#numpy.array" title="numpy.array" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-function"><span class="n">np</span><span class="o">.</span><span class="n">array</span></a><span class="p">(</span>
+        <span class="p">[</span>
+            <span class="p">[((</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span> <span class="o">**</span> <span class="n">i</span> <span class="o">*</span> <span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="n">i</span> <span class="o">-</span> <span class="n">j</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="mi">1</span> <span class="o">+</span> <span class="n">i</span><span class="o">**</span><span class="mi">2</span> <span class="o">+</span> <span class="n">j</span><span class="o">**</span><span class="mi">2</span><span class="p">))</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">ndim</span></a><span class="p">)]</span>
+            <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">ndim</span></a><span class="p">)</span>
+        <span class="p">]</span>
+    <span class="p">)</span>
+</pre></div>
+</div>
+<p>To be able to use the vector field, we must evaluate the components in the
+physical domain at integration points.</p>
+<div class="highlight-Python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">evaluate_vector_field</span><span class="p">(</span><span class="n">coeffs</span><span class="p">,</span> <span class="n">sm</span><span class="p">:</span> <a href="../source/space_map.html#fdg.SpaceMap" title="fdg.SpaceMap" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class"><span class="n">SpaceMap</span></a><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Evaluate vector field at integration points.&quot;&quot;&quot;</span>
+    <span class="n">vf</span> <span class="o">=</span> <span class="n">vector_field</span><span class="p">(</span>
+        <span class="n">coeffs</span><span class="p">,</span> <span class="o">*</span><span class="p">[</span><span class="n">sm</span><span class="o">.</span><span class="n">coordinate_map</span><span class="p">(</span><span class="n">idx</span><span class="p">)</span><span class="o">.</span><span class="n">values</span> <span class="k">for</span> <span class="n">idx</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">sm</span><span class="o">.</span><span class="n">input_dimensions</span><span class="p">)]</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">vf</span>
+</pre></div>
+</div>
 <p>While for left side symmetry could be exploited, there’s no harm to compute
 it in full for this example. To that end, we first compute the two mass
 matrices for the two <span class="math notranslate nohighlight">\(k\)</span>-forms, then apply the incidence operators
@@ -501,13 +566,20 @@ as needed.</p>
 <p>Now that we have the required blocks, we can assemble the system matrix.
 Alternatively we could have used Schur’s complement to compute the solution,
 but for the sake of simplicity here we use the full dense solve.</p>
-<div class="highlight-Python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">assemble_lhs</span><span class="p">(</span><span class="n">sm</span><span class="p">,</span> <span class="n">specs_q</span><span class="p">,</span> <span class="n">specs_u</span><span class="p">):</span>
+<div class="highlight-Python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">assemble_lhs</span><span class="p">(</span><span class="n">sm</span><span class="p">,</span> <span class="n">specs_q</span><span class="p">,</span> <span class="n">specs_u</span><span class="p">,</span> <span class="n">vf</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Crate the system matrix.&quot;&quot;&quot;</span>
     <span class="n">mq</span> <span class="o">=</span> <a href="../source/inner_product.html#fdg.compute_kform_mass_matrix" title="fdg.compute_kform_mass_matrix" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-function"><span class="n">compute_kform_mass_matrix</span></a><span class="p">(</span>
         <span class="n">sm</span><span class="p">,</span> <span class="n">specs_q</span><span class="o">.</span><span class="n">order</span><span class="p">,</span> <span class="n">specs_q</span><span class="o">.</span><span class="n">base_space</span><span class="p">,</span> <span class="n">specs_q</span><span class="o">.</span><span class="n">base_space</span>
     <span class="p">)</span>
     <span class="n">mu</span> <span class="o">=</span> <a href="../source/inner_product.html#fdg.compute_kform_mass_matrix" title="fdg.compute_kform_mass_matrix" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-function"><span class="n">compute_kform_mass_matrix</span></a><span class="p">(</span>
         <span class="n">sm</span><span class="p">,</span> <span class="n">specs_u</span><span class="o">.</span><span class="n">order</span><span class="p">,</span> <span class="n">specs_u</span><span class="o">.</span><span class="n">base_space</span><span class="p">,</span> <span class="n">specs_u</span><span class="o">.</span><span class="n">base_space</span>
+    <span class="p">)</span>
+    <span class="n">mqip</span> <span class="o">=</span> <a href="../source/interior_product.html#fdg.compute_kform_interior_product_matrix" title="fdg.compute_kform_interior_product_matrix" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-function"><span class="n">compute_kform_interior_product_matrix</span></a><span class="p">(</span>
+        <span class="n">sm</span><span class="p">,</span>
+        <span class="n">specs_u</span><span class="o">.</span><span class="n">order</span><span class="p">,</span>
+        <span class="n">specs_u</span><span class="o">.</span><span class="n">base_space</span><span class="p">,</span>
+        <span class="n">specs_q</span><span class="o">.</span><span class="n">base_space</span><span class="p">,</span>
+        <a href="https://numpy.org/doc/stable/reference/generated/numpy.asarray.html#numpy.asarray" title="numpy.asarray" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-function"><span class="n">np</span><span class="o">.</span><span class="n">asarray</span></a><span class="p">(</span><span class="n">vf</span><span class="p">,</span> <a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float64" title="numpy.float64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">np</span><span class="o">.</span><span class="n">double</span></a><span class="p">),</span>
     <span class="p">)</span>
 
     <span class="n">mu_e</span> <span class="o">=</span> <a href="../source/incidence.html#fdg.incidence_kform_operator" title="fdg.incidence_kform_operator" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-function"><span class="n">incidence_kform_operator</span></a><span class="p">(</span><span class="n">specs_q</span><span class="p">,</span> <span class="n">mu</span><span class="p">,</span> <span class="n">right</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
@@ -516,7 +588,7 @@ but for the sake of simplicity here we use the full dense solve.</p>
     <span class="n">system_matrix</span> <span class="o">=</span> <a href="https://numpy.org/doc/stable/reference/generated/numpy.block.html#numpy.block" title="numpy.block" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-function"><span class="n">np</span><span class="o">.</span><span class="n">block</span></a><span class="p">(</span>
         <span class="p">[</span>
             <span class="p">[</span><span class="n">mq</span><span class="p">,</span> <span class="n">et_mu</span><span class="p">],</span>
-            <span class="p">[</span><span class="n">mu_e</span><span class="p">,</span> <a href="https://numpy.org/doc/stable/reference/generated/numpy.zeros_like.html#numpy.zeros_like" title="numpy.zeros_like" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-function"><span class="n">np</span><span class="o">.</span><span class="n">zeros_like</span></a><span class="p">(</span><span class="n">mu</span><span class="p">)],</span>
+            <span class="p">[</span><a href="https://docs.python.org/3/library/functions.html#float" title="builtins.float" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">ALPHA</span></a> <span class="o">*</span> <span class="n">mu_e</span> <span class="o">+</span> <span class="n">mqip</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <a href="https://numpy.org/doc/stable/reference/generated/numpy.zeros_like.html#numpy.zeros_like" title="numpy.zeros_like" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-function"><span class="n">np</span><span class="o">.</span><span class="n">zeros_like</span></a><span class="p">(</span><span class="n">mu</span><span class="p">)],</span>
         <span class="p">]</span>
     <span class="p">)</span>
     <span class="k">return</span> <span class="n">system_matrix</span>
@@ -524,11 +596,11 @@ but for the sake of simplicity here we use the full dense solve.</p>
 </div>
 <p>The right side of the Poisson equation can be computed from the “dual projection”
 of the manufactured source term on the function space.</p>
-<div class="highlight-Python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">assemble_rhs</span><span class="p">(</span><span class="n">specs_u</span><span class="p">,</span> <span class="n">specs_q</span><span class="p">,</span> <span class="n">sm_h</span><span class="p">):</span>
+<div class="highlight-Python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">assemble_rhs</span><span class="p">(</span><span class="n">specs_u</span><span class="p">,</span> <span class="n">specs_q</span><span class="p">,</span> <span class="n">sm_h</span><span class="p">,</span> <span class="n">coeffs</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Assemble the system&#39;s RHS.&quot;&quot;&quot;</span>
-    <span class="n">source_vals</span> <span class="o">=</span> <a href="../source/inner_product.html#fdg.projection_kform_l2_dual" title="fdg.projection_kform_l2_dual" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-function"><span class="n">projection_kform_l2_dual</span></a><span class="p">([</span><span class="n">manufactured_source_poisson</span><span class="p">],</span> <span class="n">specs_u</span><span class="p">,</span> <span class="n">sm_h</span><span class="p">)[</span>
-        <span class="mi">0</span>
-    <span class="p">]</span>
+    <span class="n">source_vals</span> <span class="o">=</span> <a href="../source/inner_product.html#fdg.projection_kform_l2_dual" title="fdg.projection_kform_l2_dual" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-function"><span class="n">projection_kform_l2_dual</span></a><span class="p">(</span>
+        <span class="p">[</span><a href="https://docs.python.org/3/library/functools.html#functools.partial" title="functools.partial" class="sphx-glr-backref-module-functools sphx-glr-backref-type-py-function"><span class="n">partial</span></a><span class="p">(</span><span class="n">manufactured_source</span><span class="p">,</span> <span class="n">coeffs</span><span class="p">)],</span> <span class="n">specs_u</span><span class="p">,</span> <span class="n">sm_h</span>
+    <span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
 
     <span class="n">rhs</span> <span class="o">=</span> <a href="https://numpy.org/doc/stable/reference/generated/numpy.concatenate.html#numpy.concatenate" title="numpy.concatenate" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-function"><span class="n">np</span><span class="o">.</span><span class="n">concatenate</span></a><span class="p">(</span>
         <span class="p">(</span><a href="https://numpy.org/doc/stable/reference/generated/numpy.zeros.html#numpy.zeros" title="numpy.zeros" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-function"><span class="n">np</span><span class="o">.</span><span class="n">zeros</span></a><span class="p">(</span><span class="nb">sum</span><span class="p">(</span><span class="n">specs_q</span><span class="o">.</span><span class="n">component_dof_counts</span><span class="p">)),</span> <span class="n">source_vals</span><span class="o">.</span><span class="n">flatten</span><span class="p">())</span>
@@ -585,12 +657,16 @@ to form the error calculation function.</p>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Solve the N-dimensional Poisson equation and compute the L^2 error.&quot;&quot;&quot;</span>
     <span class="c1"># Space maps</span>
     <span class="n">sm</span><span class="p">,</span> <span class="n">sm_h</span> <span class="o">=</span> <span class="n">create_space_maps</span><span class="p">(</span><span class="n">order_integration</span><span class="p">,</span> <span class="n">type_integration</span><span class="p">,</span> <a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">ndim</span></a><span class="p">,</span> <span class="n">dp</span><span class="p">)</span>
+    <span class="c1"># Vector coefficients</span>
+    <span class="n">coeffs</span> <span class="o">=</span> <span class="n">creat_vector_filed_coefficients</span><span class="p">(</span><a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">ndim</span></a><span class="p">)</span>
+    <span class="c1"># Vector field values</span>
+    <span class="n">vf</span> <span class="o">=</span> <span class="n">evaluate_vector_field</span><span class="p">(</span><span class="n">coeffs</span><span class="p">,</span> <span class="n">sm</span><span class="p">)</span>
     <span class="c1"># K-form specs</span>
     <span class="n">specs_u</span><span class="p">,</span> <span class="n">specs_q</span> <span class="o">=</span> <span class="n">create_kform_specs</span><span class="p">(</span><span class="n">type_basis</span><span class="p">,</span> <span class="n">order_basis</span><span class="p">,</span> <a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">ndim</span></a><span class="p">)</span>
     <span class="c1"># LHS of the system</span>
-    <span class="n">lhs</span> <span class="o">=</span> <span class="n">assemble_lhs</span><span class="p">(</span><span class="n">sm</span><span class="p">,</span> <span class="n">specs_q</span><span class="p">,</span> <span class="n">specs_u</span><span class="p">)</span>
+    <span class="n">lhs</span> <span class="o">=</span> <span class="n">assemble_lhs</span><span class="p">(</span><span class="n">sm</span><span class="p">,</span> <span class="n">specs_q</span><span class="p">,</span> <span class="n">specs_u</span><span class="p">,</span> <span class="n">vf</span><span class="p">)</span>
     <span class="c1"># RHS</span>
-    <span class="n">rhs</span> <span class="o">=</span> <span class="n">assemble_rhs</span><span class="p">(</span><span class="n">specs_u</span><span class="p">,</span> <span class="n">specs_q</span><span class="p">,</span> <span class="n">sm_h</span><span class="p">)</span>
+    <span class="n">rhs</span> <span class="o">=</span> <span class="n">assemble_rhs</span><span class="p">(</span><span class="n">specs_u</span><span class="p">,</span> <span class="n">specs_q</span><span class="p">,</span> <span class="n">sm_h</span><span class="p">,</span> <span class="n">coeffs</span><span class="p">)</span>
     <span class="c1"># Solve</span>
     <span class="n">solution_dofs</span> <span class="o">=</span> <a href="https://numpy.org/doc/stable/reference/generated/numpy.linalg.solve.html#numpy.linalg.solve" title="numpy.linalg.solve" class="sphx-glr-backref-module-numpy-linalg sphx-glr-backref-type-py-function"><span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">solve</span></a><span class="p">(</span><span class="n">lhs</span><span class="p">,</span> <span class="n">rhs</span><span class="p">)</span>
     <span class="c1"># Compute error squared</span>
@@ -605,10 +681,10 @@ difference of 1 between the lower and higher order integration rules.</p>
 <a href="../source/integration.html#fdg.IntegrationMethod" title="fdg.IntegrationMethod" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">ITYPE</span></a> <span class="o">=</span> <a href="../source/integration.html#fdg.IntegrationMethod" title="fdg.IntegrationMethod" class="sphx-glr-backref-module-fdg sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">IntegrationMethod</span><span class="o">.</span><span class="n">GAUSS</span></a>
 <a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">DP</span></a> <span class="o">=</span> <span class="mi">1</span>
 
-<a href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="numpy.ndarray" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">pvals</span></a> <span class="o">=</span> <a href="https://numpy.org/doc/stable/reference/generated/numpy.arange.html#numpy.arange" title="numpy.arange" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-function"><span class="n">np</span><span class="o">.</span><span class="n">arange</span></a><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">7</span><span class="p">)</span>
-<a href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="numpy.ndarray" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">evals</span></a> <span class="o">=</span> <a href="https://numpy.org/doc/stable/reference/generated/numpy.zeros.html#numpy.zeros" title="numpy.zeros" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-function"><span class="n">np</span><span class="o">.</span><span class="n">zeros</span></a><span class="p">(</span><a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">pvals</span><span class="o">.</span><span class="n">size</span></a><span class="p">)</span>
-<a href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="numpy.ndarray" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">tvals</span></a> <span class="o">=</span> <a href="https://numpy.org/doc/stable/reference/generated/numpy.zeros.html#numpy.zeros" title="numpy.zeros" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-function"><span class="n">np</span><span class="o">.</span><span class="n">zeros</span></a><span class="p">(</span><a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">pvals</span><span class="o">.</span><span class="n">size</span></a><span class="p">)</span>
-<span class="k">for</span> <a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">ndim</span></a> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">4</span><span class="p">):</span>
+<span class="k">for</span> <a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">ndim</span></a><span class="p">,</span> <a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">plimit</span></a> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span> <span class="p">[</span><span class="mi">15</span><span class="p">,</span> <span class="mi">11</span><span class="p">,</span> <span class="mi">6</span><span class="p">],</span> <span class="n">strict</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+    <a href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="numpy.ndarray" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">pvals</span></a> <span class="o">=</span> <a href="https://numpy.org/doc/stable/reference/generated/numpy.arange.html#numpy.arange" title="numpy.arange" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-function"><span class="n">np</span><span class="o">.</span><span class="n">arange</span></a><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">plimit</span></a><span class="p">)</span>
+    <a href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="numpy.ndarray" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">evals</span></a> <span class="o">=</span> <a href="https://numpy.org/doc/stable/reference/generated/numpy.zeros.html#numpy.zeros" title="numpy.zeros" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-function"><span class="n">np</span><span class="o">.</span><span class="n">zeros</span></a><span class="p">(</span><a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">pvals</span><span class="o">.</span><span class="n">size</span></a><span class="p">)</span>
+    <a href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="numpy.ndarray" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">tvals</span></a> <span class="o">=</span> <a href="https://numpy.org/doc/stable/reference/generated/numpy.zeros.html#numpy.zeros" title="numpy.zeros" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-function"><span class="n">np</span><span class="o">.</span><span class="n">zeros</span></a><span class="p">(</span><a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">pvals</span><span class="o">.</span><span class="n">size</span></a><span class="p">)</span>
     <span class="k">for</span> <a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">ip</span></a><span class="p">,</span> <a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.int64" title="numpy.int64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">p</span></a> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><a href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="numpy.ndarray" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">pvals</span></a><span class="p">):</span>
         <a href="https://docs.python.org/3/library/functions.html#int" title="builtins.int" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">pv</span></a> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><a href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.int64" title="numpy.int64" class="sphx-glr-backref-module-numpy sphx-glr-backref-type-py-attribute"><span class="n">p</span></a><span class="p">)</span>
         <a href="https://docs.python.org/3/library/functions.html#float" title="builtins.float" class="sphx-glr-backref-module-builtins sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">t0</span></a> <span class="o">=</span> <a href="https://docs.python.org/3/library/time.html#time.perf_counter" title="time.perf_counter" class="sphx-glr-backref-module-time sphx-glr-backref-type-py-function"><span class="n">perf_counter</span></a><span class="p">()</span>
@@ -644,20 +720,20 @@ difference of 1 between the lower and higher order integration rules.</p>
 </pre></div>
 </div>
 <ul class="sphx-glr-horizontal">
-<li><img src="../_images/sphx_glr_plot_poisson_001.png" srcset="../_images/sphx_glr_plot_poisson_001.png" alt="1-dimensional Poisson equation convergence" class = "sphx-glr-multi-img"/></li>
-<li><img src="../_images/sphx_glr_plot_poisson_002.png" srcset="../_images/sphx_glr_plot_poisson_002.png" alt="2-dimensional Poisson equation convergence" class = "sphx-glr-multi-img"/></li>
-<li><img src="../_images/sphx_glr_plot_poisson_003.png" srcset="../_images/sphx_glr_plot_poisson_003.png" alt="3-dimensional Poisson equation convergence" class = "sphx-glr-multi-img"/></li>
+<li><img src="../_images/sphx_glr_plot_advdif_001.png" srcset="../_images/sphx_glr_plot_advdif_001.png" alt="1-dimensional Poisson equation convergence" class = "sphx-glr-multi-img"/></li>
+<li><img src="../_images/sphx_glr_plot_advdif_002.png" srcset="../_images/sphx_glr_plot_advdif_002.png" alt="2-dimensional Poisson equation convergence" class = "sphx-glr-multi-img"/></li>
+<li><img src="../_images/sphx_glr_plot_advdif_003.png" srcset="../_images/sphx_glr_plot_advdif_003.png" alt="3-dimensional Poisson equation convergence" class = "sphx-glr-multi-img"/></li>
 </ul>
-<p class="sphx-glr-timing"><strong>Total running time of the script:</strong> (0 minutes 8.235 seconds)</p>
-<div class="sphx-glr-footer sphx-glr-footer-example docutils container" id="sphx-glr-download-auto-examples-plot-poisson-py">
+<p class="sphx-glr-timing"><strong>Total running time of the script:</strong> (0 minutes 3.463 seconds)</p>
+<div class="sphx-glr-footer sphx-glr-footer-example docutils container" id="sphx-glr-download-auto-examples-plot-advdif-py">
 <div class="sphx-glr-download sphx-glr-download-jupyter docutils container">
-<p><a class="reference download internal" download="" href="../_downloads/dd813bd6c271f52b87c333d66fec2e6d/plot_poisson.ipynb"><code class="xref download docutils literal notranslate"><span class="pre">Download</span> <span class="pre">Jupyter</span> <span class="pre">notebook:</span> <span class="pre">plot_poisson.ipynb</span></code></a></p>
+<p><a class="reference download internal" download="" href="../_downloads/ea56b1a9802c2435dc2972838b741967/plot_advdif.ipynb"><code class="xref download docutils literal notranslate"><span class="pre">Download</span> <span class="pre">Jupyter</span> <span class="pre">notebook:</span> <span class="pre">plot_advdif.ipynb</span></code></a></p>
 </div>
 <div class="sphx-glr-download sphx-glr-download-python docutils container">
-<p><a class="reference download internal" download="" href="../_downloads/9c3b78077773ad526d8571ce8d23cb02/plot_poisson.py"><code class="xref download docutils literal notranslate"><span class="pre">Download</span> <span class="pre">Python</span> <span class="pre">source</span> <span class="pre">code:</span> <span class="pre">plot_poisson.py</span></code></a></p>
+<p><a class="reference download internal" download="" href="../_downloads/86dacfe9754030634dbfb4c8be27dae1/plot_advdif.py"><code class="xref download docutils literal notranslate"><span class="pre">Download</span> <span class="pre">Python</span> <span class="pre">source</span> <span class="pre">code:</span> <span class="pre">plot_advdif.py</span></code></a></p>
 </div>
 <div class="sphx-glr-download sphx-glr-download-zip docutils container">
-<p><a class="reference download internal" download="" href="../_downloads/b262ac3697f90fd49a2a5c1da2e7fa68/plot_poisson.zip"><code class="xref download docutils literal notranslate"><span class="pre">Download</span> <span class="pre">zipped:</span> <span class="pre">plot_poisson.zip</span></code></a></p>
+<p><a class="reference download internal" download="" href="../_downloads/b5487e14a20c4bf618285a7689dbb99b/plot_advdif.zip"><code class="xref download docutils literal notranslate"><span class="pre">Download</span> <span class="pre">zipped:</span> <span class="pre">plot_advdif.zip</span></code></a></p>
 </div>
 </div>
 <p class="sphx-glr-signature"><a class="reference external" href="https://sphinx-gallery.github.io">Gallery generated by Sphinx-Gallery</a></p>
@@ -674,22 +750,13 @@ difference of 1 between the lower and higher order integration rules.</p>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="plot_domains.html"
+       href="plot_gradients.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Domain Examples</p>
-      </div>
-    </a>
-    <a class="right-next"
-       href="plot_gradients.html"
-       title="next page">
-      <div class="prev-next-info">
-        <p class="prev-next-subtitle">next</p>
         <p class="prev-next-title">Gradients</p>
       </div>
-      <i class="fa-solid fa-angle-right"></i>
     </a>
 </div>
                 </footer>
@@ -706,7 +773,7 @@ difference of 1 between the lower and higher order integration rules.</p>
   <div role="note" aria-label="source link">
     <h3>This Page</h3>
     <ul class="this-page-menu">
-      <li><a href="../_sources/auto_examples/plot_poisson.rst.txt"
+      <li><a href="../_sources/auto_examples/plot_advdif.rst.txt"
             rel="nofollow">Show Source</a></li>
     </ul>
    </div></div>

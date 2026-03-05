@@ -1,27 +1,29 @@
 r"""
 .. currentmodule:: fdg
 
-N-D Poisson
-===========
+N-D Advection Diffusion
+=======================
 
-This example demonstrates system for N-dimensional mixed Poisson equation can be set up.
+This example demonstrates system for N-dimensional advection-diffusion equation can be set
+up.
 
-Mixed Poisson equation is defined in the weak form as:
+The equation is defined in the weak form as:
 
 .. math::
-    :label: examples_nd_poisson_1
+    :label: examples_nd_advdiff_1
 
     \left( p^{(n - 1)}, q^{(n - 1)} \right)_\Omega + \left( \mathrm{d} p^{(n - 1)},
     u^{(n)} \right)_\Omega = \int_{\partial \Omega} p^{(n - 1)} \wedge \star u^{(n)}
 
 .. math::
-    :label: examples_nd_poisson_2
+    :label: examples_nd_advdiff_2
 
-    \left( v^{(n)}, \mathrm{d} q^{(n - 1)} \right)_\Omega =
-    \left( v^{(n)}, f^{(n)} \right)_\Omega
+    \left( v^{(n)}, \mathrm{d} q^{(n - 1)} \right)_\Omega + \left( i_{\vec{a}} v^{(n)},
+    q^{(n - 1)} \right)_\Omega = \left( v^{(n)}, f^{(n)} \right)_\Omega
 
 """  # noqa: D205 D400
 
+from functools import partial
 from time import perf_counter
 from typing import Sequence
 
@@ -40,6 +42,7 @@ from fdg import (
     KForm,
     KFormSpecs,
     SpaceMap,
+    compute_kform_interior_product_matrix,
     compute_kform_mass_matrix,
     incidence_kform_operator,
     projection_kform_l2_dual,
@@ -53,7 +56,7 @@ from fdg import (
 # the following for the manufactured solution:
 #
 # .. math::
-#     :label: examples_nd_poisson_man_sol
+#     :label: examples_nd_advdiff_man_sol
 #
 #     u^{(n)}(x_1, \dots, x_n) = k \left(\prod\limits_{i=1}^n \cos\left( \frac{\pi}{2} x_i
 #     \right)\right) \mathrm{d} x_1 \wedge \dots \wedge \mathrm{d} x_n
@@ -62,15 +65,19 @@ from fdg import (
 # This gives the forcing function:
 #
 # .. math::
-#     :label: examples_nd_poisson_man_for
+#     :label: examples_nd_advdiff_man_for
 #
-#     f^{(n)}(x_1, \dots, x_n) = - k n \left(\frac{\pi}{2}\right)^2 \left(
+#     f^{(n)}(x_1, \dots, x_n) = k \left( - n \left(\frac{\pi}{2}\right)^2 \left(
 #     \prod\limits_{i=1}^n \cos\left( \frac{\pi}{2} x_i
-#     \right)\right) \mathrm{d} x_1 \wedge \dots \wedge \mathrm{d} x_n
+#     \right)\right)  +
+#     \sum\limits_{i = 1}^n a_i \frac{\pi}{2} \sin \frac{\pi x_i}{2} \prod\limits_{j=1,
+#     j \ne i}^n \cos \frac{\pi x_j}{2} \right)
+#     \mathrm{d} x_1 \wedge \dots \wedge \mathrm{d} x_n
 #
 #
 
 SCALE = 0.1
+ALPHA = 0.05
 
 
 def manufactured_solution(*x: npt.NDArray[np.double]) -> npt.NDArray[np.double]:
@@ -81,8 +88,18 @@ def manufactured_solution(*x: npt.NDArray[np.double]) -> npt.NDArray[np.double]:
     return res * SCALE
 
 
-def manufactured_source_poisson(*x: npt.NDArray[np.double]) -> npt.NDArray[np.double]:
-    """Exact manufactured source term."""
+def vector_field(
+    coeffs: npt.NDArray[np.double], *x: npt.NDArray[np.double]
+) -> tuple[npt.NDArray[np.double], ...]:
+    """Vector field used for advecion."""
+    vals: list[npt.NDArray[np.double]] = list()
+    for c_row in coeffs:
+        vals.append(np.sum([c * v for c, v in zip(c_row, x, strict=True)], axis=0))
+    return tuple(vals)
+
+
+def manufactured_source_laplacian(*x: npt.NDArray[np.double]) -> npt.NDArray[np.double]:
+    """Exact Laplacian source term."""
     res = np.cos(x[0] * np.pi / 2)
     for v in x[1:]:
         res *= np.cos(v * np.pi / 2)
@@ -90,17 +107,42 @@ def manufactured_source_poisson(*x: npt.NDArray[np.double]) -> npt.NDArray[np.do
     return res * SCALE
 
 
+def manufactured_source_advection(
+    coeffs: npt.NDArray[np.double], *x: npt.NDArray[np.double]
+) -> npt.NDArray[np.double]:
+    """Exact advection source term."""
+    vf = vector_field(coeffs, *x)
+    res = np.zeros_like(x[0])
+    for idx, v in enumerate(vf):
+        grad_i = -np.pi / 2 * np.sin(np.pi / 2 * x[idx])
+        for j, s in enumerate(x):
+            if j == idx:
+                continue
+            grad_i *= np.cos(np.pi / 2 * s)
+        res += grad_i * v
+    return res * SCALE
+
+
+def manufactured_source(
+    coeffs: npt.NDArray[np.double], *x: npt.NDArray[np.double]
+) -> npt.NDArray[np.double]:
+    """Exact source term."""
+    return ALPHA * manufactured_source_laplacian(*x) + manufactured_source_advection(
+        coeffs, *x
+    )
+
+
 # %%
 #
 # First the geometry of the space this will be solved on will be defined. For this case,
 # we use the unit square, where the interior is deformed, while boundaries are the same.
 # The mapping for each coordinate is based on Equation
-# :eq:`examples_nd_poisson_deformation`, with :math:`c` being the parameter that
+# :eq:`examples_nd_advdiff_deformation`, with :math:`c` being the parameter that
 # determines the scale of deformation.
 #
 #
 # .. math::
-#     :label: examples_nd_poisson_deformation
+#     :label: examples_nd_advdiff_deformation
 #
 #     x_i = \xi_i + c \prod\limits_{j=1}^n \left( 1 - {x_j}^2 \right) \sin \pi x_j
 #
@@ -210,6 +252,37 @@ def create_kform_specs(type_basis, order_basis, ndim):
 
 
 # %%
+#
+# Since we aim to solve a (linear) advection-diffusion problem, we need
+# the vector field. In this example it is a linear function of the coordinates.
+# While we could use completely coefficients, by making them depend only on
+# the number of dimensions we can fairly compare subsequent solves.
+
+
+def creat_vector_filed_coefficients(ndim):
+    """Create vector field coefficients."""
+    return np.array(
+        [
+            [((-1) ** i * (2 * i - j**2) / (1 + i**2 + j**2)) for i in range(ndim)]
+            for j in range(ndim)
+        ]
+    )
+
+
+# %%
+# To be able to use the vector field, we must evaluate the components in the
+# physical domain at integration points.
+
+
+def evaluate_vector_field(coeffs, sm: SpaceMap):
+    """Evaluate vector field at integration points."""
+    vf = vector_field(
+        coeffs, *[sm.coordinate_map(idx).values for idx in range(sm.input_dimensions)]
+    )
+    return vf
+
+
+# %%
 # While for left side symmetry could be exploited, there's no harm to compute
 # it in full for this example. To that end, we first compute the two mass
 # matrices for the two :math:`k`-forms, then apply the incidence operators
@@ -220,13 +293,20 @@ def create_kform_specs(type_basis, order_basis, ndim):
 # but for the sake of simplicity here we use the full dense solve.
 
 
-def assemble_lhs(sm, specs_q, specs_u):
+def assemble_lhs(sm, specs_q, specs_u, vf):
     """Crate the system matrix."""
     mq = compute_kform_mass_matrix(
         sm, specs_q.order, specs_q.base_space, specs_q.base_space
     )
     mu = compute_kform_mass_matrix(
         sm, specs_u.order, specs_u.base_space, specs_u.base_space
+    )
+    mqip = compute_kform_interior_product_matrix(
+        sm,
+        specs_u.order,
+        specs_u.base_space,
+        specs_q.base_space,
+        np.asarray(vf, np.double),
     )
 
     mu_e = incidence_kform_operator(specs_q, mu, right=True)
@@ -235,7 +315,7 @@ def assemble_lhs(sm, specs_q, specs_u):
     system_matrix = np.block(
         [
             [mq, et_mu],
-            [mu_e, np.zeros_like(mu)],
+            [ALPHA * mu_e + mqip.T, np.zeros_like(mu)],
         ]
     )
     return system_matrix
@@ -246,11 +326,11 @@ def assemble_lhs(sm, specs_q, specs_u):
 # of the manufactured source term on the function space.
 
 
-def assemble_rhs(specs_u, specs_q, sm_h):
+def assemble_rhs(specs_u, specs_q, sm_h, coeffs):
     """Assemble the system's RHS."""
-    source_vals = projection_kform_l2_dual([manufactured_source_poisson], specs_u, sm_h)[
-        0
-    ]
+    source_vals = projection_kform_l2_dual(
+        [partial(manufactured_source, coeffs)], specs_u, sm_h
+    )[0]
 
     rhs = np.concatenate(
         (np.zeros(sum(specs_q.component_dof_counts)), source_vals.flatten())
@@ -311,12 +391,16 @@ def compute_l2_error(
     """Solve the N-dimensional Poisson equation and compute the L^2 error."""
     # Space maps
     sm, sm_h = create_space_maps(order_integration, type_integration, ndim, dp)
+    # Vector coefficients
+    coeffs = creat_vector_filed_coefficients(ndim)
+    # Vector field values
+    vf = evaluate_vector_field(coeffs, sm)
     # K-form specs
     specs_u, specs_q = create_kform_specs(type_basis, order_basis, ndim)
     # LHS of the system
-    lhs = assemble_lhs(sm, specs_q, specs_u)
+    lhs = assemble_lhs(sm, specs_q, specs_u, vf)
     # RHS
-    rhs = assemble_rhs(specs_u, specs_q, sm_h)
+    rhs = assemble_rhs(specs_u, specs_q, sm_h, coeffs)
     # Solve
     solution_dofs = np.linalg.solve(lhs, rhs)
     # Compute error squared
@@ -332,10 +416,10 @@ BTYPE = BasisType.BERNSTEIN
 ITYPE = IntegrationMethod.GAUSS
 DP = 1
 
-pvals = np.arange(1, 7)
-evals = np.zeros(pvals.size)
-tvals = np.zeros(pvals.size)
-for ndim in range(1, 4):
+for ndim, plimit in zip(range(1, 4), [15, 11, 6], strict=True):
+    pvals = np.arange(1, plimit)
+    evals = np.zeros(pvals.size)
+    tvals = np.zeros(pvals.size)
     for ip, p in enumerate(pvals):
         pv = int(p)
         t0 = perf_counter()

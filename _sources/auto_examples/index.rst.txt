@@ -119,6 +119,23 @@ Some examples.
     </div>
 
 
+.. raw:: html
+
+    <div class="sphx-glr-thumbcontainer" tooltip="This example demonstrates system for N-dimensional advection-diffusion equation can be set up.">
+
+.. only:: html
+
+  .. image:: /auto_examples/images/thumb/sphx_glr_plot_advdif_thumb.png
+    :alt:
+
+  :doc:`/auto_examples/plot_advdif`
+
+.. raw:: html
+
+      <div class="sphx-glr-thumbnail-title">N-D Advection Diffusion</div>
+    </div>
+
+
 .. thumbnail-parent-div-close
 
 .. raw:: html
@@ -135,6 +152,7 @@ Some examples.
    /auto_examples/plot_domains
    /auto_examples/plot_poisson
    /auto_examples/plot_gradients
+   /auto_examples/plot_advdif
 
 
 .. only:: html
