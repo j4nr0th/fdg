@@ -23,6 +23,10 @@ add_executable(test_basis_set_registry basis/test_basis_set_registry.c ${TEST_CO
 target_link_libraries(test_basis_set_registry PRIVATE interp m)
 add_test(NAME basis_set_registry COMMAND test_basis_set_registry)
 
+add_executable(test_covector_basis basis/test_covector_basis.c)
+target_link_libraries(test_covector_basis PRIVATE interp m)
+add_test(NAME covector_basis COMMAND test_covector_basis)
+
 # COMMON TESTS
 
 add_executable(test_rw_lock common/test_rw_lock.c ${TEST_COMMON_FILES})
@@ -56,6 +60,6 @@ add_executable(test_qr_decomposition_3 operations/test_qr_decomposition_3.c)
 target_link_libraries(test_qr_decomposition_3 PRIVATE interp m)
 add_test(NAME qr_decomposition_3 COMMAND test_qr_decomposition_3)
 
-add_executable(test_covector_basis basis/test_covector_basis.c)
-target_link_libraries(test_covector_basis PRIVATE interp m)
-add_test(NAME covector_basis COMMAND test_covector_basis)
+add_executable(test_boundary_scaling operations/test_boundary_scaling.c)
+target_link_libraries(test_boundary_scaling PRIVATE interp m)
+add_test(NAME boundary_scaling COMMAND test_boundary_scaling)

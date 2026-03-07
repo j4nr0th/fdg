@@ -857,6 +857,21 @@ class SpaceMap:
         """
         ...
 
+def _scale_array_boundary(arr: npt.ArrayLike, /) -> npt.NDArray[np.double]:
+    """Scale the array based on how many N-dimensional boundaries an entry appears.
+
+    Parameters
+    ----------
+    arr : array_like
+        Array to scale.
+
+    Returns
+    -------
+    array
+        Scaled array.
+    """
+    ...
+
 def compute_kform_mass_matrix(
     smap: SpaceMap,
     order: int,

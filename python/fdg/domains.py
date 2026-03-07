@@ -22,8 +22,82 @@ from fdg._fdg import (
     SpaceMap,
 )
 from fdg.degrees_of_freedom import reconstruct
-from fdg.enum_type import BasisType
+from fdg.enum_type import BasisType, IntegrationMethod
 from fdg.integration import Integrable, integrate_callable
+
+
+def dofs_from_boundary_pairs(
+    *boundaries: tuple[DegreesOfFreedom, DegreesOfFreedom],
+) -> DegreesOfFreedom:
+    """Create new DoFs from its boundaries via multilinear interpolation."""
+    # First check the inputs make sense
+    ndim_in = len(boundaries)
+    max_orders = np.zeros(ndim_in, np.uintc)
+
+    for i, (b1, b2) in enumerate(boundaries):
+        if type(b1) is not DegreesOfFreedom or type(b2) is not DegreesOfFreedom:
+            raise TypeError("Both boundaries must be DegreesOfFreedom.")
+
+        if b1.function_space.dimension != b2.function_space.dimension:
+            raise ValueError(
+                f"One or both boundaries for dimension {i} do not have matching "
+                "number of input dimensions."
+            )
+        elif b1.function_space.dimension + 1 != ndim_in:
+            raise ValueError(
+                f"Number of physical dimensions for boundary {i} does not"
+                " match the number specified expected based on the boundary count."
+            )
+
+        for idim in range(0, i):
+            max_orders[idim] = max(
+                max_orders[idim],
+                b1.function_space.orders[idim],
+                b2.function_space.orders[idim],
+            )
+
+        for idim in range(i + 1, ndim_in):
+            max_orders[idim] = max(
+                max_orders[idim],
+                b1.function_space.orders[idim - 1],
+                b2.function_space.orders[idim - 1],
+            )
+
+    # Create new boundary pairs that are have correct orders based on the new
+    # function space, which can exactly represent all boundaries.
+    function_space = FunctionSpace(
+        *(
+            BasisSpecs(BasisType.LAGRNAGE_GAUSS_LOBATTO, int(order))
+            for order in max_orders
+        )
+    )
+    output_dofs = DegreesOfFreedom(function_space)
+    out_vals = output_dofs.values
+    scale = np.zeros(out_vals.shape)
+    for idim, (b1, b2) in enumerate(boundaries):
+        r1 = b1.lagrange_projection((*max_orders[:idim], *max_orders[idim + 1 :]))
+        r2 = b2.lagrange_projection((*max_orders[:idim], *max_orders[idim + 1 :]))
+        # Reverse the orientation of the second boundary
+        for i in range(ndim_in - 1):
+            r2 = r2.reverse_orientation(i)
+        bv1 = np.expand_dims(r1.values, axis=idim)
+        bv2 = np.expand_dims(r2.values, axis=idim)
+        nodes = IntegrationSpecs(
+            function_space.orders[idim], IntegrationMethod.GAUSS_LOBATTO
+        ).nodes()
+        bf1 = np.expand_dims(
+            (1 - nodes) / 2, axis=(*range(0, idim), *range(idim + 1, ndim_in))
+        )
+        bf2 = np.expand_dims(
+            (1 + nodes) / 2, axis=(*range(0, idim), *range(idim + 1, ndim_in))
+        )
+        out_vals += bv1 * bf1 + bv2 * bf2
+        scale += bf1 + bf2
+
+    # Deal correct scaling
+    scaled_vals = out_vals / scale
+    output_dofs.values = scaled_vals
+    return output_dofs
 
 
 def _array_axis_slice(a: npt.NDArray, idx: int, axis: int):
@@ -49,17 +123,18 @@ class HypercubeDomain:
         if not len(dofs):
             raise ValueError("At least one coordinate must have its DoFs specified.")
 
-        fs: FunctionSpace | None = None
+        ndim_in = 0
         for i, d in enumerate(dofs):
             if type(dofs) is None:
                 raise TypeError(
                     f"Argument {i} was not {DegreesOfFreedom}, but {type(dofs)}."
                 )
-            if fs is None:
-                fs = d.function_space
-            elif d.function_space != fs:
+            if ndim_in == 0:
+                ndim_in = d.function_space.dimension
+            elif d.function_space.dimension != ndim_in:
                 raise ValueError(
-                    f"Function spaces of the DoFs {i} does not match the rest!"
+                    f"Function spaces of the DoFs {i} does not have the same input "
+                    "dimension as the rest!"
                 )
 
         object.__setattr__(self, "dofs", dofs)
@@ -72,7 +147,9 @@ class HypercubeDomain:
     @property
     def ndim_reference(self) -> int:
         """Number of reference dimensions of the domain."""
-        return len(self.dofs[0].shape)
+        if not self.dofs:
+            return 0
+        return self.dofs[0].function_space.dimension
 
     def __call__(
         self,
@@ -119,6 +196,11 @@ class HypercubeDomain:
         return tuple(
             dof.reconstruct_at_integration_points(int_space) for dof in self.dofs
         )
+
+    def boundary(self, idim: int, end: bool = False) -> HypercubeDomain:
+        """Extract a boundary."""
+        dofs = [dof.plane_projection(idim, +1.0 if end else -1.0) for dof in self.dofs]
+        return HypercubeDomain(*dofs)
 
     def compute_size(
         self,
@@ -257,70 +339,46 @@ class HypercubeDomain:
 
         return HypercubeDomain(*new_dofs)
 
-    # @classmethod
-    # def from_boundaries(cls, *boundaries: HypercubeDomain) -> Self:
-    #     """Create a domain from its boundaries."""
-    #     nbnd = len(boundaries)
-    #     if nbnd & 1:
-    #         raise ValueError("Domain must have an even number of boundaries.")
+    @staticmethod
+    def from_boundary_pairs(
+        *boundaries: tuple[HypercubeDomain, HypercubeDomain],
+    ) -> HypercubeDomain:
+        """Create a new domain from its boundaries via multilinear interpolation."""
+        # First check the inputs make sense
+        ndim_in = len(boundaries)
+        ndim_out = 0
 
-    #     ndim_in = nbnd // 2
-    #     if ndim_in <= 1:
-    #         raise ValueError(
-    #             "Domain must have at least two dimensions for this way of constructing
-    #  it"
-    #             " to work."
-    #         )
+        for i, (b1, b2) in enumerate(boundaries):
+            if not isinstance(b1, HypercubeDomain) or not isinstance(b2, HypercubeDomain):
+                raise TypeError("Both boundaries must be HyperCubes.")
 
-    #     for ib, bnd in enumerate(boundaries):
-    #         if bnd.ndim_reference + 1 != ndim_in:
-    #             raise ValueError(
-    #                 f"Boundary {ib} is not defined on the reference domain with "
-    #                 f"{ndim_in - 1} dimension as is expected for a new domain."
-    #             )
-    #         if bnd.ndim_physical != boundaries[0].ndim_physical:
-    #             raise ValueError(
-    #                 f"Boundary {ib} does not have the matching number of physical "
-    #                 "dimension with other boundaries that have "
-    #                 f"{boundaries[0].ndim_physical}"
-    #             )
+            if b1.ndim_physical != b2.ndim_physical:
+                raise ValueError(
+                    f"The number of physical dimensions for boundaries of dimension {i}"
+                    " does not match between the two boundaries."
+                )
 
-    #     start_boundaries = boundaries[:ndim_in]
-    #     end_boundaries = boundaries[ndim_in:]
+            if b1.ndim_reference + 1 != ndim_in or b2.ndim_reference + 1 != ndim_in:
+                raise ValueError(
+                    f"One or both boundaries for dimension {i} do not have the correct "
+                    "number of input dimensions."
+                )
+            if ndim_out == 0:
+                ndim_out = b1.ndim_physical
+            elif b1.ndim_physical != ndim_out:
+                raise ValueError(
+                    f"Number of physical dimensions for boundary {i} does not"
+                    " match the number specified by previous boundaries."
+                )
 
-    #     max_orders = np.zeros(ndim_in, dtype=np.uint64)
-    #     for idim in range(ndim_in):
-    #         start = start_boundaries[idim]
-    #         end = end_boundaries[idim]
-    #         orders = np.max(
-    #             (start.function_space.orders, end.function_space.orders), axis=0
-    #         )
-    #         padded = np.concatenate((orders[:idim], (0,), orders[idim:]))
-    #         max_orders = np.max((max_orders, padded), axis=0)
+        dofs = [
+            dofs_from_boundary_pairs(
+                *((b1.dofs[idim], b2.dofs[idim]) for b1, b2 in boundaries)
+            )
+            for idim in range(ndim_out)
+        ]
 
-    #     fs_target = FunctionSpace(
-    #         *(BasisSpecs(BasisType.LAGRANGE_UNIFORM, int(order)) for order in max_orders
-    # )
-    #     )
-    #     sample_points = np.meshgrid(
-    #         *(np.linspace(-1, +1, order + 1) for order in max_orders)
-    #     )
-    #     start_bnd_pts = [
-    #         start_boundaries[idim].sample(
-    #             *(_array_axis_slice(pts, 0, idim) for pts in sample_points)
-    #         )
-    #         for idim in range(ndim_in)
-    #     ]
-    #     end_bnd_pts = [
-    #         end_boundaries[idim].sample(
-    #             *(_array_axis_slice(pts, 0, idim) for pts in sample_points)
-    #         )
-    #         for idim in range(ndim_in)
-    #     ]
-
-    #     # TODO: check for adjacency between neighboring boundaries
-
-    #     raise NotImplementedError
+        return HypercubeDomain(*dofs)
 
 
 @dataclass(frozen=True)
