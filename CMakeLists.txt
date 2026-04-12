@@ -58,6 +58,8 @@ set(INTEGRATION_HEADER_FILES
 
 set(OPERATIONS_SOURCE_FILES
         src/operations/matrices.c
+        src/operations/topology.c
+        src/operations/topology.h
 )
 
 set(OPERATIONS_HEADER_FILES
@@ -81,7 +83,7 @@ set(RECONSTRUCTION_SOURCE_FILES
 )
 
 
-add_library(interp STATIC
+add_library(fdg STATIC
         ${BASIS_SOURCE_FILES}
         ${COMMON_SOURCE_FILES}
         ${INTEGRATION_SOURCE_FILES}
@@ -92,11 +94,11 @@ add_library(interp STATIC
 
 add_subdirectory(cutl)
 
-set_property(TARGET interp PROPERTY C_STANDARD 17)
-target_compile_definitions(interp PRIVATE FDG_ASSERTS)
-target_link_libraries(interp PUBLIC m OpenMP::OpenMP_C cutl)
+set_property(TARGET fdg PROPERTY C_STANDARD 17)
+target_compile_definitions(fdg PRIVATE FDG_ASSERTS)
+target_link_libraries(fdg PUBLIC m OpenMP::OpenMP_C cutl)
 if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
-    target_compile_options(interp PRIVATE -Wall -Wextra -Werror -fanalyzer -Werror)
+    target_compile_options(fdg PRIVATE -Wall -Wextra -Werror -fanalyzer -Werror)
 endif ()
 
 
@@ -120,7 +122,7 @@ Python_add_library(_fdg MODULE
 
 add_subdirectory(cpyutl)
 
-target_link_libraries(_fdg PRIVATE interp cpyutl cutl)
+target_link_libraries(_fdg PRIVATE fdg cpyutl cutl)
 set_property(TARGET _fdg PROPERTY C_STANDARD 17)
 set_property(TARGET _fdg PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
 install(TARGETS _fdg DESTINATION ${SKBUILD_PROJECT_NAME})
