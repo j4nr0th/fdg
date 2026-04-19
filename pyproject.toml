@@ -27,7 +27,7 @@ dev = [
     "scikit-build-core",
     "pyrefly",
     "npt-promote",
-    "pytest",
+    "pytest>=9.0.3",
     "pytest-cov",
     "interrogate",
     "pre-commit",
