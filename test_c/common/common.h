@@ -32,8 +32,8 @@ static void failed_assertion(const char *file, const int line, const char *funct
     exit(EXIT_FAILURE);
 }
 
-static void test_interp_result(const char *file, const int line, const char *function, const char *expr,
-                               const fdg_result_t res)
+static void test_fdg_result(const char *file, const int line, const char *function, const char *expr,
+                            const fdg_result_t res)
 {
     if (res == FDG_SUCCESS)
         return;
@@ -49,7 +49,7 @@ static void test_interp_result(const char *file, const int line, const char *fun
 #define TEST_ASSERTION(expr, msg, ...)                                                                                 \
     ((expr) ? (void)0 : failed_assertion(__FILE__, __LINE__, __func__, #expr, msg __VA_OPT__(, ) __VA_ARGS__))
 
-#define TEST_FDG_RESULT(expr) test_interp_result(__FILE__, __LINE__, __func__, #expr, expr)
+#define TEST_FDG_RESULT(expr) test_fdg_result(__FILE__, __LINE__, __func__, #expr, expr)
 
 static void test_numbers_close(const char *file, const int line, const char *function, const double x, const double y,
                                const double atol, const double rtol)

@@ -29,8 +29,8 @@ typedef struct
  */
 typedef struct
 {
-    // The collection the immersion information is aboutn.
-    const topo_obj_collection_t *collection;
+    // Number of objects the immersion information is for.
+    unsigned object_count;
     // Dimensionality of the space objects are immersed in.
     unsigned parent_dims;
     // Number of element indices before element_ids of the element begin
@@ -91,10 +91,42 @@ void topo_obj_elements(const topo_obj_immersion_t *immersion, uint64_t id, uint6
  * boundaries are in turn again described by their boundaries, and so on until 0-D objects (points).
  *
  * @param ndim[in] Number of dimensions of the space all objects are immersed in.
- * @param collections[in] Collections of objects going from 0-D (points) to ndim-D (elements themselves).
+ * @param npts[in] Number of points in the mesh which do not have their own collection.
+ * @param collections[in] Collections of objects going from 1-D (lines) to ndim-D (elements themselves).
  * @param allocator[in] Allocator to use to create the immersions in.
  * @param immersions[out] Array, which receives computed immersion information for objects from 0-D to (ndim-1)-D
  * @return Zero if successful, otherwise an error code.
  */
-int topo_obj_create_immersion_info(unsigned ndim, const topo_obj_collection_t collections[static ndim],
+int topo_obj_create_immersion_info(unsigned ndim, unsigned npts, const topo_obj_collection_t collections[static ndim],
                                    const cutl_allocator_t *allocator, topo_obj_immersion_t immersions[ndim]);
+
+/**
+ * Release all memory for immersions and clear them.
+ *
+ * @param ndim Number of dimensions (and immersions).
+ * @param immersions Immersions to release.
+ * @param allocator Allocator with which the memory for immersions was allocated.
+ */
+void topo_obj_immersions_free(unsigned ndim, topo_obj_immersion_t immersions[const ndim],
+                              const cutl_allocator_t *allocator);
+
+/**
+ * Create immersion information (position in the element and its relative orientation) for a boundary of an object from
+ * a collection.
+ *
+ * @param ndim[in] Number of dimensions of the space everything is immersed in.
+ * @param idim[in] Dimension of the boundary objects.
+ * @param collection[in] Collection the object is from.
+ * @param bdim[in] Index/dimension of the boundary in question.
+ * @param fixed_axes[in] Number of axes indices used for identifying the boundary.
+ * @param parent_orientation[in] The first (ndim-idim) entries identify the parent within the element, with the
+ * remaining idim specifying how its axes map to those of the parent.
+ * @param boundaries[in] Array of 1-based indices of other boundaries in the same topological object.
+ * @param orient_arr[out] Array that receives the specification of the boundary in the element as the first
+ * (ndim-idim+1) entries and the mapping of its local axes to those of the element as the next (idim-1) indices.
+ * @return On success 0.
+ */
+int topo_obj_boundary_immersion_create(unsigned ndim, unsigned idim, const topo_obj_collection_t *collection,
+                                       unsigned bdim, unsigned fixed_axes,
+                                       const int8_t parent_orientation[const static ndim],
+                                       const int64_t boundaries[const static 2 * ndim], int8_t orient_arr[const ndim]);
