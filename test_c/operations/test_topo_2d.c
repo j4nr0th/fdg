@@ -316,10 +316,11 @@ int main()
     };
 
     const cutl_allocator_t *allocator = cutl_allocator_get_default();
-    const int res = topo_obj_create_immersion_info(DIM_COUNT, POINT_COUNT,
-                                                   (const topo_obj_collection_t[DIM_COUNT]){line_mesh, surface_mesh},
-                                                   allocator, immersions);
-    TEST_ASSERTION(res == 0, "Failed function call with return value %d", res);
+    const topo_status_t res = topo_obj_create_immersion_info(
+        DIM_COUNT, POINT_COUNT, (const topo_obj_collection_t[DIM_COUNT]){line_mesh, surface_mesh}, allocator,
+        immersions);
+    TEST_ASSERTION(res == TOPO_SUCCESS, "Failed function call with return value %s: %s", topo_status_to_str(res),
+                   topo_status_msg(res));
 
     // Check that computed immersion is correct
     assert_immersion_equal(DIM_COUNT, immersions + 1, &correct_immersion_lines);

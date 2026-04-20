@@ -3,6 +3,34 @@
 #include <stdint.h>
 
 /**
+ * Enum with success and error codes for topological functions.
+ */
+typedef enum
+{
+    TOPO_SUCCESS = 0,               // Success.
+    TOPO_FAILED_ALLOC,              // Failed memory allocation.
+    TOPO_NO_COMMON_BOUNDARY,        // Two non-opposite boundaries in an object have no common boundary.
+    TOPO_INVALID_PARENT_BOUNDARIES, // Parent object had invalid orientation with repeating indices.
+    TOPO_INVALID_ELEMENT,           // Objects in an element did not appear as often as expected.
+} topo_status_t;
+
+/**
+ * Get the name of the status value (such as "TOPO_SUCCESS", for example).
+ *
+ * @param status Status value to get the string for.
+ * @return Statically allocated string with the name of the status value.
+ */
+const char *topo_status_to_str(topo_status_t status);
+
+/**
+ * Get the description of what the status value is describing.
+ *
+ * @param status Status value to get the message for.
+ * @return Statically allocated string with the message explaining the meaning of the status value.
+ */
+const char *topo_status_msg(topo_status_t status);
+
+/**
  * @brief Collection of n-dimensional topological objects.
  *
  * The elements themselves are defined by their boundaries. Additional
@@ -45,7 +73,7 @@ typedef struct
 /**
  * Compute the number of boundaries the topological object has (hint: it is two times more than dimensions).
  *
- * This cool function multiplies by 2, but it is here, because code is a lot clearer when there's a proper name
+ * This cool function multiplies by 2, but it is here because the code is a lot clearer when there's a proper name
  * for this.
  *
  * @param ndim[in] Dimensionality of the topological object.
@@ -95,10 +123,11 @@ void topo_obj_elements(const topo_obj_immersion_t *immersion, uint64_t id, uint6
  * @param collections[in] Collections of objects going from 1-D (lines) to ndim-D (elements themselves).
  * @param allocator[in] Allocator to use to create the immersions in.
  * @param immersions[out] Array, which receives computed immersion information for objects from 0-D to (ndim-1)-D
- * @return Zero if successful, otherwise an error code.
+ * @return TOPO_SUCCESS if successful, otherwise an error code.
  */
-int topo_obj_create_immersion_info(unsigned ndim, unsigned npts, const topo_obj_collection_t collections[static ndim],
-                                   const cutl_allocator_t *allocator, topo_obj_immersion_t immersions[ndim]);
+topo_status_t topo_obj_create_immersion_info(unsigned ndim, unsigned npts,
+                                             const topo_obj_collection_t collections[static ndim],
+                                             const cutl_allocator_t *allocator, topo_obj_immersion_t immersions[ndim]);
 
 /**
  * Release all memory for immersions and clear them.
@@ -124,9 +153,11 @@ void topo_obj_immersions_free(unsigned ndim, topo_obj_immersion_t immersions[con
  * @param boundaries[in] Array of 1-based indices of other boundaries in the same topological object.
  * @param orient_arr[out] Array that receives the specification of the boundary in the element as the first
  * (ndim-idim+1) entries and the mapping of its local axes to those of the element as the next (idim-1) indices.
- * @return On success 0.
+ * @return TOPO_SUCCESS if successful, TOPO_NO_COMMON_BOUNDARY if there are boundaries that do not share a boundary
+ * among each other.
  */
-int topo_obj_boundary_immersion_create(unsigned ndim, unsigned idim, const topo_obj_collection_t *collection,
-                                       unsigned bdim, unsigned fixed_axes,
-                                       const int8_t parent_orientation[const static ndim],
-                                       const int64_t boundaries[const static 2 * ndim], int8_t orient_arr[const ndim]);
+topo_status_t topo_obj_boundary_immersion_create(unsigned ndim, unsigned idim, const topo_obj_collection_t *collection,
+                                                 unsigned bdim, unsigned fixed_axes,
+                                                 const int8_t parent_orientation[const static ndim],
+                                                 const int64_t boundaries[const static 2 * ndim],
+                                                 int8_t orient_arr[const ndim]);

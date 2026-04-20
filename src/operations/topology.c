@@ -2,6 +2,40 @@
 #include <math.h>
 #include <stdbool.h>
 
+#define TOPO_STATUS_CASE(stat)                                                                                         \
+    case stat:                                                                                                         \
+        return #stat
+const char *topo_status_to_str(const topo_status_t status)
+{
+    switch (status)
+    {
+        TOPO_STATUS_CASE(TOPO_SUCCESS);
+        TOPO_STATUS_CASE(TOPO_FAILED_ALLOC);
+        TOPO_STATUS_CASE(TOPO_NO_COMMON_BOUNDARY);
+        TOPO_STATUS_CASE(TOPO_INVALID_PARENT_BOUNDARIES);
+        TOPO_STATUS_CASE(TOPO_INVALID_ELEMENT);
+    }
+    return "Unknown";
+}
+#undef TOPO_STATUS_CASE
+
+#define TOPO_STATUS_MSG(stat, msg)                                                                                     \
+    case stat:                                                                                                         \
+        return msg
+const char *topo_status_msg(const topo_status_t status)
+{
+    switch (status)
+    {
+        TOPO_STATUS_MSG(TOPO_SUCCESS, "Success");
+        TOPO_STATUS_MSG(TOPO_FAILED_ALLOC, "Failed memory allocation");
+        TOPO_STATUS_MSG(TOPO_NO_COMMON_BOUNDARY, "Two non-opposite boundaries in an object have no common boundary");
+        TOPO_STATUS_MSG(TOPO_INVALID_PARENT_BOUNDARIES, "Parent object had invalid orientation with repeating indices");
+        TOPO_STATUS_MSG(TOPO_INVALID_ELEMENT, "Objects in an element did not appear as often as expected");
+    }
+    return "Unknown";
+}
+#undef TOPO_STATUS_MSG
+
 unsigned topo_obj_boundary_count(const unsigned ndim)
 {
     return 2 * ndim;
@@ -31,20 +65,20 @@ static uint64_t indexing_to_zero_based(const int64_t idx)
 
 int64_t topo_obj_common_boundary_index(const topo_obj_collection_t *collection, const int64_t id_1, const int64_t id_2)
 {
-    const unsigned bnds_per_object = topo_obj_boundary_count(collection->ndim);
+    const unsigned boundaries_per_object = topo_obj_boundary_count(collection->ndim);
 
     const uint64_t id_1_idx = indexing_to_zero_based(id_1);
     const uint64_t id_2_idx = indexing_to_zero_based(id_2);
 
-    const int64_t *const bnds_1 = collection->boundary_ids + id_1_idx * bnds_per_object;
-    const int64_t *const bnds_2 = collection->boundary_ids + id_2_idx * bnds_per_object;
+    const int64_t *const boundaries_1 = collection->boundary_ids + id_1_idx * boundaries_per_object;
+    const int64_t *const boundaries_2 = collection->boundary_ids + id_2_idx * boundaries_per_object;
 
-    for (unsigned ib1 = 0; ib1 < bnds_per_object; ++ib1)
+    for (unsigned ib1 = 0; ib1 < boundaries_per_object; ++ib1)
     {
-        const uint64_t id_1_bnd = indexing_to_zero_based(bnds_1[ib1]);
-        for (unsigned ib2 = 0; ib2 < bnds_per_object; ++ib2)
+        const uint64_t id_1_bnd = indexing_to_zero_based(boundaries_1[ib1]);
+        for (unsigned ib2 = 0; ib2 < boundaries_per_object; ++ib2)
         {
-            const uint64_t id_2_bnd = indexing_to_zero_based(bnds_2[ib2]);
+            const uint64_t id_2_bnd = indexing_to_zero_based(boundaries_2[ib2]);
             if (id_1_bnd == id_2_bnd)
             {
                 return ib1;
@@ -63,10 +97,10 @@ int64_t topo_obj_common_boundary(const topo_obj_collection_t *collection, const 
         return 0;
 
     // Get the boundary from the first object and adjust the id.
-    const unsigned bnds_per_object = topo_obj_boundary_count(collection->ndim);
+    const unsigned boundaries_per_object = topo_obj_boundary_count(collection->ndim);
     const uint64_t id_1_idx = indexing_to_zero_based(id_1);
-    const int64_t *const bnds_1 = collection->boundary_ids + id_1_idx * bnds_per_object;
-    const int64_t bnd_id = bnds_1[idx];
+    const int64_t *const boundaries_1 = collection->boundary_ids + id_1_idx * boundaries_per_object;
+    const int64_t bnd_id = boundaries_1[idx];
     if (id_1 < 0)
         return -bnd_id;
     return bnd_id;
@@ -102,13 +136,13 @@ static void topo_obj_recursively_count_elements(const uint64_t parent, const uns
                                                 const topo_obj_collection_t collections[static ndim],
                                                 topo_obj_immersion_t immersions[const ndim])
 {
-    const uint64_t bnds_per_object = topo_obj_boundary_count(ndim);
-    const int64_t *const bnds = collections[ndim - 1].boundary_ids + parent * bnds_per_object;
+    const uint64_t boundaries_per_object = topo_obj_boundary_count(ndim);
+    const int64_t *const boundaries = collections[ndim - 1].boundary_ids + parent * boundaries_per_object;
 
     for (unsigned ib = 0; ib < ndim; ++ib)
     {
-        const uint64_t idx_start = indexing_to_zero_based(bnds[ib]);
-        const uint64_t idx_end = indexing_to_zero_based(bnds[ib + ndim]);
+        const uint64_t idx_start = indexing_to_zero_based(boundaries[ib]);
+        const uint64_t idx_end = indexing_to_zero_based(boundaries[ib + ndim]);
         immersions[ndim - 1].element_offsets[idx_start] += 1;
         immersions[ndim - 1].element_offsets[idx_end] += 1;
 
@@ -171,41 +205,27 @@ static int8_t *immersion_orientation_for_object(const uint64_t ie, const uint64_
     return element_orientation + immersion->parent_dims * insertion_idx;
 }
 
-/**
- * Create immersion information (position in the element and its relative orientation) for a boundary of an object from
- * a collection.
- *
- * @param ndim[in] Number of dimensions of the space everything is immersed in.
- * @param idim[in] Dimension of the boundary objects.
- * @param collection[in] Collection the boundaries are from (determines idim).
- * @param bdim[in] Index/dimension of the boundary in question.
- * @param fixed_axes[in] Number of axes indices used for identifying the boundary.
- * @param parent_orientation[in] The first (ndim-idim) entries identify the parent within the element, with the
- * remaining idim specifying how its axes map to those of the parent.
- * @param boundaries[in] Array of 1-based indices of other boundaries in the same topological object.
- * @param orient_arr[out] Array that receives the specification of the boundary in the element as the first
- * (ndim-idim+1) entries and the mapping of its local axes to those of the element as the next (idim-1) indices.
- * @return On success 0.
- */
-int topo_obj_boundary_immersion_create(const unsigned ndim, const unsigned idim,
-                                       const topo_obj_collection_t *collection, const unsigned bdim,
-                                       const unsigned fixed_axes, const int8_t parent_orientation[const static ndim],
-                                       const int64_t boundaries[const static 2 * ndim], int8_t orient_arr[const ndim])
+topo_status_t topo_obj_boundary_immersion_create(const unsigned ndim, const unsigned idim,
+                                                 const topo_obj_collection_t *collection, const unsigned bdim,
+                                                 const unsigned fixed_axes,
+                                                 const int8_t parent_orientation[const static ndim],
+                                                 const int64_t boundaries[const static 2 * ndim],
+                                                 int8_t orient_arr[const ndim])
 {
+    // Just assert, this depends on my code only.
     CUTL_ASSERT(idim == 0 || idim == collection->ndim, "Dimension index does not match up.");
     // Start of the ID is the same as the parent
     for (unsigned i = 0; i < fixed_axes; ++i)
         orient_arr[i] = parent_orientation[i];
 
     // Set the index of the boundary object (what dimension it is perpendicular to)
-    orient_arr[fixed_axes] = (bdim < idim + 1) ? -(int8_t)(bdim + 1) : (int8_t)(bdim - idim);
+    orient_arr[fixed_axes] = bdim < idim + 1 ? (int8_t)(-bdim - 1) : (int8_t)(bdim - idim);
 
     // Identify the axis of the boundary with respect to the parent. No worries if the boundary is a point, this
     // loop just won't run then
     for (unsigned axis_index = 0; axis_index <= idim; ++axis_index)
     {
         // We are on this boundary, skip
-        // TODO: check if this should be ndim or idim
         if (axis_index == bdim || axis_index + idim + 1 == bdim)
             continue;
 
@@ -213,10 +233,8 @@ int topo_obj_boundary_immersion_create(const unsigned ndim, const unsigned idim,
         const int64_t common_bnd_index =
             topo_obj_common_boundary_index(collection, boundaries[bdim], boundaries[axis_index]) + 1;
 
-        CUTL_ASSERT(common_bnd_index > 0, "There must be at least one common boundary between the two non-opposite "
-                                          "boundaries of the same object");
         if (common_bnd_index <= 0)
-            return -1;
+            return TOPO_NO_COMMON_BOUNDARY;
 
         // Record the orientation for the child
         // If we are in the second half of the array, we flip the sign
@@ -245,10 +263,8 @@ int topo_obj_boundary_immersion_create(const unsigned ndim, const unsigned idim,
         // Write it back
         orient_arr[i] = parent_axis;
     }
-    CUTL_ASSERT(fixed_axes == 0 || abs(orient_arr[fixed_axes]) > abs(orient_arr[fixed_axes - 1]),
-                "New fixed axis are not sorted!");
 
-    return 0;
+    return TOPO_SUCCESS;
 }
 
 typedef struct
@@ -278,12 +294,14 @@ typedef struct
  * own boundaries. The recursion should never go very deep, as the total number of dimensions for any element is
  * low (I would be surprised if we ever got to more than 6 or 7).
  *
+ * @param recursion_data[in] Invariant data for the recursion.
  * @param idim[in] Index of the dimension we are currently in on this level of recursion.
  * @param parent_idx[in] Index of the parent element within its collection.
  * @param parent_orientation[in] Array specifying the parent's orientation.
+ * @return If successful zero, non-zero on error.
  */
-static void topo_obj_recursively_orient(const recursive_orient_data_t *recursion_data, const unsigned idim,
-                                        const uint64_t parent_idx, const int8_t parent_orientation[])
+static topo_status_t topo_obj_recursively_orient(const recursive_orient_data_t *recursion_data, const unsigned idim,
+                                                 const uint64_t parent_idx, const int8_t parent_orientation[])
 {
     const unsigned ie = recursion_data->ie;
     const unsigned ndim = recursion_data->ndim;
@@ -308,35 +326,9 @@ static void topo_obj_recursively_orient(const recursive_orient_data_t *recursion
             const uint8_t prev_axis_idx = indexing_to_zero_based(parent_orientation[fixed_axis - 1]);
             // We can skip this boundary, it would not have sorted indices.
             if (parent_boundary_idx < prev_axis_idx)
-            {
-                // printf("Skipping %uD objects %u and %u in element %u, with IDs (", idim, (unsigned)boundaries[bdim],
-                //        (unsigned)boundaries[bdim + idim + 1], ie + 1);
-                // for (unsigned i = 0; i < fixed_axis; ++i)
-                // {
-                //     printf("%+d, ", parent_orientation[i]);
-                // }
-                // printf("%+d) and (", -parent_orientation[fixed_axis + bdim]);
-                // for (unsigned i = 0; i < fixed_axis; ++i)
-                // {
-                //     printf("%+d, ", parent_orientation[i]);
-                // }
-                // printf("%+d)\n", +parent_orientation[fixed_axis + bdim]);
                 continue;
-            }
 
-            printf("Working on %uD objects %u and %u in element %u, with IDs (", idim, (unsigned)boundaries[bdim],
-                   (unsigned)boundaries[bdim + idim + 1], ie + 1);
-            for (unsigned i = 0; i < fixed_axis; ++i)
-            {
-                printf("%+d, ", parent_orientation[i]);
-            }
-            printf("%+d) and (", -parent_orientation[fixed_axis + bdim]);
-            for (unsigned i = 0; i < fixed_axis; ++i)
-            {
-                printf("%+d, ", parent_orientation[i]);
-            }
-            printf("%+d)\n", +parent_orientation[fixed_axis + bdim]);
-
+            // Just assert, because this does not depend on external input, just my code.
             CUTL_ASSERT(parent_boundary_idx != prev_axis_idx,
                         "Parent boundary index is the same as the previous axis index for the object ID");
         }
@@ -344,35 +336,40 @@ static void topo_obj_recursively_orient(const recursive_orient_data_t *recursion
         const int64_t boundary_start = boundaries[bdim];
         const uint64_t bnd_start = indexing_to_zero_based(boundary_start);
 
-        const unsigned bdim_opposite = bdim + idim + 1; // TODO: check if this is right
+        const unsigned bdim_opposite = bdim + idim + 1;
         const int64_t boundary_end = boundaries[bdim_opposite];
         const uint64_t bnd_end = indexing_to_zero_based(boundary_end);
 
         // Get the orientation array of the boundary, which we will write into
         int8_t *const orient_start = immersion_orientation_for_object(ie, bnd_start, immersions + idim);
         int8_t *const orient_end = immersion_orientation_for_object(ie, bnd_end, immersions + idim);
+        // Just assert, because this does not depend on external input, just my code.
         CUTL_ASSERT(orient_start != NULL && orient_end != NULL,
                     "Could not orientation array was already used up for this object!");
 
-        const int stat_start = topo_obj_boundary_immersion_create(ndim, idim, collections + idim - 1, bdim, fixed_axis,
-                                                                  parent_orientation, boundaries, orient_start);
-        const int stat_end = topo_obj_boundary_immersion_create(ndim, idim, collections + idim - 1, bdim_opposite,
-                                                                fixed_axis, parent_orientation, boundaries, orient_end);
-        CUTL_ASSERT(stat_start == 0 && stat_end == 0, "Could not create boundary immersion!");
+        const topo_status_t stat_start = topo_obj_boundary_immersion_create(
+            ndim, idim, collections + idim - 1, bdim, fixed_axis, parent_orientation, boundaries, orient_start);
+        if (stat_start != TOPO_SUCCESS)
+            return stat_start;
+        const topo_status_t stat_end = topo_obj_boundary_immersion_create(
+            ndim, idim, collections + idim - 1, bdim_opposite, fixed_axis, parent_orientation, boundaries, orient_end);
+        if (stat_end != TOPO_SUCCESS)
+            return stat_end;
 
         // If we are dealing with points only, we are done.
         if (idim == 0)
             continue;
 
         // With the object's orientation fully determined, we can now recursively do this for its boundaries.
-        topo_obj_recursively_orient(recursion_data, idim - 1, bnd_start, orient_start);
-        topo_obj_recursively_orient(recursion_data, idim - 1, bnd_end, orient_end);
+        const topo_status_t stat_rec1 = topo_obj_recursively_orient(recursion_data, idim - 1, bnd_start, orient_start);
+        if (stat_rec1 != TOPO_SUCCESS)
+            return stat_rec1;
+        const topo_status_t stat_rec2 = topo_obj_recursively_orient(recursion_data, idim - 1, bnd_end, orient_end);
+        if (stat_rec2 != TOPO_SUCCESS)
+            return stat_rec2;
     }
-    // printf("Finished %u-D object %u in element %u, with ID (", idim + 1, (unsigned)parent_idx + 1, ie + 1);
-    // for (unsigned i = 0; i < fixed_axis + 1; ++i)
-    // {
-    //     printf("%d%s", parent_orientation[i], (i != fixed_axis) ? ", " : ")\n");
-    // }
+
+    return TOPO_SUCCESS;
 }
 
 static bool initialize_immersion(topo_obj_immersion_t *this, const unsigned ndim, const uint64_t cnt,
@@ -388,8 +385,8 @@ static bool initialize_immersion(topo_obj_immersion_t *this, const unsigned ndim
         return false;
     }
 
-    // Zero the counters (NOTE: maybe ignore the last entry)
-    for (unsigned i = 0; i < cnt + 1; ++i)
+    // Zero the counters (we can ignore the last entry, since we will not read it until we overwrite it)
+    for (unsigned i = 0; i < cnt; ++i)
         counters[i] = 0;
 
     this->element_offsets = counters;
@@ -397,13 +394,14 @@ static bool initialize_immersion(topo_obj_immersion_t *this, const unsigned ndim
     return true;
 }
 
-int topo_obj_create_immersion_info(const unsigned ndim, const unsigned npts,
-                                   const topo_obj_collection_t collections[const static ndim],
-                                   const cutl_allocator_t *const allocator, topo_obj_immersion_t immersions[const ndim])
+topo_status_t topo_obj_create_immersion_info(const unsigned ndim, const unsigned npts,
+                                             const topo_obj_collection_t collections[const static ndim],
+                                             const cutl_allocator_t *const allocator,
+                                             topo_obj_immersion_t immersions[const ndim])
 {
     // If no dimensions, we have nothing to do
     if (ndim == 0)
-        return 0;
+        return TOPO_SUCCESS;
 
     // Clear the output
     for (unsigned i = 0; i < ndim; ++i)
@@ -411,14 +409,14 @@ int topo_obj_create_immersion_info(const unsigned ndim, const unsigned npts,
 
     // Iterate over the objects and their boundaries (but first points, since they are a special case).
     if (!initialize_immersion(immersions + 0, ndim, npts, allocator))
-        return -1;
+        return TOPO_FAILED_ALLOC;
 
     for (unsigned idim = 1; idim < ndim; ++idim)
     {
         if (!initialize_immersion(immersions + idim, ndim, collections[idim - 1].count, allocator))
         {
             topo_obj_immersions_free(ndim, immersions, allocator);
-            return -1;
+            return TOPO_FAILED_ALLOC;
         }
     }
 
@@ -436,9 +434,12 @@ int topo_obj_create_immersion_info(const unsigned ndim, const unsigned npts,
         uint64_t *const counts = immersions[ndim - 1 - idim].element_offsets;
         for (unsigned j = 0; j < immersions[ndim - 1 - idim].object_count; ++j)
         {
-            CUTL_ASSERT(counts[j] % multiplicity == 0,
-                        "Each object count should be exactly multiple of the multiplicity");
-            counts[j] /= multiplicity;
+            const uint64_t remainder = counts[j] % multiplicity;
+            const uint64_t quotient = counts[j] / multiplicity;
+            if (remainder != 0)
+                return TOPO_INVALID_ELEMENT;
+
+            counts[j] = quotient;
         }
 
         // Adjust multiplicity for the next iteration
@@ -474,7 +475,7 @@ int topo_obj_create_immersion_info(const unsigned ndim, const unsigned npts,
         if (!immersion->element_ids)
         {
             topo_obj_immersions_free(ndim, immersions, allocator);
-            return -1;
+            return TOPO_FAILED_ALLOC;
         }
         // Clear by setting it to invalid IDs
         for (uint64_t i = 0; i < total_entries; ++i)
@@ -486,11 +487,8 @@ int topo_obj_create_immersion_info(const unsigned ndim, const unsigned npts,
         if (!immersion->element_orientation)
         {
             topo_obj_immersions_free(ndim, immersions, allocator);
-            return -1;
+            return TOPO_FAILED_ALLOC;
         }
-        // Initialize to 0 for debugging purposes only!
-        for (uint64_t i = 0; i < total_entries * ndim; ++i)
-            immersion->element_orientation[i] = 0;
     }
 
     // Prepare working buffer
@@ -498,7 +496,7 @@ int topo_obj_create_immersion_info(const unsigned ndim, const unsigned npts,
     if (!parent_orientation)
     {
         topo_obj_immersions_free(ndim, immersions, allocator);
-        return -1;
+        return TOPO_FAILED_ALLOC;
     }
     // Parent orientation is for now just identity
     for (int8_t i = 0; i < (int8_t)ndim; ++i)
@@ -507,13 +505,18 @@ int topo_obj_create_immersion_info(const unsigned ndim, const unsigned npts,
     // Similar process now as with the element counting, but we must now also deal with the orientation
     for (unsigned ie = 0; ie < collections[ndim - 1].count; ++ie)
     {
-        topo_obj_recursively_orient(
+        const topo_status_t stat = topo_obj_recursively_orient(
             &(const recursive_orient_data_t){
                 .ie = ie, .ndim = ndim, .collections = collections, .immersions = immersions},
             ndim - 1, ie, parent_orientation);
+        if (stat != 0)
+        {
+            topo_obj_immersions_free(ndim, immersions, allocator);
+            return stat;
+        }
     }
     cutl_dealloc(allocator, parent_orientation);
 
     // Finally done!
-    return 0;
+    return TOPO_SUCCESS;
 }
