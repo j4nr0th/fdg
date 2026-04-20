@@ -51,9 +51,9 @@ void topo_obj_elements(const topo_obj_immersion_t *immersion, const uint64_t id,
 }
 
 /**
- * Convert (signed) one-based index to a zero based index, discarding the sign.
+ * Convert (signed) one-based index to a zero-based index, discarding the sign.
  *
- * Basically just ``abs(idx) - 1``.
+ * Basically just `abs(idx) - 1`.
  *
  * @param idx Index using one-based indexing.
  * @return Zero-based index.
@@ -63,22 +63,20 @@ static uint64_t indexing_to_zero_based(const int64_t idx)
     return (idx < 0 ? -idx : idx) - 1;
 }
 
-int64_t topo_obj_common_boundary_index(const topo_obj_collection_t *collection, const int64_t id_1, const int64_t id_2)
+uint64_t topo_obj_common_boundary_index(const topo_obj_collection_t *collection, const uint64_t id_1,
+                                        const uint64_t id_2)
 {
     const unsigned boundaries_per_object = topo_obj_boundary_count(collection->ndim);
 
-    const uint64_t id_1_idx = indexing_to_zero_based(id_1);
-    const uint64_t id_2_idx = indexing_to_zero_based(id_2);
-
-    const int64_t *const boundaries_1 = collection->boundary_ids + id_1_idx * boundaries_per_object;
-    const int64_t *const boundaries_2 = collection->boundary_ids + id_2_idx * boundaries_per_object;
+    const uint64_t *const boundaries_1 = collection->boundary_ids + id_1 * boundaries_per_object;
+    const uint64_t *const boundaries_2 = collection->boundary_ids + id_2 * boundaries_per_object;
 
     for (unsigned ib1 = 0; ib1 < boundaries_per_object; ++ib1)
     {
-        const uint64_t id_1_bnd = indexing_to_zero_based(boundaries_1[ib1]);
+        const uint64_t id_1_bnd = boundaries_1[ib1];
         for (unsigned ib2 = 0; ib2 < boundaries_per_object; ++ib2)
         {
-            const uint64_t id_2_bnd = indexing_to_zero_based(boundaries_2[ib2]);
+            const uint64_t id_2_bnd = boundaries_2[ib2];
             if (id_1_bnd == id_2_bnd)
             {
                 return ib1;
@@ -87,23 +85,19 @@ int64_t topo_obj_common_boundary_index(const topo_obj_collection_t *collection, 
     }
 
     // There was no common boundary!
-    return -1;
+    return UINT64_MAX;
 }
 
-int64_t topo_obj_common_boundary(const topo_obj_collection_t *collection, const int64_t id_1, const int64_t id_2)
+uint64_t topo_obj_common_boundary(const topo_obj_collection_t *collection, const uint64_t id_1, const uint64_t id_2)
 {
-    const int64_t idx = topo_obj_common_boundary_index(collection, id_1, id_2);
-    if (idx < 0) // No common boundary
-        return 0;
+    const uint64_t idx = topo_obj_common_boundary_index(collection, id_1, id_2);
+    if (idx == UINT64_MAX) // No common boundary
+        return UINT64_MAX;
 
     // Get the boundary from the first object and adjust the id.
     const unsigned boundaries_per_object = topo_obj_boundary_count(collection->ndim);
-    const uint64_t id_1_idx = indexing_to_zero_based(id_1);
-    const int64_t *const boundaries_1 = collection->boundary_ids + id_1_idx * boundaries_per_object;
-    const int64_t bnd_id = boundaries_1[idx];
-    if (id_1 < 0)
-        return -bnd_id;
-    return bnd_id;
+    const uint64_t *const boundaries_1 = collection->boundary_ids + id_1 * boundaries_per_object;
+    return boundaries_1[idx];
 }
 
 void topo_obj_immersions_free(const unsigned ndim, topo_obj_immersion_t immersions[const ndim],
@@ -137,12 +131,12 @@ static void topo_obj_recursively_count_elements(const uint64_t parent, const uns
                                                 topo_obj_immersion_t immersions[const ndim])
 {
     const uint64_t boundaries_per_object = topo_obj_boundary_count(ndim);
-    const int64_t *const boundaries = collections[ndim - 1].boundary_ids + parent * boundaries_per_object;
+    const uint64_t *const boundaries = collections[ndim - 1].boundary_ids + parent * boundaries_per_object;
 
     for (unsigned ib = 0; ib < ndim; ++ib)
     {
-        const uint64_t idx_start = indexing_to_zero_based(boundaries[ib]);
-        const uint64_t idx_end = indexing_to_zero_based(boundaries[ib + ndim]);
+        const uint64_t idx_start = boundaries[ib];
+        const uint64_t idx_end = boundaries[ib + ndim];
         immersions[ndim - 1].element_offsets[idx_start] += 1;
         immersions[ndim - 1].element_offsets[idx_end] += 1;
 
@@ -209,7 +203,7 @@ topo_status_t topo_obj_boundary_immersion_create(const unsigned ndim, const unsi
                                                  const topo_obj_collection_t *collection, const unsigned bdim,
                                                  const unsigned fixed_axes,
                                                  const int8_t parent_orientation[const static ndim],
-                                                 const int64_t boundaries[const static 2 * ndim],
+                                                 const uint64_t boundaries[const static 2 * ndim],
                                                  int8_t orient_arr[const ndim])
 {
     // Just assert, this depends on my code only.
@@ -230,11 +224,13 @@ topo_status_t topo_obj_boundary_immersion_create(const unsigned ndim, const unsi
             continue;
 
         // Find what the index of the common boundary is
-        const int64_t common_bnd_index =
-            topo_obj_common_boundary_index(collection, boundaries[bdim], boundaries[axis_index]) + 1;
+        uint64_t common_bnd_index =
+            topo_obj_common_boundary_index(collection, boundaries[bdim], boundaries[axis_index]);
 
-        if (common_bnd_index <= 0)
+        if (common_bnd_index == UINT64_MAX)
             return TOPO_NO_COMMON_BOUNDARY;
+
+        common_bnd_index += 1;
 
         // Record the orientation for the child
         // If we are in the second half of the array, we flip the sign
@@ -310,7 +306,7 @@ static topo_status_t topo_obj_recursively_orient(const recursive_orient_data_t *
 
     // Get the boundaries of the parent from the collection
     const uint64_t boundaries_per_elem = topo_obj_boundary_count(idim + 1);
-    const int64_t *const boundaries = collections[idim].boundary_ids + parent_idx * boundaries_per_elem;
+    const uint64_t *const boundaries = collections[idim].boundary_ids + parent_idx * boundaries_per_elem;
 
     const uint64_t fixed_axis = ndim - idim - 1;
 
@@ -333,16 +329,14 @@ static topo_status_t topo_obj_recursively_orient(const recursive_orient_data_t *
                         "Parent boundary index is the same as the previous axis index for the object ID");
         }
 
-        const int64_t boundary_start = boundaries[bdim];
-        const uint64_t bnd_start = indexing_to_zero_based(boundary_start);
+        const uint64_t boundary_start = boundaries[bdim];
 
         const unsigned bdim_opposite = bdim + idim + 1;
-        const int64_t boundary_end = boundaries[bdim_opposite];
-        const uint64_t bnd_end = indexing_to_zero_based(boundary_end);
+        const uint64_t boundary_end = boundaries[bdim_opposite];
 
         // Get the orientation array of the boundary, which we will write into
-        int8_t *const orient_start = immersion_orientation_for_object(ie, bnd_start, immersions + idim);
-        int8_t *const orient_end = immersion_orientation_for_object(ie, bnd_end, immersions + idim);
+        int8_t *const orient_start = immersion_orientation_for_object(ie, boundary_start, immersions + idim);
+        int8_t *const orient_end = immersion_orientation_for_object(ie, boundary_end, immersions + idim);
         // Just assert, because this does not depend on external input, just my code.
         CUTL_ASSERT(orient_start != NULL && orient_end != NULL,
                     "Could not orientation array was already used up for this object!");
@@ -361,10 +355,11 @@ static topo_status_t topo_obj_recursively_orient(const recursive_orient_data_t *
             continue;
 
         // With the object's orientation fully determined, we can now recursively do this for its boundaries.
-        const topo_status_t stat_rec1 = topo_obj_recursively_orient(recursion_data, idim - 1, bnd_start, orient_start);
+        const topo_status_t stat_rec1 =
+            topo_obj_recursively_orient(recursion_data, idim - 1, boundary_start, orient_start);
         if (stat_rec1 != TOPO_SUCCESS)
             return stat_rec1;
-        const topo_status_t stat_rec2 = topo_obj_recursively_orient(recursion_data, idim - 1, bnd_end, orient_end);
+        const topo_status_t stat_rec2 = topo_obj_recursively_orient(recursion_data, idim - 1, boundary_end, orient_end);
         if (stat_rec2 != TOPO_SUCCESS)
             return stat_rec2;
     }

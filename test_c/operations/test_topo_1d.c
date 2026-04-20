@@ -20,16 +20,16 @@ int main()
         .ndim = 1,
         .count = 3,
         .boundary_ids =
-            (int64_t[LINE_COUNT * (2 * DIM_COUNT)]){
+            (uint64_t[LINE_COUNT * (2 * DIM_COUNT)]){
                 // First line
+                1,
                 2,
-                3,
                 // Second line
+                0,
+                2,
+                // Third line
                 1,
                 3,
-                // Third line
-                2,
-                4,
             },
     };
 

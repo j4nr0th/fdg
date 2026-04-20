@@ -58,40 +58,40 @@ int main()
         .ndim = 1,
         .count = LINE_COUNT,
         .boundary_ids =
-            (int64_t[LINE_COUNT * (2 * 1)]){
+            (uint64_t[LINE_COUNT * (2 * 1)]){
                 // Line 1 (1->3)
-                1,
-                3,
+                0,
+                2,
                 // Line 2 (2->3)
-                2,
-                3,
-                // Line 3 (2->4)
-                2,
-                4,
-                // Line 4 (8->5)
-                8,
-                5,
-                // Line 5 (6->5)
-                6,
-                5,
-                // Line 6 (7->6)
-                7,
-                6,
-                // Line 7 (7->8)
-                7,
-                8,
-                // Line 8 (1->8)
                 1,
-                8,
-                // Line 9 (5->3)
-                5,
-                3,
-                // Line 10 (6->2)
-                6,
                 2,
-                // Line 11 (4->7)
-                4,
+                // Line 3 (2->4)
+                1,
+                3,
+                // Line 4 (8->5)
                 7,
+                4,
+                // Line 5 (6->5)
+                5,
+                4,
+                // Line 6 (7->6)
+                6,
+                5,
+                // Line 7 (7->8)
+                6,
+                7,
+                // Line 8 (1->8)
+                0,
+                7,
+                // Line 9 (5->3)
+                4,
+                2,
+                // Line 10 (6->2)
+                5,
+                1,
+                // Line 11 (4->7)
+                3,
+                6,
             },
     };
 
@@ -99,27 +99,27 @@ int main()
         .ndim = 2,
         .count = SURFACE_COUNT,
         .boundary_ids =
-            (int64_t[SURFACE_COUNT * (2 * 2)]){
+            (uint64_t[SURFACE_COUNT * (2 * 2)]){
                 // Surface 1 LINES (9, 1, 8, 4) POINTS (3, 1, 8, 5)
-                9,
-                1,
+                8,
+                0,
+                7,
+                3,
+                // Surface 2 LINES (9, 5, 10, 2) POINTS (5, 6, 2, 3)
                 8,
                 4,
-                // Surface 2 LINES (9, 5, 10, 2) POINTS (5, 6, 2, 3)
                 9,
-                5,
-                10,
-                2,
+                1,
                 // Surface 3 LINES (4, 5, 6, 7) POINTS (5, 6, 7, 8)
+                3,
                 4,
                 5,
                 6,
-                7,
                 // Surface 4 LINES (6, 10, 3, 11) POINTS (6, 2, 4, 7)
-                6,
+                5,
+                9,
+                2,
                 10,
-                3,
-                11,
             },
     };
 

@@ -46,7 +46,7 @@ typedef struct
     // IDs of boundaries for all objects (count * bnd_cnt). These boundaries are specified
     // such that the boundary at index ``i`` is perpendicular to the axis ``i`` at the start
     // and the boundary at index ``i + ndim`` is perpendicular to it at the end.
-    int64_t *boundary_ids;
+    uint64_t *boundary_ids;
 } topo_obj_collection_t;
 
 /**
@@ -89,10 +89,10 @@ unsigned topo_obj_boundary_count(unsigned ndim);
  * @param collection[in] Collection the two objects belong to.
  * @param id_1[in] ID of the first object.
  * @param id_2[in] ID of the second object.
- * @return Zero if the two share no boundary, otherwise an ID of the shared boundary, with the orientation
+ * @return UINT64_MAX if the two share no boundary, otherwise an ID of the shared boundary, with the orientation
  *         as in the object with ID of ``id_1``.
  */
-int64_t topo_obj_common_boundary(const topo_obj_collection_t *collection, int64_t id_1, int64_t id_2);
+uint64_t topo_obj_common_boundary(const topo_obj_collection_t *collection, uint64_t id_1, uint64_t id_2);
 
 /**
  * Find the index of the common boundary of two objects from the same collection.
@@ -100,9 +100,9 @@ int64_t topo_obj_common_boundary(const topo_obj_collection_t *collection, int64_
  * @param collection[in] Collection the two objects belong to.
  * @param id_1[in] ID of the first object.
  * @param id_2[in] ID of the second object.
- * @return Index of the common boundary in the element with ID ``id_1``, negative value if there is no common boundary.
+ * @return Index of the common boundary in the element with ID ``id_1``, UINT64_MAX if there is no common boundary.
  */
-int64_t topo_obj_common_boundary_index(const topo_obj_collection_t *collection, int64_t id_1, int64_t id_2);
+uint64_t topo_obj_common_boundary_index(const topo_obj_collection_t *collection, uint64_t id_1, uint64_t id_2);
 
 /**
  * Return the array with IDs of elements an object is contained in.
@@ -159,5 +159,5 @@ void topo_obj_immersions_free(unsigned ndim, topo_obj_immersion_t immersions[con
 topo_status_t topo_obj_boundary_immersion_create(unsigned ndim, unsigned idim, const topo_obj_collection_t *collection,
                                                  unsigned bdim, unsigned fixed_axes,
                                                  const int8_t parent_orientation[const static ndim],
-                                                 const int64_t boundaries[const static 2 * ndim],
+                                                 const uint64_t boundaries[const static 2 * ndim],
                                                  int8_t orient_arr[const ndim]);

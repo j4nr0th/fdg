@@ -1,5 +1,3 @@
-#include <stddef.h>
-
 #include "../common/common.h"
 #include "topo_common.h"
 #include <stdbool.h>
@@ -41,66 +39,65 @@ int main()
     };
     const topo_obj_collection_t collection_bnd = {.ndim = NDIM - 1,
                                                   .count = 2LLU * NDIM,
-                                                  .boundary_ids = (int64_t[2 * (NDIM - 1) * (2 * NDIM)]){
+                                                  .boundary_ids = (uint64_t[2 * (NDIM - 1) * (2 * NDIM)]){
                                                       // First volume (nothing in common with 5th)
+                                                      0,
                                                       1,
                                                       2,
                                                       3,
                                                       4,
                                                       5,
-                                                      6,
                                                       // Second volume (nothing in common with 6th)
-                                                      1,
+                                                      0,
+                                                      6,
                                                       7,
                                                       8,
                                                       9,
                                                       10,
-                                                      11,
                                                       // Third volume (nothing in common with 7th)
+                                                      1,
+                                                      6,
+                                                      11,
+                                                      12,
+                                                      13,
+                                                      14,
+                                                      // Fourth volume (nothing in common with 8th)
                                                       2,
                                                       7,
-                                                      12,
-                                                      13,
-                                                      14,
-                                                      15,
-                                                      // Fourth volume (nothing in common with 8th)
-                                                      3,
-                                                      8,
-                                                      12,
-                                                      16,
-                                                      17,
-                                                      18,
-                                                      // Fifth volume
-                                                      13,
-                                                      9,
-                                                      16,
-                                                      19,
-                                                      20,
-                                                      21,
-                                                      // Sixth volume
-                                                      4,
-                                                      14,
-                                                      17,
-                                                      19,
-                                                      22,
-                                                      23,
-                                                      // Seventh volume
-                                                      20,
-                                                      22,
-                                                      24,
-                                                      5,
-                                                      10,
-                                                      18,
-                                                      // Eighth volume
-                                                      6,
-                                                      24,
                                                       11,
-                                                      21,
                                                       15,
+                                                      16,
+                                                      17,
+                                                      // Fifth volume
+                                                      12,
+                                                      8,
+                                                      15,
+                                                      18,
+                                                      19,
+                                                      20,
+                                                      // Sixth volume
+                                                      3,
+                                                      13,
+                                                      16,
+                                                      18,
+                                                      21,
+                                                      22,
+                                                      // Seventh volume
+                                                      19,
+                                                      21,
                                                       23,
-
+                                                      4,
+                                                      9,
+                                                      17,
+                                                      // Eighth volume
+                                                      5,
+                                                      23,
+                                                      10,
+                                                      20,
+                                                      14,
+                                                      22,
                                                   }};
-    const int64_t boundary_arrangement[2 * NDIM] = {1, 2, 3, 4, 5, 6, 7, 8};
+    const uint64_t boundary_arrangement[2 * NDIM] = {0, 1, 2, 3, 4, 5, 6, 7};
     const int8_t parent_orientation[NDIM] = {+3, -4, +1, -2};
     const int8_t proper_orientation_vol1[NDIM] = {-1, +2, +3, +4};
     const int8_t proper_orientation_vol2[NDIM] = {-2, +1, +3, +4};
