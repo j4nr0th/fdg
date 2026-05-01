@@ -263,6 +263,95 @@ topo_status_t topo_obj_boundary_immersion_create(const unsigned ndim, const unsi
     return TOPO_SUCCESS;
 }
 
+/**
+ * Update offset counters and the current offset value.
+ *
+ * @param ndim Number of all dimensions.
+ * @param mdim Number of varying dimensions.
+ * @param orientation Array with specifications of axes orientations.
+ * @param offsets Array tracking offsets along each varying axis.
+ * @param sizes Array of sizes of all the axis.
+ * @param strides Array of strides along each axis.
+ * @param offset Pointer to the current offset that will be updated.
+ * @return Value indicating if further iterations should be done.
+ */
+static bool update_offsets(const unsigned ndim, const unsigned mdim, const int8_t orientation[const static ndim],
+                           uint64_t offsets[const static mdim], const uint64_t sizes[const static ndim],
+                           const uint64_t strides[const static ndim], uint64_t *offset)
+{
+    const unsigned fixed_axis = ndim - mdim;
+    for (unsigned i = mdim; i > 0; --i)
+    {
+        // Get last offset
+        const uint64_t new_offset = offsets[i - 1] + 1;
+        // Axis orientation for later
+        const int8_t axis_orientation = orientation[fixed_axis + i - 1];
+        const uint64_t axis_index = indexing_to_zero_based(axis_orientation);
+        // Get axis size
+        const uint64_t size = sizes[axis_index];
+        if (new_offset < size)
+        {
+            // This axis has not yet reached the end, advance it
+            offsets[i - 1] = new_offset;
+            // Check how we do this advancement of the offset value
+            if (axis_orientation < 0)
+            {
+                // We subtract stride
+                *offset -= strides[axis_index];
+            }
+            else
+            {
+                // We add stride
+                *offset += strides[axis_index];
+            }
+
+            return true;
+        }
+        // We have reached the end of this axis, reset it
+        offsets[i - 1] = 0;
+    }
+
+    // All axes have finished.
+    return false;
+}
+
+void topo_reorder_with_orientation(const unsigned ndim, const unsigned mdim,
+                                   const int8_t orientation[restrict const static ndim],
+                                   const uint64_t sizes_global[restrict const static ndim],
+                                   const double in[const restrict], double out[const restrict],
+                                   uint64_t offsets[const restrict mdim], uint64_t strides[const restrict ndim])
+{
+    // Set strides
+    for (uint64_t i = 0, stride = 1; i < ndim; ++i)
+    {
+        strides[i] = stride;
+        stride *= sizes_global[i];
+    }
+
+    // Compute initial offset based on the first (ndim - mdim) axes
+    uint64_t offset = 0;
+    const unsigned fixed_axis = ndim - mdim;
+    for (unsigned i = 0; i < fixed_axis; ++i)
+    {
+        const int8_t axis_orientation = orientation[i];
+        // Nothing for positively oriented axes.
+        if (axis_orientation > 0)
+            continue;
+        // For axes at the end we need to add the maximum stride value.
+        const uint64_t axis_index = indexing_to_zero_based(axis_orientation);
+        offset += strides[axis_index] * (sizes_global[axis_index] - 1);
+    }
+
+    for (uint64_t i = 0; i < mdim; ++i)
+        offsets[i] = 0;
+
+    // The loop where the magic happens
+    for (uint64_t i = 0; update_offsets(ndim, mdim, orientation, offsets, sizes_global, strides, &offset); ++i)
+    {
+        out[offset] = in[i];
+    }
+}
+
 typedef struct
 {
     // Index of the element that the objects are processed under.

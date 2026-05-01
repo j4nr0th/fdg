@@ -105,16 +105,6 @@ uint64_t topo_obj_common_boundary(const topo_obj_collection_t *collection, uint6
 uint64_t topo_obj_common_boundary_index(const topo_obj_collection_t *collection, uint64_t id_1, uint64_t id_2);
 
 /**
- * Return the array with IDs of elements an object is contained in.
- *
- * @param[in] immersion Immersion info of objects.
- * @param[in] id ID of the object to ge the array for.
- * @param[out] p_cnt Pointer to the location where the size of the output array is stored.
- * @param[out] p_ids Pointer to the location where the array pointer is stored.
- */
-void topo_obj_elements(const topo_obj_immersion_t *immersion, uint64_t id, uint64_t *p_cnt, const uint64_t **p_ids);
-
-/**
  * Determine immersion information from topological description of elements in terms of boundaries. These
  * boundaries are in turn again described by their boundaries, and so on until 0-D objects (points).
  *
@@ -161,3 +151,47 @@ topo_status_t topo_obj_boundary_immersion_create(unsigned ndim, unsigned idim, c
                                                  const int8_t parent_orientation[const static ndim],
                                                  const uint64_t boundaries[const static 2 * ndim],
                                                  int8_t orient_arr[const ndim]);
+
+/**
+ * Immersion information with IDs of elements an object is contained in.
+ *
+ * Information for each element consists of two parts:
+ * - element IDs,
+ * - orientation.
+ *
+ *  Orientation data consists of ``n`` 1-based, signed indices. If the object has ``m`` dimensions, then
+ *  the first ``n-m`` entries specify the position of the object within the element. A positive number
+ *  means it is at the start of the boundary, while a negative number means it is at the end of it.
+ *  The remaining ``m`` entries describe the mapping between its own local coordinates and those of the
+ *  element.
+ *
+ *  As such, when one iterates over different elements the object is in, the element ID array should
+ *  be iterated one integer at a time, while the orientation array should instead advance ``n`` entries
+ *  at a time.
+ *
+ * @param[in] immersion Immersion info of objects.
+ * @param[in] object_id ID of the object to get the immersion for.
+ * @param[out] p_cnt Pointer to the location where the size of the output array is stored.
+ * @param[out] p_ids Pointer to the location where the element array pointer is stored.
+ * @param[out] p_orientations Pointer to the location where the orientation array pointer is stored.
+ */
+void topo_obj_immersion_of_object(const topo_obj_immersion_t *immersion, uint64_t object_id, uint64_t *p_cnt,
+                                  const uint64_t **p_ids, const int8_t **p_orientations);
+
+/**
+ * Reorder the input array associated with an object based on the specified orientation of the axes. Work arrays must be
+ * provided.
+ *
+ * @param ndim Total number of dimensions of the topological space.
+ * @param mdim Number of non-fixed axes of the section the array represents.
+ * @param orientation Orientation of the axes with the respect to the space.
+ * @param sizes_global Sizes of the space in each of the global dimensions.
+ * @param in Input array that is to be reordered.
+ * @param out Destination array, which receives the reordering.
+ * @param strides Array used internally for computing strides.
+ * @param offsets Array used internally for computing offsets.
+ */
+void topo_reorder_with_orientation(unsigned ndim, unsigned mdim, const int8_t orientation[restrict static ndim],
+                                   const uint64_t sizes_global[restrict static ndim], const double in[restrict],
+                                   double out[restrict], uint64_t offsets[restrict mdim],
+                                   uint64_t strides[restrict ndim]);
