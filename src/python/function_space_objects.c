@@ -22,12 +22,6 @@ static PyObject *function_space_new(PyTypeObject *type, PyObject *args, PyObject
     }
 
     const unsigned n = PyTuple_GET_SIZE(args);
-    if (n == 0)
-    {
-        PyErr_SetString(PyExc_TypeError, "Constructor requires at least one argument.");
-        return NULL;
-    }
-
     const interplib_module_state_t *state = interplib_get_module_state(type);
     if (!state)
         return NULL;

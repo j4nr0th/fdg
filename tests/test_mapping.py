@@ -87,15 +87,16 @@ def test_space_map_boundary_extracts_from_source_dofs() -> None:
         np.testing.assert_allclose(custom_lower.coordinate_map(index).values, expected)
 
 
-def test_space_map_boundary_rejects_one_dimensional_map() -> None:
-    """A 1D map cannot have a boundary."""
+def test_space_map_boundary_supports_zero_dimensional_map() -> None:
+    """A 1D map can be restricted to a zero-dimensional point map."""
     function_space = FunctionSpace(BasisSpecs(BasisType.LEGENDRE, 1))
     dofs = DegreesOfFreedom(function_space)
     int_space = IntegrationSpace(IntegrationSpecs(2, method="gauss"))
     space_map = SpaceMap(CoordinateMap(dofs, int_space))
 
-    with pytest.raises(ValueError, match="at least 2"):
-        space_map.boundary(0)
+    point_map = space_map.boundary(0)
+    assert point_map.input_dimensions == 0
+    assert point_map.integration_space.orders == ()
 
 
 def test_space_map_boundary_provides_tangential_pullback() -> None:
@@ -198,7 +199,7 @@ def test_kform_boundary_constraints_python_one_form() -> None:
     row_offsets, components, local_dofs, coefficients = result
     assert row_offsets.shape == (2,)
     assert row_offsets[-1] == 2
-    assert np.all(components == 1)
+    assert np.all(components == 0)
     assert local_dofs.shape == coefficients.shape == (2,)
 
 
@@ -292,6 +293,170 @@ def test_kform_boundary_constraints_python_three_dimensional_line() -> None:
     assert row_offsets.shape == (3,)
     assert row_offsets[-1] == 16
     assert components.shape == local_dofs.shape == coefficients.shape == (16,)
+
+
+def _apply_boundary_rows(
+    result: tuple[np.ndarray, ...], values: np.ndarray
+) -> np.ndarray:
+    """Apply packed boundary rows to one element's flattened DoFs."""
+    row_offsets, _, local_dofs, coefficients = result
+    return np.array(
+        [
+            np.dot(
+                coefficients[row_offsets[row] : row_offsets[row + 1]],
+                values[local_dofs[row_offsets[row] : row_offsets[row + 1]]],
+            )
+            for row in range(row_offsets.size - 1)
+        ]
+    )
+
+
+def _constant_kform_values(specs: KFormSpecs) -> np.ndarray:
+    """Return DoFs for a constant value in every k-form component."""
+    return np.ones(int(np.sum(specs.component_dof_counts)))
+
+
+def test_kform_boundary_constraints_continuity_2d_and_3d() -> None:
+    """Check polynomial traces on 2D and 3D adjacent-element boundaries."""
+    basis_2d = FunctionSpace(
+        BasisSpecs(BasisType.LAGRANGE_UNIFORM, 1),
+        BasisSpecs(BasisType.LAGRANGE_UNIFORM, 1),
+    )
+    integration_2d = IntegrationSpace(IntegrationSpecs(3), IntegrationSpecs(3))
+    maps_2d = [
+        SpaceMap(
+            CoordinateMap(DegreesOfFreedom(basis_2d, x_values), integration_2d),
+            CoordinateMap(DegreesOfFreedom(basis_2d, [-1, 1, -1, 1]), integration_2d),
+        )
+        for x_values in ([-1, -1, 0, 0], [0, 0, 1, 1])
+    ]
+    lines_2d = np.array(
+        [[0, 1], [0, 2], [2, 3], [1, 3], [2, 4], [4, 5], [3, 5]],
+        dtype=np.uint64,
+    )
+    elements_2d = np.array([[0, 1, 2, 3], [2, 4, 5, 6]], dtype=np.uint64)
+
+    for face_dim, boundary_id in ((0, 2), (1, 2)):
+        for order in range(face_dim + 1):
+            test_specs = KFormSpecs(
+                order,
+                FunctionSpace(
+                    *(BasisSpecs(BasisType.LEGENDRE, 1) for _ in range(face_dim))
+                ),
+            )
+            element_specs = KFormSpecs(order, basis_2d)
+            values = _constant_kform_values(element_specs)
+            traces = [
+                _apply_boundary_rows(
+                    compute_kform_boundary_constraints(
+                        test_specs,
+                        element_specs,
+                        element_map,
+                        (lines_2d, elements_2d),
+                        6,
+                        element_id,
+                        boundary_id,
+                    ),
+                    values,
+                )
+                for element_id, element_map in enumerate(maps_2d)
+            ]
+            np.testing.assert_allclose(traces[0], traces[1])
+
+    basis_3d = FunctionSpace(
+        *(BasisSpecs(BasisType.LAGRANGE_UNIFORM, 1) for _ in range(3))
+    )
+    integration_3d = IntegrationSpace(*(IntegrationSpecs(3) for _ in range(3)))
+    x_values_0 = [-1, -1, 1, 1, -1, -1, 1, 1]
+    y_values_0 = [-1, 1, -1, 1, -1, 1, -1, 1]
+    z_values = [-1, -1, -1, -1, 1, 1, 1, 1]
+    maps_3d = [
+        SpaceMap(
+            *(
+                CoordinateMap(DegreesOfFreedom(basis_3d, values), integration_3d)
+                for values in values_set
+            )
+        )
+        for values_set in (
+            ([value + 1 for value in x_values_0], y_values_0, z_values),
+            ([value + 1 for value in y_values_0], x_values_0, z_values),
+        )
+    ]
+    lines_3d = np.array(
+        [
+            [0, 1],
+            [1, 2],
+            [2, 3],
+            [3, 0],
+            [4, 5],
+            [5, 6],
+            [6, 7],
+            [7, 4],
+            [0, 4],
+            [1, 5],
+            [2, 6],
+            [3, 7],
+            [8, 9],
+            [9, 10],
+            [10, 11],
+            [11, 8],
+            [0, 8],
+            [1, 9],
+            [5, 10],
+            [4, 11],
+        ],
+        dtype=np.uint64,
+    )
+    faces_3d = np.array(
+        [
+            [0, 1, 2, 3],
+            [4, 5, 6, 7],
+            [0, 9, 4, 8],
+            [1, 10, 5, 9],
+            [2, 11, 6, 10],
+            [3, 8, 7, 11],
+            [0, 17, 12, 16],
+            [9, 18, 13, 17],
+            [4, 18, 14, 19],
+            [8, 19, 15, 16],
+            [12, 13, 14, 15],
+        ],
+        dtype=np.uint64,
+    )
+    elements_3d = np.array([[5, 2, 0, 3, 4, 1], [2, 6, 7, 10, 8, 9]], dtype=np.uint64)
+    collections_3d = (lines_3d, faces_3d, elements_3d)
+
+    for face_dim, boundary_id in ((0, 0), (1, 0), (2, 2)):
+        for order in range(face_dim + 1):
+            test_specs = KFormSpecs(
+                order,
+                FunctionSpace(
+                    *(BasisSpecs(BasisType.LEGENDRE, 1) for _ in range(face_dim))
+                ),
+            )
+            element_specs = KFormSpecs(order, basis_3d)
+            values = _constant_kform_values(element_specs)
+            results = [
+                compute_kform_boundary_constraints(
+                    test_specs,
+                    element_specs,
+                    element_map,
+                    collections_3d,
+                    12,
+                    element_id,
+                    boundary_id,
+                )
+                for element_id, element_map in enumerate(maps_3d)
+            ]
+            for result in results:
+                row_offsets, components, local_dofs, coefficients = result
+                assert row_offsets[-1] == coefficients.size
+                assert components.shape == local_dofs.shape == coefficients.shape
+                assert np.all(np.isfinite(coefficients))
+
+            traces = [_apply_boundary_rows(result, values) for result in results]
+            if face_dim < 2:
+                np.testing.assert_allclose(traces[0], traces[1])
 
 
 _TEST_ORDERS_2D = ((1, 1), (2, 3), (10, 3), (10, 10))

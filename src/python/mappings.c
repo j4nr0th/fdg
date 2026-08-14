@@ -932,9 +932,9 @@ static PyObject *space_map_boundary(PyObject *self, PyTypeObject *defining_class
             args, nargs, kwnames) < 0)
         return NULL;
 
-    if (this->ndim < 2)
+    if (this->ndim < 1)
     {
-        PyErr_SetString(PyExc_ValueError, "Boundary space maps require an input dimension of at least 2.");
+        PyErr_SetString(PyExc_ValueError, "Boundary space maps require a non-empty input space.");
         return NULL;
     }
     if (idim < 0 || idim >= this->ndim)

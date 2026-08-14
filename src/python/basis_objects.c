@@ -618,6 +618,12 @@ multidim_iterator_t *python_basis_iterator(const unsigned n_basis, const basis_s
     if (!iter)
         return NULL;
 
+    if (n_basis == 0)
+    {
+        multidim_iterator_init(iter, 0, (const size_t[1]){0});
+        return iter;
+    }
+
     for (unsigned ibasis = 0; ibasis < n_basis; ++ibasis)
     {
         multidim_iterator_init_dim(iter, ibasis, specs[ibasis].order + 1);

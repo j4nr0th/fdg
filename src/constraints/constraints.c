@@ -132,7 +132,12 @@ static constraint_status_t mapped_component(const constraint_element_side_t *con
         for (unsigned j = i + 1; j < order; ++j)
         {
             if (mapped_axes[i] > mapped_axes[j])
+            {
                 sign = -sign;
+                const uint8_t tmp = mapped_axes[i];
+                mapped_axes[i] = mapped_axes[j];
+                mapped_axes[j] = tmp;
+            }
         }
     }
 

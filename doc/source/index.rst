@@ -18,3 +18,4 @@ light on the implementation details and does not include the C code.
    inner_product
    incidence
    interior_product
+   boundary_constraints

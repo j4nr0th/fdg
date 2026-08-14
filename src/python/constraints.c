@@ -79,6 +79,25 @@ static void get_digits(const unsigned ndim, const integration_spec_t specs[const
     }
 }
 
+static unsigned get_source_face_axis(const unsigned element_dim, const unsigned face_dim,
+                                     const int8_t orientation[const static element_dim], const unsigned source_axis)
+{
+    const unsigned fixed_count = element_dim - face_dim;
+    unsigned face_axis = 0;
+    for (unsigned axis = 0; axis < source_axis; ++axis)
+    {
+        bool fixed = false;
+        for (unsigned fixed_axis = 0; fixed_axis < fixed_count; ++fixed_axis)
+        {
+            fixed |= (unsigned)(orientation[fixed_axis] < 0 ? -orientation[fixed_axis] : orientation[fixed_axis]) - 1 ==
+                     axis;
+        }
+        if (!fixed)
+            ++face_axis;
+    }
+    return face_axis;
+}
+
 static size_t canonical_point_to_source(const unsigned element_dim, const unsigned face_dim,
                                         const int8_t orientation[const static element_dim],
                                         const integration_spec_t source_specs[const static face_dim],
@@ -89,20 +108,10 @@ static size_t canonical_point_to_source(const unsigned element_dim, const unsign
     unsigned source_digits[face_dim == 0 ? 1 : face_dim];
     for (unsigned face_axis = 0; face_axis < face_dim; ++face_axis)
     {
-        const unsigned source_axis =
-            (unsigned)(orientation[face_axis + 1] < 0 ? -orientation[face_axis + 1] : orientation[face_axis + 1]) - 1;
-        unsigned source_face_axis = 0;
-        for (unsigned i = 0; i < source_axis; ++i)
-        {
-            bool fixed = false;
-            for (unsigned fixed_index = 0; fixed_index < fixed_count; ++fixed_index)
-                fixed |=
-                    ((unsigned)(orientation[fixed_index] < 0 ? -orientation[fixed_index] : orientation[fixed_index]) -
-                     1) == i;
-            if (!fixed)
-                ++source_face_axis;
-        }
-        source_digits[source_face_axis] = orientation[face_axis + 1] < 0
+        const int8_t mapping = orientation[fixed_count + face_axis];
+        const unsigned source_axis = (unsigned)(mapping < 0 ? -mapping : mapping) - 1;
+        const unsigned source_face_axis = get_source_face_axis(element_dim, face_dim, orientation, source_axis);
+        source_digits[source_face_axis] = mapping < 0
                                               ? source_specs[source_face_axis].order - canonical_digits[face_axis]
                                               : canonical_digits[face_axis];
     }
@@ -134,7 +143,12 @@ static unsigned map_component(const unsigned face_dim, const unsigned element_di
     for (unsigned i = 0; i < order; ++i)
         for (unsigned j = i + 1; j < order; ++j)
             if (mapped[i] > mapped[j])
+            {
                 *sign = -*sign;
+                const uint8_t tmp = mapped[i];
+                mapped[i] = mapped[j];
+                mapped[j] = tmp;
+            }
     (void)face_dim;
     return combination_get_index(element_dim, order, mapped);
 }
@@ -636,7 +650,7 @@ static PyObject *compute_kform_boundary_constraints(PyObject *module, PyObject *
         release_collection_arrays(element_dim, collection_arrays);
         return NULL;
     }
-    const unsigned boundary_immersion_index = face_dim == 0 ? 0 : face_dim - 1;
+    const unsigned boundary_immersion_index = face_dim;
     topo_status = topo_obj_boundary_orientation(immersions + boundary_immersion_index, element_dim,
                                                 (uint64_t)boundary_id, (uint64_t)element_id, orientation);
     topo_obj_immersions_free(element_dim, immersions, &PYTHON_ALLOCATOR);
@@ -666,16 +680,15 @@ static PyObject *compute_kform_boundary_constraints(PyObject *module, PyObject *
     if (make_integration_space(state, face_map, &face_space) < 0)
         goto single_fail;
     const integration_spec_t *const face_specs = face_map->int_specs;
-    const unsigned normal_axis = (unsigned)(orientation[0] < 0 ? -orientation[0] : orientation[0]) - 1;
+    const unsigned fixed_count = element_dim - face_dim;
     canonical_specs = PyMem_Malloc(face_dim * sizeof(*canonical_specs));
     if (!canonical_specs)
         goto single_fail;
     for (unsigned face_axis = 0; face_axis < face_dim; ++face_axis)
     {
-        const unsigned source_axis =
-            (unsigned)(orientation[face_axis + 1] < 0 ? -orientation[face_axis + 1] : orientation[face_axis + 1]) - 1;
-        const unsigned source_face_axis = source_axis < normal_axis ? source_axis : source_axis - 1;
-        canonical_specs[face_axis] = face_specs[source_face_axis];
+        const int8_t mapping = orientation[fixed_count + face_axis];
+        const unsigned source_axis = (unsigned)(mapping < 0 ? -mapping : mapping) - 1;
+        canonical_specs[face_axis] = face_specs[get_source_face_axis(element_dim, face_dim, orientation, source_axis)];
     }
 
     if (create_pullback(face_map, element_dim, face_dim, orientation, order, face_specs, canonical_specs, &pullback) <
@@ -711,9 +724,9 @@ static PyObject *compute_kform_boundary_constraints(PyObject *module, PyObject *
     }
     for (unsigned face_axis = 0; face_axis < face_dim; ++face_axis)
     {
-        const unsigned source_axis =
-            (unsigned)(orientation[face_axis + 1] < 0 ? -orientation[face_axis + 1] : orientation[face_axis + 1]) - 1;
-        const unsigned source_face_axis = source_axis < normal_axis ? source_axis : source_axis - 1;
+        const int8_t mapping = orientation[fixed_count + face_axis];
+        const unsigned source_axis = (unsigned)(mapping < 0 ? -mapping : mapping) - 1;
+        const unsigned source_face_axis = get_source_face_axis(element_dim, face_dim, orientation, source_axis);
         const integration_rule_t *const rule = rules[source_face_axis];
         quadrature_axes[face_axis] = (constraint_quadrature_t){.count = rule->n_nodes,
                                                                .nodes = integration_rule_nodes_const(rule),

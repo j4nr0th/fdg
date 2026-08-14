@@ -84,6 +84,10 @@ add_executable(test_topo_2d operations/test_topo_2d.c)
 target_link_libraries(test_topo_2d PRIVATE test_topo_common)
 add_test(NAME topo_2d COMMAND test_topo_2d)
 
+add_executable(test_topo_3d_boundary operations/test_topo_3d_boundary.c)
+target_link_libraries(test_topo_3d_boundary PRIVATE test_topo_common)
+add_test(NAME topo_3d_boundary COMMAND test_topo_3d_boundary)
+
 add_executable(test_topo_iteration operations/test_topo_iteration.c)
 target_link_libraries(test_topo_iteration PRIVATE test_topo_common)
 add_test(NAME topo_iteration COMMAND test_topo_iteration)

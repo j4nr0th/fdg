@@ -34,6 +34,9 @@ double compute_reconstruction_at_integration_point_d(const unsigned ndim, const 
            "Number of dimensions of integration space is not correct.");
     ASSERT((size_t)ndim == multidim_iterator_get_ndims(iter_basis), "Number of dimensions of basis is not correct.");
     ASSERT((size_t)ndof == multidim_iterator_total_size(iter_basis), "Number of DOFs is not correct.");
+    if (ndim == 0)
+        return dof_values[0];
+
     double val = 0;
     multidim_iterator_set_to_start(iter_basis);
     while (!multidim_iterator_is_at_end(iter_basis))
@@ -61,6 +64,11 @@ void compute_integration_point_values_derivatives(const unsigned ndim, multidim_
     ASSERT((size_t)ndim == multidim_iterator_get_ndims(iter_basis), "Number of dimensions of basis is not correct.");
     ASSERT((size_t)ndof == multidim_iterator_total_size(iter_basis), "Number of DOFs is not correct.");
     ASSERT((size_t)nout == multidim_iterator_total_size(iter_int), "Output array is too small.");
+    if (ndim == 0)
+    {
+        ptr[0] = dof_values[0];
+        return;
+    }
 
     multidim_iterator_set_to_start(iter_int);
     while (!multidim_iterator_is_at_end(iter_int))
@@ -99,6 +107,8 @@ double compute_reconstruction_at_integration_point(const unsigned ndim, const mu
            "Number of dimensions of integration space is not correct.");
     ASSERT((size_t)ndim == multidim_iterator_get_ndims(iter_basis), "Number of dimensions of basis is not correct.");
     ASSERT((size_t)ndof == multidim_iterator_total_size(iter_basis), "Number of DOFs is not correct.");
+    if (ndim == 0)
+        return dof_values[0];
 
     double val = 0;
     multidim_iterator_set_to_start(iter_basis);
@@ -123,6 +133,11 @@ void compute_integration_point_values(const unsigned ndim, multidim_iterator_t *
            "Number of dimensions of integration space is not correct.");
     ASSERT((size_t)ndim == multidim_iterator_get_ndims(iter_basis), "Number of dimensions of basis is not correct.");
     ASSERT((size_t)ndof == multidim_iterator_total_size(iter_basis), "Number of DOFs is not correct.");
+    if (ndim == 0)
+    {
+        ptr[0] = dof_values[0];
+        return;
+    }
 
     multidim_iterator_set_to_start(iter_int);
     while (!multidim_iterator_is_at_end(iter_int))

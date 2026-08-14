@@ -885,6 +885,12 @@ multidim_iterator_t *integration_specs_iterator(const unsigned n_specs,
     if (!iter)
         return NULL;
 
+    if (n_specs == 0)
+    {
+        multidim_iterator_init(iter, 0, (const size_t[1]){0});
+        return iter;
+    }
+
     for (unsigned i = 0; i < n_specs; ++i)
     {
         multidim_iterator_init_dim(iter, i, specs[i].order + 1);

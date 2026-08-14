@@ -429,6 +429,48 @@ static void test_physical_one_form_pullback(void)
     TEST_NUMBERS_CLOSE(entries[3].coefficient, -2.0, 1e-12, 0);
 }
 
+static void test_physical_two_form_face_components(void)
+{
+    const basis_spec_t test_basis[] = {basis_spec(1), basis_spec(1)};
+    const basis_spec_t element_basis[] = {basis_spec(1), basis_spec(1), basis_spec(1)};
+    const int8_t orientation[] = {-1, 3, 2};
+    const double nodes[] = {-0.5773502691896258, 0.5773502691896258};
+    const double weights[] = {1.0, 1.0};
+    const double surface_weights[] = {1.0, 1.0, 1.0, 1.0};
+    const constraint_quadrature_t axes[] = {
+        {.count = 2, .nodes = nodes, .weights = weights},
+        {.count = 2, .nodes = nodes, .weights = weights},
+    };
+    const constraint_face_quadrature_t quadrature = {.ndim = 2, .axes = axes, .point_count = 4};
+    double pullback_values[3 * 3 * 4] = {0};
+    for (unsigned component = 0; component < 3; ++component)
+        for (unsigned point = 0; point < 4; ++point)
+            pullback_values[(component * 3 + component) * 4 + point] = 1.0;
+    const constraint_trace_pullback_t pullback = {
+        .physical_component_count = 3, .point_count = 4, .values = pullback_values};
+    const constraint_kform_spec_t test_spec = {.ndim = 2, .order = 2, .basis_specs = test_basis};
+    const constraint_element_side_t side = {.ndim = 3, .basis_specs = element_basis, .orientation = orientation};
+    size_t row_count;
+    size_t entry_count;
+    TEST_ASSERTION(constraint_physical_side_required(&test_spec, &side, &row_count, &entry_count) == CONSTRAINT_SUCCESS,
+                   "Could not size a two-form face constraint.");
+    TEST_ASSERTION(row_count == 1 && entry_count == 2, "Unexpected two-form face dimensions.");
+
+    size_t row_offsets[2];
+    constraint_entry_t entries[2];
+    size_t actual_rows;
+    size_t actual_entries;
+    TEST_ASSERTION(constraint_physical_side_assemble(&test_spec, &side, &quadrature, surface_weights, &pullback, 2,
+                                                     row_offsets, 2, entries, &actual_rows,
+                                                     &actual_entries) == CONSTRAINT_SUCCESS,
+                   "Could not assemble a two-form face constraint.");
+    TEST_ASSERTION(actual_rows == row_count && actual_entries == entry_count && row_offsets[0] == 0 &&
+                       row_offsets[1] == 2,
+                   "Two-form face assembly did not match its required storage.");
+    TEST_ASSERTION(entries[0].component == 2 && entries[1].component == 2,
+                   "Unexpected two-form face component mapping.");
+}
+
 int main(void)
 {
     test_component_layout();
@@ -443,5 +485,6 @@ int main(void)
     test_physical_single_side();
     test_physical_general_boundary_dimensions();
     test_physical_one_form_pullback();
+    test_physical_two_form_face_components();
     return 0;
 }

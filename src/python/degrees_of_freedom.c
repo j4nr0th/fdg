@@ -789,10 +789,9 @@ PyObject *dof_at_boundary(PyObject *self, PyTypeObject *defining_class, PyObject
     if (ensure_dof_and_state(self, defining_class, &state, (dof_object **)&this) < 0)
         return NULL;
 
-    if (this->n_dims < 2)
+    if (this->n_dims < 1)
     {
-        PyErr_Format(PyExc_ValueError, "Cannot compute the DoF at the boundary of a %u-dimensional function.",
-                     this->n_dims);
+        PyErr_SetString(PyExc_ValueError, "Cannot project a zero-dimensional function onto a boundary.");
         return NULL;
     }
 
