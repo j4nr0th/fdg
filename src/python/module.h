@@ -90,4 +90,7 @@ static inline const interplib_module_state_t *interplib_get_module_state(PyTypeO
 FDG_INTERNAL
 int heap_type_traverse_type(PyObject *self, visitproc visit, void *arg);
 
+FDG_INTERNAL
+extern PyMethodDef constraint_methods[];
+
 #endif // FDG_MODULE_H

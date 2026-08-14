@@ -38,6 +38,12 @@ static PyObject *coordinate_map_new(PyTypeObject *type, PyObject *args, PyObject
     }
     // Copy integration specs first
     self->ndim = ndim;
+    self->dofs = (PyObject *)dofs;
+    self->integration_registry = (PyObject *)integration_registry;
+    self->basis_registry = (PyObject *)basis_registry;
+    Py_INCREF(self->dofs);
+    Py_INCREF(self->integration_registry);
+    Py_INCREF(self->basis_registry);
     self->int_specs = PyMem_Malloc(ndim * sizeof(*self->int_specs));
     if (!self->int_specs)
     {
@@ -82,11 +88,26 @@ static PyObject *coordinate_map_new(PyTypeObject *type, PyObject *args, PyObject
 static void coordinate_map_dealloc(coordinate_map_object *self)
 {
     PyObject_GC_UnTrack(self);
+    Py_XDECREF(self->dofs);
+    self->dofs = NULL;
+    Py_XDECREF(self->integration_registry);
+    self->integration_registry = NULL;
+    Py_XDECREF(self->basis_registry);
+    self->basis_registry = NULL;
     PyMem_Free(self->int_specs);
     self->int_specs = NULL;
     PyTypeObject *const type = Py_TYPE(self);
     type->tp_free((PyObject *)self);
     Py_DECREF(type);
+}
+
+static int coordinate_map_traverse(coordinate_map_object *self, visitproc visit, void *arg)
+{
+    Py_VISIT(Py_TYPE(self));
+    Py_VISIT(self->dofs);
+    Py_VISIT(self->integration_registry);
+    Py_VISIT(self->basis_registry);
+    return 0;
 }
 
 static PyObject *coordinate_map_get_dimension(PyObject *self, void *Py_UNUSED(closure))
@@ -230,7 +251,7 @@ PyType_Spec coordinate_map_type_spec = {
     .itemsize = sizeof(*((coordinate_map_object *)0xB00B1E5)->values),
     .flags = Py_TPFLAGS_HEAPTYPE | Py_TPFLAGS_HAVE_GC | Py_TPFLAGS_DEFAULT | Py_TPFLAGS_IMMUTABLETYPE,
     .slots = (PyType_Slot[]){
-        {Py_tp_traverse, heap_type_traverse_type},
+        {Py_tp_traverse, (void *)coordinate_map_traverse},
         {Py_tp_dealloc, coordinate_map_dealloc},
         {Py_tp_new, coordinate_map_new},
         {Py_tp_getset,
@@ -882,6 +903,107 @@ PyDoc_STRVAR(space_map_basis_transform_docstring,
              "    Array with three axis. The first indexes over the input basis, the second\n"
              "    over output basis, and the last one over integration points.\n");
 
+PyDoc_STRVAR(space_map_boundary_docstring, "boundary(idim: int, end: bool = False, /) -> SpaceMap\n"
+                                           "Extract a space map restricted to a reference-space boundary.\n"
+                                           "The lower boundary is at -1 and the upper boundary is at +1.\n");
+
+static PyObject *space_map_boundary(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
+                                    const Py_ssize_t nargs, const PyObject *kwnames)
+{
+    const interplib_module_state_t *state;
+    space_map_object *this;
+    if (ensure_space_map_and_state(self, defining_class, &state, &this) < 0)
+        return NULL;
+
+    Py_ssize_t idim;
+    int end = 0;
+    integration_space_object *provided_face_space = NULL;
+    if (parse_arguments_check(
+            (cpyutl_argument_t[]){
+                {.type = CPYARG_TYPE_SSIZE, .p_val = &idim, .kwname = "idim"},
+                {.type = CPYARG_TYPE_BOOL, .p_val = &end, .kwname = "end", .optional = 1},
+                {.type = CPYARG_TYPE_PYTHON,
+                 .p_val = &provided_face_space,
+                 .type_check = state->integration_space_type,
+                 .kwname = "integration_space",
+                 .optional = 1},
+                {},
+            },
+            args, nargs, kwnames) < 0)
+        return NULL;
+
+    if (this->ndim < 2)
+    {
+        PyErr_SetString(PyExc_ValueError, "Boundary space maps require an input dimension of at least 2.");
+        return NULL;
+    }
+    if (idim < 0 || idim >= this->ndim)
+    {
+        PyErr_Format(PyExc_ValueError, "Expected a boundary dimension in range [0, %u), got %zd.", this->ndim, idim);
+        return NULL;
+    }
+
+    integration_space_object *face_space;
+    if (provided_face_space)
+    {
+        if (Py_SIZE(provided_face_space) != this->ndim - 1)
+        {
+            PyErr_Format(PyExc_ValueError, "Expected a face integration space with %u dimensions, got %zd.",
+                         this->ndim - 1, Py_SIZE(provided_face_space));
+            return NULL;
+        }
+        face_space = provided_face_space;
+        Py_INCREF(face_space);
+    }
+    else
+    {
+        face_space = (integration_space_object *)state->integration_space_type->tp_alloc(state->integration_space_type,
+                                                                                         this->ndim - 1);
+        if (!face_space)
+            return NULL;
+        for (unsigned source_dim = 0, face_dim = 0; source_dim < this->ndim; ++source_dim)
+        {
+            if (source_dim != (unsigned)idim)
+                face_space->specs[face_dim++] = this->int_specs[source_dim];
+        }
+    }
+
+    PyObject *coordinate_tuple = PyTuple_New(Py_SIZE(this));
+    if (!coordinate_tuple)
+    {
+        Py_DECREF(face_space);
+        return NULL;
+    }
+    for (Py_ssize_t icoordinate = 0; icoordinate < Py_SIZE(this); ++icoordinate)
+    {
+        coordinate_map_object *const source_map = this->maps[icoordinate];
+        PyObject *projected_dofs =
+            PyObject_CallMethod(source_map->dofs, "plane_projection", "id", (int)idim, end ? 1.0 : -1.0);
+        if (!projected_dofs)
+        {
+            Py_DECREF(coordinate_tuple);
+            Py_DECREF(face_space);
+            return NULL;
+        }
+        PyObject *coordinate =
+            PyObject_CallFunction((PyObject *)state->coordinate_mapping_type, "OOOO", projected_dofs, face_space,
+                                  source_map->integration_registry, source_map->basis_registry);
+        Py_DECREF(projected_dofs);
+        if (!coordinate)
+        {
+            Py_DECREF(coordinate_tuple);
+            Py_DECREF(face_space);
+            return NULL;
+        }
+        PyTuple_SET_ITEM(coordinate_tuple, icoordinate, coordinate);
+    }
+    Py_DECREF(face_space);
+
+    PyObject *result = PyObject_CallObject((PyObject *)state->space_mapping_type, coordinate_tuple);
+    Py_DECREF(coordinate_tuple);
+    return result;
+}
+
 PyType_Spec space_map_type_spec = {
     .name = FDG_TYPE_NAME("SpaceMap"),
     .basicsize = sizeof(space_map_object),
@@ -936,6 +1058,12 @@ PyType_Spec space_map_type_spec = {
                      .ml_meth = (void *)space_map_basis_transform,
                      .ml_flags = METH_FASTCALL | METH_KEYWORDS | METH_METHOD,
                      .ml_doc = space_map_basis_transform_docstring,
+                 },
+                 {
+                     .ml_name = "boundary",
+                     .ml_meth = (void *)space_map_boundary,
+                     .ml_flags = METH_FASTCALL | METH_KEYWORDS | METH_METHOD,
+                     .ml_doc = space_map_boundary_docstring,
                  },
                  {},
              }},

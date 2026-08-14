@@ -2,6 +2,7 @@
 
 import numpy as np
 import pytest
+from fdg import compute_kform_boundary_constraints
 from fdg._fdg import (
     BasisSpecs,
     CoordinateMap,
@@ -9,6 +10,7 @@ from fdg._fdg import (
     FunctionSpace,
     IntegrationSpace,
     IntegrationSpecs,
+    KFormSpecs,
     SpaceMap,
     transform_contravariant_to_target,
 )
@@ -40,6 +42,256 @@ def test_coord_1d(int_order: int, basis_order: int, basis_type: BasisType) -> No
         coord_map.gradient(0)
         == dofs.reconstruct_derivative_at_integration_points(int_space, idim=[0])
     )
+
+
+def test_space_map_boundary_extracts_from_source_dofs() -> None:
+    """Boundary maps are reconstructed at the face, even when the volume grid omits it."""
+    rng = np.random.default_rng(107)
+    function_space = FunctionSpace(
+        BasisSpecs(BasisType.LEGENDRE, 3), BasisSpecs(BasisType.LAGRANGE_UNIFORM, 2)
+    )
+    dofs = [DegreesOfFreedom(function_space) for _ in range(2)]
+    for values in dofs:
+        values.values = rng.random(values.values.shape)
+
+    volume_integration = IntegrationSpace(
+        IntegrationSpecs(4, method="gauss"), IntegrationSpecs(3, method="gauss-lobatto")
+    )
+    volume_map = SpaceMap(*(CoordinateMap(values, volume_integration) for values in dofs))
+
+    lower = volume_map.boundary(0)
+    upper = volume_map.boundary(0, True)
+    assert lower.input_dimensions == 1
+    assert lower.output_dimensions == 2
+    assert lower.integration_space.orders == (3,)
+    assert upper.integration_space.orders == (3,)
+
+    face_integration = lower.integration_space
+    for index, values in enumerate(dofs):
+        expected_lower = values.plane_projection(
+            0, -1.0
+        ).reconstruct_at_integration_points(face_integration)
+        expected_upper = values.plane_projection(
+            0, +1.0
+        ).reconstruct_at_integration_points(face_integration)
+        np.testing.assert_allclose(lower.coordinate_map(index).values, expected_lower)
+        np.testing.assert_allclose(upper.coordinate_map(index).values, expected_upper)
+
+    custom_face_space = IntegrationSpace(IntegrationSpecs(2, method="gauss"))
+    custom_lower = volume_map.boundary(0, False, custom_face_space)
+    assert custom_lower.integration_space.orders == (2,)
+    for index, values in enumerate(dofs):
+        expected = values.plane_projection(0, -1.0).reconstruct_at_integration_points(
+            custom_face_space
+        )
+        np.testing.assert_allclose(custom_lower.coordinate_map(index).values, expected)
+
+
+def test_space_map_boundary_rejects_one_dimensional_map() -> None:
+    """A 1D map cannot have a boundary."""
+    function_space = FunctionSpace(BasisSpecs(BasisType.LEGENDRE, 1))
+    dofs = DegreesOfFreedom(function_space)
+    int_space = IntegrationSpace(IntegrationSpecs(2, method="gauss"))
+    space_map = SpaceMap(CoordinateMap(dofs, int_space))
+
+    with pytest.raises(ValueError, match="at least 2"):
+        space_map.boundary(0)
+
+
+def test_space_map_boundary_provides_tangential_pullback() -> None:
+    """A volume map supplies the pullback for its own restricted face map."""
+    function_space = FunctionSpace(
+        BasisSpecs(BasisType.LAGRANGE_UNIFORM, 1),
+        BasisSpecs(BasisType.LAGRANGE_UNIFORM, 1),
+    )
+    x_dofs = DegreesOfFreedom(function_space, [0.0, 0.0, 1.0, 1.0])
+    y_dofs = DegreesOfFreedom(function_space, [0.0, 1.0, 0.0, 1.0])
+    volume_space = IntegrationSpace(
+        IntegrationSpecs(2, method="gauss"), IntegrationSpecs(2, method="gauss")
+    )
+    volume_map = SpaceMap(
+        CoordinateMap(x_dofs, volume_space), CoordinateMap(y_dofs, volume_space)
+    )
+    face_space = IntegrationSpace(IntegrationSpecs(3, method="gauss"))
+
+    face_map = volume_map.boundary(0, False, face_space)
+    pullback = face_map.basis_transform(1)
+    assert pullback.shape == (1, 2, 4)
+    np.testing.assert_allclose(pullback[0, 0], 0.0)
+    np.testing.assert_allclose(pullback[0, 1], 2.0)
+
+
+def test_kform_boundary_constraints_python_wrapper() -> None:
+    """The Python wrapper returns packed physical boundary constraint arrays."""
+    volume_space = FunctionSpace(
+        BasisSpecs(BasisType.LAGRANGE_UNIFORM, 1),
+        BasisSpecs(BasisType.LAGRANGE_UNIFORM, 1),
+    )
+    x_dofs = DegreesOfFreedom(volume_space, [0.0, 0.0, 1.0, 1.0])
+    y_dofs = DegreesOfFreedom(volume_space, [0.0, 1.0, 0.0, 1.0])
+    integration = IntegrationSpace(
+        IntegrationSpecs(2, method="gauss"), IntegrationSpecs(2, method="gauss")
+    )
+    first_map = SpaceMap(
+        CoordinateMap(x_dofs, integration), CoordinateMap(y_dofs, integration)
+    )
+    test_specs = KFormSpecs(0, FunctionSpace(BasisSpecs(BasisType.LEGENDRE, 1)))
+    element_specs = (KFormSpecs(0, volume_space), KFormSpecs(0, volume_space))
+    mesh_collections = (
+        np.array(
+            [[0, 1], [1, 4], [3, 4], [0, 3], [1, 2], [2, 5], [4, 5]],
+            dtype=np.uint64,
+        ),
+        np.array([[0, 3, 2, 1], [4, 1, 6, 5]], dtype=np.uint64),
+    )
+
+    row_offsets, components, local_dofs, coefficients = (
+        compute_kform_boundary_constraints(
+            test_specs,
+            element_specs[0],
+            first_map,
+            mesh_collections,
+            6,
+            0,
+            1,
+        )
+    )
+    assert row_offsets.shape == (3,)
+    assert components.shape == local_dofs.shape == coefficients.shape
+    assert row_offsets[-1] == coefficients.size
+    assert np.any(coefficients > 0)
+
+
+def test_kform_boundary_constraints_python_one_form() -> None:
+    """The wrapper handles tangential one-forms and mesh-derived orientations."""
+    volume_space = FunctionSpace(
+        BasisSpecs(BasisType.LAGRANGE_UNIFORM, 1),
+        BasisSpecs(BasisType.LAGRANGE_UNIFORM, 1),
+    )
+    x_dofs = DegreesOfFreedom(volume_space, [0.0, 0.0, 1.0, 1.0])
+    y_dofs = DegreesOfFreedom(volume_space, [0.0, 1.0, 0.0, 1.0])
+    integration = IntegrationSpace(
+        IntegrationSpecs(2, method="gauss"), IntegrationSpecs(2, method="gauss")
+    )
+    first_map = SpaceMap(
+        CoordinateMap(x_dofs, integration), CoordinateMap(y_dofs, integration)
+    )
+    test_specs = KFormSpecs(1, FunctionSpace(BasisSpecs(BasisType.LEGENDRE, 1)))
+    element_specs = (KFormSpecs(1, volume_space), KFormSpecs(1, volume_space))
+    mesh_collections = (
+        np.array(
+            [[0, 1], [1, 4], [3, 4], [0, 3], [1, 2], [2, 5], [4, 5]],
+            dtype=np.uint64,
+        ),
+        np.array([[0, 3, 2, 1], [4, 1, 6, 5]], dtype=np.uint64),
+    )
+
+    result = compute_kform_boundary_constraints(
+        test_specs,
+        element_specs[0],
+        first_map,
+        mesh_collections,
+        6,
+        0,
+        1,
+    )
+    row_offsets, components, local_dofs, coefficients = result
+    assert row_offsets.shape == (2,)
+    assert row_offsets[-1] == 2
+    assert np.all(components == 1)
+    assert local_dofs.shape == coefficients.shape == (2,)
+
+
+def test_kform_boundary_constraints_rejects_bad_mesh_collections() -> None:
+    """Check that the wrapper rejects mesh collections that don't match the space map."""
+    volume_space = FunctionSpace(
+        BasisSpecs(BasisType.LAGRANGE_UNIFORM, 1),
+        BasisSpecs(BasisType.LAGRANGE_UNIFORM, 1),
+    )
+    dofs = DegreesOfFreedom(volume_space)
+    integration = IntegrationSpace(IntegrationSpecs(2), IntegrationSpecs(2))
+    space_map = SpaceMap(
+        CoordinateMap(dofs, integration), CoordinateMap(dofs, integration)
+    )
+    test_specs = KFormSpecs(0, FunctionSpace(BasisSpecs(BasisType.LEGENDRE, 1)))
+    element_specs = (KFormSpecs(0, volume_space), KFormSpecs(0, volume_space))
+
+    with pytest.raises(ValueError, match="mesh collections"):
+        compute_kform_boundary_constraints(
+            test_specs,
+            element_specs[0],
+            space_map,
+            (np.zeros((1, 2), dtype=np.uint64),),
+            4,
+            0,
+            0,
+        )
+
+
+def test_kform_boundary_constraints_python_three_dimensional_line() -> None:
+    """A 3D element can generate constraints on a 1D mesh line."""
+    volume_space = FunctionSpace(
+        BasisSpecs(BasisType.LAGRANGE_UNIFORM, 1),
+        BasisSpecs(BasisType.LAGRANGE_UNIFORM, 1),
+        BasisSpecs(BasisType.LAGRANGE_UNIFORM, 1),
+    )
+    coordinates = (
+        DegreesOfFreedom(volume_space, [0, 1, 0, 1, 0, 1, 0, 1]),
+        DegreesOfFreedom(volume_space, [0, 0, 1, 1, 0, 0, 1, 1]),
+        DegreesOfFreedom(volume_space, [0, 0, 0, 0, 1, 1, 1, 1]),
+    )
+    integration = IntegrationSpace(
+        IntegrationSpecs(2, method="gauss"),
+        IntegrationSpecs(2, method="gauss"),
+        IntegrationSpecs(2, method="gauss"),
+    )
+    space_map = SpaceMap(*(CoordinateMap(dofs, integration) for dofs in coordinates))
+    lines = np.array(
+        [
+            [0, 1],
+            [1, 2],
+            [2, 3],
+            [3, 0],
+            [4, 5],
+            [5, 6],
+            [6, 7],
+            [7, 4],
+            [0, 4],
+            [1, 5],
+            [2, 6],
+            [3, 7],
+        ],
+        dtype=np.uint64,
+    )
+    surfaces = np.array(
+        [
+            [0, 1, 2, 3],
+            [4, 5, 6, 7],
+            [0, 9, 4, 8],
+            [1, 10, 5, 9],
+            [2, 11, 6, 10],
+            [3, 8, 7, 11],
+        ],
+        dtype=np.uint64,
+    )
+    volumes = np.array([[5, 2, 0, 3, 4, 1]], dtype=np.uint64)
+    test_specs = KFormSpecs(0, FunctionSpace(BasisSpecs(BasisType.LEGENDRE, 1)))
+    element_spec = KFormSpecs(0, volume_space)
+
+    row_offsets, components, local_dofs, coefficients = (
+        compute_kform_boundary_constraints(
+            test_specs,
+            element_spec,
+            space_map,
+            (lines, surfaces, volumes),
+            8,
+            0,
+            0,
+        )
+    )
+    assert row_offsets.shape == (3,)
+    assert row_offsets[-1] == 16
+    assert components.shape == local_dofs.shape == coefficients.shape == (16,)
 
 
 _TEST_ORDERS_2D = ((1, 1), (2, 3), (10, 3), (10, 10))

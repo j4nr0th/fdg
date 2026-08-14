@@ -43,6 +43,10 @@ set(COMMON_HEADER_FILES
         src/common/error.h
         src/common/rw_lock.h
 )
+set(CONSTRAINT_SOURCE_FILES
+        src/constraints/constraints.c
+        src/constraints/constraints.h
+)
 
 set(INTEGRATION_SOURCE_FILES
         src/integration/integration_rules.c
@@ -86,6 +90,7 @@ set(RECONSTRUCTION_SOURCE_FILES
 add_library(fdg STATIC
         ${BASIS_SOURCE_FILES}
         ${COMMON_SOURCE_FILES}
+        ${CONSTRAINT_SOURCE_FILES}
         ${INTEGRATION_SOURCE_FILES}
         ${OPERATIONS_SOURCE_FILES}
         ${POLYNOMIALS_SOURCE_FILES}
@@ -109,6 +114,7 @@ set(PYTHON_NUMERICS_SOURCE_FILES
         src/python/mass_matrices.c
         src/python/degrees_of_freedom.c
         src/python/mappings.c
+        src/python/constraints.c
         src/python/incidence.c
         src/python/covector_basis.c
         src/python/kform_objects.c

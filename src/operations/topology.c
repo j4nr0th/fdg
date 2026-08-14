@@ -14,6 +14,7 @@ const char *topo_status_to_str(const topo_status_t status)
         TOPO_STATUS_CASE(TOPO_NO_COMMON_BOUNDARY);
         TOPO_STATUS_CASE(TOPO_INVALID_PARENT_BOUNDARIES);
         TOPO_STATUS_CASE(TOPO_INVALID_ELEMENT);
+        TOPO_STATUS_CASE(TOPO_MULTIPLE_COMMON_BOUNDARIES);
     }
     return "Unknown";
 }
@@ -31,6 +32,7 @@ const char *topo_status_msg(const topo_status_t status)
         TOPO_STATUS_MSG(TOPO_NO_COMMON_BOUNDARY, "Two non-opposite boundaries in an object have no common boundary");
         TOPO_STATUS_MSG(TOPO_INVALID_PARENT_BOUNDARIES, "Parent object had invalid orientation with repeating indices");
         TOPO_STATUS_MSG(TOPO_INVALID_ELEMENT, "Objects in an element did not appear as often as expected");
+        TOPO_STATUS_MSG(TOPO_MULTIPLE_COMMON_BOUNDARIES, "Two elements share multiple boundary objects");
     }
     return "Unknown";
 }
@@ -41,13 +43,79 @@ unsigned topo_obj_boundary_count(const unsigned ndim)
     return 2 * ndim;
 }
 
-void topo_obj_elements(const topo_obj_immersion_t *immersion, const uint64_t id, uint64_t *p_cnt,
-                       const uint64_t **p_ids)
+void topo_obj_immersion_of_object(const topo_obj_immersion_t *immersion, const uint64_t object_id, uint64_t *p_cnt,
+                                  const uint64_t **p_ids, const int8_t **p_orientations)
 {
-    const uint64_t offset = immersion->element_offsets[id];
-    const uint64_t cnt = immersion->element_offsets[id + 1] - offset;
+    const uint64_t offset = immersion->element_offsets[object_id];
+    const uint64_t cnt = immersion->element_offsets[object_id + 1] - offset;
     *p_cnt = cnt;
     *p_ids = immersion->element_ids + offset;
+    *p_orientations = immersion->element_orientation + immersion->parent_dims * offset;
+}
+
+topo_status_t topo_obj_boundary_orientation(const topo_obj_immersion_t *const immersion, const unsigned parent_dims,
+                                            const uint64_t object_id, const uint64_t element_id,
+                                            int8_t orientation[const static parent_dims])
+{
+    if (!immersion || object_id >= immersion->object_count || parent_dims != immersion->parent_dims)
+        return TOPO_NO_COMMON_BOUNDARY;
+
+    uint64_t element_count;
+    const uint64_t *element_ids;
+    const int8_t *element_orientations;
+    topo_obj_immersion_of_object(immersion, object_id, &element_count, &element_ids, &element_orientations);
+    for (uint64_t i = 0; i < element_count; ++i)
+    {
+        if (element_ids[i] == element_id)
+        {
+            for (unsigned idim = 0; idim < parent_dims; ++idim)
+                orientation[idim] = element_orientations[parent_dims * i + idim];
+            return TOPO_SUCCESS;
+        }
+    }
+    return TOPO_NO_COMMON_BOUNDARY;
+}
+
+topo_status_t topo_obj_find_common_boundary(const topo_obj_immersion_t *const immersion, const unsigned parent_dims,
+                                            const uint64_t element_id_1, const uint64_t element_id_2,
+                                            uint64_t *const p_object_id,
+                                            int8_t orientations[const static 2 * parent_dims])
+{
+    if (!immersion || !p_object_id || element_id_1 == element_id_2 || parent_dims != immersion->parent_dims)
+        return TOPO_NO_COMMON_BOUNDARY;
+
+    unsigned matches = 0;
+    for (uint64_t object_id = 0; object_id < immersion->object_count; ++object_id)
+    {
+        uint64_t element_count;
+        const uint64_t *element_ids;
+        const int8_t *element_orientations;
+        topo_obj_immersion_of_object(immersion, object_id, &element_count, &element_ids, &element_orientations);
+
+        const int8_t *orientation_1 = NULL;
+        const int8_t *orientation_2 = NULL;
+        for (uint64_t i = 0; i < element_count; ++i)
+        {
+            if (element_ids[i] == element_id_1)
+                orientation_1 = element_orientations + parent_dims * i;
+            else if (element_ids[i] == element_id_2)
+                orientation_2 = element_orientations + parent_dims * i;
+        }
+        if (!orientation_1 || !orientation_2)
+            continue;
+
+        if (matches != 0)
+            return TOPO_MULTIPLE_COMMON_BOUNDARIES;
+        for (unsigned idim = 0; idim < parent_dims; ++idim)
+        {
+            orientations[idim] = orientation_1[idim];
+            orientations[parent_dims + idim] = orientation_2[idim];
+        }
+        *p_object_id = object_id;
+        matches = 1;
+    }
+
+    return matches == 0 ? TOPO_NO_COMMON_BOUNDARY : TOPO_SUCCESS;
 }
 
 /**
@@ -263,95 +331,6 @@ topo_status_t topo_obj_boundary_immersion_create(const unsigned ndim, const unsi
     return TOPO_SUCCESS;
 }
 
-/**
- * Update offset counters and the current offset value.
- *
- * @param ndim Number of all dimensions.
- * @param mdim Number of varying dimensions.
- * @param orientation Array with specifications of axes orientations.
- * @param offsets Array tracking offsets along each varying axis.
- * @param sizes Array of sizes of all the axis.
- * @param strides Array of strides along each axis.
- * @param offset Pointer to the current offset that will be updated.
- * @return Value indicating if further iterations should be done.
- */
-static bool update_offsets(const unsigned ndim, const unsigned mdim, const int8_t orientation[const static ndim],
-                           uint64_t offsets[const static mdim], const uint64_t sizes[const static ndim],
-                           const uint64_t strides[const static ndim], uint64_t *offset)
-{
-    const unsigned fixed_axis = ndim - mdim;
-    for (unsigned i = mdim; i > 0; --i)
-    {
-        // Get last offset
-        const uint64_t new_offset = offsets[i - 1] + 1;
-        // Axis orientation for later
-        const int8_t axis_orientation = orientation[fixed_axis + i - 1];
-        const uint64_t axis_index = indexing_to_zero_based(axis_orientation);
-        // Get axis size
-        const uint64_t size = sizes[axis_index];
-        if (new_offset < size)
-        {
-            // This axis has not yet reached the end, advance it
-            offsets[i - 1] = new_offset;
-            // Check how we do this advancement of the offset value
-            if (axis_orientation < 0)
-            {
-                // We subtract stride
-                *offset -= strides[axis_index];
-            }
-            else
-            {
-                // We add stride
-                *offset += strides[axis_index];
-            }
-
-            return true;
-        }
-        // We have reached the end of this axis, reset it
-        offsets[i - 1] = 0;
-    }
-
-    // All axes have finished.
-    return false;
-}
-
-void topo_reorder_with_orientation(const unsigned ndim, const unsigned mdim,
-                                   const int8_t orientation[restrict const static ndim],
-                                   const uint64_t sizes_global[restrict const static ndim],
-                                   const double in[const restrict], double out[const restrict],
-                                   uint64_t offsets[const restrict mdim], uint64_t strides[const restrict ndim])
-{
-    // Set strides
-    for (uint64_t i = 0, stride = 1; i < ndim; ++i)
-    {
-        strides[i] = stride;
-        stride *= sizes_global[i];
-    }
-
-    // Compute initial offset based on the first (ndim - mdim) axes
-    uint64_t offset = 0;
-    const unsigned fixed_axis = ndim - mdim;
-    for (unsigned i = 0; i < fixed_axis; ++i)
-    {
-        const int8_t axis_orientation = orientation[i];
-        // Nothing for positively oriented axes.
-        if (axis_orientation > 0)
-            continue;
-        // For axes at the end we need to add the maximum stride value.
-        const uint64_t axis_index = indexing_to_zero_based(axis_orientation);
-        offset += strides[axis_index] * (sizes_global[axis_index] - 1);
-    }
-
-    for (uint64_t i = 0; i < mdim; ++i)
-        offsets[i] = 0;
-
-    // The loop where the magic happens
-    for (uint64_t i = 0; update_offsets(ndim, mdim, orientation, offsets, sizes_global, strides, &offset); ++i)
-    {
-        out[offset] = in[i];
-    }
-}
-
 typedef struct
 {
     // Index of the element that the objects are processed under.
@@ -510,8 +489,9 @@ topo_status_t topo_obj_create_immersion_info(const unsigned ndim, const unsigned
         topo_obj_recursively_count_elements(ie, ndim, collections, immersions);
     }
 
-    // Scale the counts by their multiplicity (factorial of the dimension)
-    unsigned multiplicity = ndim;
+    // Scale lower-dimensional counts by the factorial of their codimension. The recursive traversal visits each
+    // object once for every ordering of the missing axes.
+    unsigned multiplicity = 2;
     for (unsigned idim = 1; idim < ndim; ++idim)
     {
         // Scale the count array by the multiplicity
@@ -521,13 +501,15 @@ topo_status_t topo_obj_create_immersion_info(const unsigned ndim, const unsigned
             const uint64_t remainder = counts[j] % multiplicity;
             const uint64_t quotient = counts[j] / multiplicity;
             if (remainder != 0)
+            {
                 return TOPO_INVALID_ELEMENT;
+            }
 
             counts[j] = quotient;
         }
 
         // Adjust multiplicity for the next iteration
-        multiplicity *= ndim - idim;
+        multiplicity *= idim + 2;
     }
 
     // We now have to convert count arrays into cumulative sums (makes offset array)
@@ -603,4 +585,192 @@ topo_status_t topo_obj_create_immersion_info(const unsigned ndim, const unsigned
 
     // Finally done!
     return TOPO_SUCCESS;
+}
+
+static uint64_t topo_prepare_boundary_iteration(const unsigned ndim, const unsigned mdim,
+                                                const topo_bnd_iter_t bnd_iter)
+{
+    // Compute the strides
+    for (uint64_t i = 0, stride = 1; i < ndim; ++i)
+    {
+        bnd_iter.strides[i] = stride;
+        stride *= bnd_iter.sizes[i];
+    }
+
+    // Compute initial offset based on the first (ndim - mdim) axes
+    uint64_t offset = 0;
+    const unsigned fixed_axis = ndim - mdim;
+    for (unsigned i = 0; i < fixed_axis; ++i)
+    {
+        const int8_t axis_orientation = bnd_iter.orientation[i];
+        // Negative orientation denotes the lower/start boundary.
+        if (axis_orientation < 0)
+            continue;
+        // For axes at the end we need to add the maximum stride value.
+        const uint64_t axis_index = indexing_to_zero_based(axis_orientation);
+        offset += bnd_iter.strides[axis_index] * (bnd_iter.sizes[axis_index] - 1);
+    }
+
+    // Negative orientation reverses the traversal of a varying axis.
+    for (unsigned i = 0; i < mdim; ++i)
+    {
+        bnd_iter.offsets[i] = 0;
+        const int8_t axis_orientation = bnd_iter.orientation[fixed_axis + i];
+        if (axis_orientation < 0)
+        {
+            const uint64_t axis_index = indexing_to_zero_based(axis_orientation);
+            offset += bnd_iter.strides[axis_index] * (bnd_iter.sizes[axis_index] - 1);
+        }
+    }
+
+    return offset;
+}
+
+static uint64_t topo_boundary_offset(const unsigned ndim, const unsigned mdim, const topo_bnd_iter_t bnd_iter)
+{
+    uint64_t offset = 0;
+    const unsigned fixed_axis = ndim - mdim;
+    for (unsigned i = 0; i < fixed_axis; ++i)
+    {
+        const int8_t axis_orientation = bnd_iter.orientation[i];
+        const uint64_t axis_index = indexing_to_zero_based(axis_orientation);
+        const uint64_t index = axis_orientation < 0 ? 0 : bnd_iter.sizes[axis_index] - 1;
+        offset += bnd_iter.strides[axis_index] * index;
+    }
+
+    for (unsigned i = 0; i < mdim; ++i)
+    {
+        const int8_t axis_orientation = bnd_iter.orientation[fixed_axis + i];
+        const uint64_t axis_index = indexing_to_zero_based(axis_orientation);
+        const uint64_t index =
+            axis_orientation < 0 ? bnd_iter.sizes[axis_index] - 1 - bnd_iter.offsets[i] : bnd_iter.offsets[i];
+        offset += bnd_iter.strides[axis_index] * index;
+    }
+    return offset;
+}
+
+static bool topo_boundary_position_is_interior(const unsigned ndim, const unsigned mdim, const topo_bnd_iter_t bnd_iter)
+{
+    const unsigned fixed_axis = ndim - mdim;
+    for (unsigned i = 0; i < mdim; ++i)
+    {
+        const uint64_t axis_index = indexing_to_zero_based(bnd_iter.orientation[fixed_axis + i]);
+        if (bnd_iter.offsets[i] == 0 || bnd_iter.offsets[i] + 1 >= bnd_iter.sizes[axis_index])
+            return false;
+    }
+    return true;
+}
+
+static bool update_offsets(const unsigned ndim, const unsigned mdim, const topo_bnd_iter_t bnd_iter, uint64_t *offset)
+{
+    const unsigned fixed_axis = ndim - mdim;
+    for (unsigned i = mdim; i > 0; --i)
+    {
+        const uint64_t axis_index = indexing_to_zero_based(bnd_iter.orientation[fixed_axis + i - 1]);
+        if (bnd_iter.offsets[i - 1] + 1 < bnd_iter.sizes[axis_index])
+        {
+            bnd_iter.offsets[i - 1] += 1;
+            *offset = topo_boundary_offset(ndim, mdim, bnd_iter);
+            return true;
+        }
+        bnd_iter.offsets[i - 1] = 0;
+    }
+
+    return false;
+}
+
+static bool update_offsets_for_iteration(const unsigned ndim, const unsigned mdim, const topo_bnd_iter_t bnd_iter,
+                                         uint64_t *offset, const bool skip_edges)
+{
+    do
+    {
+        if (!update_offsets(ndim, mdim, bnd_iter, offset))
+            return false;
+    } while (skip_edges && !topo_boundary_position_is_interior(ndim, mdim, bnd_iter));
+    return true;
+}
+
+void topo_reorder_with_orientation(const unsigned ndim, const unsigned mdim, const topo_bnd_iter_t bnd_iter,
+                                   const double in[const restrict], double out[const restrict])
+{
+    // Compute the offset and initialize the work arrays
+    uint64_t offset = topo_prepare_boundary_iteration(ndim, mdim, bnd_iter);
+
+    // The loop where the magic happens
+    for (uint64_t i = 0;; ++i)
+    {
+        out[offset] = in[i];
+        if (!update_offsets(ndim, mdim, bnd_iter, &offset))
+            break;
+    }
+}
+
+void topo_iterate_boundary(const unsigned ndim, const unsigned mdim, const topo_bnd_iter_t bnd_iter_1,
+                           const topo_bnd_iter_t bnd_iter_2, const bool skip_edges,
+                           void (*callback)(uint64_t idx_bnd, uint64_t idx_1, uint64_t idx_2, void *user_data),
+                           void *user_data)
+{
+    // Compute offsets and initialize the work arrays for both elements
+    uint64_t offset_1 = topo_prepare_boundary_iteration(ndim, mdim, bnd_iter_1);
+    uint64_t offset_2 = topo_prepare_boundary_iteration(ndim, mdim, bnd_iter_2);
+    bool valid_1 = !skip_edges || mdim == 0 || topo_boundary_position_is_interior(ndim, mdim, bnd_iter_1);
+    bool valid_2 = !skip_edges || mdim == 0 || topo_boundary_position_is_interior(ndim, mdim, bnd_iter_2);
+    if (!valid_1)
+        valid_1 = update_offsets_for_iteration(ndim, mdim, bnd_iter_1, &offset_1, skip_edges);
+    if (!valid_2)
+        valid_2 = update_offsets_for_iteration(ndim, mdim, bnd_iter_2, &offset_2, skip_edges);
+
+    for (uint64_t i = 0; valid_1 && valid_2; ++i)
+    {
+        callback(i, offset_1, offset_2, user_data);
+        valid_1 = update_offsets_for_iteration(ndim, mdim, bnd_iter_1, &offset_1, skip_edges);
+        valid_2 = update_offsets_for_iteration(ndim, mdim, bnd_iter_2, &offset_2, skip_edges);
+    }
+}
+
+/**
+ * Create connection information for elements.
+ */
+void topo_connect_boundaries(const uint64_t n_elements, const unsigned ndim,
+                             const unsigned element_orders[const static ndim * n_elements],
+                             const topo_obj_immersion_t immersions[static const ndim])
+{
+    // TODO: make these local VLAs into input parameters
+    unsigned boundary_local_orders[ndim];
+
+    // Loop over all immersions
+    for (unsigned mdim = ndim; mdim > 0; --mdim)
+    {
+        const topo_obj_immersion_t *const im = immersions + mdim - 1;
+        // Loop over all objects in an immersion
+        for (uint64_t i = 0; i < im->object_count; ++i)
+        {
+            uint64_t obj_elem_cnt;
+            const uint64_t *obj_elem_ids;
+            const int8_t *obj_elem_orientations;
+            topo_obj_immersion_of_object(im, i, &obj_elem_cnt, &obj_elem_ids, &obj_elem_orientations);
+
+            // For each element, connect pairs of elements together
+            for (uint64_t j = 1; j < obj_elem_cnt; ++j)
+            {
+                // ID, orientation, and orders for the first one
+                const uint64_t elem1 = obj_elem_ids[j - 1];
+                const int8_t *const orie1 = obj_elem_orientations + ndim * (j - 1);
+                const unsigned *const orders1 = element_orders + ndim * elem1;
+                // ID, orientation, and orders for the second one
+                const uint64_t elem2 = obj_elem_ids[j + 0];
+                const int8_t *const orie2 = obj_elem_orientations + ndim * (j + 0);
+                const unsigned *const orders2 = element_orders + ndim * elem2;
+
+                for (unsigned idim = 0; idim < ndim; ++idim)
+                {
+                    const uint64_t idx_1 = indexing_to_zero_based(orie1[idim]);
+                    const uint64_t idx_2 = indexing_to_zero_based(orie2[idim]);
+                    boundary_local_orders[idim] = orders1[idx_1] < orders2[idx_2] ? orders1[idx_1] : orders2[idx_2];
+                }
+
+                (void)boundary_local_orders;
+            }
+        }
+    }
 }

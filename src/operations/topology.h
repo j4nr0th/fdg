@@ -1,5 +1,6 @@
 #pragma once
 #include <cutl/allocators.h>
+#include <stdbool.h>
 #include <stdint.h>
 
 /**
@@ -7,11 +8,12 @@
  */
 typedef enum
 {
-    TOPO_SUCCESS = 0,               // Success.
-    TOPO_FAILED_ALLOC,              // Failed memory allocation.
-    TOPO_NO_COMMON_BOUNDARY,        // Two non-opposite boundaries in an object have no common boundary.
-    TOPO_INVALID_PARENT_BOUNDARIES, // Parent object had invalid orientation with repeating indices.
-    TOPO_INVALID_ELEMENT,           // Objects in an element did not appear as often as expected.
+    TOPO_SUCCESS = 0,                // Success.
+    TOPO_FAILED_ALLOC,               // Failed memory allocation.
+    TOPO_NO_COMMON_BOUNDARY,         // Two non-opposite boundaries in an object have no common boundary.
+    TOPO_INVALID_PARENT_BOUNDARIES,  // Parent object had invalid orientation with repeating indices.
+    TOPO_INVALID_ELEMENT,            // Objects in an element did not appear as often as expected.
+    TOPO_MULTIPLE_COMMON_BOUNDARIES, // Two elements share more than one boundary object.
 } topo_status_t;
 
 /**
@@ -142,7 +144,7 @@ void topo_obj_immersions_free(unsigned ndim, topo_obj_immersion_t immersions[con
  * remaining idim specifying how its axes map to those of the parent.
  * @param boundaries[in] Array of 1-based indices of other boundaries in the same topological object.
  * @param orient_arr[out] Array that receives the specification of the boundary in the element as the first
- * (ndim-idim+1) entries and the mapping of its local axes to those of the element as the next (idim-1) indices.
+ * (ndim-idim) entries and the mapping of its local axes to those of the element as the final idim entries.
  * @return TOPO_SUCCESS if successful, TOPO_NO_COMMON_BOUNDARY if there are boundaries that do not share a boundary
  * among each other.
  */
@@ -160,8 +162,8 @@ topo_status_t topo_obj_boundary_immersion_create(unsigned ndim, unsigned idim, c
  * - orientation.
  *
  *  Orientation data consists of ``n`` 1-based, signed indices. If the object has ``m`` dimensions, then
- *  the first ``n-m`` entries specify the position of the object within the element. A positive number
- *  means it is at the start of the boundary, while a negative number means it is at the end of it.
+ *  the first ``n-m`` entries specify the position of the object within the element. A negative number
+ *  means it is at the start of the boundary, while a positive number means it is at the end of it.
  *  The remaining ``m`` entries describe the mapping between its own local coordinates and those of the
  *  element.
  *
@@ -179,19 +181,86 @@ void topo_obj_immersion_of_object(const topo_obj_immersion_t *immersion, uint64_
                                   const uint64_t **p_ids, const int8_t **p_orientations);
 
 /**
+ * Get the orientation of one boundary object within an element.
+ *
+ * @param immersion Immersion information for codimension-one objects.
+ * @param parent_dims Number of dimensions in the parent elements.
+ * @param object_id Boundary object ID.
+ * @param element_id Parent element ID.
+ * @param orientation Receives the parent-dimension orientation record.
+ * @return TOPO_SUCCESS if the object is in the element, otherwise TOPO_NO_COMMON_BOUNDARY.
+ */
+topo_status_t topo_obj_boundary_orientation(const topo_obj_immersion_t *immersion, unsigned parent_dims,
+                                            uint64_t object_id, uint64_t element_id,
+                                            int8_t orientation[const static parent_dims]);
+
+/**
+ * Find the unique immersed boundary object shared by two elements.
+ *
+ * The output orientations contain one parent-dimension orientation record for each element, in element ID order.
+ *
+ * @param immersion Immersion information for codimension-one objects.
+ * @param parent_dims Number of dimensions in the parent elements.
+ * @param element_id_1 ID of the first element.
+ * @param element_id_2 ID of the second element.
+ * @param p_object_id Receives the shared boundary object ID.
+ * @param orientations Receives the two orientation records, with the first record at offset zero.
+ * @return TOPO_SUCCESS, TOPO_NO_COMMON_BOUNDARY, or TOPO_MULTIPLE_COMMON_BOUNDARIES.
+ */
+topo_status_t topo_obj_find_common_boundary(const topo_obj_immersion_t *immersion, unsigned parent_dims,
+                                            uint64_t element_id_1, uint64_t element_id_2, uint64_t *p_object_id,
+                                            int8_t orientations[const static 2 * parent_dims]);
+
+/**
+ * Type with info and work memory needed to iterate over a boundary.
+ * The boundary is in an element with ndim dimensions and has mdim free axes.
+ */
+typedef struct
+{
+    const int8_t *restrict orientation; // Orientation of the boundary (size: ndim).
+    const uint64_t *restrict sizes;     // Sizes of each axis in the element's frame of reference (size: ndim)
+    uint64_t *restrict offsets;         // Work array in which offsets for each axis will be held (size: mdim)
+    uint64_t *restrict strides;         // Work array in which strides for each axis will be held (size: ndim)
+} topo_bnd_iter_t;
+
+/**
  * Reorder the input array associated with an object based on the specified orientation of the axes. Work arrays must be
  * provided.
  *
  * @param ndim Total number of dimensions of the topological space.
  * @param mdim Number of non-fixed axes of the section the array represents.
- * @param orientation Orientation of the axes with the respect to the space.
- * @param sizes_global Sizes of the space in each of the global dimensions.
+ * @param bnd_iter Arrays with input data and working memory.
  * @param in Input array that is to be reordered.
  * @param out Destination array, which receives the reordering.
- * @param strides Array used internally for computing strides.
- * @param offsets Array used internally for computing offsets.
  */
-void topo_reorder_with_orientation(unsigned ndim, unsigned mdim, const int8_t orientation[restrict static ndim],
-                                   const uint64_t sizes_global[restrict static ndim], const double in[restrict],
-                                   double out[restrict], uint64_t offsets[restrict mdim],
-                                   uint64_t strides[restrict ndim]);
+void topo_reorder_with_orientation(unsigned ndim, unsigned mdim, topo_bnd_iter_t bnd_iter, const double in[restrict],
+                                   double out[restrict]);
+
+/**
+ * Call a specific function with degree of freedom indices for a boundary with two different orientations.
+ *
+ * @param ndim Total number of dimensions of the topological space.
+ * @param mdim Number of non-fixed axes of the section the array represents.
+ * @param bnd_iter_1 Arrays with input data and working memory for element 1.
+ * @param bnd_iter_2 Arrays with input data and working memory for element 2.
+ * @param skip_edges When non-zero, edges (any axis being at min or max value) are skipped.
+ * @param callback Callback function that is called on for iterations. It accepts the index of DoFs for the boundary
+ *                 itself, then for the first and second element, as well as user-provided pointer.
+ * @param user_data Pointer passed to the callback function for each iteration.
+ */
+void topo_iterate_boundary(unsigned ndim, unsigned mdim, topo_bnd_iter_t bnd_iter_1, topo_bnd_iter_t bnd_iter_2,
+                           bool skip_edges,
+                           void (*callback)(uint64_t idx_bnd, uint64_t idx_1, uint64_t idx_2, void *user_data),
+                           void *user_data);
+
+/**
+ * Connect elements together based on their boundaries.
+ *
+ * @param n_elements Number of elements with ndim each.
+ * @param ndim Number of dimensions for the space elements are in.
+ * @param element_orders Orders for each element for each of the dimensions.
+ * @param immersions Array with boundary immersions for each order of boundaries.
+ */
+void topo_connect_boundaries(uint64_t n_elements, unsigned ndim,
+                             const unsigned element_orders[static ndim * n_elements],
+                             const topo_obj_immersion_t immersions[static const ndim]);

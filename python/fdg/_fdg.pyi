@@ -857,6 +857,37 @@ class SpaceMap:
         """
         ...
 
+    def boundary(
+        self,
+        idim: int,
+        end: bool = False,
+        integration_space: IntegrationSpace | None = None,
+        /,
+    ) -> SpaceMap:
+        """Extract a space map restricted to a reference-space boundary.
+
+        Parameters
+        ----------
+        idim : int
+            Index of the reference dimension that is fixed.
+
+        end : bool, default: False
+            Select the upper boundary at ``+1`` when true; otherwise select the lower
+            boundary at ``-1``.
+
+        integration_space : IntegrationSpace, optional
+            Face integration space used to sample the extracted map. When omitted,
+            the volume integration space with the fixed axis removed is used.
+
+        Returns
+        -------
+        SpaceMap
+            Mapping from the remaining reference dimensions to the same physical
+            coordinates. This map provides the tangential pullback and positive
+            surface measure for forms on this element face.
+        """
+        ...
+
 def _scale_array_boundary(arr: npt.ArrayLike, /) -> npt.NDArray[np.double]:
     """Scale the array based on how many N-dimensional boundaries an entry appears.
 
@@ -971,6 +1002,55 @@ def compute_kform_interior_product_matrix(
     array
         Mass matrix for inner product of two k-forms, where the right one has the interior
         product with the vector field applied to it.
+    """
+    ...
+
+def compute_kform_boundary_constraints(
+    test_specs: KFormSpecs,
+    element_spec: KFormSpecs,
+    element_map: SpaceMap,
+    collections: tuple[npt.ArrayLike, ...],
+    npts: int,
+    element_id: int,
+    boundary_id: int,
+) -> tuple[
+    npt.NDArray[np.uintp],
+    npt.NDArray[np.uint32],
+    npt.NDArray[np.uintp],
+    npt.NDArray[np.double],
+]:
+    """Assemble physical k-form boundary constraints.
+
+    Parameters
+    ----------
+    test_specs : KFormSpecs
+        Test k-form specification on the canonical boundary space.
+
+    element_spec : KFormSpecs
+        Volume k-form specification for the selected element.
+
+    element_map : SpaceMap
+        Volume map for the selected element. Its restricted face map provides the
+        k-form pullbacks and physical measure.
+
+    collections : tuple of array_like
+        Boundary-ID arrays for mesh objects of dimensions 1 through N. The last
+        collection contains the N-dimensional elements.
+
+    npts : int
+        Number of mesh points represented implicitly by point IDs.
+
+    element_id : int
+        Element containing the selected boundary.
+
+    boundary_id : int
+        Mesh boundary-object ID on the selected element.
+
+    Returns
+    -------
+    tuple of arrays
+        Row offsets, element component indices, local DoF indices, and coefficients
+        for the packed constraint rows.
     """
     ...
 

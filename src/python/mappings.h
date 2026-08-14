@@ -9,6 +9,9 @@ typedef struct
     PyObject_VAR_HEAD;
     unsigned ndim;
     integration_spec_t *int_specs;
+    PyObject *dofs;
+    PyObject *integration_registry;
+    PyObject *basis_registry;
     double values[];
 } coordinate_map_object;
 

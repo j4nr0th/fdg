@@ -17,6 +17,9 @@ from fdg._fdg import KFormSpecs as KFormSpecs
 from fdg._fdg import SpaceMap as SpaceMap
 from fdg._fdg import compute_gradient_mass_matrix as compute_gradient_mass_matrix
 from fdg._fdg import (
+    compute_kform_boundary_constraints as compute_kform_boundary_constraints,
+)
+from fdg._fdg import (
     compute_kform_incidence_matrix as compute_kform_incidence_matrix,
 )
 from fdg._fdg import (
