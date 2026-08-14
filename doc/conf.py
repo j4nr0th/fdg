@@ -1,9 +1,12 @@
-""" Configuration file for the Sphinx documentation builder.
+"""Configuration file for the Sphinx documentation builder.
 
 For the full list of built-in configuration values, see the documentation:
 https://www.sphinx-doc.org/en/master/usage/configuration.html"""
 
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent / "exts"))
 
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
@@ -27,6 +30,7 @@ extensions = [
     "pydata_sphinx_theme",
     "hawkmoth",
     "hawkmoth.ext.javadoc",
+    "hawkmoth_compat",
 ]
 
 templates_path = ["_templates"]
@@ -80,7 +84,7 @@ sphinx_gallery_conf = {
     "examples_dirs": "../examples",
     "gallery_dirs": "auto_examples",
     "reference_url": {
-         # The module you locally document uses None
+        # The module you locally document uses None
         "fdg": None,
     },
     "image_scrapers": ("matplotlib"),
@@ -88,6 +92,15 @@ sphinx_gallery_conf = {
 
 # -- Options for C hawkmoth --------------------------------------------------
 # https://hawkmoth.readthedocs.io/en/stable/extension.html#configuration
-hawkmoth_root = (Path(__file__).parent / "src").absolute()
+hawkmoth_root = (Path(__file__).parent.parent / "src").absolute()
 hawkmoth_transform_default = "javadoc"
-hawkmoth_clang = ["--std=c17"]
+# The repository root and the cutl submodule header directory are on the
+# include path so that headers referencing the cutl submodule
+# (`#include <cutl/...>`) parse correctly.
+hawkmoth_clang = [
+    "--std=c17",
+    "-I",
+    (Path(__file__).parent.parent).absolute(),
+    "-I",
+    (Path(__file__).parent.parent / "cutl" / "include").absolute(),
+]

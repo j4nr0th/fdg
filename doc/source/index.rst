@@ -19,3 +19,4 @@ light on the implementation details and does not include the C code.
    incidence
    interior_product
    boundary_constraints
+   c_api

@@ -124,6 +124,10 @@ topo_status_t topo_obj_create_immersion_info(unsigned ndim, unsigned npts,
 /**
  * Release all memory for immersions and clear them.
  *
+ * The immersions must have been created by topo_obj_create_immersion_info
+ * using the same allocator. After the call, the immersion structures are
+ * zeroed out and all pointers into them are invalid.
+ *
  * @param ndim Number of dimensions (and immersions).
  * @param immersions Immersions to release.
  * @param allocator Allocator with which the memory for immersions was allocated.
@@ -227,11 +231,19 @@ typedef struct
  * Reorder the input array associated with an object based on the specified orientation of the axes. Work arrays must be
  * provided.
  *
+ * The input array is laid out with the axes in the order of the non-fixed
+ * axes of the boundary; the output array is laid out in the element's frame
+ * of reference, with the reordered and possibly reversed axes.
+ *
  * @param ndim Total number of dimensions of the topological space.
  * @param mdim Number of non-fixed axes of the section the array represents.
- * @param bnd_iter Arrays with input data and working memory.
+ * @param bnd_iter Arrays with input data and working memory. Must contain an
+ *        `orientation` array of `ndim` entries, `sizes` of `ndim` entries,
+ *        and work arrays `offsets` of `mdim` and `strides` of `ndim`
+ *        entries. The work arrays are overwritten.
  * @param in Input array that is to be reordered.
- * @param out Destination array, which receives the reordering.
+ * @param out Destination array, which receives the reordering. Must not
+ *        alias `in`.
  */
 void topo_reorder_with_orientation(unsigned ndim, unsigned mdim, topo_bnd_iter_t bnd_iter, const double in[restrict],
                                    double out[restrict]);
@@ -239,10 +251,18 @@ void topo_reorder_with_orientation(unsigned ndim, unsigned mdim, topo_bnd_iter_t
 /**
  * Call a specific function with degree of freedom indices for a boundary with two different orientations.
  *
+ * The callback is invoked once per position of the boundary, with the index
+ * of the boundary DoF itself as well as the corresponding DoF indices in
+ * both elements, followed by the user-provided pointer. The iteration stops
+ * as soon as either side runs out of positions, so both elements must have
+ * boundary sections of equal size.
+ *
  * @param ndim Total number of dimensions of the topological space.
  * @param mdim Number of non-fixed axes of the section the array represents.
  * @param bnd_iter_1 Arrays with input data and working memory for element 1.
+ *        Must satisfy the same preconditions as in topo_reorder_with_orientation.
  * @param bnd_iter_2 Arrays with input data and working memory for element 2.
+ *        Must satisfy the same preconditions as in topo_reorder_with_orientation.
  * @param skip_edges When non-zero, edges (any axis being at min or max value) are skipped.
  * @param callback Callback function that is called on for iterations. It accepts the index of DoFs for the boundary
  *                 itself, then for the first and second element, as well as user-provided pointer.
@@ -256,9 +276,18 @@ void topo_iterate_boundary(unsigned ndim, unsigned mdim, topo_bnd_iter_t bnd_ite
 /**
  * Connect elements together based on their boundaries.
  *
+ * Iterates over all immersed boundary objects of every dimension and, for
+ * each pair of elements that share a boundary object, computes the local
+ * orders of the shared boundary as the per-axis minimum of the two element
+ * orders. The connectivity itself is implicit in the immersion
+ * information; this function currently only performs the shared-boundary
+ * order bookkeeping.
+ *
  * @param n_elements Number of elements with ndim each.
  * @param ndim Number of dimensions for the space elements are in.
  * @param element_orders Orders for each element for each of the dimensions.
+ *        Must have `ndim * n_elements` entries, ordered by element ID, with
+ *        the ID of each element within the range of the immersion data.
  * @param immersions Array with boundary immersions for each order of boundaries.
  */
 void topo_connect_boundaries(uint64_t n_elements, unsigned ndim,

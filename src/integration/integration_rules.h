@@ -4,22 +4,49 @@
 #include "../common/error.h"
 #include <cutl/allocators.h>
 
+/**
+ * @brief Types of 1D quadrature rules supported by the library.
+ *
+ * Gauss-Legendre rules integrate polynomials of degree up to
+ * `2 * order - 1` exactly, while Gauss-Lobatto rules additionally include
+ * the endpoints of the integration interval and integrate polynomials of
+ * degree up to `2 * order - 3` exactly.
+ */
 typedef enum
 {
-    INTEGRATION_RULE_TYPE_NONE = 0,
-    INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE,
-    INTEGRATION_RULE_TYPE_GAUSS_LOBATTO,
+    INTEGRATION_RULE_TYPE_NONE = 0,       // No integration rule type.
+    INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE, // Gauss-Legendre quadrature.
+    INTEGRATION_RULE_TYPE_GAUSS_LOBATTO,  // Gauss-Lobatto quadrature.
 } integration_rule_type_t;
 
+/**
+ * @brief Get the name of an integration rule type.
+ *
+ * @param type Type to get the name for.
+ * @return Statically allocated string with the name of the type, such as
+ *         "gauss" or "gauss-lobatto", or "unknown" for invalid values.
+ */
 FDG_INTERNAL
 const char *integration_rule_type_to_str(integration_rule_type_t type);
 
+/**
+ * @brief Specification of a 1D integration rule: its type and order.
+ *
+ * A rule of order `order` has `order + 1` nodes.
+ */
 typedef struct
 {
     integration_rule_type_t type; // Type of the integration rule
     unsigned order;               // Order of the integration rule
 } integration_spec_t;
 
+/**
+ * @brief Precomputed 1D quadrature rule: nodes and weights.
+ *
+ * The nodes and weights are stored in the flexible array `_data`, nodes
+ * first followed by weights, each with `n_nodes` entries. Use the inline
+ * accessor functions in this header instead of accessing `_data` directly.
+ */
 typedef struct
 {
     integration_spec_t spec;
@@ -28,30 +55,88 @@ typedef struct
     double _data[];    // Array with nodes, followed by weights
 } integration_rule_t;
 
+/**
+ * @brief Get a pointer to the nodes of the rule.
+ *
+ * @param this Rule to get the nodes of.
+ * @return Pointer to the `n_nodes` nodes of the rule.
+ */
 static inline double *integration_rule_nodes(integration_rule_t *this)
 {
     return this->_data + 0;
 }
 
+/**
+ * @brief Get a const pointer to the nodes of the rule.
+ *
+ * @param this Rule to get the nodes of.
+ * @return Pointer to the `n_nodes` nodes of the rule.
+ */
 static inline const double *integration_rule_nodes_const(const integration_rule_t *this)
 {
     return this->_data + 0;
 }
 
+/**
+ * @brief Get a pointer to the weights of the rule.
+ *
+ * @param this Rule to get the weights of.
+ * @return Pointer to the `n_nodes` weights of the rule.
+ */
 static inline double *integration_rule_weights(integration_rule_t *this)
 {
     return this->_data + this->n_nodes;
 }
 
+/**
+ * @brief Get a const pointer to the weights of the rule.
+ *
+ * @param this Rule to get the weights of.
+ * @return Pointer to the `n_nodes` weights of the rule.
+ */
 static inline const double *integration_rule_weights_const(const integration_rule_t *this)
 {
     return this->_data + this->n_nodes;
 }
 
+/**
+ * @brief Create an integration rule that integrates polynomials of the given degree exactly.
+ *
+ * The rule is created with the smallest order whose accuracy is at least the
+ * requested one, according to integration_rule_spec_get_accuracy.
+ *
+ * @param out Receives the pointer to the newly created rule on success.
+ * @param type Type of the rule.
+ * @param accuracy Degree of the polynomial the rule must integrate exactly.
+ * @param allocator Allocator used to allocate the rule.
+ * @return FDG_SUCCESS on success, FDG_ERROR_INVALID_ENUM if the type is not
+ *         supported, FDG_ERROR_FAILED_ALLOCATION if memory allocation fails.
+ *         On failure, `*out` is left unmodified.
+ *
+ * The caller owns the created rule and is responsible for deallocating it
+ * with the same allocator once it is no longer needed.
+ */
 FDG_INTERNAL
 fdg_result_t integration_rule_for_accuracy(integration_rule_t **out, integration_rule_type_t type, unsigned accuracy,
                                            const cutl_allocator_t *allocator);
 
+/**
+ * @brief Create an integration rule of the given order.
+ *
+ * The rule has `order + 1` nodes and weights, computed with a tolerance of
+ * 1e-14 and at most 1000 Newton iterations per node.
+ *
+ * @param out Receives the pointer to the newly created rule on success.
+ * @param type Type of the rule.
+ * @param order Order of the rule; the rule has `order + 1` nodes.
+ * @param allocator Allocator used to allocate the rule.
+ * @return FDG_SUCCESS on success, FDG_ERROR_INVALID_ENUM if the type is not
+ *         supported, FDG_ERROR_FAILED_ALLOCATION if memory allocation fails.
+ *         On failure, `*out` is left unmodified.
+ *
+ * The caller owns the created rule and is responsible for deallocating it
+ * with the same allocator once it is no longer needed.
+ */
 FDG_INTERNAL
 fdg_result_t integration_rule_for_order(integration_rule_t **out, integration_rule_type_t type, unsigned order,
                                         const cutl_allocator_t *allocator);
@@ -118,7 +203,7 @@ void integration_rule_registry_destroy(integration_rule_registry_t *this);
  * @return `FDG_SUCCESS` if the rule is successfully retrieved or created.
  *         `FDG_ERROR_FAILED_ALLOCATION` if memory allocation fails during the
  *         operation.
- *         Other `interp_result_t` error codes indicating issues with initialization
+ *         Other `fdg_result_t` error codes indicating issues with initialization
  *         or rule creation may also be returned.
  *
  * The caller is responsible for ensuring that the registry is initialized before calling
@@ -144,7 +229,7 @@ fdg_result_t integration_rule_registry_get_rule(integration_rule_registry_t *thi
  * @return `FDG_SUCCESS` if the rule is successfully retrieved or created.
  *         `FDG_ERROR_FAILED_ALLOCATION` if memory allocation fails during the
  *         operation.
- *         Other `interp_result_t` error codes indicating issues with initialization
+ *         Other `fdg_result_t` error codes indicating issues with initialization
  *         or rule creation may also be returned.
  *
  * The caller is responsible for ensuring that the registry is initialized before calling
@@ -215,13 +300,40 @@ void integration_rule_registry_release_unused_rules(integration_rule_registry_t 
 FDG_INTERNAL
 void integration_rule_registry_release_all_rules(integration_rule_registry_t *this);
 
+/**
+ * @brief Get the specifications of all rules in the registry.
+ *
+ * @param this Registry to query.
+ * @param max_count Maximum number of specifications to write.
+ * @param specs Array of `max_count` entries which receives the
+ *        specifications of the rules.
+ * @return The total number of rules in the registry, which may exceed
+ *         `max_count`; in that case only the first `max_count` entries are
+ *         written.
+ */
 FDG_INTERNAL
 unsigned integration_rule_get_rules(integration_rule_registry_t *this, unsigned max_count,
                                     integration_spec_t FDG_ARRAY_ARG(specs, max_count));
 
+/**
+ * @brief Get the polynomial degree that a rule with the given specification integrates exactly.
+ *
+ * @param spec Specification of the rule.
+ * @return The accuracy: `2 * order - 1` for Gauss-Legendre rules of positive
+ *         order, `2 * order - 3` for Gauss-Lobatto rules of order above 2,
+ *         `1` for low-order rules of either type, and 0 for invalid types.
+ */
 FDG_INTERNAL
 unsigned integration_rule_spec_get_accuracy(integration_spec_t spec);
 
+/**
+ * @brief Compute the total number of quadrature points of a tensor-product rule.
+ *
+ * @param ndim Number of dimensions of the tensor product.
+ * @param specs Array of `ndim` integration specifications.
+ * @return The product of the node counts, i.e.
+ *         `prod_i (specs[i].order + 1)`.
+ */
 FDG_INTERNAL
 size_t integration_specs_total_points(unsigned ndim, const integration_spec_t specs[static ndim]);
 
