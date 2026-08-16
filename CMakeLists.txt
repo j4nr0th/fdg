@@ -62,12 +62,18 @@ set(INTEGRATION_HEADER_FILES
 
 set(OPERATIONS_SOURCE_FILES
         src/operations/matrices.c
-        src/operations/topology.c
-        src/operations/topology.h
+        src/operations/matrices.h
 )
 
 set(OPERATIONS_HEADER_FILES
         src/operations/matrices.h
+)
+
+set(TOPOLOGY_SOURCE_FILES
+        src/topology/topology.c
+        src/topology/topology.h
+        src/topology/mesh.c
+        src/topology/mesh.h
 )
 
 set(POLYNOMIALS_SOURCE_FILES
@@ -95,6 +101,7 @@ add_library(fdg STATIC
         ${OPERATIONS_SOURCE_FILES}
         ${POLYNOMIALS_SOURCE_FILES}
         ${RECONSTRUCTION_SOURCE_FILES}
+        ${TOPOLOGY_SOURCE_FILES}
 )
 
 add_subdirectory(cutl)

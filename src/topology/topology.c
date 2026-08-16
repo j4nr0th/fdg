@@ -15,6 +15,8 @@ const char *topo_status_to_str(const topo_status_t status)
         TOPO_STATUS_CASE(TOPO_INVALID_PARENT_BOUNDARIES);
         TOPO_STATUS_CASE(TOPO_INVALID_ELEMENT);
         TOPO_STATUS_CASE(TOPO_MULTIPLE_COMMON_BOUNDARIES);
+        TOPO_STATUS_CASE(TOPO_SIZE_OVERFLOW);
+        TOPO_STATUS_CASE(TOPO_INVALID_ARGUMENT);
     }
     return "Unknown";
 }
@@ -33,6 +35,8 @@ const char *topo_status_msg(const topo_status_t status)
         TOPO_STATUS_MSG(TOPO_INVALID_PARENT_BOUNDARIES, "Parent object had invalid orientation with repeating indices");
         TOPO_STATUS_MSG(TOPO_INVALID_ELEMENT, "Objects in an element did not appear as often as expected");
         TOPO_STATUS_MSG(TOPO_MULTIPLE_COMMON_BOUNDARIES, "Two elements share multiple boundary objects");
+        TOPO_STATUS_MSG(TOPO_SIZE_OVERFLOW, "A size calculation overflowed");
+        TOPO_STATUS_MSG(TOPO_INVALID_ARGUMENT, "An argument was invalid");
     }
     return "Unknown";
 }

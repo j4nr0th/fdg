@@ -69,36 +69,40 @@ target_link_libraries(test_boundary_scaling PRIVATE test_common)
 add_test(NAME boundary_scaling COMMAND test_boundary_scaling)
 
 ## Topological
-add_library(test_topo_common STATIC operations/topo_common.c)
+add_library(test_topo_common STATIC topology/topo_common.c)
 target_link_libraries(test_topo_common PUBLIC test_common)
 
-add_executable(test_topo operations/test_topo.c)
+add_executable(test_topo topology/test_topo.c)
 target_link_libraries(test_topo PRIVATE test_topo_common)
 add_test(NAME topo_base COMMAND test_topo)
 
-add_executable(test_topo_1d operations/test_topo_1d.c)
+add_executable(test_topo_1d topology/test_topo_1d.c)
 target_link_libraries(test_topo_1d PRIVATE test_topo_common)
 add_test(NAME topo_1d COMMAND test_topo_1d)
 
-add_executable(test_topo_2d operations/test_topo_2d.c)
+add_executable(test_topo_2d topology/test_topo_2d.c)
 target_link_libraries(test_topo_2d PRIVATE test_topo_common)
 add_test(NAME topo_2d COMMAND test_topo_2d)
 
-add_executable(test_topo_3d_boundary operations/test_topo_3d_boundary.c)
+add_executable(test_topo_3d_boundary topology/test_topo_3d_boundary.c)
 target_link_libraries(test_topo_3d_boundary PRIVATE test_topo_common)
 add_test(NAME topo_3d_boundary COMMAND test_topo_3d_boundary)
 
-add_executable(test_topo_iteration operations/test_topo_iteration.c)
+add_executable(test_topo_iteration topology/test_topo_iteration.c)
 target_link_libraries(test_topo_iteration PRIVATE test_topo_common)
 add_test(NAME topo_iteration COMMAND test_topo_iteration)
 
-add_executable(test_topo_lookup operations/test_topo_lookup.c)
+add_executable(test_topo_lookup topology/test_topo_lookup.c)
 target_link_libraries(test_topo_lookup PRIVATE test_topo_common)
 add_test(NAME topo_lookup COMMAND test_topo_lookup)
 
-add_executable(test_topo_general operations/test_topo_general.c)
+add_executable(test_topo_general topology/test_topo_general.c)
 target_link_libraries(test_topo_general PRIVATE test_topo_common)
 add_test(NAME topo_general COMMAND test_topo_general)
+
+add_executable(test_mesh topology/test_mesh.c)
+target_link_libraries(test_mesh PRIVATE test_common)
+add_test(NAME mesh COMMAND test_mesh)
 
 add_executable(test_constraints operations/test_constraints.c)
 target_link_libraries(test_constraints PRIVATE test_common)

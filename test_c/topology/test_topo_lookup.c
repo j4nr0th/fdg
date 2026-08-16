@@ -1,4 +1,4 @@
-#include "../../src/operations/topology.h"
+#include "../../src/topology/topology.h"
 #include "../common/common.h"
 
 static void test_unique_lookup(void)

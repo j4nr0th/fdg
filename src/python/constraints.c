@@ -1,5 +1,5 @@
 #include "../constraints/constraints.h"
-#include "../operations/topology.h"
+#include "../topology/topology.h"
 #include "basis_objects.h"
 #include "cpyutl.h"
 #include "cutl/iterators/combination_iterator.h"

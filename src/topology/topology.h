@@ -14,6 +14,8 @@ typedef enum
     TOPO_INVALID_PARENT_BOUNDARIES,  // Parent object had invalid orientation with repeating indices.
     TOPO_INVALID_ELEMENT,            // Objects in an element did not appear as often as expected.
     TOPO_MULTIPLE_COMMON_BOUNDARIES, // Two elements share more than one boundary object.
+    TOPO_SIZE_OVERFLOW,              // A size calculation overflowed.
+    TOPO_INVALID_ARGUMENT,           // An argument was invalid.
 } topo_status_t;
 
 /**

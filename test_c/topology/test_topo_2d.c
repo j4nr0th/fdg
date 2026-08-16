@@ -1,4 +1,4 @@
-#include "../../src/operations/topology.h"
+#include "../../src/topology/topology.h"
 #include "../common/common.h"
 #include "topo_common.h"
 
