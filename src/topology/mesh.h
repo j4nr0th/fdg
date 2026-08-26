@@ -19,6 +19,7 @@
  * constraints on each of them.
  *
  * The mesh can be built in three ways:
+ *
  * - @ref topo_mesh_create_from_corners builds the collections from the corner
  *   points of every element (the caller names the shared points by giving the
  *   same point ID as a corner of every element it is in);
