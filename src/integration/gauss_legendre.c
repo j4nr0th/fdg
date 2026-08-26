@@ -16,8 +16,12 @@ int gauss_legendre_nodes_weights(const unsigned n, const double tol, const unsig
     }
     if (n == 2)
     {
-        x[0] = -1.0;
-        x[1] = 1.0;
+        // The two-point rule is exact for degree 3; hard-code the nodes to
+        // avoid the Newton iteration and the degenerate n - 1 = 1 case in the
+        // weight formula below.
+        const double root = 1.0 / sqrt(3.0);
+        x[0] = -root;
+        x[1] = +root;
         w[0] = 1.0;
         w[1] = 1.0;
         return 0;
@@ -61,8 +65,9 @@ int gauss_legendre_nodes(const unsigned n, const double tol, const unsigned max_
     }
     if (n == 2)
     {
-        x[0] = -1.0;
-        x[1] = 1.0;
+        const double root = 1.0 / sqrt(3.0);
+        x[0] = -root;
+        x[1] = +root;
         return 0;
     }
 

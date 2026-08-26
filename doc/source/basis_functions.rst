@@ -10,6 +10,87 @@ finite differential forms is basis functions. These determine values of the
 degrees of freedom actually mean. For a demonstration of what types of basis
 are available, see :ref:`sphx_glr_auto_examples_plot_basis_sets.py`.
 
+One-dimensional bases
+---------------------
+
+All bases are sets of :math:`n = o + 1` polynomial functions of degree
+:math:`o` on the reference interval :math:`[-1, +1]`, one per degree of
+freedom (:class:`BasisType`):
+
+**Legendre** (``"legendre"``). The basis functions are the Legendre
+polynomials :math:`\phi_k = P_k`, :math:`k = 0, \dots, o`, defined by
+:math:`P_0 = 1`, :math:`P_1 = x` and Bonnet's recurrence
+
+.. math::
+
+    (k + 1)\, P_{k + 1}(x) = (2k + 1)\, x\, P_k(x) - k\, P_{k - 1}(x).
+
+They are *not* normalized. The degrees of freedom are the coefficients of
+the expansion :math:`f = \sum_k c_k P_k`. The derivatives satisfy the
+recurrence :math:`P'_k = k\, P_{k-1} + x\, P'_{k-1}` and the identity
+
+.. math::
+
+    P'_n = \sum_{m = 0}^{\lfloor (n - 1) / 2 \rfloor}
+    (2(n - 2m) - 1)\, P_{n - 2m - 1},
+
+which is how the derivative degrees of freedom are computed.
+
+**Bernstein** (``"bernstein"``). The Bernstein polynomials of degree
+:math:`o`,
+
+.. math::
+
+    B^n_k(t) = \binom{n}{k}\, t^k (1 - t)^{n - k},
+    \qquad t = \frac{x + 1}{2} \in [0, 1], \qquad k = 0, \dots, n,
+
+with :math:`n = o`. Their derivatives satisfy
+
+.. math::
+
+    \frac{\mathrm{d}}{\mathrm{d}x} B^n_k = \frac{n}{2}
+    \left(B^{n-1}_{k-1} - B^{n-1}_k\right),
+
+so the derivative of :math:`f = \sum_k c_k B^n_k` has the Bernstein
+coefficients :math:`\frac{n}{2}(c_{k+1} - c_k)` of degree :math:`n - 1`.
+
+**Lagrange** (``"lagrange-uniform"``, ``"lagrange-gauss"``,
+``"lagrange-gauss-lobatto"``, ``"lagrange-chebyshev-gauss"``). The
+cardinal (nodal) functions with respect to a set of :math:`n = o + 1`
+nodes :math:`x_k`,
+
+.. math::
+
+    \phi_k(x) = \prod_{\substack{j = 0 \\ j \ne k}}^{o}
+    \frac{x - x_j}{x_k - x_j}, \qquad \phi_k(x_j) = \delta_{kj}.
+
+The degrees of freedom are the nodal values :math:`c_k = f(x_k)`. The node
+sets are, for :math:`k = 0, \dots, o`,
+
+.. list-table::
+   :widths: 35 65
+   :header-rows: 1
+
+   * - Type
+     - Nodes
+   * - ``uniform``
+     - :math:`x_k = \frac{2k}{o} - 1`
+   * - ``gauss``
+     - roots of :math:`P_{o+1}` (Gauss-Legendre nodes)
+   * - ``gauss-lobatto``
+     - Gauss-Lobatto nodes (includes :math:`\pm 1`)
+   * - ``chebyshev-gauss``
+     - :math:`x_k = -\cos\!\left(\frac{\pi (2k + 1)}{2(o + 1)}\right)`
+
+The derivative degrees of freedom are the values of the derivative at the
+nodes of the degree-:math:`o - 1` Lagrange set, obtained from the nodal
+values by differentiating the cardinal functions.
+
+The values (and first derivatives) of a basis set are tabulated at the
+nodes of an integration rule and cached by the :class:`BasisRegistry`;
+evaluating a basis on demand is also possible through
+:meth:`BasisSpecs.values` and :meth:`BasisSpecs.derivatives`.
+
 Basis Specifications
 --------------------
 

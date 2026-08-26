@@ -7,6 +7,7 @@ light on the implementation details and does not include the C code.
 .. toctree::
    :maxdepth: 2
 
+   math_background
    integration
    basis_functions
    covector_basis

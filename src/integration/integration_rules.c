@@ -19,16 +19,17 @@ fdg_result_t integration_rule_for_accuracy(integration_rule_t **out, const integ
     switch (type)
     {
     case INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE:
-        if (accuracy < 2)
-        {
-            required_order = 1;
-            break;
-        }
-        required_order = accuracy / 2 + 1;
+        // A rule of order o (o + 1 nodes) integrates polynomials of degree
+        // up to 2 * o + 1 exactly, so the smallest order for accuracy a is
+        // ceil((a - 1) / 2) = a / 2.
+        required_order = accuracy / 2;
         break;
 
     case INTEGRATION_RULE_TYPE_GAUSS_LOBATTO:
-        required_order = accuracy / 2 + 2;
+        // A rule of order o (o + 1 nodes) integrates polynomials of degree
+        // up to 2 * o - 1 exactly (order 0 integrates degree 1), so the
+        // smallest order for accuracy a is ceil((a + 1) / 2) = (a + 2) / 2.
+        required_order = accuracy <= 1 ? 0 : (accuracy + 2) / 2;
         break;
 
     default:
@@ -55,12 +56,12 @@ fdg_result_t integration_rule_for_order(integration_rule_t **out, const integrat
     switch (type)
     {
     case INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE:
-        this->accuracy = order > 0 ? 2 * order - 1 : 0;
+        this->accuracy = 2 * order + 1;
         gauss_legendre_nodes_weights(order + 1, DEFAULT_TOLERANCE, DEFAULT_MAX_ITERATIONS, integration_rule_nodes(this),
                                      integration_rule_weights(this));
         break;
     case INTEGRATION_RULE_TYPE_GAUSS_LOBATTO:
-        this->accuracy = order > 1 ? 2 * order - 3 : order;
+        this->accuracy = order > 0 ? 2 * order - 1 : 1;
         gauss_lobatto_nodes_weights(order + 1, DEFAULT_TOLERANCE, DEFAULT_MAX_ITERATIONS, integration_rule_nodes(this),
                                     integration_rule_weights(this));
         break;
@@ -389,13 +390,15 @@ unsigned integration_rule_spec_get_accuracy(const integration_spec_t spec)
     switch (spec.type)
     {
     case INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE:
-        if (spec.order > 0)
-            return 2 * spec.order - 1;
-        return 1;
+        // A rule of order o has o + 1 nodes and integrates polynomials of
+        // degree up to 2 * o + 1 exactly.
+        return 2 * spec.order + 1;
     case INTEGRATION_RULE_TYPE_GAUSS_LOBATTO:
-        if (spec.order > 2)
-            return 2 * spec.order - 3;
-        return 1;
+        // A rule of order o has o + 1 nodes; the interior nodes are the roots
+        // of the derivative of the Legendre polynomial of degree o, giving
+        // exactness up to degree 2 * o - 1. The single-node rule (order 0)
+        // coincides with the one-point Gauss rule and integrates degree 1.
+        return spec.order > 0 ? 2 * spec.order - 1 : 1;
     default:
         return 0;
     }

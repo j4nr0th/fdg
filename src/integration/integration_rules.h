@@ -7,10 +7,12 @@
 /**
  * @brief Types of 1D quadrature rules supported by the library.
  *
- * Gauss-Legendre rules integrate polynomials of degree up to
- * `2 * order - 1` exactly, while Gauss-Lobatto rules additionally include
- * the endpoints of the integration interval and integrate polynomials of
- * degree up to `2 * order - 3` exactly.
+ * A rule of order `order` has `order + 1` nodes. Gauss-Legendre rules
+ * integrate polynomials of degree up to `2 * order + 1` exactly, while
+ * Gauss-Lobatto rules additionally include the endpoints of the integration
+ * interval and integrate polynomials of degree up to `2 * order - 1`
+ * exactly (the single-node Gauss-Lobatto rule coincides with the one-point
+ * Gauss rule and integrates degree 1).
  */
 typedef enum
 {
@@ -319,9 +321,10 @@ unsigned integration_rule_get_rules(integration_rule_registry_t *this, unsigned 
  * @brief Get the polynomial degree that a rule with the given specification integrates exactly.
  *
  * @param spec Specification of the rule.
- * @return The accuracy: `2 * order - 1` for Gauss-Legendre rules of positive
- *         order, `2 * order - 3` for Gauss-Lobatto rules of order above 2,
- *         `1` for low-order rules of either type, and 0 for invalid types.
+ * @return The accuracy: `2 * order + 1` for Gauss-Legendre rules, and
+ *         `2 * order - 1` for Gauss-Lobatto rules of positive order (the
+ *         order-zero Gauss-Lobatto rule coincides with the one-point Gauss
+ *         rule and integrates degree 1). Returns 0 for invalid types.
  */
 FDG_INTERNAL
 unsigned integration_rule_spec_get_accuracy(integration_spec_t spec);
