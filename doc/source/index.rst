@@ -14,6 +14,7 @@ light on the implementation details and does not include the C code.
    degrees_of_freedom
    space_map
    domain_types
+   mesh
    kform_types
    kform_transformations
    inner_product
