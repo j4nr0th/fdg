@@ -724,6 +724,208 @@ class KForm:
         """
         ...
 
+# Fields of a mesh iteration tuple: (mdim, object_id, element_ids, orientations).
+# ``orientations`` has shape (element_count, ndim); row ``i`` is the orientation
+# record of ``element_ids[i]``.
+MeshSharedObject = tuple[int, int, npt.NDArray[np.uint64], npt.NDArray[np.int8]]
+
+@final
+class Mesh:
+    """Topological mesh built from connected hypercube elements.
+
+    Parameters are given through the ``from_corners`` and ``from_collections``
+    class methods; the type itself cannot be instantiated directly.
+    """
+
+    @classmethod
+    def from_corners(cls, ndim: int, corners: npt.ArrayLike, /) -> Self:
+        """Create a mesh from the corner point IDs of every hypercube element.
+
+        Parameters
+        ----------
+        ndim : int
+            Number of dimensions of the mesh.
+
+        corners : array_like
+            Corner point IDs of every hypercube element, ``2**ndim`` entries per
+            element; the same point IDs name shared points.
+
+        Returns
+        -------
+        Mesh
+            Mesh built from the given corners.
+        """
+        ...
+
+    @classmethod
+    def from_collections(
+        cls,
+        ndim: int,
+        point_count: int,
+        collections: tuple[npt.ArrayLike, ...],
+        /,
+    ) -> Self:
+        """Create a mesh from the collections of topological objects.
+
+        Parameters
+        ----------
+        ndim : int
+            Number of dimensions of the mesh.
+
+        point_count : int
+            Number of mesh points represented implicitly by point IDs.
+
+        collections : tuple of array_like
+            Boundary-ID arrays for mesh objects of dimensions 1 through N. The
+            last collection contains the N-dimensional elements.
+
+        Returns
+        -------
+        Mesh
+            Mesh built from the given collections.
+        """
+        ...
+
+    @property
+    def ndim(self) -> int:
+        """Number of dimensions of the space the mesh is in."""
+        ...
+
+    @property
+    def point_count(self) -> int:
+        """Number of points of the mesh."""
+        ...
+
+    @property
+    def element_count(self) -> int:
+        """Number of elements of the mesh."""
+        ...
+
+    @property
+    def collections(self) -> tuple[npt.NDArray[np.uint64], ...]:
+        """Boundary-ID arrays of the mesh objects of every dimension (copies)."""
+        ...
+
+    def element_object(self, element_id: int, axis: Sequence[int], /) -> int:
+        """Look up the global ID of the object at a position within one element.
+
+        Parameters
+        ----------
+        element_id : int
+            ID of the element.
+
+        axis : sequence of int
+            Axis specification of length ``ndim``; entry ``i`` is 0 for a free
+            axis, or ``i + 1`` / ``-(i + 1)`` to fix the axis at its end / start
+            side.
+
+        Returns
+        -------
+        int
+            Global object ID: a point ID for objects of dimension 0, otherwise
+            an index into the corresponding collection.
+        """
+        ...
+
+    def iterate_shared(self, mdim: int, /) -> list[MeshSharedObject]:
+        """Iterate over all objects of one dimension shared by at least two elements.
+
+        Parameters
+        ----------
+        mdim : int
+            Dimension of the objects.
+
+        Returns
+        -------
+        list of tuple
+            One ``(mdim, object_id, element_ids, orientations)`` tuple per
+            shared object.
+        """
+        ...
+
+    def iterate_shared_all(self) -> list[MeshSharedObject]:
+        """Iterate over all shared objects, from dimension ``ndim - 1`` down to 0.
+
+        Returns
+        -------
+        list of tuple
+            One ``(mdim, object_id, element_ids, orientations)`` tuple per
+            shared object.
+        """
+        ...
+
+    def iterate_boundary(self, mdim: int, /) -> list[MeshSharedObject]:
+        """Iterate over all objects of one dimension on the outer boundary of the mesh.
+
+        Parameters
+        ----------
+        mdim : int
+            Dimension of the objects.
+
+        Returns
+        -------
+        list of tuple
+            One ``(mdim, object_id, element_ids, orientations)`` tuple per
+            boundary object.
+        """
+        ...
+
+    def iterate_boundary_all(self) -> list[MeshSharedObject]:
+        """Iterate over all boundary objects, from dimension ``ndim - 1`` down to 0.
+
+        Returns
+        -------
+        list of tuple
+            One ``(mdim, object_id, element_ids, orientations)`` tuple per
+            boundary object.
+        """
+        ...
+
+    def compute_kform_boundary_constraints(
+        self,
+        test_specs: KFormSpecs,
+        element_spec: KFormSpecs,
+        element_map: SpaceMap,
+        element_id: int,
+        boundary_id: int,
+        /,
+    ) -> tuple[
+        npt.NDArray[np.uintp],
+        npt.NDArray[np.uint32],
+        npt.NDArray[np.uintp],
+        npt.NDArray[np.double],
+    ]:
+        """Assemble physical k-form boundary constraints for one boundary object.
+
+        Identical to the free function :func:`compute_kform_boundary_constraints`,
+        but the mesh collections and point count are taken from the mesh itself.
+
+        Parameters
+        ----------
+        test_specs : KFormSpecs
+            Test k-form specification on the canonical boundary space.
+
+        element_spec : KFormSpecs
+            Volume k-form specification for the selected element.
+
+        element_map : SpaceMap
+            Volume map for the selected element. Its restricted face map provides
+            the k-form pullbacks and physical measure.
+
+        element_id : int
+            Element containing the selected boundary.
+
+        boundary_id : int
+            Mesh boundary-object ID on the selected element.
+
+        Returns
+        -------
+        tuple of arrays
+            Row offsets, element component indices, local DoF indices, and
+            coefficients for the packed constraint rows.
+        """
+        ...
+
 @final
 class CoordinateMap:
     """Mapping between reference and physical coordinates.

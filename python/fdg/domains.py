@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 from itertools import combinations, product
 from typing import Self
 
@@ -820,3 +821,125 @@ class Quad(HypercubeDomain):
             top=Line(top_right, top_left),
             left=Line(top_left, bottom_left),
         )
+
+
+@lru_cache
+def _vtk_3d_indices(p0: int, p1: int, p2: int) -> npt.NDArray[np.uintp]:
+    """Permutation from natural tensor-product order onto VTK Lagrange-hexahedron order.
+
+    Parameters
+    ----------
+    p0 : int
+        Polynomial order along the first parametric axis.
+
+    p1 : int
+        Polynomial order along the second parametric axis.
+    p2 : int
+        Polynomial order along the third parametric axis.
+
+    Returns
+    -------
+    idx : (N,) int ndarray, N = (p0+1)*(p1+1)*(p2+1)
+        VTK local indices of the natural points.
+        Reorder with ``vtk_order = np.empty_like(natural); vtk_order[idx] = natural``.
+    """
+    # i varies fastest
+    k, j, i = np.meshgrid(
+        np.arange(p2 + 1),
+        np.arange(p1 + 1),
+        np.arange(p0 + 1),
+        indexing="ij",
+    )
+    i = i.ravel()
+    j = j.ravel()
+    k = k.ravel()
+
+    ibdy = np.asarray((i == 0) | (i == p0), np.bool, copy=None)
+    jbdy = np.asarray((j == 0) | (j == p1), np.bool, copy=None)
+    kbdy = np.asarray((k == 0) | (k == p2), np.bool, copy=None)
+    nbdy = ibdy.astype(np.int8) + jbdy.astype(np.int8) + kbdy.astype(np.int8)
+
+    N = (p0 + 1) * (p1 + 1) * (p2 + 1)
+    idx = np.empty(N, dtype=np.uintp)
+
+    # --- vertices ---
+    vert = nbdy == 3
+    ii, jj, kk = i[vert], j[vert], k[vert]
+    idx[vert] = np.where(
+        ii != 0, np.where(jj != 0, 2, 1), np.where(jj != 0, 3, 0)
+    ) + 4 * (kk != 0).astype(np.uintp)
+
+    # --- edges ---
+    edge = nbdy == 2
+    edge_offset = 8
+
+    on_i = edge & ~ibdy
+    idx[on_i] = (
+        i[on_i]
+        - 1
+        + np.where(j[on_i] != 0, p0 + p1 - 2, 0)
+        + np.where(k[on_i] != 0, 2 * (p0 + p1 - 2), 0)
+        + edge_offset
+    )
+
+    on_j = edge & ~jbdy
+    idx[on_j] = (
+        j[on_j]
+        - 1
+        + np.where(i[on_j] != 0, p0 - 1, 2 * (p0 - 1) + p1 - 1)
+        + np.where(k[on_j] != 0, 2 * (p0 + p1 - 2), 0)
+        + edge_offset
+    )
+
+    on_k = edge & ~kbdy
+    off_k = edge_offset + 4 * (p0 - 1) + 4 * (p1 - 1)
+    edge_id = np.where(
+        i[on_k] != 0,
+        np.where(j[on_k] != 0, 2, 1),
+        np.where(j[on_k] != 0, 3, 0),
+    )
+    idx[on_k] = (k[on_k] - 1) + (p2 - 1) * edge_id + off_k
+
+    # --- faces ---
+    face = nbdy == 1
+    face_base = 8 + 4 * (p0 + p1 + p2 - 3)
+
+    # i-normal faces
+    on_i_face = face & ibdy
+    idx[on_i_face] = (
+        (j[on_i_face] - 1)
+        + (p1 - 1) * (k[on_i_face] - 1)
+        + np.where(i[on_i_face] != 0, (p1 - 1) * (p2 - 1), 0)
+        + face_base
+    )
+
+    # j-normal faces
+    j_face_base = face_base + 2 * (p1 - 1) * (p2 - 1)
+    on_j_face = face & jbdy
+    idx[on_j_face] = (
+        (i[on_j_face] - 1)
+        + (p0 - 1) * (k[on_j_face] - 1)
+        + np.where(j[on_j_face] != 0, (p2 - 1) * (p0 - 1), 0)
+        + j_face_base
+    )
+
+    # k-normal faces
+    k_face_base = j_face_base + 2 * (p2 - 1) * (p0 - 1)
+    on_k_face = face & kbdy
+    idx[on_k_face] = (
+        (i[on_k_face] - 1)
+        + (p0 - 1) * (j[on_k_face] - 1)
+        + np.where(k[on_k_face] != 0, (p0 - 1) * (p1 - 1), 0)
+        + k_face_base
+    )
+
+    # --- body ---
+    body = nbdy == 0
+    body_base = face_base + 2 * (
+        (p1 - 1) * (p2 - 1) + (p2 - 1) * (p0 - 1) + (p0 - 1) * (p1 - 1)
+    )
+    idx[body] = (
+        body_base + (i[body] - 1) + (p0 - 1) * ((j[body] - 1) + (p1 - 1) * (k[body] - 1))
+    )
+
+    return idx

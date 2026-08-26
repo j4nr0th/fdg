@@ -16,6 +16,7 @@
 #include "kform_objects.h"
 #include "mappings.h"
 #include "mass_matrices.h"
+#include "mesh_objects.h"
 
 // Topology
 #include "../constraints/constraints.h"
@@ -129,7 +130,8 @@ static int interplib_add_types(PyObject *mod)
             NULL ||
         (module_state->kform_specs_type = cpyutl_add_type_from_spec_to_module(mod, &kform_spec_type_spec, NULL)) ==
             NULL ||
-        (module_state->kform_type = cpyutl_add_type_from_spec_to_module(mod, &kform_type_spec, NULL)) == NULL)
+        (module_state->kform_type = cpyutl_add_type_from_spec_to_module(mod, &kform_type_spec, NULL)) == NULL ||
+        (module_state->mesh_type = cpyutl_add_type_from_spec_to_module(mod, &mesh_type_spec, NULL)) == NULL)
     {
         return -1;
     }

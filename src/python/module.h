@@ -72,6 +72,9 @@ typedef struct
     // K-Forms
     PyTypeObject *kform_specs_type;
     PyTypeObject *kform_type;
+
+    // Mesh
+    PyTypeObject *mesh_type;
 } interplib_module_state_t;
 
 FDG_INTERNAL

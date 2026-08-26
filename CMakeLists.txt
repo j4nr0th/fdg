@@ -126,6 +126,7 @@ set(PYTHON_NUMERICS_SOURCE_FILES
         src/python/covector_basis.c
         src/python/kform_objects.c
         src/python/general.c
+        src/python/mesh_objects.c
 )
 
 Python_add_library(_fdg MODULE

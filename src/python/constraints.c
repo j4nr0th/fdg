@@ -1,6 +1,7 @@
 #include "../constraints/constraints.h"
 #include "../topology/topology.h"
 #include "basis_objects.h"
+#include "constraints.h"
 #include "cpyutl.h"
 #include "cutl/iterators/combination_iterator.h"
 #include "integration_objects.h"
@@ -663,12 +664,23 @@ static PyObject *compute_kform_boundary_constraints(PyObject *module, PyObject *
         return NULL;
     }
 
+    PyObject *const result =
+        compute_kform_boundary_constraints_impl(state, test_spec, element_spec, element_map, orientation);
+    PyMem_Free(orientation);
+    return result;
+}
+
+PyObject *compute_kform_boundary_constraints_impl(const interplib_module_state_t *state, kform_spec_object *test_spec,
+                                                  kform_spec_object *element_spec, space_map_object *element_map,
+                                                  const int8_t *orientation)
+{
+    const unsigned face_dim = Py_SIZE(test_spec->function_space);
+    const unsigned order = test_spec->order;
+    const unsigned element_dim = Py_SIZE(element_spec->function_space);
+
     PyObject *face_object = NULL;
     if (make_boundary_map(state, element_map, orientation, element_dim, face_dim, NULL, &face_object) < 0)
-    {
-        PyMem_Free(orientation);
         return NULL;
-    }
     space_map_object *const face_map = (space_map_object *)face_object;
     integration_space_object *face_space = NULL;
     integration_spec_t *canonical_specs = NULL;
@@ -806,7 +818,6 @@ static PyObject *compute_kform_boundary_constraints(PyObject *module, PyObject *
     Py_DECREF(face_object);
     PyMem_Free(canonical_specs);
     PyMem_Free(canonical_digits);
-    PyMem_Free(orientation);
     {
         PyObject *result = PyTuple_New(4);
         if (!result)
@@ -834,7 +845,6 @@ single_fail:
     PyMem_Free(canonical_digits);
     PyMem_Free(surface_weights);
     PyMem_Free(quadrature_axes);
-    PyMem_Free(orientation);
     return NULL;
 }
 

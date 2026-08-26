@@ -6,6 +6,8 @@ https://www.sphinx-doc.org/en/master/usage/configuration.html"""
 import sys
 from pathlib import Path
 
+import pyvista as pv
+
 sys.path.insert(0, str(Path(__file__).parent / "exts"))
 
 # -- Project information -----------------------------------------------------
@@ -80,6 +82,11 @@ autodoc_type_aliases = {
 
 # -- Options for Sphinx Gallery ----------------------------------------------
 # https://sphinx-gallery.github.io/stable/index.html
+# PyVista plotters created by the examples are captured by the "pyvista"
+# scraper. The plotters render off-screen so that the build works without a
+# display; the screenshots are taken by the scraper itself.
+pv.BUILDING_GALLERY = True
+pv.OFF_SCREEN = True
 sphinx_gallery_conf = {
     "examples_dirs": "../examples",
     "gallery_dirs": "auto_examples",
@@ -87,7 +94,7 @@ sphinx_gallery_conf = {
         # The module you locally document uses None
         "fdg": None,
     },
-    "image_scrapers": ("matplotlib"),
+    "image_scrapers": ("matplotlib", "pyvista"),
 }
 
 # -- Options for C hawkmoth --------------------------------------------------
