@@ -210,7 +210,7 @@ _TEST_CASES_1D = (
     (6, 7, 2, 3, BasisType.BERNSTEIN, BasisType.BERNSTEIN, 1),
     (4, 5, 3, 3, BasisType.LEGENDRE, BasisType.LEGENDRE, 2),
     (4, 5, 2, 1, BasisType.BERNSTEIN, BasisType.LEGENDRE, 4),
-    (6, 8, 6, 7, BasisType.LAGRANGE_UNIFORM, BasisType.LAGRNAGE_GAUSS, 5),
+    (6, 8, 6, 7, BasisType.LAGRANGE_UNIFORM, BasisType.LAGRANGE_GAUSS, 5),
 )
 
 

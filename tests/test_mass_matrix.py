@@ -69,7 +69,7 @@ def test_mass_matrix_1d_undeformed(
             BasisSpecs(BasisType.LEGENDRE, 2),
             BasisSpecs(BasisType.BERNSTEIN, 3),
             BasisSpecs(BasisType.LAGRANGE_UNIFORM, 2),
-            BasisSpecs(BasisType.LAGRNAGE_GAUSS_LOBATTO, 4),
+            BasisSpecs(BasisType.LAGRANGE_GAUSS_LOBATTO, 4),
         ),
     ),
 )
@@ -122,7 +122,7 @@ def test_mass_matrix_2d(
             BasisSpecs(BasisType.LEGENDRE, 2),
             BasisSpecs(BasisType.BERNSTEIN, 3),
             BasisSpecs(BasisType.LAGRANGE_UNIFORM, 2),
-            BasisSpecs(BasisType.LAGRNAGE_GAUSS_LOBATTO, 4),
+            BasisSpecs(BasisType.LAGRANGE_GAUSS_LOBATTO, 4),
             BasisSpecs(BasisType.LEGENDRE, 2),
             BasisSpecs(BasisType.BERNSTEIN, 3),
         ),
@@ -130,9 +130,9 @@ def test_mass_matrix_2d(
             BasisSpecs(BasisType.LEGENDRE, 2),
             BasisSpecs(BasisType.BERNSTEIN, 3),
             BasisSpecs(BasisType.LAGRANGE_UNIFORM, 2),
-            BasisSpecs(BasisType.LAGRNAGE_GAUSS_LOBATTO, 4),
+            BasisSpecs(BasisType.LAGRANGE_GAUSS_LOBATTO, 4),
             BasisSpecs(BasisType.LAGRANGE_UNIFORM, 2),
-            BasisSpecs(BasisType.LAGRNAGE_GAUSS_LOBATTO, 4),
+            BasisSpecs(BasisType.LAGRANGE_GAUSS_LOBATTO, 4),
         ),
     ),
 )
@@ -184,5 +184,5 @@ if __name__ == "__main__":
         BasisSpecs(BasisType.LEGENDRE, 2),
         BasisSpecs(BasisType.BERNSTEIN, 3),
         BasisSpecs(BasisType.LAGRANGE_UNIFORM, 2),
-        BasisSpecs(BasisType.LAGRNAGE_GAUSS_LOBATTO, 4),
+        BasisSpecs(BasisType.LAGRANGE_GAUSS_LOBATTO, 4),
     )

@@ -45,6 +45,7 @@ from fdg._fdg import transform_kform_to_target as transform_kform_to_target
 from fdg.degrees_of_freedom import reconstruct as reconstruct
 
 # Domains
+from fdg.domains import Hypercube as Hypercube
 from fdg.domains import Line as Line
 from fdg.domains import Quad as Quad
 

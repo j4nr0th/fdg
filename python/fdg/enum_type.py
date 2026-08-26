@@ -10,8 +10,8 @@ class BasisType(StrEnum):
     LEGENDRE = "legendre"
     BERNSTEIN = "bernstein"
     LAGRANGE_UNIFORM = "lagrange-uniform"
-    LAGRNAGE_GAUSS = "lagrange-gauss"
-    LAGRNAGE_GAUSS_LOBATTO = "lagrange-gauss-lobatto"
+    LAGRANGE_GAUSS = "lagrange-gauss"
+    LAGRANGE_GAUSS_LOBATTO = "lagrange-gauss-lobatto"
     LAGRANGE_CHEBYSHEV_GAUSS = "lagrange-chebyshev-gauss"
 
 

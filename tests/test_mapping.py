@@ -462,8 +462,8 @@ def test_kform_boundary_constraints_continuity_2d_and_3d() -> None:
 _TEST_ORDERS_2D = ((1, 1), (2, 3), (10, 3), (10, 10))
 _TEST_BASIS_2D = (
     (BasisType.BERNSTEIN, BasisType.BERNSTEIN),
-    (BasisType.LAGRANGE_UNIFORM, BasisType.LAGRNAGE_GAUSS),
-    (BasisType.LEGENDRE, BasisType.LAGRNAGE_GAUSS_LOBATTO),
+    (BasisType.LAGRANGE_UNIFORM, BasisType.LAGRANGE_GAUSS),
+    (BasisType.LEGENDRE, BasisType.LAGRANGE_GAUSS_LOBATTO),
 )
 
 
@@ -512,9 +512,9 @@ _TEST_ORDERS_3D = (
     (10, 3, 4),
 )
 _TEST_BASIS_3D = (
-    (BasisType.BERNSTEIN, BasisType.BERNSTEIN, BasisType.LAGRNAGE_GAUSS_LOBATTO),
-    (BasisType.LAGRANGE_UNIFORM, BasisType.LAGRNAGE_GAUSS, BasisType.LEGENDRE),
-    (BasisType.LEGENDRE, BasisType.LAGRNAGE_GAUSS_LOBATTO, BasisType.LAGRANGE_UNIFORM),
+    (BasisType.BERNSTEIN, BasisType.BERNSTEIN, BasisType.LAGRANGE_GAUSS_LOBATTO),
+    (BasisType.LAGRANGE_UNIFORM, BasisType.LAGRANGE_GAUSS, BasisType.LEGENDRE),
+    (BasisType.LEGENDRE, BasisType.LAGRANGE_GAUSS_LOBATTO, BasisType.LAGRANGE_UNIFORM),
 )
 
 

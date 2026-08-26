@@ -19,7 +19,7 @@ from fdg.enum_type import BasisType
 _TEST_CASES_2D = (
     (6, 7, 3, BasisType.LEGENDRE, 4, BasisType.BERNSTEIN),
     (5, 5, 2, BasisType.BERNSTEIN, 2, BasisType.BERNSTEIN),
-    (4, 3, 5, BasisType.LAGRNAGE_GAUSS, 4, BasisType.LAGRANGE_UNIFORM),
+    (4, 3, 5, BasisType.LAGRANGE_GAUSS, 4, BasisType.LAGRANGE_UNIFORM),
 )
 _TEST_CASES_3D = (
     (6, 7, 5, 3, BasisType.LEGENDRE, 4, BasisType.BERNSTEIN, 4, BasisType.BERNSTEIN),
@@ -29,7 +29,7 @@ _TEST_CASES_3D = (
         3,
         5,
         5,
-        BasisType.LAGRNAGE_GAUSS,
+        BasisType.LAGRANGE_GAUSS,
         4,
         BasisType.LAGRANGE_UNIFORM,
         3,
@@ -175,7 +175,10 @@ def test_2d_2form(
     computed_dual_dofs = interprod_mat @ u_dofs.values.flatten()
 
     flattened_dual_dofs = np.concatenate(
-        (dual_dof_values_0.flatten(), dual_dof_values_1.flatten())
+        (
+            dual_dof_values_0.flatten(),
+            dual_dof_values_1.flatten(),
+        )
     )
 
     assert pytest.approx(computed_dual_dofs) == flattened_dual_dofs
@@ -314,7 +317,11 @@ def test_3d_2form(
         basis_registry=b_reg,
     )
     u_dofs = np.concatenate(
-        (u0_dofs.values.flatten(), u1_dofs.values.flatten(), u2_dofs.values.flatten())
+        (
+            u0_dofs.values.flatten(),
+            u1_dofs.values.flatten(),
+            u2_dofs.values.flatten(),
+        )
     )
     computed_dual_dofs = interprod_mat @ u_dofs.flatten()
 
