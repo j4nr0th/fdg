@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Self, final
 
 import numpy as np
@@ -444,7 +444,14 @@ class DegreesOfFreedom:
         ...
     @property
     def values(self) -> npt.NDArray[np.double]:
-        """Values of the degrees of freedom."""
+        """Coefficient values of the degrees of freedom.
+
+        These are the expansion coefficients of the discrete function, not
+        sampled function values. Do not confuse them with
+        :attr:`CoordinateMap.values`, which holds the mapped coordinates
+        evaluated at the integration points of the map's own integration
+        space.
+        """
         ...
     @values.setter
     def values(self, value: npt.ArrayLike) -> None:
@@ -964,10 +971,16 @@ class CoordinateMap:
     def integration_space(self) -> IntegrationSpace:
         """Integration space used for the mapping."""
         ...
-
     @property
     def values(self) -> npt.NDArray[np.double]:
-        """Values of the coordinate map at the integration points."""
+        """Mapped coordinate values at the integration points.
+
+        These are the physical coordinates of the map evaluated at every
+        integration point of this map's own integration space, not
+        degree-of-freedom coefficients. Do not confuse them with
+        :attr:`DegreesOfFreedom.values`, which holds the expansion
+        coefficients passed at construction.
+        """
         ...
 
     def gradient(self, idim: int, /) -> npt.NDArray[np.double]:
@@ -1253,6 +1266,75 @@ def compute_kform_boundary_constraints(
     tuple of arrays
         Row offsets, element component indices, local DoF indices, and coefficients
         for the packed constraint rows.
+    """
+    ...
+
+def compute_kform_boundary_load(
+    test_specs: KFormSpecs,
+    element_spec: KFormSpecs,
+    element_map: SpaceMap,
+    collections: tuple[npt.ArrayLike, ...],
+    npts: int,
+    element_id: int,
+    boundary_id: int,
+    data: Callable[..., npt.ArrayLike],
+) -> npt.NDArray[np.double]:
+    """Assemble the physical boundary load of one element face.
+
+    Computes the chain integral of a scalar data function against the trace of
+    the element k-form basis on a codimension-1 boundary face:
+
+    ``b[j] = s * (-1)^a * sum_p w_p data(g_p) B_j(g_p)``
+
+    where ``s`` and ``a`` are the side and index of the fixed normal axis of the
+    face, ``w_p`` are the reference face quadrature weights, ``data`` is
+    evaluated at the physical face points and ``B_j`` runs over the element
+    k-form basis of the component whose axes lie in the face. This is the
+    natural boundary term of the mixed formulation and implements the weak
+    Dirichlet boundary condition ``u = data``.
+
+    Parameters
+    ----------
+    test_specs : KFormSpecs
+        Test k-form specification on the canonical boundary space.
+
+    element_spec : KFormSpecs
+        Volume k-form specification for the selected element.
+
+    element_map : SpaceMap
+        Volume map for the selected element. Its restricted face map provides the
+        face geometry and quadrature.
+
+    collections : tuple of array_like
+        Boundary-ID arrays for mesh objects of dimensions 1 through N. The last
+        collection contains the N-dimensional elements.
+
+    npts : int
+        Number of mesh points represented implicitly by point IDs.
+
+    element_id : int
+        Element containing the selected boundary.
+
+    boundary_id : int
+        Mesh boundary-object ID on the selected element.
+
+    data : Callable
+        Scalar data function of the physical coordinates. It is called once
+        with one coordinate array per element dimension and must return an
+        array of values, one per face quadrature point.
+
+        The quadrature points are the *canonical* face tensor-product nodes
+        of the restricted element map's rule, in canonical-face point order
+        (fixed normal axis first), mapped through the restricted element map.
+        They coincide with the restricted face map's integration points only
+        because the same rule and cardinality are used; consumers matching
+        the ``data`` evaluations against other sample sets must match by
+        position, not assume a particular index order.
+
+    Returns
+    -------
+    numpy.ndarray
+        Dense load vector over the flattened element k-form degrees of freedom.
     """
     ...
 

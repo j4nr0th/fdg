@@ -74,9 +74,46 @@ For flattened element values ``u`` the value of row ``i`` is therefore
    r_i(u) = \sum_{j=row\_offsets_i}^{row\_offsets_{i+1}-1}
      coefficients_j\,u[components_j, local\_dofs_j].
 
-The arrays can be converted into a sparse matrix with one column per flattened
-element DoF.  The Python API intentionally returns the packed representation
-so callers can choose their own global DoF numbering and sparse matrix type.
+Boundary load
+-------------
+
+The companion function :func:`compute_kform_boundary_load` assembles the
+*chain integral* of a scalar data function against the trace of the element
+:math:`k`-form on a codimension-1 boundary face.  For a face with fixed
+normal axis :math:`a` at side :math:`s` (``-1`` for the start side, ``+1`` for
+the end side) and reference face quadrature points :math:`\widehat{x}_p` with
+weights :math:`w_p`, the load entries are
+
+.. math::
+
+   b_j = s\,(-1)^a \sum_p w_p\, \mathrm{data}(\Phi_{F_e}(\widehat{x}_p))\,
+     B_j(\widehat{x}_p),
+
+where :math:`B_j` runs over the element :math:`k`-form basis of the component
+whose axes lie in the face and :math:`\Phi_{F_e}` is the restricted element
+map.  The factor :math:`s\,(-1)^a` is the sign of the outward boundary
+orientation relative to the canonical face parameterization.
+
+Unlike the trace constraint, the load is a metric-free chain integral: the
+surface measure of the face cancels exactly against the coefficient scaling of
+the pulled-back form, so no surface weights or pullback tensor enter the
+assembly.
+
+In the mixed Poisson formulation the natural boundary term of the momentum
+equation is
+
+.. math::
+
+   \int_{\partial\Omega} p \wedge \star u_D
+   = \sum_{F_e \subset \partial\Omega} \int_{F_e} u_D\,(\operatorname{tr} p),
+
+which applies the Dirichlet condition :math:`u = u_D` weakly: the load of one
+face with :math:`\mathrm{data} = u_D` is added to the momentum (flux) block of
+the right-hand side.  The gallery example
+:ref:`sphx_glr_auto_examples_plot_multi_element_poisson_bc.py` combines this
+weak Dirichlet condition on some faces with the strong Neumann condition
+:math:`\operatorname{tr} q = g` (enforced by Lagrange multipliers with
+:func:`compute_kform_boundary_constraints`) on the remaining faces.
 
 Topology and dimensions
 -----------------------

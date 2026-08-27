@@ -80,6 +80,16 @@ so :math:`w = |\det J|^{-1}`. The component function spaces are the base
 spaces lowered by one order on the active axes of each component (see
 :ref:`fdg_kform_types`).
 
+The special cases apply unchanged when the map is a *boundary* map of a
+lower-dimensional object, e.g. ``smap.boundary(axis)``: the formulas then use
+the surface Jacobian :math:`|\det J_{F}|` of the restricted map. Note that
+:math:`k = N` there refers to the dimension of the mapped object itself: a
+top form on a face pairs with the weight :math:`|\det J_F|^{-1}` (the
+pullback of the Hodge star divides by the surface measure), not with
+:math:`|\det J_F|`. On flat (affine) maps :math:`|\det J_F|` is constant, so
+the two conventions differ only by that constant factor and the distinction
+is easy to miss.
+
 Functions Related
 -----------------
 

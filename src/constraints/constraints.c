@@ -452,19 +452,14 @@ static double trace_inner_product(const constraint_kform_spec_t *const test_spec
     return result;
 }
 
-static double trace_basis_product_at_point(const constraint_kform_spec_t *const test_spec,
-                                           const constraint_element_side_t *const side, const unsigned test_component,
-                                           const unsigned test_digits[const static test_spec->ndim],
-                                           const unsigned element_component,
-                                           const unsigned element_digits[const static side->ndim],
-                                           const double face_nodes[const static test_spec->ndim])
+static double element_trace_basis_value(const unsigned face_dim, const constraint_element_side_t *const side,
+                                        const unsigned order, const unsigned element_component,
+                                        const unsigned element_digits[const static side->ndim],
+                                        const double face_nodes[const static face_dim == 0 ? 1 : face_dim])
 {
-    const unsigned face_dim = test_spec->ndim;
     const unsigned fixed_count = side->ndim - face_dim;
-    uint8_t test_axes[test_spec->order == 0 ? 1 : test_spec->order];
-    uint8_t element_axes[test_spec->order == 0 ? 1 : test_spec->order];
-    component_axes(face_dim, test_spec->order, test_component, test_axes);
-    component_axes(side->ndim, test_spec->order, element_component, element_axes);
+    uint8_t element_axes[order == 0 ? 1 : order];
+    component_axes(side->ndim, order, element_component, element_axes);
 
     double element_coordinates[side->ndim];
     for (unsigned fixed_axis = 0; fixed_axis < fixed_count; ++fixed_axis)
@@ -482,13 +477,28 @@ static double trace_basis_product_at_point(const constraint_kform_spec_t *const 
     double value = 1.0;
     for (unsigned element_axis = 0; element_axis < side->ndim; ++element_axis)
     {
-        const bool element_active = component_has_axis(test_spec->order, element_axes, element_axis);
+        const bool element_active = component_has_axis(order, element_axes, element_axis);
         const unsigned element_order = side->basis_specs[element_axis].order - (element_active ? 1 : 0);
         value *=
             evaluate_basis_value((basis_spec_t){.type = side->basis_specs[element_axis].type, .order = element_order},
                                  element_digits[element_axis], element_coordinates[element_axis]);
     }
+    return value;
+}
 
+static double trace_basis_product_at_point(const constraint_kform_spec_t *const test_spec,
+                                           const constraint_element_side_t *const side, const unsigned test_component,
+                                           const unsigned test_digits[const static test_spec->ndim],
+                                           const unsigned element_component,
+                                           const unsigned element_digits[const static side->ndim],
+                                           const double face_nodes[const static test_spec->ndim])
+{
+    const unsigned face_dim = test_spec->ndim;
+    uint8_t test_axes[test_spec->order == 0 ? 1 : test_spec->order];
+    component_axes(face_dim, test_spec->order, test_component, test_axes);
+
+    double value =
+        element_trace_basis_value(face_dim, side, test_spec->order, element_component, element_digits, face_nodes);
     for (unsigned face_axis = 0; face_axis < face_dim; ++face_axis)
     {
         const bool test_active = component_has_axis(test_spec->order, test_axes, face_axis);
@@ -793,6 +803,99 @@ constraint_status_t constraint_physical_side_assemble(
     }
     *out_row_count = row_count;
     *out_entry_count = entry;
+    return CONSTRAINT_SUCCESS;
+}
+
+constraint_status_t constraint_physical_side_load(const constraint_kform_spec_t *const test_spec,
+                                                  const constraint_element_side_t *const side,
+                                                  const constraint_face_quadrature_t *const quadrature,
+                                                  const double *const data_values, const size_t value_count,
+                                                  const double *const surface_weights,
+                                                  double values[const static value_count])
+{
+    if (!test_spec || !side || !quadrature || !data_values)
+        return CONSTRAINT_INVALID_ARGUMENT;
+
+    constraint_status_t status =
+        constraint_reference_validate(test_spec, (const constraint_element_side_t[2]){*side, *side});
+    if (status != CONSTRAINT_SUCCESS)
+        return status;
+    // The load is defined on codimension-1 faces: exactly one fixed normal axis.
+    if (side->ndim != test_spec->ndim + 1)
+        return CONSTRAINT_INVALID_ARGUMENT;
+
+    size_t point_count;
+    status = quadrature_total_count(quadrature->ndim, quadrature->axes, &point_count);
+    if (status != CONSTRAINT_SUCCESS)
+        return status;
+    if (quadrature->ndim != test_spec->ndim || point_count != quadrature->point_count)
+        return CONSTRAINT_INVALID_ARGUMENT;
+
+    const constraint_kform_spec_t element_spec = {
+        .ndim = side->ndim, .order = test_spec->order, .basis_specs = side->basis_specs};
+    size_t element_component_count;
+    status = constraint_kform_component_count(&element_spec, &element_component_count);
+    if (status != CONSTRAINT_SUCCESS)
+        return status;
+    size_t element_offsets[element_component_count + 1];
+    status = constraint_kform_component_offsets(&element_spec, element_component_count + 1, element_offsets);
+    if (status != CONSTRAINT_SUCCESS)
+        return status;
+    if (element_offsets[element_component_count] != value_count)
+        return CONSTRAINT_INVALID_ARGUMENT;
+
+    // Sign of the outward boundary orientation relative to the canonical face
+    // parameterization: the fixed normal axis side times (-1) to the axis index.
+    // This sign is required for consistency with the reference-element
+    // integration-by-parts identity satisfied by the incidence operators.
+    const int8_t fixed_mapping = side->orientation[0];
+    const unsigned fixed_axis = (unsigned)(fixed_mapping < 0 ? -fixed_mapping : fixed_mapping) - 1;
+    const double sigma_out = (fixed_mapping < 0 ? -1.0 : 1.0) * (fixed_axis % 2 == 0 ? 1.0 : -1.0);
+
+    const unsigned face_component_count = combination_total_count((uint8_t)test_spec->ndim, (uint8_t)test_spec->order);
+    for (unsigned face_component = 0; face_component < face_component_count; ++face_component)
+    {
+        uint8_t face_axes[test_spec->order == 0 ? 1 : test_spec->order];
+        component_axes(test_spec->ndim, test_spec->order, face_component, face_axes);
+        unsigned element_component;
+        int orientation_sign;
+        status =
+            mapped_component(side, test_spec->ndim, test_spec->order, face_axes, &element_component, &orientation_sign);
+        if (status != CONSTRAINT_SUCCESS)
+            return status;
+        size_t element_dof_count;
+        status = constraint_kform_component_dof_count(&element_spec, element_component, &element_dof_count);
+        if (status != CONSTRAINT_SUCCESS)
+            return status;
+        const double sign = sigma_out * (double)orientation_sign;
+        for (size_t element_dof = 0; element_dof < element_dof_count; ++element_dof)
+        {
+            unsigned element_digits[side->ndim];
+            decode_component_dof(side->ndim, test_spec->order, side->basis_specs, element_component, element_dof,
+                                 element_digits);
+            double coefficient = 0.0;
+            for (size_t point = 0; point < point_count; ++point)
+            {
+                size_t remaining = point;
+                double quadrature_weight = 1.0;
+                double face_nodes[test_spec->ndim == 0 ? 1 : test_spec->ndim];
+                for (unsigned idim = test_spec->ndim; idim > 0; --idim)
+                {
+                    const unsigned face_axis = idim - 1;
+                    const unsigned node_index = (unsigned)(remaining % quadrature->axes[face_axis].count);
+                    remaining /= quadrature->axes[face_axis].count;
+                    face_nodes[face_axis] = quadrature->axes[face_axis].nodes[node_index];
+                    quadrature_weight *= quadrature->axes[face_axis].weights[node_index];
+                }
+                const double weight_total =
+                    surface_weights ? quadrature_weight * surface_weights[point] : quadrature_weight;
+                coefficient += weight_total * data_values[point] *
+                               element_trace_basis_value(test_spec->ndim, side, test_spec->order, element_component,
+                                                         element_digits, face_nodes);
+            }
+            values[element_offsets[element_component] + element_dof] += sign * coefficient;
+        }
+    }
     return CONSTRAINT_SUCCESS;
 }
 

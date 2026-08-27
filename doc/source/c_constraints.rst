@@ -18,4 +18,12 @@ representation (row offsets, component, local DoF, coefficient) so that
 callers can assemble their own global sparse matrices. The mathematical
 construction is described in :ref:`fdg_boundary_constraints`.
 
+The single-side physical-space assembly also provides a boundary *load*:
+:c:func:`constraint_physical_side_load` integrates a scalar data function
+against the trace of the element :math:`k`-form basis on a codimension-1
+face, which implements the weak Dirichlet boundary condition of the mixed
+formulation. Unlike the trace assembly it needs no surface weights or
+pullback, because the load is a metric-free chain integral
+(see :ref:`fdg_boundary_constraints`).
+
 .. c:autodoc:: constraints/constraints.h

@@ -338,6 +338,44 @@ constraint_status_t constraint_physical_side_assemble(
     constraint_entry_t entries[const static entry_capacity], size_t *out_row_count, size_t *out_entry_count);
 
 /**
+ * @brief Assemble the physical-space boundary load of one element face.
+ *
+ * Computes the chain integral of a scalar data function against the trace of
+ * the element k-form basis on a codimension-1 boundary face:
+ *
+ * ``values[j] = s * (-1)^a * sum_p w_p data(p) B_j(g_p)`` (chain integral), or,
+ * with ``surface_weights != NULL``, the surface-measure pairing
+ *
+ * ``values[j] = s * (-1)^a * sum_p w_p surface_weights[p] data(p) B_j(g_p)``,
+ *
+ * where ``s`` and ``a`` are the side and index of the fixed normal axis,
+ * ``w_p`` are the reference face quadrature weights, ``surface_weights[p]``
+ * is the mapped face Jacobian |det J_F| at the same point, ``data(p)`` is the
+ * sampled scalar data at the canonical face points and ``B_j`` is the element
+ * basis of the k-form component whose axes lie in the face, evaluated at the
+ * face points. The factor ``s * (-1)^a`` is the sign of the outward boundary
+ * orientation relative to the canonical face parameterization.
+ *
+ * @param test_spec Specification of the k-form test space on the face.
+ * @param side Element side specification with exactly one fixed normal axis.
+ * @param quadrature Tensor-product quadrature over the canonical face.
+ * @param data_values Scalar data sampled at the canonical face quadrature
+ *        points, length ``quadrature->point_count``.
+ * @param value_count Length of the output array: the total number of element
+ *        k-form degrees of freedom.
+ * @param surface_weights Mapped face Jacobian at the canonical points, or
+ *        NULL to assemble the metric-free chain integral.
+ * @param values Output array, accumulated over the mapped k-form components.
+ * @return `CONSTRAINT_SUCCESS` on success, or an error status.
+ */
+constraint_status_t constraint_physical_side_load(const constraint_kform_spec_t *test_spec,
+                                                  const constraint_element_side_t *side,
+                                                  const constraint_face_quadrature_t *quadrature,
+                                                  const double *data_values, size_t value_count,
+                                                  const double *surface_weights,
+                                                  double values[const static value_count]);
+
+/**
  * @brief Assemble a physical-space trace constraint matrix for both sides of the interface.
  *
  * Same as constraint_physical_side_assemble, but assembles the rows for

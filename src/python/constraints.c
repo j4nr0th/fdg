@@ -117,12 +117,16 @@ static size_t canonical_point_to_source(const unsigned element_dim, const unsign
                                               : canonical_digits[face_axis];
     }
 
+    // Flat source-point order matches ``get_digits``: the LAST face axis is
+    // fastest.  Accumulating stride from axis 0 would transpose the point
+    // mapping on any face whose axes share the same quadrature order, which
+    // silently mirrors the sampled data on curved elements.
     size_t source_point = 0;
     size_t stride = 1;
-    for (unsigned axis = 0; axis < face_dim; ++axis)
+    for (unsigned axis = face_dim; axis > 0; --axis)
     {
-        source_point += source_digits[axis] * stride;
-        stride *= source_specs[axis].order + 1;
+        source_point += source_digits[axis - 1] * stride;
+        stride *= source_specs[axis - 1].order + 1;
     }
     (void)canonical_specs;
     return source_point;
@@ -670,6 +674,80 @@ static PyObject *compute_kform_boundary_constraints(PyObject *module, PyObject *
     return result;
 }
 
+typedef struct
+{
+    PyObject *face_object;
+    integration_space_object *face_space;
+    integration_spec_t *canonical_specs;
+    constraint_quadrature_t *quadrature_axes;
+    const integration_rule_t **rules;
+    size_t point_count;
+} boundary_face_setup_t;
+
+static int make_boundary_face_setup(const interplib_module_state_t *state, const space_map_object *element_map,
+                                    const int8_t *orientation, const unsigned element_dim, const unsigned face_dim,
+                                    boundary_face_setup_t *setup)
+{
+    setup->face_object = NULL;
+    setup->face_space = NULL;
+    setup->canonical_specs = NULL;
+    setup->quadrature_axes = NULL;
+    setup->rules = NULL;
+    setup->point_count = 0;
+
+    if (make_boundary_map(state, element_map, orientation, element_dim, face_dim, NULL, &setup->face_object) < 0)
+        return -1;
+    space_map_object *const face_map = (space_map_object *)setup->face_object;
+    if (make_integration_space(state, face_map, &setup->face_space) < 0)
+        return -1;
+    const integration_spec_t *const face_specs = face_map->int_specs;
+    const unsigned fixed_count = element_dim - face_dim;
+    setup->canonical_specs = PyMem_Malloc(face_dim * sizeof(*setup->canonical_specs));
+    if (!setup->canonical_specs)
+        return -1;
+    for (unsigned face_axis = 0; face_axis < face_dim; ++face_axis)
+    {
+        const int8_t mapping = orientation[fixed_count + face_axis];
+        const unsigned source_axis = (unsigned)(mapping < 0 ? -mapping : mapping) - 1;
+        setup->canonical_specs[face_axis] =
+            face_specs[get_source_face_axis(element_dim, face_dim, orientation, source_axis)];
+    }
+    setup->point_count = total_points(face_dim, setup->canonical_specs);
+    integration_registry_object *const integration_registry =
+        (integration_registry_object *)state->registry_integration;
+    setup->rules = python_integration_rules_get(face_dim, face_specs, integration_registry->registry);
+    if (!setup->rules)
+        return -1;
+    setup->quadrature_axes = PyMem_Malloc(face_dim * sizeof(*setup->quadrature_axes));
+    if (!setup->quadrature_axes)
+        return -1;
+    for (unsigned face_axis = 0; face_axis < face_dim; ++face_axis)
+    {
+        const int8_t mapping = orientation[fixed_count + face_axis];
+        const unsigned source_axis = (unsigned)(mapping < 0 ? -mapping : mapping) - 1;
+        const unsigned source_face_axis = get_source_face_axis(element_dim, face_dim, orientation, source_axis);
+        const integration_rule_t *const rule = setup->rules[source_face_axis];
+        setup->quadrature_axes[face_axis] = (constraint_quadrature_t){
+            .count = rule->n_nodes,
+            .nodes = integration_rule_nodes_const(rule),
+            .weights = integration_rule_weights_const(rule),
+        };
+    }
+    return 0;
+}
+
+static void release_boundary_face_setup(const interplib_module_state_t *state, const unsigned face_dim,
+                                        boundary_face_setup_t *setup)
+{
+    if (setup->rules)
+        python_integration_rules_release(face_dim, setup->rules,
+                                         ((integration_registry_object *)state->registry_integration)->registry);
+    Py_XDECREF(setup->face_space);
+    Py_XDECREF(setup->face_object);
+    PyMem_Free(setup->canonical_specs);
+    PyMem_Free(setup->quadrature_axes);
+}
+
 PyObject *compute_kform_boundary_constraints_impl(const interplib_module_state_t *state, kform_spec_object *test_spec,
                                                   kform_spec_object *element_spec, space_map_object *element_map,
                                                   const int8_t *orientation)
@@ -678,71 +756,28 @@ PyObject *compute_kform_boundary_constraints_impl(const interplib_module_state_t
     const unsigned order = test_spec->order;
     const unsigned element_dim = Py_SIZE(element_spec->function_space);
 
-    PyObject *face_object = NULL;
-    if (make_boundary_map(state, element_map, orientation, element_dim, face_dim, NULL, &face_object) < 0)
+    boundary_face_setup_t setup;
+    if (make_boundary_face_setup(state, element_map, orientation, element_dim, face_dim, &setup) < 0)
         return NULL;
-    space_map_object *const face_map = (space_map_object *)face_object;
-    integration_space_object *face_space = NULL;
-    integration_spec_t *canonical_specs = NULL;
-    unsigned *canonical_digits = NULL;
+    space_map_object *const face_map = (space_map_object *)setup.face_object;
+    const integration_spec_t *const face_specs = face_map->int_specs;
+
     PyArrayObject *pullback = NULL;
     double *surface_weights = NULL;
-    constraint_quadrature_t *quadrature_axes = NULL;
-    const integration_rule_t **rules = NULL;
-    if (make_integration_space(state, face_map, &face_space) < 0)
-        goto single_fail;
-    const integration_spec_t *const face_specs = face_map->int_specs;
-    const unsigned fixed_count = element_dim - face_dim;
-    canonical_specs = PyMem_Malloc(face_dim * sizeof(*canonical_specs));
-    if (!canonical_specs)
-        goto single_fail;
-    for (unsigned face_axis = 0; face_axis < face_dim; ++face_axis)
-    {
-        const int8_t mapping = orientation[fixed_count + face_axis];
-        const unsigned source_axis = (unsigned)(mapping < 0 ? -mapping : mapping) - 1;
-        canonical_specs[face_axis] = face_specs[get_source_face_axis(element_dim, face_dim, orientation, source_axis)];
-    }
-
-    if (create_pullback(face_map, element_dim, face_dim, orientation, order, face_specs, canonical_specs, &pullback) <
-        0)
-        goto single_fail;
-    const size_t point_count = total_points(face_dim, canonical_specs);
-    surface_weights = PyMem_Malloc(point_count * sizeof(*surface_weights));
-    quadrature_axes = PyMem_Malloc(face_dim * sizeof(*quadrature_axes));
-    if (!surface_weights || !quadrature_axes)
-    {
-        PyMem_Free(surface_weights);
-        PyMem_Free(quadrature_axes);
-        goto single_fail;
-    }
+    unsigned *canonical_digits = NULL;
+    if (create_pullback(face_map, element_dim, face_dim, orientation, order, face_specs, setup.canonical_specs,
+                        &pullback) < 0)
+        goto fail;
+    surface_weights = PyMem_Malloc(setup.point_count * sizeof(*surface_weights));
     canonical_digits = PyMem_Malloc(face_dim * sizeof(*canonical_digits));
-    if (!canonical_digits)
-        goto single_fail;
-    for (size_t point = 0; point < point_count; ++point)
+    if (!surface_weights || !canonical_digits)
+        goto fail;
+    for (size_t point = 0; point < setup.point_count; ++point)
     {
-        get_digits(face_dim, canonical_specs, point, canonical_digits);
+        get_digits(face_dim, setup.canonical_specs, point, canonical_digits);
         const size_t source_point = canonical_point_to_source(element_dim, face_dim, orientation, face_specs,
-                                                              canonical_specs, canonical_digits);
+                                                              setup.canonical_specs, canonical_digits);
         surface_weights[point] = fabs(face_map->determinant[source_point]);
-    }
-    integration_registry_object *const integration_registry =
-        (integration_registry_object *)state->registry_integration;
-    rules = python_integration_rules_get(face_dim, face_specs, integration_registry->registry);
-    if (!rules)
-    {
-        PyMem_Free(surface_weights);
-        PyMem_Free(quadrature_axes);
-        goto single_fail;
-    }
-    for (unsigned face_axis = 0; face_axis < face_dim; ++face_axis)
-    {
-        const int8_t mapping = orientation[fixed_count + face_axis];
-        const unsigned source_axis = (unsigned)(mapping < 0 ? -mapping : mapping) - 1;
-        const unsigned source_face_axis = get_source_face_axis(element_dim, face_dim, orientation, source_axis);
-        const integration_rule_t *const rule = rules[source_face_axis];
-        quadrature_axes[face_axis] = (constraint_quadrature_t){.count = rule->n_nodes,
-                                                               .nodes = integration_rule_nodes_const(rule),
-                                                               .weights = integration_rule_weights_const(rule)};
     }
 
     const constraint_kform_spec_t test_descriptor = {
@@ -750,10 +785,10 @@ PyObject *compute_kform_boundary_constraints_impl(const interplib_module_state_t
     const constraint_element_side_t side_descriptor = {
         .ndim = element_dim, .basis_specs = element_spec->function_space->specs, .orientation = orientation};
     const constraint_trace_pullback_t pullback_descriptor = {.physical_component_count = (unsigned)Py_SIZE(element_map),
-                                                             .point_count = point_count,
+                                                             .point_count = setup.point_count,
                                                              .values = PyArray_DATA(pullback)};
     const constraint_face_quadrature_t face_quadrature = {
-        .ndim = face_dim, .axes = quadrature_axes, .point_count = point_count};
+        .ndim = face_dim, .axes = setup.quadrature_axes, .point_count = setup.point_count};
     size_t row_count;
     size_t entry_count;
     constraint_status_t constraint_status =
@@ -762,11 +797,7 @@ PyObject *compute_kform_boundary_constraints_impl(const interplib_module_state_t
     {
         PyErr_Format(PyExc_ValueError, "Could not size boundary constraints: %s.",
                      constraint_status_to_str(constraint_status));
-        python_integration_rules_release(face_dim, rules, integration_registry->registry);
-        rules = NULL;
-        PyMem_Free(surface_weights);
-        PyMem_Free(quadrature_axes);
-        goto single_fail;
+        goto fail;
     }
     const npy_intp row_dims[1] = {(npy_intp)(row_count + 1)};
     const npy_intp entry_dims[1] = {(npy_intp)entry_count};
@@ -782,21 +813,13 @@ PyObject *compute_kform_boundary_constraints_impl(const interplib_module_state_t
         Py_XDECREF(dof_array);
         Py_XDECREF(coefficient_array);
         PyMem_Free(entries);
-        python_integration_rules_release(face_dim, rules, integration_registry->registry);
-        rules = NULL;
-        PyMem_Free(surface_weights);
-        PyMem_Free(quadrature_axes);
-        goto single_fail;
+        goto fail;
     }
     size_t actual_rows;
     size_t actual_entries;
     constraint_status = constraint_physical_side_assemble(
         &test_descriptor, &side_descriptor, &face_quadrature, surface_weights, &pullback_descriptor, row_count + 1,
         (size_t *)PyArray_DATA(row_array), entry_count, entries, &actual_rows, &actual_entries);
-    python_integration_rules_release(face_dim, rules, integration_registry->registry);
-    rules = NULL;
-    PyMem_Free(surface_weights);
-    PyMem_Free(quadrature_axes);
     if (constraint_status != CONSTRAINT_SUCCESS)
     {
         Py_XDECREF(row_array);
@@ -804,7 +827,7 @@ PyObject *compute_kform_boundary_constraints_impl(const interplib_module_state_t
         Py_XDECREF(dof_array);
         Py_XDECREF(coefficient_array);
         PyMem_Free(entries);
-        goto single_fail;
+        goto fail;
     }
     for (size_t i = 0; i < actual_entries; ++i)
     {
@@ -814,10 +837,9 @@ PyObject *compute_kform_boundary_constraints_impl(const interplib_module_state_t
     }
     PyMem_Free(entries);
     Py_DECREF(pullback);
-    Py_DECREF(face_space);
-    Py_DECREF(face_object);
-    PyMem_Free(canonical_specs);
+    PyMem_Free(surface_weights);
     PyMem_Free(canonical_digits);
+    release_boundary_face_setup(state, face_dim, &setup);
     {
         PyObject *result = PyTuple_New(4);
         if (!result)
@@ -835,16 +857,261 @@ PyObject *compute_kform_boundary_constraints_impl(const interplib_module_state_t
         return result;
     }
 
-single_fail:
-    if (rules)
-        python_integration_rules_release(face_dim, rules, integration_registry->registry);
+fail:
     Py_XDECREF(pullback);
-    Py_XDECREF(face_space);
-    Py_XDECREF(face_object);
-    PyMem_Free(canonical_specs);
-    PyMem_Free(canonical_digits);
     PyMem_Free(surface_weights);
-    PyMem_Free(quadrature_axes);
+    PyMem_Free(canonical_digits);
+    release_boundary_face_setup(state, face_dim, &setup);
+    return NULL;
+}
+
+static PyObject *compute_kform_boundary_load(PyObject *module, PyObject *const *args, const Py_ssize_t nargs,
+                                             const PyObject *kwnames)
+{
+    const interplib_module_state_t *state = PyModule_GetState(module);
+    if (!state)
+        return NULL;
+
+    PyObject *test_object;
+    PyObject *spec_object;
+    PyObject *map_object;
+    PyObject *collections_object;
+    PyObject *data_object;
+    Py_ssize_t npts;
+    Py_ssize_t element_id;
+    Py_ssize_t boundary_id;
+    int weighted = 0;
+    if (parse_arguments_check(
+            (cpyutl_argument_t[]){
+                {.type = CPYARG_TYPE_PYTHON, .p_val = &test_object, .type_check = state->kform_specs_type},
+                {.type = CPYARG_TYPE_PYTHON, .p_val = &spec_object, .type_check = state->kform_specs_type},
+                {.type = CPYARG_TYPE_PYTHON, .p_val = &map_object, .type_check = state->space_mapping_type},
+                {.type = CPYARG_TYPE_PYTHON, .p_val = &collections_object},
+                {.type = CPYARG_TYPE_SSIZE, .p_val = &npts},
+                {.type = CPYARG_TYPE_SSIZE, .p_val = &element_id},
+                {.type = CPYARG_TYPE_SSIZE, .p_val = &boundary_id},
+                {.type = CPYARG_TYPE_PYTHON, .p_val = &data_object},
+                {.type = CPYARG_TYPE_BOOL, .p_val = &weighted, .kwname = "surface_measure", .optional = 1},
+                {},
+            },
+            args, nargs, kwnames) < 0)
+        return NULL;
+
+    kform_spec_object *const test_spec = (kform_spec_object *)test_object;
+    kform_spec_object *const element_spec = (kform_spec_object *)spec_object;
+    space_map_object *const element_map = (space_map_object *)map_object;
+    const unsigned face_dim = Py_SIZE(test_spec->function_space);
+    const unsigned order = test_spec->order;
+    const unsigned element_dim = Py_SIZE(element_spec->function_space);
+    if (!PyCallable_Check(data_object))
+    {
+        PyErr_SetString(PyExc_TypeError, "Expected a callable boundary load data function.");
+        return NULL;
+    }
+    if (npts < 0 || element_id < 0 || boundary_id < 0 || face_dim != element_dim - 1 || element_spec->order != order ||
+        Py_SIZE(element_spec->function_space) != element_dim || element_map->ndim != element_dim)
+    {
+        PyErr_SetString(PyExc_ValueError, "Incompatible test, element, or topology dimensions: the load is defined on "
+                                          "codimension-1 boundary faces.");
+        return NULL;
+    }
+    if (!PyTuple_Check(collections_object) || PyTuple_GET_SIZE(collections_object) != element_dim)
+    {
+        PyErr_Format(PyExc_ValueError, "Expected %u mesh collections.", element_dim);
+        return NULL;
+    }
+
+    PyArrayObject *collection_arrays[element_dim];
+    topo_obj_collection_t collections[element_dim];
+    for (unsigned idim = 0; idim < element_dim; ++idim)
+        collection_arrays[idim] = NULL;
+    for (unsigned idim = 0; idim < element_dim; ++idim)
+    {
+        collection_arrays[idim] = (PyArrayObject *)PyArray_FROMANY(PyTuple_GET_ITEM(collections_object, idim),
+                                                                   NPY_UINT64, 2, 2, NPY_ARRAY_IN_ARRAY);
+        if (!collection_arrays[idim] || PyArray_DIM(collection_arrays[idim], 1) != 2 * (idim + 1))
+        {
+            PyErr_Format(PyExc_ValueError, "Mesh collection %u must have shape (count, %u).", idim, 2 * (idim + 1));
+            release_collection_arrays(element_dim, collection_arrays);
+            return NULL;
+        }
+        collections[idim] = (topo_obj_collection_t){
+            .ndim = idim + 1,
+            .count = (size_t)PyArray_DIM(collection_arrays[idim], 0),
+            .boundary_ids = PyArray_DATA(collection_arrays[idim]),
+        };
+    }
+
+    topo_obj_immersion_t immersions[element_dim] = {};
+    topo_status_t topo_status =
+        topo_obj_create_immersion_info(element_dim, (unsigned)npts, collections, &PYTHON_ALLOCATOR, immersions);
+    if (topo_status != TOPO_SUCCESS)
+    {
+        PyErr_Format(PyExc_ValueError, "Could not create mesh immersions: %s (%s).", topo_status_to_str(topo_status),
+                     topo_status_msg(topo_status));
+        release_collection_arrays(element_dim, collection_arrays);
+        return NULL;
+    }
+    int8_t *const orientation = PyMem_Malloc(element_dim * sizeof(*orientation));
+    if (!orientation)
+    {
+        topo_obj_immersions_free(element_dim, immersions, &PYTHON_ALLOCATOR);
+        release_collection_arrays(element_dim, collection_arrays);
+        return NULL;
+    }
+    const unsigned boundary_immersion_index = face_dim;
+    topo_status = topo_obj_boundary_orientation(immersions + boundary_immersion_index, element_dim,
+                                                (uint64_t)boundary_id, (uint64_t)element_id, orientation);
+    topo_obj_immersions_free(element_dim, immersions, &PYTHON_ALLOCATOR);
+    release_collection_arrays(element_dim, collection_arrays);
+    if (topo_status != TOPO_SUCCESS)
+    {
+        PyErr_Format(PyExc_ValueError, "Boundary %zd is not present in element %zd: %s (%s).", boundary_id, element_id,
+                     topo_status_to_str(topo_status), topo_status_msg(topo_status));
+        PyMem_Free(orientation);
+        return NULL;
+    }
+
+    boundary_face_setup_t setup;
+    if (make_boundary_face_setup(state, element_map, orientation, element_dim, face_dim, &setup) < 0)
+    {
+        PyMem_Free(orientation);
+        return NULL;
+    }
+    PyArrayObject *data_array = NULL;
+    PyObject *result = NULL;
+    double *data_owned = NULL;
+    double *surface_weights = NULL;
+
+    space_map_object *const face_map = (space_map_object *)setup.face_object;
+    const integration_spec_t *const face_specs = face_map->int_specs;
+    if (weighted)
+    {
+        surface_weights = PyMem_Malloc(setup.point_count * sizeof(*surface_weights));
+        if (!surface_weights)
+            goto load_fail;
+        for (size_t point = 0; point < setup.point_count; ++point)
+        {
+            unsigned canonical_digits[face_dim == 0 ? 1 : face_dim];
+            get_digits(face_dim, setup.canonical_specs, point, canonical_digits);
+            const size_t source_point = canonical_point_to_source(element_dim, face_dim, orientation, face_specs,
+                                                                  setup.canonical_specs, canonical_digits);
+            surface_weights[point] = fabs(face_map->determinant[source_point]);
+        }
+    }
+    PyObject *coords_tuple = PyTuple_New(element_dim);
+    if (!coords_tuple)
+        goto load_fail;
+    for (unsigned idim = 0; idim < element_dim; ++idim)
+    {
+        const npy_intp dims[1] = {(npy_intp)setup.point_count};
+        PyArrayObject *coord_array = (PyArrayObject *)PyArray_SimpleNew(1, dims, NPY_DOUBLE);
+        if (!coord_array)
+        {
+            Py_DECREF(coords_tuple);
+            goto load_fail;
+        }
+        const double *const values = coordinate_map_values(face_map->maps[idim]);
+        double *const out = (double *)PyArray_DATA(coord_array);
+        for (size_t point = 0; point < setup.point_count; ++point)
+        {
+            unsigned canonical_digits[face_dim == 0 ? 1 : face_dim];
+            get_digits(face_dim, setup.canonical_specs, point, canonical_digits);
+            const size_t source_point = canonical_point_to_source(element_dim, face_dim, orientation, face_specs,
+                                                                  setup.canonical_specs, canonical_digits);
+            out[point] = values[source_point];
+        }
+        PyTuple_SET_ITEM(coords_tuple, idim, (PyObject *)coord_array);
+    }
+    PyObject *const data_result = PyObject_CallObject(data_object, coords_tuple);
+    Py_DECREF(coords_tuple);
+    if (!data_result)
+        goto load_fail;
+    data_array = (PyArrayObject *)PyArray_FROMANY(data_result, NPY_DOUBLE, 0, 0, NPY_ARRAY_IN_ARRAY);
+    Py_DECREF(data_result);
+    if (!data_array)
+        goto load_fail;
+    const double *data_values;
+    if (PyArray_NDIM(data_array) == 0 && PyArray_SIZE(data_array) == 1)
+    {
+        data_owned = PyMem_Malloc(setup.point_count * sizeof(*data_owned));
+        if (!data_owned)
+            goto load_fail;
+        const double value = *(const double *)PyArray_DATA(data_array);
+        for (size_t i = 0; i < setup.point_count; ++i)
+            data_owned[i] = value;
+        data_values = data_owned;
+    }
+    else if (PyArray_NDIM(data_array) == 1 && PyArray_SIZE(data_array) == (npy_intp)setup.point_count)
+    {
+        data_values = (const double *)PyArray_DATA(data_array);
+    }
+    else
+    {
+        PyErr_Format(PyExc_ValueError, "Boundary load data must return an array of %zu values.", setup.point_count);
+        goto load_fail;
+    }
+
+    const constraint_kform_spec_t test_descriptor = {
+        .ndim = face_dim, .order = order, .basis_specs = test_spec->function_space->specs};
+    const constraint_element_side_t side_descriptor = {
+        .ndim = element_dim, .basis_specs = element_spec->function_space->specs, .orientation = orientation};
+    const constraint_face_quadrature_t face_quadrature = {
+        .ndim = face_dim, .axes = setup.quadrature_axes, .point_count = setup.point_count};
+    const constraint_kform_spec_t element_descriptor = {
+        .ndim = element_dim, .order = order, .basis_specs = element_spec->function_space->specs};
+    size_t element_component_count;
+    constraint_status_t constraint_status =
+        constraint_kform_component_count(&element_descriptor, &element_component_count);
+    if (constraint_status != CONSTRAINT_SUCCESS)
+    {
+        PyErr_Format(PyExc_ValueError, "Could not size the boundary load: %s.",
+                     constraint_status_to_str(constraint_status));
+        goto load_fail;
+    }
+    size_t *const element_offsets = PyMem_Malloc((element_component_count + 1) * sizeof(*element_offsets));
+    if (!element_offsets)
+        goto load_fail;
+    constraint_status =
+        constraint_kform_component_offsets(&element_descriptor, element_component_count + 1, element_offsets);
+    if (constraint_status != CONSTRAINT_SUCCESS)
+    {
+        PyMem_Free(element_offsets);
+        PyErr_Format(PyExc_ValueError, "Could not size the boundary load: %s.",
+                     constraint_status_to_str(constraint_status));
+        goto load_fail;
+    }
+    const size_t value_count = element_offsets[element_component_count];
+    PyMem_Free(element_offsets);
+    const npy_intp value_dims[1] = {(npy_intp)value_count};
+    result = (PyObject *)PyArray_ZEROS(1, value_dims, NPY_DOUBLE, 0);
+    if (!result)
+        goto load_fail;
+    constraint_status = constraint_physical_side_load(&test_descriptor, &side_descriptor, &face_quadrature, data_values,
+                                                      value_count, weighted ? surface_weights : NULL,
+                                                      (double *)PyArray_DATA((PyArrayObject *)result));
+    if (constraint_status != CONSTRAINT_SUCCESS)
+    {
+        PyErr_Format(PyExc_ValueError, "Could not assemble boundary load: %s.",
+                     constraint_status_to_str(constraint_status));
+        Py_DECREF(result);
+        result = NULL;
+        goto load_fail;
+    }
+    Py_DECREF(data_array);
+    PyMem_Free(data_owned);
+    PyMem_Free(surface_weights);
+    release_boundary_face_setup(state, face_dim, &setup);
+    PyMem_Free(orientation);
+    return result;
+
+load_fail:
+    Py_XDECREF(data_array);
+    Py_XDECREF(result);
+    PyMem_Free(data_owned);
+    PyMem_Free(surface_weights);
+    release_boundary_face_setup(state, face_dim, &setup);
+    PyMem_Free(orientation);
     return NULL;
 }
 
@@ -856,6 +1123,16 @@ PyMethodDef constraint_methods[] = {
         .ml_doc = "compute_kform_boundary_constraints(test_specs, element_spec, element_map, collections, npts, "
                   "element_id, boundary_id) -> tuple[numpy.ndarray, ...]\nCompute one element's physical k-form "
                   "boundary rows.",
+    },
+    {
+        .ml_name = "compute_kform_boundary_load",
+        .ml_meth = (void *)compute_kform_boundary_load,
+        .ml_flags = METH_FASTCALL | METH_KEYWORDS,
+        .ml_doc = "compute_kform_boundary_load(test_specs, element_spec, element_map, collections, npts, "
+                  "element_id, boundary_id, data, surface_measure=False) -> numpy.ndarray\nCompute the boundary "
+                  "load of one element face: the pairing of the scalar data against the trace of the element "
+                  "k-form basis. With surface_measure=True the data is integrated with the mapped face "
+                  "Jacobian (physical surface measure); otherwise the metric-free chain integral is assembled.",
     },
     {},
 };

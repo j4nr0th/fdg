@@ -136,12 +136,17 @@ static PyObject *kform_spec_get_component_function_space(PyObject *self, PyTypeO
 
     uint8_t *covector_indices;
     basis_spec_t *out_specs;
-    void *const mem = cutl_alloc_group(&PYTHON_ALLOCATOR,
-                                       (const cutl_alloc_info_t[]){
-                                           {.size = k * sizeof(*covector_indices), .p_ptr = (void **)&covector_indices},
-                                           {.size = n * sizeof(*out_specs), .p_ptr = (void **)&out_specs},
-                                           {},
-                                       });
+    // A 0-dimensional form needs no scratch memory; cutl_alloc would request
+    // zero bytes and return NULL without a Python exception set. Request at
+    // least one byte so the group allocation always succeeds.
+    const size_t covector_bytes = k > 0 ? k * sizeof(*covector_indices) : 1;
+    const size_t specs_bytes = n > 0 ? n * sizeof(*out_specs) : 1;
+    void *const mem =
+        cutl_alloc_group(&PYTHON_ALLOCATOR, (const cutl_alloc_info_t[]){
+                                                {.size = covector_bytes, .p_ptr = (void **)&covector_indices},
+                                                {.size = specs_bytes, .p_ptr = (void **)&out_specs},
+                                                {},
+                                            });
     if (!mem)
         return NULL;
 
@@ -520,16 +525,20 @@ static PyObject *kform_get_component_dofs(PyObject *self, PyTypeObject *defining
         kform_parse_component_index(self, defining_class, args, nargs, kwnames, &state, &idx, &n, &k);
     if (!this)
         return NULL;
-
     double *const out_dofs = this->values + this->specs->component_offsets[idx];
     uint8_t *covector_indices;
     npy_intp *out_dims;
-    void *const mem = cutl_alloc_group(&PYTHON_ALLOCATOR,
-                                       (const cutl_alloc_info_t[]){
-                                           {.size = k * sizeof(*covector_indices), .p_ptr = (void **)&covector_indices},
-                                           {.size = n * sizeof(*out_dims), .p_ptr = (void **)&out_dims},
-                                           {},
-                                       });
+    // Guard against a zero-byte group allocation (n = k = 0 for point
+    // forms): cutl_alloc returns NULL for zero sizes without a Python
+    // exception set, so request at least one byte per allocation.
+    const size_t covector_bytes = k > 0 ? k * sizeof(*covector_indices) : 1;
+    const size_t dims_bytes = n > 0 ? n * sizeof(*out_dims) : 1;
+    void *const mem =
+        cutl_alloc_group(&PYTHON_ALLOCATOR, (const cutl_alloc_info_t[]){
+                                                {.size = covector_bytes, .p_ptr = (void **)&covector_indices},
+                                                {.size = dims_bytes, .p_ptr = (void **)&out_dims},
+                                                {},
+                                            });
     if (!mem)
         return NULL;
 
