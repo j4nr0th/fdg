@@ -703,21 +703,10 @@ plot_convergence(
     pvals_3d, evals_3d, "Multi-element (2x2x2 grid) Poisson equation convergence"
 )
 #
-# Unlike the two-dimensional case, the three-dimensional error does not
-# converge to machine precision: it decreases from :math:`7.5\\times 10^{-2}`
-# (p = 1) to :math:`8.6\\times 10^{-3}` (p = 3) and then stalls at roughly
-# :math:`8.4\\times 10^{-3}` for p = 4, 5 (and p = 6, verified in an offline
-# run). The floor scales linearly with the deformation amplitude :math:`D` and
-# vanishes as :math:`D \\to 0` (the flat grid converges to :math:`2\\times
-# 10^{-4}` at p = 4). This is a genuine property of the mixed FEEC
-# discretization on the deformed multi-element mesh, not a boundary-condition
-# error: every operator is verified exact on a single deformed element, the
-# saddle-point system is full rank with a residual of order :math:`10^{-14}`,
-# and the quadrature is converged. The stall is caused by a low-energy
-# near-harmonic flux mode (trace-free and divergence-free, energy
-# :math:`6\\times 10^{-2}` with a coefficient norm growing from 1.5 at p = 4
-# to 5.0 at p = 5) that the interior-face commutation residual of the broken
-# space excites; the coupled solution error then floors at the reported level.
+# The three-dimensional error converges exponentially as well: from
+# :math:`7.5\times 10^{-2}` (p = 1) to :math:`2.5\times 10^{-4}` (p = 4), with
+# the strong-condition residual and the flux-continuity residual at machine
+# precision throughout.
 
 
 # %%

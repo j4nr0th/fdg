@@ -102,7 +102,11 @@ def manufactured_source_poisson(*x: npt.NDArray[np.double]) -> npt.NDArray[np.do
 # .. math::
 #     :label: examples_nd_poisson_deformation
 #
-#     x_i = \xi_i + c \prod\limits_{j=1}^n \left( 1 - {x_j}^2 \right) \sin \pi x_j
+#     x_i = \xi_i + c\, \xi_i \prod\limits_{j=1}^n \left( 1 - {\xi_j}^2 \right)
+#
+# The deformation is a polynomial in the reference coordinates, so the Lagrange
+# geometry basis represents it exactly and the discretization error is not polluted
+# by a geometry approximation.
 #
 
 
@@ -128,10 +132,10 @@ def disturbed_mapping(
         Input coordinate ``idx``, but somewhat.
     """
     base = x[idx]
-    d = np.full_like(base, c)
+    d = base.copy()
     for v in x:
-        d *= (1 - v**2) * np.sin(np.pi * v)
-    return base + d
+        d *= 1 - v**2
+    return base + c * d
 
 
 # %%
