@@ -321,8 +321,9 @@ def render_curved():
     # ``_vtk_3d_indices``. Evaluate both the element map and the solution at
     # exactly those nodes: the map is stored as Lagrange-uniform degrees of
     # freedom, so ``reconstruct`` evaluates it in closed form anywhere.
-    ref_axes = [np.linspace(-1.0, 1.0, P + 1) for _ in range(3)]
-    ref_grid = np.meshgrid(*ref_axes, indexing="ij")
+    ref_grid = np.meshgrid(
+        *(np.linspace(-1.0, 1.0, P + 10) for _ in range(3)), indexing="ij"
+    )
     basis_geo = FunctionSpace(
         *(BasisSpecs(BasisType.LAGRANGE_UNIFORM, GEO_ORDER) for _ in range(3))
     )
@@ -353,12 +354,14 @@ def render_curved():
     # Scatter the natural tensor-product data into VTK's point ordering.
     n_points = points.shape[0]
     vtk_order = np.empty(n_points, dtype=np.intp)
-    vtk_order[_vtk_3d_indices(P, P, P)] = np.arange(n_points, dtype=np.intp)
+    vtk_order[_vtk_3d_indices(*(s - 1 for s in u_phys.shape))] = np.arange(
+        n_points, dtype=np.intp
+    )
     cells = np.concatenate((np.array([n_points], dtype=np.intp), vtk_order))
     celltypes = np.array([pv.CellType.LAGRANGE_HEXAHEDRON], dtype=np.uint8)
     grid = pv.UnstructuredGrid(cells, celltypes, points)
-    grid.point_data["u"] = u_phys.ravel(order="F")[vtk_order]
-    grid.plot(show_edges=True, cmap="viridis")
+    grid.point_data["u"] = u_phys.flatten()
+    grid.plot(cmap="viridis")
 
 
 render_curved()
