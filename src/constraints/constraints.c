@@ -809,11 +809,11 @@ constraint_status_t constraint_physical_side_assemble(
 constraint_status_t constraint_physical_side_load(const constraint_kform_spec_t *const test_spec,
                                                   const constraint_element_side_t *const side,
                                                   const constraint_face_quadrature_t *const quadrature,
-                                                  const double *const data_values, const size_t value_count,
+                                                  const double *const datum_values, const size_t value_count,
                                                   const double *const surface_weights,
                                                   double values[const static value_count])
 {
-    if (!test_spec || !side || !quadrature || !data_values)
+    if (!test_spec || !side || !quadrature || !datum_values)
         return CONSTRAINT_INVALID_ARGUMENT;
 
     constraint_status_t status =
@@ -843,16 +843,17 @@ constraint_status_t constraint_physical_side_load(const constraint_kform_spec_t 
         return status;
     if (element_offsets[element_component_count] != value_count)
         return CONSTRAINT_INVALID_ARGUMENT;
-
-    // Sign of the outward boundary orientation relative to the canonical face
-    // parameterization: the fixed normal axis side times (-1) to the axis index.
-    // This sign is required for consistency with the reference-element
-    // integration-by-parts identity satisfied by the incidence operators.
+    const unsigned face_component_count = combination_total_count((uint8_t)test_spec->ndim, (uint8_t)test_spec->order);
+    // The datum is an element-frame k-form with k = test_spec->order + 1, given
+    // as its C(n, k) physical components sampled at the canonical face points:
+    // datum_values[component * point_count + point]. For each face (k-1)-form
+    // component J with element-frame axes J_e, the paired datum component is
+    // I = J_e U {fixed_axis} and the sign carries the count of J_e axes below
+    // the fixed normal axis; at k = n this reduces to the previous
+    // sigma_out = side * (-1)^a formula.
     const int8_t fixed_mapping = side->orientation[0];
     const unsigned fixed_axis = (unsigned)(fixed_mapping < 0 ? -fixed_mapping : fixed_mapping) - 1;
-    const double sigma_out = (fixed_mapping < 0 ? -1.0 : 1.0) * (fixed_axis % 2 == 0 ? 1.0 : -1.0);
-
-    const unsigned face_component_count = combination_total_count((uint8_t)test_spec->ndim, (uint8_t)test_spec->order);
+    const double side_sign = fixed_mapping < 0 ? -1.0 : 1.0;
     for (unsigned face_component = 0; face_component < face_component_count; ++face_component)
     {
         uint8_t face_axes[test_spec->order == 0 ? 1 : test_spec->order];
@@ -867,7 +868,23 @@ constraint_status_t constraint_physical_side_load(const constraint_kform_spec_t 
         status = constraint_kform_component_dof_count(&element_spec, element_component, &element_dof_count);
         if (status != CONSTRAINT_SUCCESS)
             return status;
-        const double sign = sigma_out * (double)orientation_sign;
+        uint8_t element_axes[test_spec->order == 0 ? 1 : test_spec->order];
+        component_axes(side->ndim, test_spec->order, element_component, element_axes);
+        unsigned exponent_below_fixed = 0;
+        for (unsigned i = 0; i < test_spec->order; ++i)
+            exponent_below_fixed += element_axes[i] < fixed_axis ? 1u : 0u;
+        uint8_t datum_axes[test_spec->order == 0 ? 1 : test_spec->order + 1];
+        for (unsigned i = 0; i < test_spec->order; ++i)
+            datum_axes[i] = element_axes[i];
+        datum_axes[test_spec->order] = (uint8_t)fixed_axis;
+        for (unsigned i = test_spec->order; i > 0 && datum_axes[i - 1] > datum_axes[i]; --i)
+        {
+            const uint8_t tmp = datum_axes[i - 1];
+            datum_axes[i - 1] = datum_axes[i];
+            datum_axes[i] = tmp;
+        }
+        const unsigned datum_component = combination_get_index(side->ndim, test_spec->order + 1, datum_axes);
+        const double sign = side_sign * (double)orientation_sign * (exponent_below_fixed % 2 == 0 ? 1.0 : -1.0);
         for (size_t element_dof = 0; element_dof < element_dof_count; ++element_dof)
         {
             unsigned element_digits[side->ndim];
@@ -889,7 +906,7 @@ constraint_status_t constraint_physical_side_load(const constraint_kform_spec_t 
                 }
                 const double weight_total =
                     surface_weights ? quadrature_weight * surface_weights[point] : quadrature_weight;
-                coefficient += weight_total * data_values[point] *
+                coefficient += weight_total * datum_values[datum_component * point_count + point] *
                                element_trace_basis_value(test_spec->ndim, side, test_spec->order, element_component,
                                                          element_digits, face_nodes);
             }

@@ -731,6 +731,28 @@ class KForm:
         """
         ...
 
+    # TODO: test this method!
+    def get_component(self, idx: int) -> DegreesOfFreedom:
+        """Get the DegreesOfFreedom object corresponding to a k-form component.
+
+        Note that this object contains a copy of the degrees of freedom for
+        the component, so changing values in it will not change the values of
+        the k-form. If you wish to change them, consider using the
+        ``get_component_dofs`` method instead.
+
+        Parameters
+        ----------
+        idx : int
+            Index of the k-form component.
+
+        Returns
+        -------
+        DegreesOfFreedom
+            DegreesOfFreedom object containing the degrees of freedom for the
+            specified k-form component.
+        """
+        ...
+
 # Fields of a mesh iteration tuple: (mdim, object_id, element_ids, orientations).
 # ``orientations`` has shape (element_count, ndim); row ``i`` is the orientation
 # record of ``element_ids[i]``.
@@ -1277,29 +1299,35 @@ def compute_kform_boundary_load(
     npts: int,
     element_id: int,
     boundary_id: int,
-    data: Callable[..., npt.ArrayLike],
+    data: Callable[..., npt.ArrayLike] | Sequence[Callable[..., npt.ArrayLike]],
 ) -> npt.NDArray[np.double]:
     """Assemble the physical boundary load of one element face.
 
-    Computes the chain integral of a scalar data function against the trace of
-    the element k-form basis on a codimension-1 boundary face:
+    Computes the metric-free chain integral of the components of a k-form
+    datum (element frame, ``k = element_spec.order + 1``) against the trace of
+    the element (k-1)-form basis on a codimension-1 boundary face. For each
+    traced face component with element-frame axes ``J_e`` and fixed normal
+    axis ``a``, the only contributing datum component is ``J_e | {a}``:
 
-    ``b[j] = s * (-1)^a * sum_p w_p data(g_p) B_j(g_p)``
+    ``b[j] = s * o * (-1)^{|{i in J_e : i < a}|} * sum_p w_p u_{J_e | {a}}(g_p) B_j(g_p)``
 
-    where ``s`` and ``a`` are the side and index of the fixed normal axis of the
-    face, ``w_p`` are the reference face quadrature weights, ``data`` is
-    evaluated at the physical face points and ``B_j`` runs over the element
-    k-form basis of the component whose axes lie in the face. This is the
-    natural boundary term of the mixed formulation and implements the weak
-    Dirichlet boundary condition ``u = data``.
+    where ``s`` and ``a`` are the side and index of the fixed normal axis of
+    the face, ``o`` the orientation sign of the mapped component, ``w_p`` the
+    reference face quadrature weights, ``u`` the sampled datum component and
+    ``B_j`` the element (k-1)-form basis of the traced component. When ``k``
+    equals the element dimension (a single datum component) this reduces to
+    the scalar chain integral ``s * (-1)^a * sum_p w_p data(g_p) B_j(g_p)``:
+    the natural boundary term of the mixed formulation implementing the weak
+    Dirichlet condition ``u = data``.
 
     Parameters
     ----------
     test_specs : KFormSpecs
-        Test k-form specification on the canonical boundary space.
+        Test (k-1)-form specification on the canonical boundary space.
 
     element_spec : KFormSpecs
-        Volume k-form specification for the selected element.
+        Volume k-form specification for the selected element. The datum order
+        is ``element_spec.order + 1``.
 
     element_map : SpaceMap
         Volume map for the selected element. Its restricted face map provides the
@@ -1318,10 +1346,14 @@ def compute_kform_boundary_load(
     boundary_id : int
         Mesh boundary-object ID on the selected element.
 
-    data : Callable
-        Scalar data function of the physical coordinates. It is called once
-        with one coordinate array per element dimension and must return an
-        array of values, one per face quadrature point.
+    data : Callable or sequence of Callables
+        Datum components in element-frame component order: one callable per
+        ``k``-form component (``math.comb(element_spec.dimension, k)`` of
+        them), each called with one coordinate array per element dimension and
+        returning one value per face quadrature point (scalars broadcast). A
+        bare callable is accepted when ``k`` equals the element dimension
+        (a single component). 0-form data is not covered; impose it strongly
+        instead.
 
         The quadrature points are the *canonical* face tensor-product nodes
         of the restricted element map's rule, in canonical-face point order
@@ -1334,7 +1366,8 @@ def compute_kform_boundary_load(
     Returns
     -------
     numpy.ndarray
-        Dense load vector over the flattened element k-form degrees of freedom.
+        Dense load vector over the flattened element (k-1)-form degrees of
+        freedom.
     """
     ...
 

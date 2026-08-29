@@ -33,8 +33,8 @@ static int array_has_shape(const PyArrayObject *const arr, const unsigned ndim,
     return 1;
 }
 
-static dof_object *dof_object_create(PyTypeObject *subtype, const unsigned ndim,
-                                     const basis_spec_t basis_specs_in[static ndim])
+dof_object *dof_object_create(PyTypeObject *subtype, const unsigned ndim,
+                              const basis_spec_t basis_specs_in[static ndim])
 {
     Py_ssize_t total_dofs = 1;
     for (unsigned i = 0; i < ndim; ++i)

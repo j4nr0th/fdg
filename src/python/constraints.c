@@ -903,10 +903,46 @@ static PyObject *compute_kform_boundary_load(PyObject *module, PyObject *const *
     const unsigned face_dim = Py_SIZE(test_spec->function_space);
     const unsigned order = test_spec->order;
     const unsigned element_dim = Py_SIZE(element_spec->function_space);
-    if (!PyCallable_Check(data_object))
+    const unsigned component_count = combination_total_count((uint8_t)element_dim, (uint8_t)(order + 1));
+    PyObject *data_callables[component_count];
+    PyObject *data_sequence = NULL;
+    if (PyCallable_Check(data_object))
     {
-        PyErr_SetString(PyExc_TypeError, "Expected a callable boundary load data function.");
-        return NULL;
+        if (component_count != 1)
+        {
+            PyErr_Format(PyExc_ValueError,
+                         "A k-form datum with %u components needs one callable per component; pass a sequence.",
+                         component_count);
+            return NULL;
+        }
+        data_callables[0] = data_object;
+    }
+    else
+    {
+        data_sequence = PySequence_Fast(
+            data_object, "Boundary load data must be a callable or a sequence of callables, one per k-form component.");
+        if (!data_sequence)
+            return NULL;
+        const Py_ssize_t sequence_length = PySequence_Fast_GET_SIZE(data_sequence);
+        if (sequence_length != (Py_ssize_t)component_count)
+        {
+            PyErr_Format(PyExc_ValueError,
+                         "Boundary load data must contain one callable per k-form component: expected %u, got %zd.",
+                         component_count, sequence_length);
+            Py_DECREF(data_sequence);
+            return NULL;
+        }
+        PyObject **const data_items = PySequence_Fast_ITEMS(data_sequence);
+        for (unsigned component = 0; component < component_count; ++component)
+        {
+            if (!PyCallable_Check(data_items[component]))
+            {
+                PyErr_Format(PyExc_TypeError, "Boundary load data component %u is not callable.", component);
+                Py_DECREF(data_sequence);
+                return NULL;
+            }
+            data_callables[component] = data_items[component];
+        }
     }
     if (npts < 0 || element_id < 0 || boundary_id < 0 || face_dim != element_dim - 1 || element_spec->order != order ||
         Py_SIZE(element_spec->function_space) != element_dim || element_map->ndim != element_dim)
@@ -1023,34 +1059,48 @@ static PyObject *compute_kform_boundary_load(PyObject *module, PyObject *const *
         }
         PyTuple_SET_ITEM(coords_tuple, idim, (PyObject *)coord_array);
     }
-    PyObject *const data_result = PyObject_CallObject(data_object, coords_tuple);
-    Py_DECREF(coords_tuple);
-    if (!data_result)
-        goto load_fail;
-    data_array = (PyArrayObject *)PyArray_FROMANY(data_result, NPY_DOUBLE, 0, 0, NPY_ARRAY_IN_ARRAY);
-    Py_DECREF(data_result);
-    if (!data_array)
-        goto load_fail;
-    const double *data_values;
-    if (PyArray_NDIM(data_array) == 0 && PyArray_SIZE(data_array) == 1)
+    data_owned = PyMem_Malloc(component_count * setup.point_count * sizeof(*data_owned));
+    if (!data_owned)
     {
-        data_owned = PyMem_Malloc(setup.point_count * sizeof(*data_owned));
-        if (!data_owned)
+        Py_DECREF(coords_tuple);
+        goto load_fail;
+    }
+    for (unsigned component = 0; component < component_count; ++component)
+    {
+        PyObject *const data_result = PyObject_CallObject(data_callables[component], coords_tuple);
+        if (!data_result)
+        {
+            Py_DECREF(coords_tuple);
             goto load_fail;
-        const double value = *(const double *)PyArray_DATA(data_array);
-        for (size_t i = 0; i < setup.point_count; ++i)
-            data_owned[i] = value;
-        data_values = data_owned;
+        }
+        data_array = (PyArrayObject *)PyArray_FROMANY(data_result, NPY_DOUBLE, 0, 0, NPY_ARRAY_IN_ARRAY);
+        Py_DECREF(data_result);
+        if (!data_array)
+        {
+            Py_DECREF(coords_tuple);
+            goto load_fail;
+        }
+        double *const datum_row = data_owned + (size_t)component * setup.point_count;
+        if (PyArray_NDIM(data_array) == 0 && PyArray_SIZE(data_array) == 1)
+        {
+            const double value = *(const double *)PyArray_DATA(data_array);
+            for (size_t i = 0; i < setup.point_count; ++i)
+                datum_row[i] = value;
+        }
+        else if (PyArray_NDIM(data_array) == 1 && PyArray_SIZE(data_array) == (npy_intp)setup.point_count)
+        {
+            memcpy(datum_row, PyArray_DATA(data_array), setup.point_count * sizeof(*datum_row));
+        }
+        else
+        {
+            PyErr_Format(PyExc_ValueError, "Boundary load data component %u must return an array of %zu values.",
+                         component, setup.point_count);
+            Py_DECREF(coords_tuple);
+            goto load_fail;
+        }
+        Py_CLEAR(data_array);
     }
-    else if (PyArray_NDIM(data_array) == 1 && PyArray_SIZE(data_array) == (npy_intp)setup.point_count)
-    {
-        data_values = (const double *)PyArray_DATA(data_array);
-    }
-    else
-    {
-        PyErr_Format(PyExc_ValueError, "Boundary load data must return an array of %zu values.", setup.point_count);
-        goto load_fail;
-    }
+    Py_DECREF(coords_tuple);
 
     const constraint_kform_spec_t test_descriptor = {
         .ndim = face_dim, .order = order, .basis_specs = test_spec->function_space->specs};
@@ -1087,7 +1137,7 @@ static PyObject *compute_kform_boundary_load(PyObject *module, PyObject *const *
     result = (PyObject *)PyArray_ZEROS(1, value_dims, NPY_DOUBLE, 0);
     if (!result)
         goto load_fail;
-    constraint_status = constraint_physical_side_load(&test_descriptor, &side_descriptor, &face_quadrature, data_values,
+    constraint_status = constraint_physical_side_load(&test_descriptor, &side_descriptor, &face_quadrature, data_owned,
                                                       value_count, weighted ? surface_weights : NULL,
                                                       (double *)PyArray_DATA((PyArrayObject *)result));
     if (constraint_status != CONSTRAINT_SUCCESS)
@@ -1098,7 +1148,6 @@ static PyObject *compute_kform_boundary_load(PyObject *module, PyObject *const *
         result = NULL;
         goto load_fail;
     }
-    Py_DECREF(data_array);
     PyMem_Free(data_owned);
     PyMem_Free(surface_weights);
     release_boundary_face_setup(state, face_dim, &setup);
@@ -1130,9 +1179,12 @@ PyMethodDef constraint_methods[] = {
         .ml_flags = METH_FASTCALL | METH_KEYWORDS,
         .ml_doc = "compute_kform_boundary_load(test_specs, element_spec, element_map, collections, npts, "
                   "element_id, boundary_id, data, surface_measure=False) -> numpy.ndarray\nCompute the boundary "
-                  "load of one element face: the pairing of the scalar data against the trace of the element "
-                  "k-form basis. With surface_measure=True the data is integrated with the mapped face "
-                  "Jacobian (physical surface measure); otherwise the metric-free chain integral is assembled.",
+                  "load of one element face: the pairing of the trace of the element (k-1)-form basis against "
+                  "the components of a k-form datum, where k = element_spec.order + 1. Provide one callable "
+                  "per element-frame k-form component (each called with the physical coordinates of the "
+                  "canonical face points); a bare callable is accepted when k equals the element dimension. "
+                  "With surface_measure=True the data is integrated with the mapped face Jacobian (physical "
+                  "surface measure); otherwise the metric-free chain integral is assembled.",
     },
     {},
 };

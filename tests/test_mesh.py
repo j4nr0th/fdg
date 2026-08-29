@@ -1,5 +1,7 @@
 """Check the topological Mesh wrapper and its boundary-constraint method."""
 
+import math
+
 import numpy as np
 import pytest
 from fdg import (
@@ -285,6 +287,20 @@ def _affine_map_ndim(
                 DegreesOfFreedom(basis, (0.5 * grids[d] + (idx[d] - 0.5)).ravel()),
                 integration,
             )
+            for d in range(ndim)
+        )
+    )
+
+
+def _identity_map_ndim(ndim: int, integration: IntegrationSpace) -> SpaceMap:
+    """Identity map of the reference hypercube (for reference-frame masses)."""
+    basis = FunctionSpace(
+        *(BasisSpecs(BasisType.LAGRANGE_UNIFORM, 1) for _ in range(ndim))
+    )
+    grids = np.meshgrid(*([np.linspace(-1.0, 1.0, 2)] * ndim), indexing="ij")
+    return SpaceMap(
+        *(
+            CoordinateMap(DegreesOfFreedom(basis, grids[d].ravel()), integration)
             for d in range(ndim)
         )
     )
@@ -792,3 +808,260 @@ def test_kform_boundary_load_round_trip(ndim: int, deformed: bool) -> None:
     assert err_chain < 1e-12
     assert err_mass < 1e-12
     assert err_recover < 1e-10
+
+
+@pytest.mark.parametrize("ndim", range(2, 5))
+@pytest.mark.parametrize("k", range(1, 5))
+@pytest.mark.parametrize("component", range(10))
+def test_kform_boundary_load_general_form_chain_integral(
+    ndim: int, k: int, component: int
+) -> None:
+    """General-k boundary loads sum to the discrete exterior-derivative term.
+
+    For a constant reference-frame k-form datum ``u`` (one component set to
+    one, the rest to zero) on an element, the pairing of the trace of a
+    ``(k-1)-form`` ``p`` with ``u`` over the element boundary satisfies the
+    integration-by-parts identity in the reference frame
+    ``sum_F <tr_F p, u> = (d p, u)_ref``, so the summed boundary loads must
+    equal ``incidence_kform_operator(specs_p, M_ref^{(k)}, transpose=True)
+    @ u_const`` with the mass matrix of the *reference* integration space and
+    ``u_const`` the constant coefficient vector on the selected component
+    slice. This pins the per-component sign exponent, the datum component
+    indexing, and the reference-frame datum convention for every ``k < ndim``
+    on a mapped element (the map-dependent physical scalings cancel because
+    both sides are metric-free reference-frame pairings).
+    """
+    if k >= ndim or component >= math.comb(ndim, k):
+        pytest.skip("case outside the ndim-k-component grid")
+    mesh = Mesh.from_corners(ndim, _grid_corners(ndim))
+    integration = IntegrationSpace(
+        *(IntegrationSpecs(4, IntegrationMethod.GAUSS) for _ in range(ndim))
+    )
+    sm = _affine_map_ndim(ndim, 0, integration)
+    order = 2
+    base_vol = FunctionSpace(
+        *(BasisSpecs(BasisType.BERNSTEIN, order) for _ in range(ndim))
+    )
+    specs_p = KFormSpecs(
+        k - 1,
+        FunctionSpace(*(BasisSpecs(BasisType.BERNSTEIN, order) for _ in range(ndim))),
+    )
+    specs_u = KFormSpecs(k, base_vol)
+    test_specs = KFormSpecs(
+        k - 1,
+        FunctionSpace(*(BasisSpecs(BasisType.BERNSTEIN, order) for _ in range(ndim - 1))),
+    )
+    reference_map = _identity_map_ndim(ndim, integration)
+
+    datum_components = [
+        (
+            lambda *x, idx=i: np.ones_like(x[0])
+            if idx == component
+            else np.zeros_like(x[0])
+        )
+        for i in range(specs_u.component_count)
+    ]
+    u_const = np.zeros(int(np.sum(specs_u.component_dof_counts)))
+    u_const[specs_u.get_component_slice(component)] = 1.0
+    mu_ref = compute_kform_mass_matrix(reference_map, k, base_vol, base_vol)
+    et_mu = incidence_kform_operator(specs_p, mu_ref, transpose=True)
+    expected = et_mu @ u_const
+
+    actual = np.zeros(int(np.sum(specs_p.component_dof_counts)))
+    for _, object_id, element_ids, _ in mesh.iterate_boundary(ndim - 1):
+        if 0 in element_ids:
+            actual += compute_kform_boundary_load(
+                test_specs,
+                specs_p,
+                sm,
+                mesh.collections,
+                mesh.point_count,
+                0,
+                int(object_id),
+                datum_components,
+            )
+    for _, object_id, element_ids, _ in mesh.iterate_shared(ndim - 1):
+        if 0 in element_ids:
+            actual += compute_kform_boundary_load(
+                test_specs,
+                specs_p,
+                sm,
+                mesh.collections,
+                mesh.point_count,
+                0,
+                int(object_id),
+                datum_components,
+            )
+    np.testing.assert_allclose(actual, expected, rtol=0, atol=1e-12)
+
+
+def _general_load_replica(
+    specs_element: KFormSpecs,
+    orientation: list[int],
+    xi_el: np.ndarray,
+    weights: np.ndarray,
+    datum_values: np.ndarray,
+    form_degree: int,
+) -> np.ndarray:
+    """Independent assembly of the general-k chain integral.
+
+    Reproduces the generalized ``compute_kform_boundary_load`` without any
+    library call: for each face component with element-frame axes ``J_e`` the
+    paired datum component index is ``sorted(J_e | {a})`` and the sign is
+    ``side * o * (-1)^{|{i in J_e : i < a}|}``, with trimmed Bernstein basis
+    values (degrees ``P - 1`` on mapped axes, ``P`` on the fixed axis).
+    """
+    from itertools import combinations as _combinations
+
+    ndim = xi_el.shape[0]
+    orders = [b.order for b in specs_element.base_space.basis_specs]
+    fixed_axis = abs(orientation[0]) - 1
+    side_sign = 1.0 if orientation[0] > 0 else -1.0
+    result = np.zeros(int(np.sum(specs_element.component_dof_counts)))
+    npts = xi_el.shape[1]
+    for face_component, face_axes in enumerate(
+        _combinations(range(ndim - 1), form_degree - 1)
+    ):
+        free_recs = orientation[1:]
+        mapped = [abs(free_recs[a]) - 1 for a in face_axes]
+        sign = 1
+        for a, axis in zip(face_axes, mapped, strict=True):
+            if free_recs[a] < 0:
+                sign = -sign
+        for i in range(len(mapped)):
+            for j in range(i + 1, len(mapped)):
+                if mapped[i] > mapped[j]:
+                    sign = -sign
+                    mapped[i], mapped[j] = mapped[j], mapped[i]
+        element_component = list(_combinations(range(ndim), form_degree - 1)).index(
+            tuple(mapped)
+        )
+        sl = specs_element.get_component_slice(element_component)
+        datum_axes = sorted((*mapped, fixed_axis))
+        datum_component = list(_combinations(range(ndim), form_degree)).index(
+            tuple(datum_axes)
+        )
+        exponent = sum(1 for i in mapped if i < fixed_axis)
+        if exponent % 2 == 1:
+            sign = -sign
+        sigma = side_sign
+        sizes = [orders[a] + (0 if a in set(mapped) else 1) for a in range(ndim)]
+        mapped_set = set(mapped)
+        coefficients = np.zeros(sl.stop - sl.start)
+
+        def walk(digits: list[int]) -> None:
+            if len(digits) == ndim:
+                values = np.ones(npts)
+                for a in range(ndim):
+                    deg = orders[a] - (1 if a in mapped_set else 0)
+                    values = values * _bernstein(deg, digits[a], xi_el[a])
+                dof = 0
+                factor = 1
+                for a in range(ndim - 1, -1, -1):
+                    dof += digits[a] * factor
+                    factor *= sizes[a]
+                coefficients[dof] += (
+                    sign
+                    * sigma
+                    * float(weights @ (datum_values[datum_component] * values))
+                )
+                return
+            for digit in range(sizes[len(digits)]):
+                walk(digits + [digit])
+
+        walk([])
+        result[sl] += coefficients
+    return result
+
+
+@pytest.mark.parametrize("ndim", range(2, 5))
+@pytest.mark.parametrize("deformed", [False, True])
+def test_kform_boundary_load_general_form_replica(ndim: int, deformed: bool) -> None:
+    """The general-k load equals an independent assembly on every face.
+
+    For each k from 1 to ndim and each component of the datum k-form, the
+    library load on every outer face of a single (optionally deformed)
+    element is compared against ``_general_load_replica``, an independent
+    implementation of the documented per-component chain integral with
+    trimmed Bernstein degrees and orientation signs.
+    """
+    mesh = Mesh.from_corners(ndim, _single_element_corners(ndim))
+    order = 3
+    integration = IntegrationSpace(
+        *(IntegrationSpecs(order + 2, IntegrationMethod.GAUSS) for _ in range(ndim))
+    )
+    sm = _element_map_ndim(ndim, integration, deformed)
+    base_vol = FunctionSpace(
+        *(BasisSpecs(BasisType.BERNSTEIN, order) for _ in range(ndim))
+    )
+
+    err = 0.0
+    seen: set[tuple[int, bool]] = set()
+    for _, object_id, _, orientations in mesh.iterate_boundary(ndim - 1):
+        rec = [int(v) for v in orientations[0]]
+        key = (abs(rec[0]) - 1, rec[0] < 0)
+        if key in seen:
+            continue
+        seen.add(key)
+        axis, start_side = abs(rec[0]) - 1, rec[0] < 0
+        fm = sm.boundary(axis, end=not start_side)
+        nodes = np.asarray(fm.integration_space.nodes()).reshape(ndim - 1, -1)
+        weights = np.asarray(fm.integration_space.weights()).reshape(-1)
+        xi_el = np.empty((ndim, nodes.shape[1]))
+        xi_el[axis] = -1.0 if start_side else 1.0
+        for j in range(ndim - 1):
+            el_axis = abs(rec[1 + j]) - 1
+            xi_el[el_axis] = nodes[j] if rec[1 + j] > 0 else -nodes[j]
+
+        physical = np.stack(
+            [np.asarray(fm.coordinate_map(i).values).reshape(-1) for i in range(ndim)]
+        )
+        for k in range(1, ndim + 1):
+            component_count = math.comb(ndim, k)
+            datum_values = np.stack(
+                [
+                    np.asarray(
+                        (0.5 ** (i + 1))
+                        * np.prod(
+                            [np.cos(np.pi * v / 2.0 + 0.3 * i) for v in physical],
+                            axis=0,
+                        )
+                    ).reshape(-1)
+                    for i in range(component_count)
+                ]
+            )
+            callables = [
+                (
+                    lambda *x, idx=i: (
+                        (0.5 ** (idx + 1))
+                        * np.prod(
+                            [np.cos(np.pi * v / 2.0 + 0.3 * idx) for v in x], axis=0
+                        )
+                    )
+                )
+                for i in range(component_count)
+            ]
+            if component_count == 1:
+                callables = callables[0]
+            specs_element = KFormSpecs(k - 1, base_vol)
+            test_specs = KFormSpecs(
+                k - 1,
+                FunctionSpace(
+                    *(BasisSpecs(BasisType.BERNSTEIN, order - 1) for _ in range(ndim - 1))
+                ),
+            )
+            replicated = _general_load_replica(
+                specs_element, rec, xi_el, weights, datum_values, k
+            )
+            loaded = compute_kform_boundary_load(
+                test_specs,
+                specs_element,
+                sm,
+                mesh.collections,
+                mesh.point_count,
+                0,
+                int(object_id),
+                callables,
+            )
+            err = max(err, float(np.max(np.abs(replicated - loaded))))
+    assert err < 1e-12

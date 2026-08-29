@@ -338,40 +338,47 @@ constraint_status_t constraint_physical_side_assemble(
     constraint_entry_t entries[const static entry_capacity], size_t *out_row_count, size_t *out_entry_count);
 
 /**
- * @brief Assemble the physical-space boundary load of one element face.
+ * @brief Assemble the physical-space boundary load of one element face for a
+ *        general k-form datum.
  *
- * Computes the chain integral of a scalar data function against the trace of
- * the element k-form basis on a codimension-1 boundary face:
+ * Computes the chain integral of the components of a k-form datum (element
+ * frame, k = test_spec->order + 1) against the trace of the element
+ * (k-1)-form basis on a codimension-1 boundary face. For each face component
+ * J (element-frame axes J_e) the only contributing datum component is
+ * I = J_e U {a} with a the fixed normal axis:
  *
- * ``values[j] = s * (-1)^a * sum_p w_p data(p) B_j(g_p)`` (chain integral), or,
- * with ``surface_weights != NULL``, the surface-measure pairing
+ * ``values[j] = s * o * (-1)^{|{i in J_e : i < a}|} * sum_p w_p u_I(g_p) B_j(g_p)``
+ * (chain integral), or, with ``surface_weights != NULL``, the same sum with
+ * each weight multiplied by ``surface_weights[p]`` (surface-measure pairing).
  *
- * ``values[j] = s * (-1)^a * sum_p w_p surface_weights[p] data(p) B_j(g_p)``,
+ * Here ``s`` and ``a`` are the side and index of the fixed normal axis, ``o``
+ * is the orientation sign of the mapped component, ``w_p`` are the reference
+ * face quadrature weights, ``surface_weights[p]`` is the mapped face Jacobian
+ * |det J_F| at the same point, ``u_I(g_p)`` is the sampled element-frame
+ * component of the datum at the canonical face points and ``B_j`` is the
+ * element basis of the traced component. At k equal to the element dimension
+ * (single datum component) the sign reduces to the outward orientation
+ * ``s * (-1)^a`` of the previous scalar-chain-integral behavior.
  *
- * where ``s`` and ``a`` are the side and index of the fixed normal axis,
- * ``w_p`` are the reference face quadrature weights, ``surface_weights[p]``
- * is the mapped face Jacobian |det J_F| at the same point, ``data(p)`` is the
- * sampled scalar data at the canonical face points and ``B_j`` is the element
- * basis of the k-form component whose axes lie in the face, evaluated at the
- * face points. The factor ``s * (-1)^a`` is the sign of the outward boundary
- * orientation relative to the canonical face parameterization.
- *
- * @param test_spec Specification of the k-form test space on the face.
+ * @param test_spec Specification of the (k-1)-form test space on the face.
  * @param side Element side specification with exactly one fixed normal axis.
  * @param quadrature Tensor-product quadrature over the canonical face.
- * @param data_values Scalar data sampled at the canonical face quadrature
- *        points, length ``quadrature->point_count``.
+ * @param datum_values Element-frame k-form components sampled at the canonical
+ *        face quadrature points, laid out row-major as
+ *        ``[component * quadrature->point_count + point]`` with
+ *        ``combination_total_count(side->ndim, test_spec->order + 1)``
+ *        component rows.
  * @param value_count Length of the output array: the total number of element
- *        k-form degrees of freedom.
+ *        (k-1)-form degrees of freedom.
  * @param surface_weights Mapped face Jacobian at the canonical points, or
  *        NULL to assemble the metric-free chain integral.
- * @param values Output array, accumulated over the mapped k-form components.
+ * @param values Output array, accumulated over the mapped components.
  * @return `CONSTRAINT_SUCCESS` on success, or an error status.
  */
 constraint_status_t constraint_physical_side_load(const constraint_kform_spec_t *test_spec,
                                                   const constraint_element_side_t *side,
                                                   const constraint_face_quadrature_t *quadrature,
-                                                  const double *data_values, size_t value_count,
+                                                  const double *datum_values, size_t value_count,
                                                   const double *surface_weights,
                                                   double values[const static value_count]);
 

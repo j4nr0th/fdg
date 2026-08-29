@@ -18,6 +18,10 @@ FDG_INTERNAL
 extern PyType_Spec degrees_of_freedom_type_spec;
 
 FDG_INTERNAL
+dof_object *dof_object_create(PyTypeObject *subtype, const unsigned ndim,
+                              const basis_spec_t basis_specs_in[static ndim]);
+
+FDG_INTERNAL
 PyObject *dof_reconstruct_at_integration_points(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
                                                 Py_ssize_t nargs, const PyObject *kwnames);
 

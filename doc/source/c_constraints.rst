@@ -19,10 +19,12 @@ callers can assemble their own global sparse matrices. The mathematical
 construction is described in :ref:`fdg_boundary_constraints`.
 
 The single-side physical-space assembly also provides a boundary *load*:
-:c:func:`constraint_physical_side_load` integrates a scalar data function
-against the trace of the element :math:`k`-form basis on a codimension-1
-face, which implements the weak Dirichlet boundary condition of the mixed
-formulation. Unlike the trace assembly it needs no surface weights or
+:c:func:`constraint_physical_side_load` integrates the components of a
+:math:`k`-form datum (element-frame components sampled at the canonical face
+points) against the trace of the element :math:`(k-1)`-form basis on a
+codimension-1 face, for every datum degree :math:`k = 1, \dots, n`.  At
+:math:`k = n` this is the weak Dirichlet boundary condition of the mixed
+formulation.  Like the trace assembly it needs no surface weights or
 pullback, because the load is a metric-free chain integral
 (see :ref:`fdg_boundary_constraints`).
 

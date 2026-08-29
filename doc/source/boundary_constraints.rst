@@ -78,21 +78,37 @@ Boundary load
 -------------
 
 The companion function :func:`compute_kform_boundary_load` assembles the
-*chain integral* of a scalar data function against the trace of the element
-:math:`k`-form on a codimension-1 boundary face.  For a face with fixed
-normal axis :math:`a` at side :math:`s` (``-1`` for the start side, ``+1`` for
-the end side) and reference face quadrature points :math:`\widehat{x}_p` with
-weights :math:`w_p`, the load entries are
+*chain integral* of a :math:`k`-form datum against the trace of the element
+:math:`(k-1)`-form on a codimension-1 boundary face, for every datum degree
+:math:`k = 1, \dots, n` (the datum order is ``element_spec.order + 1``).  For
+a face with fixed normal axis :math:`a` at side :math:`s` (``-1`` for the
+start side, ``+1`` for the end side) and reference face quadrature points
+:math:`\widehat{x}_p` with weights :math:`w_p`, the load entries are
 
 .. math::
 
-   b_j = s\,(-1)^a \sum_p w_p\, \mathrm{data}(\Phi_{F_e}(\widehat{x}_p))\,
+   b_j = s\,o\,(-1)^{|\{i \in J_e : i < a\}|}
+     \sum_p w_p\, u_{J_e \cup \{a\}}(\Phi_{F_e}(\widehat{x}_p))\,
      B_j(\widehat{x}_p),
 
-where :math:`B_j` runs over the element :math:`k`-form basis of the component
-whose axes lie in the face and :math:`\Phi_{F_e}` is the restricted element
-map.  The factor :math:`s\,(-1)^a` is the sign of the outward boundary
-orientation relative to the canonical face parameterization.
+where :math:`J_e` is the set of element-frame axes of the traced component,
+:math:`o` is the orientation sign of the mapped component, :math:`B_j` runs
+over the element :math:`(k-1)`-form basis of that component and
+:math:`\Phi_{F_e}` is the restricted element map.  Only the datum component
+whose axes are :math:`J_e \cup \{a\}` pairs with the traced component; all
+other components contribute nothing.  The datum is passed as one callable per
+:math:`k`-form component in element-frame component order (the same order as
+:class:`KFormSpecs` components); each callable receives the physical
+coordinates of the canonical face points and returns one value per point.
+When :math:`k = n` there is a single component and a single callable is
+accepted directly.
+
+At :math:`k = n` the traced component is the volume form component and the
+exponent reduces to :math:`a`, so the sign becomes :math:`s\,(-1)^a`, the
+outward boundary orientation relative to the canonical face parameterization,
+and the formula reduces to the scalar chain integral of previous releases.
+Zero-form data (:math:`k = 0`) is not covered by the load; scalar boundary
+values are imposed strongly with :func:`compute_kform_boundary_constraints`.
 
 Unlike the trace constraint, the load is a metric-free chain integral: the
 surface measure of the face cancels exactly against the coefficient scaling of
