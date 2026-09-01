@@ -610,9 +610,11 @@ sampled_space_map_object *sampled_space_map_create(PyTypeObject *type, space_map
     // Get unique orders (out and int) sorted in ascending order
     typedef struct
     {
-        unsigned order_out; // Order of the output grid for this dimension
-        unsigned order_int; // Order of the integration rule for this dimension (input points)
-        unsigned offset;    // Offset in the output grid for this dimension
+        unsigned order_out;           // Order of the output grid for this dimension
+        unsigned order_int;           // Order of the integration rule for this dimension (input points)
+        integration_rule_type_t type; // Type of the integration rule for this dimension
+        unsigned source_dim;          // Source dimension providing the integration rule
+        unsigned offset;              // Offset in the output grid for this dimension
     } interpolation_info_t;
     interpolation_info_t *const unique_orders = PyMem_Malloc(sizeof(*unique_orders) * ndim_in);
     if (!unique_orders)
@@ -624,14 +626,18 @@ sampled_space_map_object *sampled_space_map_create(PyTypeObject *type, space_map
     unsigned n_unique = 0, transformation_size = 0, max_out_order = 0, nodes_in = 1;
     for (unsigned d = 0; d < ndim_in; ++d)
     {
-        unsigned order_out = orders[d];
-        unsigned order_int = map->int_specs[d].order;
+        const unsigned order_out = orders[d];
+        const unsigned order_int = map->int_specs[d].order;
+        const integration_rule_type_t type = map->int_specs[d].type;
         nodes_in *= order_int + 1;
         unsigned i = 0;
         while (i < n_unique && (unique_orders[i].order_out < order_out ||
-                                (unique_orders[i].order_out == order_out && unique_orders[i].order_int < order_int)))
+                                (unique_orders[i].order_out == order_out &&
+                                 (unique_orders[i].order_int < order_int ||
+                                  (unique_orders[i].order_int == order_int && unique_orders[i].type < type)))))
             ++i;
-        if (i == n_unique || unique_orders[i].order_out != order_out || unique_orders[i].order_int != order_int)
+        if (i == n_unique || unique_orders[i].order_out != order_out || unique_orders[i].order_int != order_int ||
+            unique_orders[i].type != type)
         {
             // Shift elements to the right to make space for the new order
             for (unsigned j = n_unique; j > i; --j)
@@ -639,6 +645,8 @@ sampled_space_map_object *sampled_space_map_create(PyTypeObject *type, space_map
             // Insert the new order
             unique_orders[i].order_out = order_out;
             unique_orders[i].order_int = order_int;
+            unique_orders[i].type = type;
+            unique_orders[i].source_dim = d;
             unique_orders[i].offset = transformation_size; // Store the offset for this unique order
             transformation_size += (order_out + 1) * (order_int + 1);
             if (order_out > max_out_order)
@@ -684,10 +692,10 @@ sampled_space_map_object *sampled_space_map_create(PyTypeObject *type, space_map
             {
                 // Uniformly spaced roots for the output grid
                 for (unsigned j = 0; j <= order_out; ++j)
-                    global_transformation[j] = (double)j / (double)order_out;
+                    global_transformation[j] = order_out == 0 ? 0.0 : (2.0 * (double)j) / (double)order_out - 1.0;
                 current_root_order = order_out;
             }
-            const double *restrict int_nodes = integration_rule_nodes_const(rules[i]);
+            const double *restrict int_nodes = integration_rule_nodes_const(rules[unique_orders[i].source_dim]);
             // Compute the transformation matrix for this unique combination
             lagrange_polynomial_values_transposed_2(order_out + 1, global_transformation, order_int + 1, int_nodes,
                                                     axis_transformations + offset);
@@ -695,36 +703,39 @@ sampled_space_map_object *sampled_space_map_create(PyTypeObject *type, space_map
         // Release the integration rules
         python_integration_rules_release(ndim_in, rules, registry);
 
-        // Now assemble the global interpolation matrix for the entire space map
-        for (unsigned i = 0; i < nodes_in * total_points; ++i)
-            global_transformation[i] = 1.0; // Initialize the output array to zero
-
-        unsigned stride_out = total_points, stride_int = nodes_in;
-        for (unsigned idim = 0; idim < ndim_in; ++idim)
+        // Now assemble the global interpolation matrix for the entire space map.
+        // Both the output and input grids use row-major tensor-product ordering.
+        for (size_t i_out = 0; i_out < total_points; ++i_out)
         {
-            unsigned idx_order = 0;
-            for (unsigned j = 0; j < n_unique; ++j)
+            for (size_t i_in = 0; i_in < nodes_in; ++i_in)
             {
-                if (unique_orders[j].order_out == orders[idim] &&
-                    unique_orders[j].order_int == map->int_specs[idim].order)
+                double val = 1.0;
+                size_t stride_out = total_points;
+                size_t stride_int = nodes_in;
+                for (unsigned idim = 0; idim < ndim_in; ++idim)
                 {
-                    idx_order = j;
-                    break;
+                    unsigned idx_order = 0;
+                    for (unsigned j = 0; j < n_unique; ++j)
+                    {
+                        if (unique_orders[j].order_out == orders[idim] &&
+                            unique_orders[j].order_int == map->int_specs[idim].order &&
+                            unique_orders[j].type == map->int_specs[idim].type)
+                        {
+                            idx_order = j;
+                            break;
+                        }
+                    }
+                    ASSERT(idx_order < n_unique, "Unique order not found for dimension %u.", idim);
+                    const interpolation_info_t info = unique_orders[idx_order];
+                    stride_out /= info.order_out + 1;
+                    stride_int /= info.order_int + 1;
+                    const unsigned idx_out = (i_out / stride_out) % (info.order_out + 1);
+                    const unsigned idx_in = (i_in / stride_int) % (info.order_int + 1);
+                    const double *restrict axis_transform_matrix = axis_transformations + info.offset;
+                    val *= axis_transform_matrix[idx_in * (info.order_out + 1) + idx_out];
                 }
+                global_transformation[i_out * nodes_in + i_in] = val;
             }
-            ASSERT(idx_order < n_unique, "Unique order not found for dimension %u.", idim);
-            const interpolation_info_t info = unique_orders[idx_order];
-
-            // Get the transformation matrix for this dimension
-            const double *restrict axis_transform_matrix = axis_transformations + info.offset;
-            // Adjust the strides for the current dimension
-            stride_out /= info.order_out + 1;
-            stride_int /= info.order_int + 1;
-            // Apply the transformation for this dimension
-            for (unsigned j = 0; j <= info.order_out; ++j)
-                for (unsigned k = 0; k <= info.order_int; ++k)
-                    global_transformation[j * stride_out + k * stride_int] *=
-                        axis_transform_matrix[j * (info.order_int + 1) + k];
         }
     }
     // No longer needed since we computed the full dense matrix
@@ -768,7 +779,7 @@ sampled_space_map_object *sampled_space_map_create(PyTypeObject *type, space_map
         for (unsigned i_out = 0; i_out < total_points; ++i_out)
         {
             const matrix_t out_mat = {
-                .rows = ndim_out, .cols = ndim_out, .values = this->inverse_maps + i_out * trans_size};
+                .rows = ndim_in, .cols = ndim_out, .values = this->inverse_maps + i_out * trans_size};
             // Interpolate the forward transformation matrices (gradients) for each output dimension
             for (unsigned idim_out = 0; idim_out < ndim_out; ++idim_out)
                 for (unsigned idim_in = 0; idim_in < ndim_in; ++idim_in)
