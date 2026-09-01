@@ -90,6 +90,29 @@ x_b` and, for a square map, :math:`T^{(N)} = 1 / \det J`. This array
 drives the k-form mass matrix (:ref:`fdg_inner_product`) and the k-form
 transforms (:ref:`fdg_kform_transformations`).
 
+Sampled space maps
+------------------
+
+:class:`SampledSpaceMap` provides a tensor-grid representation of a
+:class:`SpaceMap` for visualization and for evaluating transformed fields on
+user-selected reference-space points. Its constructor accepts one one-dimensional
+sample array per reference dimension; the arrays may be non-uniform and may have
+different lengths. The samples define the tensor grid, so the resulting arrays
+have one axis per sample array.
+
+The convenience constructor :meth:`SampledSpaceMap.on_uniform_grid` creates the
+same representation for uniformly spaced points on :math:`[-1, +1]` from an
+order per reference dimension. A sampled map cannot be used for integration.
+
+For a sampled k-form, use :func:`transform_kform_to_target_sampled`. The function
+accepts orders :math:`k \ge 1`; a 0-form is a scalar field and needs no coordinate
+transformation, so its values should be used directly instead.
+
+.. autoclass:: SampledSpaceMap
+
+.. autofunction:: transform_kform_to_target_sampled
+
+
 Restriction to boundaries
 -------------------------
 

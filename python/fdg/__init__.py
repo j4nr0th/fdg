@@ -15,6 +15,7 @@ from fdg._fdg import IntegrationSpecs as IntegrationSpecs
 from fdg._fdg import KForm as KForm
 from fdg._fdg import KFormSpecs as KFormSpecs
 from fdg._fdg import Mesh as Mesh
+from fdg._fdg import SampledSpaceMap as SampledSpaceMap
 from fdg._fdg import SpaceMap as SpaceMap
 from fdg._fdg import compute_gradient_mass_matrix as compute_gradient_mass_matrix
 from fdg._fdg import (
@@ -42,6 +43,9 @@ from fdg._fdg import (
     transform_kform_component_to_target as transform_kform_component_to_target,
 )
 from fdg._fdg import transform_kform_to_target as transform_kform_to_target
+from fdg._fdg import (
+    transform_kform_to_target_sampled as transform_kform_to_target_sampled,
+)
 
 # DoFs functions
 from fdg.degrees_of_freedom import reconstruct as reconstruct

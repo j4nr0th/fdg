@@ -1,6 +1,7 @@
 """Check that k-forms are propertly transformed from the reference domain."""
 
 from functools import cache
+from itertools import combinations
 
 import numpy as np
 import pytest
@@ -11,9 +12,11 @@ from fdg._fdg import (
     FunctionSpace,
     IntegrationSpace,
     IntegrationSpecs,
+    SampledSpaceMap,
     SpaceMap,
     transform_kform_component_to_target,
     transform_kform_to_target,
+    transform_kform_to_target_sampled,
 )
 from fdg.enum_type import BasisType
 
@@ -166,6 +169,68 @@ def test_kforms(n: int, dm: int) -> None:
             )
 
         assert pytest.approx(transformed) == manually_transformed
+
+
+@pytest.mark.parametrize(("ndim", "mdim"), ((1, 1), (2, 2), (2, 3), (3, 5)))
+def test_sampled_kform_transforms(ndim: int, mdim: int) -> None:
+    """Check sampled k-form transforms against explicit inverse-map minors."""
+    function_space = FunctionSpace(
+        *(BasisSpecs(BasisType.LAGRANGE_UNIFORM, 1) for _ in range(ndim))
+    )
+    reference_nodes = np.meshgrid(*([np.array((-1.0, 1.0))] * ndim), indexing="ij")
+    integration_space = IntegrationSpace(*(IntegrationSpecs(3) for _ in range(ndim)))
+
+    coordinates = []
+    for icoordinate in range(mdim):
+        values = np.zeros_like(reference_nodes[0])
+        for idim in range(ndim):
+            coefficient = (icoordinate + 2) if idim == icoordinate % ndim else 0.0
+            values += coefficient * reference_nodes[idim]
+        coordinates.append(
+            CoordinateMap(DegreesOfFreedom(function_space, values), integration_space)
+        )
+    space_map = SpaceMap(*coordinates)
+
+    sample_orders = tuple(2 + idim % 2 for idim in range(ndim))
+    samples = tuple(np.linspace(-1.0, 1.0, order + 1) ** 3 for order in sample_orders)
+    sampled_map = SampledSpaceMap(space_map, samples)
+    sample_shape = tuple(order + 1 for order in sample_orders)
+    inverse_map = sampled_map.inverse_map
+    rng = np.random.default_rng(914 + ndim * 17 + mdim)
+
+    for order in range(1, ndim + 1):
+        input_bases = tuple(combinations(range(ndim), order))
+        output_bases = tuple(combinations(range(mdim), order))
+        components = rng.random((len(input_bases), *sample_shape))
+
+        factors = np.empty((len(input_bases), len(output_bases), *sample_shape))
+        for input_index, input_basis in enumerate(input_bases):
+            for output_index, output_basis in enumerate(output_bases):
+                minor = np.take(
+                    np.take(inverse_map, input_basis, axis=-2),
+                    output_basis,
+                    axis=-1,
+                )
+                factors[input_index, output_index] = np.linalg.det(minor)
+        expected = np.einsum("ij...,i...->j...", factors, components)
+
+        transformed = transform_kform_to_target_sampled(order, sampled_map, components)
+        np.testing.assert_allclose(transformed, expected, rtol=1e-12, atol=1e-12)
+
+        output = np.empty_like(expected)
+        returned = transform_kform_to_target_sampled(
+            order, sampled_map, components, out=output
+        )
+        assert returned is output
+        np.testing.assert_allclose(output, expected, rtol=1e-12, atol=1e-12)
+
+    invalid_components = np.zeros((1, *sample_shape))
+    with pytest.raises(ValueError):
+        transform_kform_to_target_sampled(0, sampled_map, invalid_components)
+    with pytest.raises(ValueError):
+        transform_kform_to_target_sampled(-1, sampled_map, invalid_components)
+    with pytest.raises(ValueError):
+        transform_kform_to_target_sampled(ndim + 1, sampled_map, invalid_components)
 
 
 if __name__ == "__main__":

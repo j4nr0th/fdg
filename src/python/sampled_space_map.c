@@ -487,17 +487,20 @@ PyDoc_STRVAR(
     "\n"
     "Transform k-form values based on a sampled space mapping.\n"
     "\n"
+    "0-forms do not need a coordinate transformation. This function therefore\n"
+    "accepts only orders greater than zero; handle order-zero values directly.\n"
+    "\n"
     "Parameters\n"
     "----------\n"
     "order : int\n"
-    "    Order of the k-form being transformed.\n"
+    "    Order of the k-form being transformed. Must be at least 1.\n"
     "\n"
     "smap : SampledSpaceMap\n"
     "    Mapping between the reference and target domain to use.\n"
     "\n"
     "components : array_like\n"
     "    Array with values of components of the k-form in the reference domain at\n"
-    "    integration points associated with the space mapping.\n"
+    "    the sampled points associated with the space mapping.\n"
     "\n"
     "out : array, optional\n"
     "    Array to use to store the output in.\n"
@@ -541,15 +544,14 @@ static PyObject *transform_kform_to_target_sampled(PyObject *mod, PyObject *cons
     // Get the shape of the transformation
     const unsigned ndim_in = map->ndim;
     const unsigned ndim_out = map->coords;
-    const unsigned n_components_in = combination_total_count(ndim_in, order);
-    const unsigned n_components_out = combination_total_count(ndim_out, order);
-
-    // Check order
+    // Check order before using it as an unsigned combination rank.
     if (order < 0 || order > ndim_in)
     {
-        PyErr_Format(PyExc_ValueError, "Expected order to be between 0 and %u, but got %zd.", ndim_in, order);
+        PyErr_Format(PyExc_ValueError, "Expected order to be between 1 and %u, but got %zd.", ndim_in, order);
         return NULL;
     }
+    const unsigned n_components_in = combination_total_count(ndim_in, order);
+    const unsigned n_components_out = combination_total_count(ndim_out, order);
 
     // Convert components to be an array
     PyArrayObject *const components =
@@ -625,7 +627,7 @@ static PyObject *transform_kform_to_target_sampled(PyObject *mod, PyObject *cons
             Py_DECREF(components);
             return NULL;
         }
-        for (unsigned i = 0; i < ndim_components; ++i)
+        for (unsigned i = 1; i < ndim_components; ++i)
         {
             if (dims_out[i] != dims_in[i])
             {
@@ -646,18 +648,6 @@ static PyObject *transform_kform_to_target_sampled(PyObject *mod, PyObject *cons
 
     const double *restrict const ptr_components = PyArray_DATA(components);
     double *restrict const ptr_out = PyArray_DATA(out_array);
-    if (order == 0)
-    {
-        // Copy from input to output and we are done
-        if (py_components != out) // If they are the same, we don't need to copy
-        {
-            Py_BEGIN_ALLOW_THREADS;
-            memcpy(ptr_out, ptr_components, sizeof(double) * total_points);
-            Py_END_ALLOW_THREADS;
-        }
-        Py_DECREF(components);
-        return (PyObject *)out_array;
-    }
 
     if (order == 1)
     {

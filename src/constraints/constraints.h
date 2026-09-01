@@ -353,10 +353,10 @@ constraint_status_t constraint_physical_side_assemble(
  *
  * Here ``s`` and ``a`` are the side and index of the fixed normal axis, ``o``
  * is the orientation sign of the mapped component, ``w_p`` are the reference
- * face quadrature weights, ``surface_weights[p]`` is the mapped face Jacobian
- * |det J_F| at the same point, ``u_I(g_p)`` is the sampled element-frame
- * component of the datum at the canonical face points and ``B_j`` is the
- * element basis of the traced component. At k equal to the element dimension
+ * face quadrature weights. When provided, ``surface_weights[p]`` is the
+ * absolute mapped face Jacobian determinant at the same point. ``u_I(g_p)`` is
+ * the sampled element-frame component of the datum at the canonical face points
+ * and ``B_j`` is the element basis of the traced component. At k equal to the element dimension
  * (single datum component) the sign reduces to the outward orientation
  * ``s * (-1)^a`` of the previous scalar-chain-integral behavior.
  *

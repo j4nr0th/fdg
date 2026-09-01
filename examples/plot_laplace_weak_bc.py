@@ -2,7 +2,7 @@ r"""
 .. currentmodule:: fdg
 
 Mixed Laplace equation with fully-weak Dirichlet boundary conditions.
-====================================================================
+=====================================================================
 
 Solves the mixed Laplace equation on a single cubic element in three
 dimensions with a *fully weak* Dirichlet boundary condition: the natural
@@ -34,7 +34,7 @@ as diagonal space maps:
 
 1. the identity map (no metric contribution),
 2. mirror maps that flip one or more axes, so the map Jacobian determinant is
-   exactly :math:`-1` on every face while |det| stays unity,
+   exactly :math:`-1` on every face while :math:`|\det J|` stays unity,
 3. anisotropic scaling by three different positive factors,
 4. a curved boundary-deforming map, where metric terms become point-dependent.
 

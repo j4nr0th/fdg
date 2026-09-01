@@ -1759,17 +1759,20 @@ def transform_kform_to_target_sampled(
 ) -> npt.NDArray[np.double]:
     """Transform k-form values based on a sampled space mapping.
 
+    0-forms do not need a coordinate transformation. This function therefore
+    accepts only orders greater than zero; handle order-zero values directly.
+
     Parameters
     ----------
     order : int
-        Order of the k-form being transformed.
+        Order of the k-form being transformed. Must be at least 1.
 
     smap : SampledSpaceMap
         Mapping between the reference and target domain to use.
 
     components : array_like
         Array with values of components of the k-form in the reference domain at
-        integration points associated with the space mapping.
+        the sampled points associated with the space mapping.
 
     out : array, optional
         Array to use to store the output in.
