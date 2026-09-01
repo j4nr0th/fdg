@@ -11,12 +11,62 @@ from fdg._fdg import (
     IntegrationSpace,
     IntegrationSpecs,
     KFormSpecs,
+    SampledSpaceMap,
     SpaceMap,
     transform_contravariant_to_target,
 )
 from fdg.enum_type import BasisType
 
 _TEST_ORDERS = (1, 2, 5, 10)
+
+
+@pytest.mark.parametrize(("ndim", "mdim"), ((1, 1), (2, 2), (3, 3), (4, 5), (1, 3)))
+def test_sample_space_map(
+    ndim: int, mdim: int, min_order: int = 1, max_order: int = 5
+) -> None:
+    """Check sampled space maps exactly interpolate the underlying coordinate maps.
+
+    Parameters
+    ----------
+    ndim : int
+        The number of input dimensions for the space map.
+
+    mdim : int
+        The number of output dimensions for the space map.
+
+    min_order : int, default: 1
+        The minimum order of the basis functions to use for the function space.
+
+    max_order : int, default: 5
+        The maximum order of the basis functions to use for the function space.
+    """
+    rng = np.random.default_rng(2198)
+    orders = rng.integers(low=min_order, high=max_order + 1, size=ndim)
+    fs_dofs = FunctionSpace(
+        # Must use uniform basis since sampled map re-interpolates on an uniform grid
+        *(BasisSpecs(BasisType.LAGRANGE_UNIFORM, order) for order in orders)
+    )
+    # Create degrees of freedom for each output dimension, with random values
+    dofs = [DegreesOfFreedom(fs_dofs, rng.random(size=orders + 1)) for _ in range(mdim)]
+    # Create the integration space. Type does not matter, but order must be at least as
+    # the function space to interpolate exactly.
+    int_space = IntegrationSpace(*(IntegrationSpecs(order) for order in orders))
+    # Create coordinate maps
+    coord_maps = [CoordinateMap(dof, int_space) for dof in dofs]
+    # Create the space map
+    space_map = SpaceMap(*coord_maps)
+
+    # Sample the space map
+    sampled_map = SampledSpaceMap(space_map, orders)
+
+    pos = sampled_map.positions
+    # Positions on the sampled map are uniform in the reference space, so since we used
+    # uniform Lagrange basis, these should be the same as the original degrees of freedom
+    # for each coordinate map.
+    for i, dof in enumerate(dofs):
+        coords = pos[..., i]
+        dof_vals = dof.values.reshape(coords.shape)
+        assert pytest.approx(coords) == dof_vals
 
 
 @pytest.mark.parametrize("int_order", _TEST_ORDERS)
@@ -718,3 +768,7 @@ def test_contravariant_3d(
     manual_contravariant = np.reshape(flat_contravariant, contravariant.shape)
 
     assert pytest.approx(manual_contravariant) == contravariant
+
+
+if __name__ == "__main__":
+    test_sample_space_map(ndim=1, mdim=1, min_order=2, max_order=2)

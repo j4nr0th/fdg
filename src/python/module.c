@@ -17,6 +17,7 @@
 #include "mappings.h"
 #include "mass_matrices.h"
 #include "mesh_objects.h"
+#include "sampled_space_map.h"
 
 // Topology
 #include "../constraints/constraints.h"
@@ -131,7 +132,9 @@ static int interplib_add_types(PyObject *mod)
         (module_state->kform_specs_type = cpyutl_add_type_from_spec_to_module(mod, &kform_spec_type_spec, NULL)) ==
             NULL ||
         (module_state->kform_type = cpyutl_add_type_from_spec_to_module(mod, &kform_type_spec, NULL)) == NULL ||
-        (module_state->mesh_type = cpyutl_add_type_from_spec_to_module(mod, &mesh_type_spec, NULL)) == NULL)
+        (module_state->mesh_type = cpyutl_add_type_from_spec_to_module(mod, &mesh_type_spec, NULL)) == NULL ||
+        (module_state->sampled_space_mapping_type =
+             cpyutl_add_type_from_spec_to_module(mod, &sampled_space_map_type_spec, NULL)) == NULL)
     {
         return -1;
     }
@@ -149,7 +152,7 @@ static int interplib_add_functions(PyObject *mod)
 
     if (PyModule_AddFunctions(mod, mass_matrices_methods) < 0 || PyModule_AddFunctions(mod, constraint_methods) < 0 ||
         PyModule_AddFunctions(mod, incidence_methods) < 0 || PyModule_AddFunctions(mod, transformation_functions) < 0 ||
-        PyModule_AddFunctions(mod, general_methods) < 0)
+        PyModule_AddFunctions(mod, sampled_space_map_methods) < 0 || PyModule_AddFunctions(mod, general_methods) < 0)
         return -1;
 
     return 0;

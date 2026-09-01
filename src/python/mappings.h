@@ -2,6 +2,7 @@
 #define FDG_MAPPINGS_H
 
 #include "../integration/integration_rules.h"
+#include "../operations/matrices.h"
 #include "module.h"
 
 typedef struct
@@ -9,9 +10,11 @@ typedef struct
     PyObject_VAR_HEAD;
     unsigned ndim;
     integration_spec_t *int_specs;
+    // TODO: This is dirty. Clean it up!
     PyObject *dofs;
     PyObject *integration_registry;
     PyObject *basis_registry;
+    //
     double values[];
 } coordinate_map_object;
 
@@ -89,5 +92,44 @@ extern PyMethodDef transformation_functions[];
 
 FDG_INTERNAL
 PyArrayObject *compute_basis_transform_impl(const space_map_object *map, const Py_ssize_t order);
+
+/**
+ * Compute the inverse transformation from the Jacobian matrix.
+ *
+ * Inverts the jacobian matrix using QR decomposition and computes the determinant.
+ * The inverse transformation is stored in the output matrix.
+ *
+ * @param jacobian The Jacobian matrix to invert. Overwritten during the QR decomposition. Must have dimensions (rows,
+ * cols).
+ * @param q_matrix The Q matrix from the QR decomposition of the Jacobian. Must have dimensions (rows, rows).
+ * @param out_matrix The output matrix to store the inverse transformation. Must have dimensions (cols, rows).
+ * @returns The determinant of the Jacobian matrix.
+ */
+FDG_INTERNAL
+double compute_inverse_transform(const matrix_t jacobian, const matrix_t q_matrix, const matrix_t out_matrix);
+
+/**
+ * Compute the transformation factors for k-form basis from the inverse maps.
+ *
+ * The inverse maps must be stored point-major, with n_dims * n_maps row-major entries
+ * per point (rows corresponding to the reference dimensions and columns to the physical
+ * dimensions).
+ *
+ * @param n_dims Number of dimensions of the reference space.
+ * @param n_maps Number of coordinates (physical dimensions).
+ * @param order Order of the k-form basis.
+ * @param inverse_maps Point-major array of the inverse map entries.
+ * @param determinant Array of n_pts determinants.
+ * @param n_pts Number of points.
+ * @param out Output array of combination_total_count(n_dims, order) *
+ *            combination_total_count(n_maps, order) * n_pts values, ordered with the
+ *            input component index as the slowest and the point index as the fastest.
+ *
+ * @return 0 on success, -1 on allocation failure (with a Python exception set).
+ */
+FDG_INTERNAL
+int compute_basis_transform_from_inverse(const unsigned n_dims, const unsigned n_maps, const unsigned order,
+                                         const double *inverse_maps, const double *determinant, const size_t n_pts,
+                                         double *out);
 
 #endif // FDG_MAPPINGS_H

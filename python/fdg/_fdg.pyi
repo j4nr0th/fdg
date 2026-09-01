@@ -1125,6 +1125,81 @@ class SpaceMap:
         """
         ...
 
+@final
+class SampledSpaceMap:
+    """Mapping between reference space and target space, sampled from a SpaceMap.
+
+    A mapping from the reference space to the target space, which maps the
+    :math:`N`-dimensional reference space to an :math:`M`-dimensional
+    physical space. The purpose of this mapping is to provide easier
+    visualization with VTK and other tools that want uniformly sampled data.
+
+    As such, it cannot be used for integration, only mapping k-forms to the
+    target space. It can however be reused for multiple k-forms, as long as
+    they are reconstructed on the appropriate uniform grid.
+
+    Note that due to how the interpolation works, if the orders are lower than
+    the orders of the actual coordinate map, the resulting sampled map will
+    not be accurate. Otherwise, the accuracy of the sampled map is almost
+    machine precision, since coordinate maps are defined with polynomial basis.
+
+    Parameters
+    ----------
+    space_map : SpaceMap
+        Mapping of the space in which we sample.
+
+    orders : Sequence[int]
+        Orders of the sampling in each dimension. The number of orders must match
+        the number of input dimensions of the space map. Must not be negative.
+
+    integration_registry : IntegrationRegistry, optional
+        Registry to get the integration rules from. When omitted, the default
+        registry is used.
+    """
+
+    def __new__(
+        cls,
+        space_map: SpaceMap,
+        orders: Sequence[int],
+        integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
+    ) -> Self: ...
+    @property
+    def orders(self) -> tuple[int, ...]:
+        """Orders of the sampling in each dimension."""
+        ...
+    @property
+    def input_dimensions(self) -> int:
+        """Dimension of the input/reference space."""
+        ...
+
+    @property
+    def output_dimensions(self) -> int:
+        """Dimension of the output/physical space."""
+        ...
+
+    @property
+    def determinant(self) -> npt.NDArray[np.double]:
+        """Array with the values of determinant at sampled points."""
+        ...
+
+    @property
+    def positions(self) -> npt.NDArray[np.double]:
+        """Array with the positions of the sampled points in the physical space."""
+        ...
+
+    @property
+    def inverse_map(self) -> npt.NDArray[np.double]:
+        """Local inverse transformation at each sampled point.
+
+        This array contains inverse mapping matrix, which is used
+        for the contravarying components. When the dimension of the
+        mapping space (as counted by :meth:`SpaceMap.output_dimensions`)
+        is greater than the dimension of the reference space, this is a
+        rectangular matrix, such that it maps the (rectangular) Jacobian
+        to the identity matrix.
+        """
+        ...
+
 def _scale_array_boundary(arr: npt.ArrayLike, /) -> npt.NDArray[np.double]:
     """Scale the array based on how many N-dimensional boundaries an entry appears.
 
@@ -1628,6 +1703,37 @@ def transform_kform_to_target(
         Order of the k-form being transformed.
 
     smap : SpaceMap
+        Mapping between the reference and target domain to use.
+
+    components : array_like
+        Array with values of components of the k-form in the reference domain at
+        integration points associated with the space mapping.
+
+    out : array, optional
+        Array to use to store the output in.
+
+    Returns
+    -------
+    array
+        Array with values of the components in the physical space.
+    """
+    ...
+
+def transform_kform_to_target_sampled(
+    order: int,
+    smap: SampledSpaceMap,
+    components: npt.ArrayLike,
+    *,
+    out: npt.NDArray[np.double] | None = None,
+) -> npt.NDArray[np.double]:
+    """Transform k-form values based on a sampled space mapping.
+
+    Parameters
+    ----------
+    order : int
+        Order of the k-form being transformed.
+
+    smap : SampledSpaceMap
         Mapping between the reference and target domain to use.
 
     components : array_like

@@ -1,6 +1,5 @@
 #include "mappings.h"
 
-#include "../operations/matrices.h"
 #include "basis_objects.h"
 #include "cutl/iterators/combination_iterator.h"
 #include "cutl/iterators/permutation_iterator.h"
@@ -323,11 +322,49 @@ static void space_map_object_dealloc(PyObject *self)
     Py_DECREF(type);
 }
 
+double compute_inverse_transform(const matrix_t jacobian, const matrix_t q_matrix, const matrix_t out_matrix)
+{
+    const unsigned rows = jacobian.rows;
+    const unsigned cols = jacobian.cols;
+
+    CPYUTL_ASSERT(q_matrix.rows == rows && q_matrix.cols == rows, "Q matrix dimensions do not match Jacobian.");
+    CPYUTL_ASSERT(out_matrix.rows == cols && out_matrix.cols == rows,
+                  "Output matrix dimensions do not match Jacobian.");
+
+    // Decompose Jacobian into QR decomposition
+    fdg_result_t res = matrix_qr_decompose(&jacobian, &q_matrix);
+    (void)res;
+    CPYUTL_ASSERT(res == FDG_SUCCESS, "QR decomposition failed.");
+    // Compute the determinant from the diagonal of the matrix
+    double det = 1;
+    for (unsigned i = 0; i < cols; ++i)
+    {
+        det *= jacobian.values[i * cols + i];
+    }
+
+    // Copy the top part of q into out
+    for (unsigned irow = 0; irow < cols; ++irow)
+    {
+        for (unsigned icol = 0; icol < rows; ++icol)
+        {
+            out_matrix.values[irow * rows + icol] = q_matrix.values[irow * rows + icol];
+        }
+    }
+
+    // Use decomposition to compute "inverse". This is done simply by applying inverse of the
+    // upper triangular (rows x rows) part of the jacobian to the matrix q_mat.
+    res = matrix_back_substitute(&jacobian, &out_matrix);
+    CPYUTL_ASSERT(res == FDG_SUCCESS, "Back substitution failed.");
+    (void)res;
+    return det;
+}
+
 static void calculate_determinants_and_inverse_maps(
     const unsigned n_dim, const unsigned n_maps, const coordinate_map_object *maps[static n_maps],
     const size_t total_points, double determinant[restrict const total_points], const size_t jacobian_size,
     double inverse_maps[restrict const total_points * jacobian_size], double jacobian[restrict const jacobian_size],
     double q_mat[restrict const n_maps * n_maps])
+
 {
     // Now we iterate over all the points
     for (size_t i_pt = 0; i_pt < total_points; ++i_pt)
@@ -339,41 +376,18 @@ static void calculate_determinants_and_inverse_maps(
         {
             for (unsigned jdim = 0; jdim < cols; ++jdim)
             {
+                // The block at (coordinate * n_dim + dimension) contains the derivative of the
+                // coordinate with respect to the reference dimension at every point.
                 jacobian[idim * cols + jdim] = coordinate_map_gradient(maps[idim], jdim)[i_pt];
             }
         }
 
+        double *const p_inv_map = inverse_maps + i_pt * jacobian_size;
         const matrix_t jacobian_mat = (matrix_t){.rows = rows, .cols = cols, .values = jacobian};
         const matrix_t q_matrix = (matrix_t){.rows = rows, .cols = rows, .values = q_mat};
-
-        // Decompose Jacobian into QR decomposition
-        fdg_result_t res = matrix_qr_decompose(&jacobian_mat, &q_matrix);
-        (void)res;
-        CPYUTL_ASSERT(res == FDG_SUCCESS, "QR decomposition failed.");
-        // Compute the determinant from the diagonal of the matrix
-        double det = 1;
-        for (unsigned i = 0; i < cols; ++i)
-        {
-            det *= jacobian[i * cols + i];
-        }
-        determinant[i_pt] = det;
-
-        double *const p_inv_map = inverse_maps + i_pt * jacobian_size;
         const matrix_t out_mat = (matrix_t){.rows = cols, .cols = rows, .values = p_inv_map};
-        // Copy the top part of q into out
-        for (unsigned irow = 0; irow < cols; ++irow)
-        {
-            for (unsigned icol = 0; icol < rows; ++icol)
-            {
-                p_inv_map[irow * rows + icol] = q_mat[irow * rows + icol];
-            }
-        }
 
-        // Use decomposition to compute "inverse". This is done simply by applying inverse of the
-        // upper triangular (rows x rows) part of the jacobian to the matrix q_mat.
-        res = matrix_back_substitute(&jacobian_mat, &out_mat);
-        CPYUTL_ASSERT(res == FDG_SUCCESS, "Back substitution failed.");
-        (void)res;
+        determinant[i_pt] = compute_inverse_transform(jacobian_mat, q_matrix, out_mat);
     }
 }
 
@@ -746,24 +760,37 @@ PyArrayObject *compute_basis_transform_impl(const space_map_object *map, const P
     if (!res)
         return NULL;
 
+    if (compute_basis_transform_from_inverse(n_dims, n_maps, (unsigned)order, map->inverse_maps, map->determinant,
+                                             total_points, PyArray_DATA(res)) < 0)
+    {
+        Py_DECREF(res);
+        return NULL;
+    }
+    map->transformations[order - 1] = res;
+    Py_INCREF(res);
+    return res;
+}
+
+int compute_basis_transform_from_inverse(const unsigned n_dims, const unsigned n_maps, const unsigned order,
+                                         const double *inverse_maps, const double *determinant, const size_t n_pts,
+                                         double *out)
+{
     if (order == 1)
     {
-        Py_BEGIN_ALLOW_THREADS;
         // Special case: transformation is just the space map
+        Py_BEGIN_ALLOW_THREADS;
         for (size_t i_in = 0; i_in < n_dims; ++i_in)
             for (size_t i_out = 0; i_out < n_maps; ++i_out)
-                for (size_t i_pt = 0; i_pt < total_points; ++i_pt)
-                    *(double *)PyArray_GETPTR3(res, i_in, i_out, i_pt) =
-                        space_map_backward_derivative(map, i_pt, i_in, i_out);
+                for (size_t i_pt = 0; i_pt < n_pts; ++i_pt)
+                    out[(i_in * n_maps + i_out) * n_pts + i_pt] =
+                        inverse_maps[i_pt * (n_dims * n_maps) + i_in * n_maps + i_out];
         Py_END_ALLOW_THREADS;
     }
     else if (order == n_maps)
     {
-        npy_double *const ptr = PyArray_DATA(res);
         Py_BEGIN_ALLOW_THREADS;
-        // Special case: transformation is just the space map
-        for (size_t i_pt = 0; i_pt < total_points; ++i_pt)
-            ptr[i_pt] = (1 / map->determinant[i_pt]);
+        for (size_t i_pt = 0; i_pt < n_pts; ++i_pt)
+            out[i_pt] = 1 / determinant[i_pt];
         Py_END_ALLOW_THREADS;
     }
     else // (order != 1 && order != n_maps)
@@ -780,13 +807,9 @@ PyArrayObject *compute_basis_transform_impl(const space_map_object *map, const P
                 {},
             });
         if (!mem)
-        {
-            Py_DECREF(res);
-            return NULL;
-        }
+            return -1;
 
         Py_BEGIN_ALLOW_THREADS;
-
         size_t idx_in = 0;
         // Iterate over bases in the inputs space
         combination_iterator_init(iter_in_comb, n_dims, order);
@@ -802,8 +825,8 @@ PyArrayObject *compute_basis_transform_impl(const space_map_object *map, const P
                 // Indices of current output dimensions.
                 const uint8_t *const current_out = combination_iterator_current(iter_out_comb);
 
-                // Loop over integration points
-                for (size_t idx_pt = 0; idx_pt < total_points; ++idx_pt)
+                // Loop over points
+                for (size_t idx_pt = 0; idx_pt < n_pts; ++idx_pt)
                 {
                     // Total transformation coefficient, which we will accumulate for each possible basis.
                     double val = 0.0;
@@ -821,12 +844,9 @@ PyArrayObject *compute_basis_transform_impl(const space_map_object *map, const P
                         {
                             const unsigned idx_coord = current_out[current_perm[idim]];
                             const unsigned idx_dim = current_in[idim];
-                            // AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-                            const double contribution = space_map_backward_derivative(map, idx_pt, idx_dim, idx_coord);
+                            const double contribution =
+                                inverse_maps[idx_pt * (n_dims * n_maps) + idx_dim * n_maps + idx_coord];
                             basis_contribution *= contribution;
-                            // printf("Adding contribution of dxi_%u/dx_%u=%g to element(%zu, %zu, %zu)\n", idx_dim,
-                            // idx_coord,
-                            //        contribution, idx_in, idx_out, idx_pt);
                         }
 
                         // Check if we flip the sign (meaning subtract) for this contribution.
@@ -841,8 +861,7 @@ PyArrayObject *compute_basis_transform_impl(const space_map_object *map, const P
 
                         permutation_iterator_next(iter_out_perm);
                     }
-                    *(double *)PyArray_GETPTR3(res, idx_in, idx_out, idx_pt) = val;
-                    // ptr_out[idx_in * out_dims[1] * out_dims[2] + idx_out * out_dims[2] + idx_pt] = val;
+                    out[(idx_in * combination_total_count(n_maps, order) + idx_out) * n_pts + idx_pt] = val;
                 }
 
                 idx_out += 1;
@@ -852,15 +871,11 @@ PyArrayObject *compute_basis_transform_impl(const space_map_object *map, const P
             idx_in += 1;
             combination_iterator_next(iter_in_comb);
         }
-        Py_END_ALLOW_THREADS;
 
+        Py_END_ALLOW_THREADS;
         cutl_dealloc(&PYTHON_ALLOCATOR, mem);
     }
-
-    Py_INCREF(res);
-    map->transformations[order - 1] = res;
-
-    return res;
+    return 0;
 }
 
 static PyObject *space_map_basis_transform(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,

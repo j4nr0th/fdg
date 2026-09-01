@@ -64,6 +64,7 @@ typedef struct
     PyTypeObject *degrees_of_freedom_type;
     PyTypeObject *coordinate_mapping_type;
     PyTypeObject *space_mapping_type;
+    PyTypeObject *sampled_space_mapping_type;
 
     // Default Registries
     PyObject *registry_integration;
