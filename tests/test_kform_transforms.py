@@ -133,6 +133,10 @@ def test_kforms(n: int, dm: int) -> None:
         values_kform = rng.random((comp_cnt_in, *int_space_shape))
 
         transformed = transform_kform_to_target(k, space_map, values_kform)
+        output = np.empty_like(transformed)
+        returned = transform_kform_to_target(k, space_map, values_kform, out=output)
+        assert returned is output
+        np.testing.assert_allclose(output, transformed)
         per_component = np.zeros_like(transformed)
         for i in range(comp_cnt_in):
             cv = transform_kform_component_to_target(
