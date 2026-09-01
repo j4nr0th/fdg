@@ -57,7 +57,7 @@ def test_sample_space_map(
     space_map = SpaceMap(*coord_maps)
 
     # Sample the space map
-    sampled_map = SampledSpaceMap(space_map, orders)
+    sampled_map = SampledSpaceMap.on_uniform_grid(space_map, orders)
 
     pos = sampled_map.positions
     # Positions on the sampled map are uniform in the reference space, so since we used

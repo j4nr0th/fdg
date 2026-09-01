@@ -9,6 +9,7 @@
 #include "integration_objects.h"
 #include <cutl/iterators/combination_iterator.h>
 
+#include <limits.h>
 static PyObject *sampled_space_map_get_orders(PyObject *self, void *Py_UNUSED(closure))
 {
     const sampled_space_map_object *const this = (sampled_space_map_object *)self;
@@ -174,36 +175,115 @@ static void sampled_space_map_dealloc(PyObject *self)
     Py_DECREF(type);
 }
 
-PyDoc_STRVAR(sampled_space_map_doc, "SampledSpaceMap(space_map: SpaceMap, orders: Sequence[int], integration_registry: "
-                                    "IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY)\n"
-                                    "Mapping between reference space and target space, sampled from a SpaceMap.\n"
-                                    "\n"
-                                    "A mapping from the reference space to the target space, which maps the\n"
-                                    ":math:`N`-dimensional reference space to an :math:`M`-dimensional\n"
-                                    "physical space. The purpose of this mapping is to provide easier\n"
-                                    "visualization with VTK and other tools that want uniformly sampled data.\n"
-                                    "\n"
-                                    "As such, it cannot be used for integration, only mapping k-forms to the\n"
-                                    "target space. It can however be reused for multiple k-forms, as long as\n"
-                                    "they are reconstructed on the appropriate uniform grid.\n"
-                                    "\n"
-                                    "Note that due to how the interpolation works, if the orders are lower than\n"
-                                    "the orders of the actual coordinate map, the resulting sampled map will\n"
-                                    "not be accurate. Otherwise, the accuracy of the sampled map is almost\n"
-                                    "machine precision, since coordinate maps are defined with polynomial basis.\n"
-                                    "\n"
-                                    "Parameters\n"
-                                    "----------\n"
-                                    "space_map : SpaceMap\n"
-                                    "    Mapping of the space in which we sample.\n"
-                                    "\n"
-                                    "orders : Sequence[int]\n"
-                                    "    Orders of the sampling in each dimension. The number of orders must match\n"
-                                    "    the number of input dimensions of the space map. Must not be negative.\n"
-                                    "\n"
-                                    "integration_registry : IntegrationRegistry, optional\n"
-                                    "    Registry to get the integration rules from. When omitted, the default\n"
-                                    "    registry is used.\n");
+PyDoc_STRVAR(sampled_space_map_doc,
+             "SampledSpaceMap(space_map: SpaceMap, samples: Sequence[Sequence[float] | array_like], "
+             "integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY)\n"
+             "Mapping between reference space and target space, sampled from a SpaceMap.\n"
+             "\n"
+             "A mapping from the reference space to the target space, which maps the\n"
+             ":math:`N`-dimensional reference space to an :math:`M`-dimensional\n"
+             "physical space. The purpose of this mapping is to provide easier\n"
+             "visualization with VTK and other tools that want sampled data.\n"
+             "\n"
+             "As such, it cannot be used for integration, only mapping k-forms to the\n"
+             "target space. It can however be reused for multiple k-forms, as long as\n"
+             "they are reconstructed on the same tensor grid.\n"
+             "\n"
+             "The samples need not be uniformly spaced. If the sample orders are lower\n"
+             "than the orders of the actual coordinate map, the resulting sampled map\n"
+             "will not be accurate. Otherwise, the accuracy is almost machine precision,\n"
+             "since coordinate maps are defined with polynomial basis.\n"
+             "\n"
+             "Parameters\n"
+             "----------\n"
+             "space_map : SpaceMap\n"
+             "    Mapping of the space in which we sample.\n"
+             "\n"
+             "samples : Sequence[Sequence[float] | array_like]\n"
+             "    One-dimensional sample coordinates for each reference dimension. The\n"
+             "    number of sample arrays must match the input dimension of the space map.\n"
+             "    The arrays define the tensor grid and may have different lengths.\n"
+             "\n"
+             "integration_registry : IntegrationRegistry, optional\n"
+             "    Registry to get the integration rules from. When omitted, the default\n"
+             "    registry is used.\n");
+
+PyDoc_STRVAR(sampled_space_map_uniform_doc,
+             "on_uniform_grid(space_map: SpaceMap, orders: Sequence[int], "
+             "integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY) -> SampledSpaceMap\n"
+             "Create a SampledSpaceMap on a uniform grid of points in the reference space.\n"
+             "\n"
+             "Parameters\n"
+             "----------\n"
+             "space_map : SpaceMap\n"
+             "    Mapping of the space in which we sample.\n"
+             "\n"
+             "orders : Sequence[int]\n"
+             "    Orders of the sampling in each dimension. The number of orders must match\n"
+             "    the number of input dimensions of the space map. Must not be negative.\n"
+             "\n"
+             "integration_registry : IntegrationRegistry, optional\n"
+             "    Registry to get the integration rules from. When omitted, the default\n"
+             "    registry is used.\n"
+             "\n"
+             "Returns\n"
+             "-------\n"
+             "SampledSpaceMap\n"
+             "    Sampled map evaluated on the requested uniform tensor grid.\n");
+
+static int sampled_space_map_parse_orders(PyObject *orders_obj, const unsigned ndim, unsigned **p_orders)
+{
+    PyObject *const orders_seq = PySequence_Fast(orders_obj, "orders must be a sequence.");
+    if (!orders_seq)
+        return -1;
+    if (PySequence_Fast_GET_SIZE(orders_seq) != (Py_ssize_t)ndim)
+    {
+        PyErr_Format(PyExc_ValueError,
+                     "orders must have the same length as the dimension of the SpaceMap (got %zd, expected %u).",
+                     PySequence_Fast_GET_SIZE(orders_seq), ndim);
+        Py_DECREF(orders_seq);
+        return -1;
+    }
+
+    unsigned *orders = NULL;
+    if (ndim != 0)
+    {
+        orders = PyMem_Malloc(sizeof(*orders) * ndim);
+        if (!orders)
+        {
+            Py_DECREF(orders_seq);
+            return -1;
+        }
+    }
+    for (unsigned d = 0; d < ndim; ++d)
+    {
+        const Py_ssize_t v = PyNumber_AsSsize_t(PySequence_Fast_GET_ITEM(orders_seq, d), PyExc_ValueError);
+        if (PyErr_Occurred())
+        {
+            PyMem_Free(orders);
+            Py_DECREF(orders_seq);
+            return -1;
+        }
+        if (v < 0)
+        {
+            PyErr_Format(PyExc_ValueError, "orders[%u] must be >= 0 (got %zd).", d, v);
+            PyMem_Free(orders);
+            Py_DECREF(orders_seq);
+            return -1;
+        }
+        if (v > (Py_ssize_t)UINT_MAX)
+        {
+            PyErr_Format(PyExc_OverflowError, "orders[%u] is too large (got %zd).", d, v);
+            PyMem_Free(orders);
+            Py_DECREF(orders_seq);
+            return -1;
+        }
+        orders[d] = (unsigned)v;
+    }
+    Py_DECREF(orders_seq);
+    *p_orders = orders;
+    return 0;
+}
 
 static PyObject *sampled_space_map_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 {
@@ -212,62 +292,137 @@ static PyObject *sampled_space_map_new(PyTypeObject *type, PyObject *args, PyObj
         return NULL;
 
     space_map_object *smap = NULL;
+    PyObject *samples_obj = NULL;
+    integration_registry_object *const registry_obj = (integration_registry_object *)state->registry_integration;
+    if (!PyArg_ParseTupleAndKeywords(
+            args, kwds, "O!O|O!", (char *[]){"space_map", "samples", "integration_registry", NULL},
+            state->space_mapping_type, &smap, &samples_obj, state->integration_registry_type, &registry_obj))
+        return NULL;
+
+    const unsigned ndim = smap->ndim;
+    PyObject *const samples_seq = PySequence_Fast(samples_obj, "samples must be a sequence.");
+    if (!samples_seq)
+        return NULL;
+    if (PySequence_Fast_GET_SIZE(samples_seq) != (Py_ssize_t)ndim)
+    {
+        PyErr_Format(PyExc_ValueError,
+                     "samples must have the same length as the dimension of the SpaceMap (got %zd, expected %u).",
+                     PySequence_Fast_GET_SIZE(samples_seq), ndim);
+        Py_DECREF(samples_seq);
+        return NULL;
+    }
+
+    PyArrayObject **const sample_arrays = ndim ? PyMem_Malloc(sizeof(*sample_arrays) * ndim) : NULL;
+    if (ndim != 0 && !sample_arrays)
+    {
+        Py_DECREF(samples_seq);
+        return NULL;
+    }
+    for (unsigned d = 0; d < ndim; ++d)
+        sample_arrays[d] = NULL;
+
+    unsigned converted = 0;
+    size_t sample_count = 0;
+    for (; converted < ndim; ++converted)
+    {
+        sample_arrays[converted] = (PyArrayObject *)PyArray_FROMANY(PySequence_Fast_GET_ITEM(samples_seq, converted),
+                                                                    NPY_DOUBLE, 1, 1, NPY_ARRAY_IN_ARRAY);
+        if (!sample_arrays[converted])
+            break;
+        const npy_intp count = PyArray_SIZE(sample_arrays[converted]);
+        if (count == 0)
+        {
+            PyErr_Format(PyExc_ValueError, "samples[%u] must not be empty.", converted);
+            break;
+        }
+        if (count - 1 > (npy_intp)UINT_MAX)
+        {
+            PyErr_Format(PyExc_OverflowError, "samples[%u] has too many points.", converted);
+            break;
+        }
+        sample_count += (size_t)count;
+    }
+    if (converted != ndim)
+    {
+        for (unsigned d = 0; d < ndim; ++d)
+            Py_XDECREF(sample_arrays[d]);
+        PyMem_Free(sample_arrays);
+        Py_DECREF(samples_seq);
+        return NULL;
+    }
+
+    double *const samples = PyMem_Malloc(sizeof(*samples) * sample_count);
+    unsigned *const orders = ndim ? PyMem_Malloc(sizeof(*orders) * ndim) : NULL;
+    if ((sample_count != 0 && !samples) || (ndim != 0 && !orders))
+    {
+        PyMem_Free(samples);
+        PyMem_Free(orders);
+        for (unsigned d = 0; d < ndim; ++d)
+            Py_XDECREF(sample_arrays[d]);
+        PyMem_Free(sample_arrays);
+        Py_DECREF(samples_seq);
+        return NULL;
+    }
+
+    size_t offset = 0;
+    for (unsigned d = 0; d < ndim; ++d)
+    {
+        const size_t count = (size_t)PyArray_SIZE(sample_arrays[d]);
+        orders[d] = (unsigned)(count - 1);
+        memcpy(samples + offset, PyArray_DATA(sample_arrays[d]), sizeof(*samples) * count);
+        offset += count;
+        Py_DECREF(sample_arrays[d]);
+    }
+    PyMem_Free(sample_arrays);
+    Py_DECREF(samples_seq);
+
+    sampled_space_map_object *const res = sampled_space_map_create(type, smap, orders, samples, registry_obj->registry);
+    PyMem_Free(orders);
+    PyMem_Free(samples);
+    return (PyObject *)res;
+}
+
+static PyObject *sampled_space_map_on_uniform_grid(PyObject *cls, PyObject *args, PyObject *kwds)
+{
+    const interplib_module_state_t *const state = interplib_get_module_state((PyTypeObject *)cls);
+    if (!state)
+        return NULL;
+
+    space_map_object *smap = NULL;
     PyObject *orders_obj = NULL;
     integration_registry_object *const registry_obj = (integration_registry_object *)state->registry_integration;
-
     if (!PyArg_ParseTupleAndKeywords(
             args, kwds, "O!O|O!", (char *[]){"space_map", "orders", "integration_registry", NULL},
             state->space_mapping_type, &smap, &orders_obj, state->integration_registry_type, &registry_obj))
         return NULL;
 
-    const unsigned ndim = smap->ndim;
-    PyObject *const orders_seq = PySequence_Fast(orders_obj, "orders must be a sequence.");
-    if (!orders_seq)
+    unsigned *orders = NULL;
+    if (sampled_space_map_parse_orders(orders_obj, smap->ndim, &orders) < 0)
         return NULL;
-    if (PySequence_Fast_GET_SIZE(orders_seq) != (Py_ssize_t)ndim)
-    {
-        PyErr_Format(PyExc_ValueError,
-                     "orders must have the same length as the dimension of the SpaceMap (got %zd, expected %u).",
-                     PySequence_Fast_GET_SIZE(orders_seq), ndim);
-        Py_DECREF(orders_seq);
-        return NULL;
-    }
-    unsigned *const orders = PyMem_Malloc(sizeof(unsigned) * ndim);
-    if (!orders)
-    {
-        Py_DECREF(orders_seq);
-        return NULL;
-    }
-
-    for (unsigned d = 0; d < ndim; ++d)
-    {
-        const Py_ssize_t v = PyNumber_AsSsize_t(PySequence_Fast_GET_ITEM(orders_seq, d), PyExc_ValueError);
-
-        if (PyErr_Occurred())
-        {
-            PyMem_Free(orders);
-            Py_DECREF(orders_seq);
-            return NULL;
-        }
-        if (v < 0)
-        {
-            PyErr_Format(PyExc_ValueError, "orders[%u] must be >= 0 (got %zd).", d, v);
-            PyMem_Free(orders);
-            Py_DECREF(orders_seq);
-            return NULL;
-        }
-        orders[d] = (unsigned)v;
-    }
-    Py_DECREF(orders_seq);
-    sampled_space_map_object *const res = sampled_space_map_create(type, smap, orders, registry_obj->registry);
+    sampled_space_map_object *const res =
+        sampled_space_map_create((PyTypeObject *)cls, smap, orders, NULL, registry_obj->registry);
     PyMem_Free(orders);
     return (PyObject *)res;
 }
 
+static PyMethodDef sampled_space_map_type_methods[] = {
+    {
+        .ml_name = "on_uniform_grid",
+        .ml_meth = (void *)sampled_space_map_on_uniform_grid,
+        .ml_flags = METH_CLASS | METH_VARARGS | METH_KEYWORDS,
+        .ml_doc = sampled_space_map_uniform_doc,
+    },
+    {},
+};
+
 static PyType_Slot sampled_space_map_type_slots[] = {
-    {Py_tp_new, sampled_space_map_new},         {Py_tp_dealloc, sampled_space_map_dealloc},
-    {Py_tp_traverse, heap_type_traverse_type},  {Py_tp_getset, sampled_space_map_getsetters},
-    {Py_tp_doc, (void *)sampled_space_map_doc}, {0, NULL},
+    {Py_tp_new, sampled_space_map_new},
+    {Py_tp_dealloc, sampled_space_map_dealloc},
+    {Py_tp_traverse, heap_type_traverse_type},
+    {Py_tp_getset, sampled_space_map_getsetters},
+    {Py_tp_methods, sampled_space_map_type_methods},
+    {Py_tp_doc, (void *)sampled_space_map_doc},
+    {0, NULL},
 };
 
 PyType_Spec sampled_space_map_type_spec = {
@@ -570,7 +725,7 @@ PyMethodDef sampled_space_map_methods[] = {
 };
 
 sampled_space_map_object *sampled_space_map_create(PyTypeObject *type, space_map_object *map, const unsigned *orders,
-                                                   integration_rule_registry_t *registry)
+                                                   const double *samples, integration_rule_registry_t *registry)
 {
     const unsigned ndim_in = map->ndim;
     const unsigned ndim_out = Py_SIZE(map);
@@ -607,199 +762,124 @@ sampled_space_map_object *sampled_space_map_create(PyTypeObject *type, space_map
     for (unsigned d = 0; d < ndim_in; ++d)
         this->orders[d] = orders[d];
 
-    // Get unique orders (out and int) sorted in ascending order
-    typedef struct
+    // Store one interpolation matrix per input dimension. The matrix layout is
+    // input-node-major, with the sampled-node index varying fastest.
+    size_t transformation_size = 0;
+    size_t nodes_in = 1;
+    unsigned max_out_order = 0;
+    for (unsigned d = 0; d < ndim_in; ++d)
     {
-        unsigned order_out;           // Order of the output grid for this dimension
-        unsigned order_int;           // Order of the integration rule for this dimension (input points)
-        integration_rule_type_t type; // Type of the integration rule for this dimension
-        unsigned source_dim;          // Source dimension providing the integration rule
-        unsigned offset;              // Offset in the output grid for this dimension
-    } interpolation_info_t;
-    interpolation_info_t *const unique_orders = PyMem_Malloc(sizeof(*unique_orders) * ndim_in);
-    if (!unique_orders)
+        const size_t n_out = (size_t)orders[d] + 1;
+        const size_t n_int = (size_t)map->int_specs[d].order + 1;
+        transformation_size += n_out * n_int;
+        nodes_in *= n_int;
+        if (orders[d] > max_out_order)
+            max_out_order = orders[d];
+    }
+    const size_t root_storage = samples ? 0 : (size_t)max_out_order + 1;
+    double *const axis_transformations =
+        PyMem_Malloc(sizeof(*axis_transformations) * (transformation_size + root_storage));
+    if (!axis_transformations)
     {
         Py_DECREF(this);
         return NULL;
     }
-    // Insertion sort will be fastest for such a small array
-    unsigned n_unique = 0, transformation_size = 0, max_out_order = 0, nodes_in = 1;
+
+    // Compute the interpolation matrices for each dimension.
+    const integration_rule_t **const rules = python_integration_rules_get(ndim_in, map->int_specs, registry);
+    if (!rules)
+    {
+        PyMem_Free(axis_transformations);
+        Py_DECREF(this);
+        return NULL;
+    }
+    double *const uniform_nodes = samples ? NULL : axis_transformations + transformation_size;
+    size_t axis_offset = 0;
+    size_t sample_offset = 0;
     for (unsigned d = 0; d < ndim_in; ++d)
     {
         const unsigned order_out = orders[d];
         const unsigned order_int = map->int_specs[d].order;
-        const integration_rule_type_t type = map->int_specs[d].type;
-        nodes_in *= order_int + 1;
-        unsigned i = 0;
-        while (i < n_unique && (unique_orders[i].order_out < order_out ||
-                                (unique_orders[i].order_out == order_out &&
-                                 (unique_orders[i].order_int < order_int ||
-                                  (unique_orders[i].order_int == order_int && unique_orders[i].type < type)))))
-            ++i;
-        if (i == n_unique || unique_orders[i].order_out != order_out || unique_orders[i].order_int != order_int ||
-            unique_orders[i].type != type)
+        const unsigned n_out = order_out + 1;
+        const unsigned n_int = order_int + 1;
+        const double *sample_nodes;
+        if (samples)
         {
-            // Shift elements to the right to make space for the new order
-            for (unsigned j = n_unique; j > i; --j)
-                unique_orders[j] = unique_orders[j - 1];
-            // Insert the new order
-            unique_orders[i].order_out = order_out;
-            unique_orders[i].order_int = order_int;
-            unique_orders[i].type = type;
-            unique_orders[i].source_dim = d;
-            unique_orders[i].offset = transformation_size; // Store the offset for this unique order
-            transformation_size += (order_out + 1) * (order_int + 1);
-            if (order_out > max_out_order)
-                max_out_order = order_out;
-            ++n_unique;
+            sample_nodes = samples + sample_offset;
         }
+        else
+        {
+            for (unsigned j = 0; j <= order_out; ++j)
+                uniform_nodes[j] = order_out == 0 ? 0.0 : (2.0 * (double)j) / (double)order_out - 1.0;
+            sample_nodes = uniform_nodes;
+        }
+        lagrange_polynomial_values_transposed_2(n_out, sample_nodes, n_int, integration_rule_nodes_const(rules[d]),
+                                                axis_transformations + axis_offset);
+        axis_offset += (size_t)n_out * n_int;
+        sample_offset += n_out;
     }
+    python_integration_rules_release(ndim_in, rules, registry);
 
-    // Allocate memory for the roots of the unique orders
-    const unsigned extra_nodes =
-        max_out_order + 1 > nodes_in * total_points ? max_out_order + 1 : nodes_in * total_points;
-    double *const axis_transformations = PyMem_Malloc(sizeof(double) * (transformation_size + extra_nodes));
-    if (!axis_transformations)
+    const size_t trans_size = (size_t)ndim_in * ndim_out;
+    matrix_t jacobian_mat = {.rows = ndim_out, .cols = ndim_in, .values = NULL};
+    matrix_t q_mat = {.rows = ndim_out, .cols = ndim_out, .values = NULL};
+    void *const work_ptr = cutl_alloc_group(
+        &SYSTEM_ALLOCATOR, (const cutl_alloc_info_t[]){
+                               {.size = sizeof(double) * ndim_in * ndim_out, .p_ptr = (void **)&jacobian_mat.values},
+                               {.size = sizeof(double) * ndim_out * ndim_out, .p_ptr = (void **)&q_mat.values},
+                               {},
+                           });
+    if (!work_ptr)
     {
-        PyMem_Free(unique_orders);
+        PyMem_Free(axis_transformations);
         Py_DECREF(this);
         return NULL;
     }
 
-    // We will reuse this for both output roots and full transformation matrix
-    double *const global_transformation = axis_transformations + transformation_size;
-    // Interpolation matrix computation
+    // Interpolate positions and forward transformation matrices together. This
+    // avoids allocating the dense tensor-product interpolation matrix.
+    for (size_t i_out = 0; i_out < total_points; ++i_out)
     {
-        // Get the integration rules for the space map's integration space
-        const integration_rule_t **const rules = python_integration_rules_get(ndim_in, map->int_specs, registry);
-        if (!rules)
+        for (unsigned idim_out = 0; idim_out < ndim_out; ++idim_out)
         {
-            PyMem_Free(axis_transformations);
-            PyMem_Free(unique_orders);
-            Py_DECREF(this);
-            return NULL;
+            this->positions[ndim_out * i_out + idim_out] = 0.0;
+            for (unsigned idim_in = 0; idim_in < ndim_in; ++idim_in)
+                jacobian_mat.values[idim_out * ndim_in + idim_in] = 0.0;
         }
 
-        // Compute per-axis matrices for each unique combination
-        unsigned current_root_order = ~0u; // Initialize to an invalid order
-        for (unsigned i = 0; i < n_unique; ++i)
+        for (size_t i_in = 0; i_in < nodes_in; ++i_in)
         {
-            const unsigned order_out = unique_orders[i].order_out;
-            const unsigned order_int = unique_orders[i].order_int;
-            const unsigned offset = unique_orders[i].offset;
-            // Prepare the uniform roots
-            if (current_root_order != order_out)
+            double weight = 1.0;
+            size_t output_stride = total_points;
+            size_t input_stride = nodes_in;
+            size_t matrix_offset = 0;
+            for (unsigned d = 0; d < ndim_in; ++d)
             {
-                // Uniformly spaced roots for the output grid
-                for (unsigned j = 0; j <= order_out; ++j)
-                    global_transformation[j] = order_out == 0 ? 0.0 : (2.0 * (double)j) / (double)order_out - 1.0;
-                current_root_order = order_out;
+                const unsigned n_out = orders[d] + 1;
+                const unsigned n_int = map->int_specs[d].order + 1;
+                output_stride /= n_out;
+                input_stride /= n_int;
+                const unsigned idx_out = (i_out / output_stride) % n_out;
+                const unsigned idx_in = (i_in / input_stride) % n_int;
+                weight *= axis_transformations[matrix_offset + (size_t)idx_in * n_out + idx_out];
+                matrix_offset += (size_t)n_out * n_int;
             }
-            const double *restrict int_nodes = integration_rule_nodes_const(rules[unique_orders[i].source_dim]);
-            // Compute the transformation matrix for this unique combination
-            lagrange_polynomial_values_transposed_2(order_out + 1, global_transformation, order_int + 1, int_nodes,
-                                                    axis_transformations + offset);
-        }
-        // Release the integration rules
-        python_integration_rules_release(ndim_in, rules, registry);
 
-        // Now assemble the global interpolation matrix for the entire space map.
-        // Both the output and input grids use row-major tensor-product ordering.
-        for (size_t i_out = 0; i_out < total_points; ++i_out)
-        {
-            for (size_t i_in = 0; i_in < nodes_in; ++i_in)
-            {
-                double val = 1.0;
-                size_t stride_out = total_points;
-                size_t stride_int = nodes_in;
-                for (unsigned idim = 0; idim < ndim_in; ++idim)
-                {
-                    unsigned idx_order = 0;
-                    for (unsigned j = 0; j < n_unique; ++j)
-                    {
-                        if (unique_orders[j].order_out == orders[idim] &&
-                            unique_orders[j].order_int == map->int_specs[idim].order &&
-                            unique_orders[j].type == map->int_specs[idim].type)
-                        {
-                            idx_order = j;
-                            break;
-                        }
-                    }
-                    ASSERT(idx_order < n_unique, "Unique order not found for dimension %u.", idim);
-                    const interpolation_info_t info = unique_orders[idx_order];
-                    stride_out /= info.order_out + 1;
-                    stride_int /= info.order_int + 1;
-                    const unsigned idx_out = (i_out / stride_out) % (info.order_out + 1);
-                    const unsigned idx_in = (i_in / stride_int) % (info.order_int + 1);
-                    const double *restrict axis_transform_matrix = axis_transformations + info.offset;
-                    val *= axis_transform_matrix[idx_in * (info.order_out + 1) + idx_out];
-                }
-                global_transformation[i_out * nodes_in + i_in] = val;
-            }
-        }
-    }
-    // No longer needed since we computed the full dense matrix
-    PyMem_Free(unique_orders);
-
-    // First interpolation: positions
-    for (unsigned idim_out = 0; idim_out < ndim_out; ++idim_out)
-    {
-        // Values of the coordinate map for the current output dimension
-        const double *const values = map->maps[idim_out]->values;
-        // Interpolate the values to the output grid
-        for (unsigned i = 0; i < total_points; ++i)
-        {
-            double val = 0.0;
-            for (unsigned j = 0; j < nodes_in; ++j)
-                val += global_transformation[i * nodes_in + j] * values[j];
-            this->positions[ndim_out * i + idim_out] = val;
-        }
-    }
-
-    // Second interpolation: transformation matrices (gradients)
-    {
-        const unsigned trans_size = ndim_in * ndim_out;
-        // Allocate memory for the work matrices
-        matrix_t jacobian_mat = {.rows = ndim_out, .cols = ndim_in, .values = NULL};
-        matrix_t q_mat = {.rows = ndim_out, .cols = ndim_out, .values = NULL};
-        void *const work_ptr = cutl_alloc_group(
-            &SYSTEM_ALLOCATOR,
-            (const cutl_alloc_info_t[]){
-                {.size = sizeof(double) * (ndim_in * ndim_out), .p_ptr = (void **)&jacobian_mat.values},
-                {.size = sizeof(double) * (ndim_out * ndim_out), .p_ptr = (void **)&q_mat.values},
-                {},
-            });
-        if (!work_ptr)
-        {
-            PyMem_Free(axis_transformations);
-            Py_DECREF(this);
-            return NULL;
-        }
-
-        for (unsigned i_out = 0; i_out < total_points; ++i_out)
-        {
-            const matrix_t out_mat = {
-                .rows = ndim_in, .cols = ndim_out, .values = this->inverse_maps + i_out * trans_size};
-            // Interpolate the forward transformation matrices (gradients) for each output dimension
             for (unsigned idim_out = 0; idim_out < ndim_out; ++idim_out)
+            {
+                const coordinate_map_object *const coordinate = map->maps[idim_out];
+                this->positions[ndim_out * i_out + idim_out] += weight * coordinate->values[i_in];
                 for (unsigned idim_in = 0; idim_in < ndim_in; ++idim_in)
-                {
-                    const double *const grad_vals = coordinate_map_gradient(map->maps[idim_out], idim_in);
-                    double val = 0.0;
-                    for (unsigned j = 0; j < nodes_in; ++j)
-                        val += global_transformation[i_out * nodes_in + j] * grad_vals[j];
-                    jacobian_mat.values[idim_out * ndim_in + idim_in] = val;
-                }
-
-            // Invert the forward transformation matrix
-            this->determinant[i_out] = compute_inverse_transform(jacobian_mat, q_mat, out_mat);
+                    jacobian_mat.values[idim_out * ndim_in + idim_in] +=
+                        weight * coordinate_map_gradient(coordinate, idim_in)[i_in];
+            }
         }
 
-        // Release the work memory
-        cutl_dealloc(&SYSTEM_ALLOCATOR, work_ptr);
+        const matrix_t out_mat = {.rows = ndim_in, .cols = ndim_out, .values = this->inverse_maps + i_out * trans_size};
+        this->determinant[i_out] = compute_inverse_transform(jacobian_mat, q_mat, out_mat);
     }
-    // Release the transformation matrix
-    PyMem_Free(axis_transformations);
 
+    cutl_dealloc(&SYSTEM_ALLOCATOR, work_ptr);
+    PyMem_Free(axis_transformations);
     return this;
 }

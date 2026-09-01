@@ -1148,9 +1148,12 @@ class SampledSpaceMap:
     space_map : SpaceMap
         Mapping of the space in which we sample.
 
-    orders : Sequence[int]
-        Orders of the sampling in each dimension. The number of orders must match
-        the number of input dimensions of the space map. Must not be negative.
+    samples : Sequence[Sequence[float] | _array_like]
+        Samples for each dimension at which the mapping is evaluated.
+        The number of sample arrays must match the number of input dimensions of the
+        input :class:`SpaceMap`.
+        It is recommended, the sample values be in the range [-1, 1] and monotonically
+        increasing, but if you know what you are doing, go ham.
 
     integration_registry : IntegrationRegistry, optional
         Registry to get the integration rules from. When omitted, the default
@@ -1160,9 +1163,37 @@ class SampledSpaceMap:
     def __new__(
         cls,
         space_map: SpaceMap,
-        orders: Sequence[int],
+        samples: Sequence[Sequence[float] | npt.ArrayLike],
         integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
     ) -> Self: ...
+    @classmethod
+    def on_uniform_grid(
+        cls,
+        space_map: SpaceMap,
+        orders: Sequence[int],
+        integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
+    ) -> Self:
+        """Create a SampledSpaceMap on a uniform grid of points in the reference space.
+
+        Parameters
+        ----------
+        space_map : SpaceMap
+            Mapping of the space in which we sample.
+
+        orders : Sequence[int]
+            Orders of the sampling in each dimension. The number of orders must match
+            the number of input dimensions of the space map. Must not be negative.
+
+        integration_registry : IntegrationRegistry, optional
+            Registry to get the integration rules from. When omitted, the default
+            registry is used.
+
+        Returns
+        -------
+        Self
+            SampledSpaceMap object with the specified uniform sampling.
+        """
+        ...
     @property
     def orders(self) -> tuple[int, ...]:
         """Orders of the sampling in each dimension."""
