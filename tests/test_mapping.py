@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-from fdg import compute_kform_boundary_constraints
+from fdg import Mesh, compute_kform_boundary_constraints
 from fdg._fdg import (
     BasisSpecs,
     CoordinateMap,
@@ -251,6 +251,60 @@ def test_kform_boundary_constraints_python_one_form() -> None:
     assert row_offsets[-1] == 2
     assert np.all(components == 0)
     assert local_dofs.shape == coefficients.shape == (2,)
+
+
+def test_boundary_constraints_reverse_tangential_orientation() -> None:
+    """Reverse-oriented faces evaluate element traces at reversed coordinates."""
+    mesh = Mesh.from_corners(2, np.asarray([0, 1, 3, 4, 5, 4, 2, 1], dtype=np.uint64))
+    shared = list(mesh.iterate_shared(1))
+    assert len(shared) == 1
+    _, boundary_id, element_ids, orientations = shared[0]
+    np.testing.assert_array_equal(orientations[1], [1, -2])
+
+    volume_space = FunctionSpace(
+        BasisSpecs(BasisType.BERNSTEIN, 1), BasisSpecs(BasisType.BERNSTEIN, 1)
+    )
+    element_spec = KFormSpecs(0, volume_space)
+    test_spec = KFormSpecs(0, FunctionSpace(BasisSpecs(BasisType.LEGENDRE, 1)))
+    geometry_space = FunctionSpace(
+        BasisSpecs(BasisType.LAGRANGE_UNIFORM, 1),
+        BasisSpecs(BasisType.LAGRANGE_UNIFORM, 1),
+    )
+    integration = IntegrationSpace(
+        IntegrationSpecs(4, method="gauss"), IntegrationSpecs(4, method="gauss")
+    )
+    identity_map = SpaceMap(
+        CoordinateMap(
+            DegreesOfFreedom(geometry_space, [-1.0, 1.0, -1.0, 1.0]), integration
+        ),
+        CoordinateMap(
+            DegreesOfFreedom(geometry_space, [-1.0, -1.0, 1.0, 1.0]), integration
+        ),
+    )
+    forward = compute_kform_boundary_constraints(
+        test_spec,
+        element_spec,
+        identity_map,
+        mesh.collections,
+        mesh.point_count,
+        int(element_ids[0]),
+        int(boundary_id),
+    )
+    reverse = compute_kform_boundary_constraints(
+        test_spec,
+        element_spec,
+        identity_map,
+        mesh.collections,
+        mesh.point_count,
+        int(element_ids[1]),
+        int(boundary_id),
+    )
+    np.testing.assert_allclose(
+        forward[3], [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, -1.0 / 3.0, 1.0 / 3.0]
+    )
+    np.testing.assert_allclose(
+        reverse[3], [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0 / 3.0, -1.0 / 3.0]
+    )
 
 
 def test_kform_boundary_constraints_rejects_bad_mesh_collections() -> None:

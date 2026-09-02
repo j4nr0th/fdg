@@ -145,6 +145,119 @@ static constraint_status_t mapped_component(const constraint_element_side_t *con
     return CONSTRAINT_SUCCESS;
 }
 
+static unsigned combination_axis_at(const unsigned ndim, const unsigned order, const unsigned index,
+                                    const unsigned position)
+{
+    unsigned remaining = index;
+    unsigned minimum = 0;
+    for (unsigned current = 0; current <= position; ++current)
+    {
+        const unsigned maximum = ndim - (order - current);
+        unsigned selected = maximum;
+        for (unsigned candidate = minimum; candidate <= maximum; ++candidate)
+        {
+            const unsigned count =
+                combination_total_count((uint8_t)(ndim - candidate - 1), (uint8_t)(order - current - 1));
+            if (remaining < count)
+            {
+                selected = candidate;
+                break;
+            }
+            remaining -= count;
+        }
+        if (current == position)
+            return selected;
+        minimum = selected + 1;
+    }
+    return UINT_MAX;
+}
+
+static constraint_status_t mapped_component_for_index(const constraint_element_side_t *const side,
+                                                      const unsigned boundary_dim, const unsigned order,
+                                                      const unsigned component, unsigned *const out_component,
+                                                      int *const out_sign)
+{
+    if (!side || !out_component || !out_sign || boundary_dim > side->ndim || order > boundary_dim)
+        return CONSTRAINT_INVALID_ARGUMENT;
+    if (component >= combination_total_count((uint8_t)boundary_dim, (uint8_t)order))
+        return CONSTRAINT_INVALID_ARGUMENT;
+
+    const unsigned fixed_count = side->ndim - boundary_dim;
+    int sign = 1;
+    for (unsigned first = 0; first < order; ++first)
+    {
+        const unsigned first_axis = combination_axis_at(boundary_dim, order, component, first);
+        const int8_t first_mapping = side->orientation[fixed_count + first_axis];
+        if (first_mapping < 0)
+            sign = -sign;
+        for (unsigned second = first + 1; second < order; ++second)
+        {
+            const unsigned second_axis = combination_axis_at(boundary_dim, order, component, second);
+            const unsigned first_element_axis = (unsigned)(first_mapping < 0 ? -first_mapping : first_mapping) - 1;
+            const int8_t second_mapping = side->orientation[fixed_count + second_axis];
+            const unsigned second_element_axis = (unsigned)(second_mapping < 0 ? -second_mapping : second_mapping) - 1;
+            if (first_element_axis > second_element_axis)
+                sign = -sign;
+        }
+    }
+
+    unsigned selected_count = 0;
+    unsigned minimum = 0;
+    unsigned mapped_index = 0;
+    for (unsigned element_axis = 0; element_axis < side->ndim; ++element_axis)
+    {
+        bool selected = false;
+        for (unsigned position = 0; position < order; ++position)
+        {
+            const unsigned face_axis = combination_axis_at(boundary_dim, order, component, position);
+            const int8_t mapping = side->orientation[fixed_count + face_axis];
+            if ((unsigned)(mapping < 0 ? -mapping : mapping) - 1 == element_axis)
+            {
+                selected = true;
+                break;
+            }
+        }
+        if (selected)
+        {
+            for (unsigned candidate = minimum; candidate < element_axis; ++candidate)
+                mapped_index += combination_total_count((uint8_t)(side->ndim - candidate - 1),
+                                                        (uint8_t)(order - selected_count - 1));
+            minimum = element_axis + 1;
+            selected_count += 1;
+        }
+    }
+    if (selected_count != order)
+        return CONSTRAINT_INVALID_ARGUMENT;
+    *out_component = mapped_index;
+    *out_sign = sign;
+    return CONSTRAINT_SUCCESS;
+}
+
+static constraint_status_t validate_trace_basis_values(const constraint_kform_spec_t *const spec,
+                                                       const constraint_trace_basis_values_t *const values,
+                                                       const size_t point_count)
+{
+    if (!values || values->point_count != point_count || !values->component_offsets || !values->values)
+        return CONSTRAINT_INVALID_ARGUMENT;
+    size_t component_count;
+    constraint_status_t status = constraint_kform_component_count(spec, &component_count);
+    if (status != CONSTRAINT_SUCCESS || values->component_count != component_count)
+        return status == CONSTRAINT_SUCCESS ? CONSTRAINT_INVALID_ARGUMENT : status;
+    if (values->component_offsets[0] != 0)
+        return CONSTRAINT_INVALID_ARGUMENT;
+    for (size_t component = 0; component < component_count; ++component)
+    {
+        size_t dof_count;
+        status = constraint_kform_component_dof_count(spec, (unsigned)component, &dof_count);
+        if (status != CONSTRAINT_SUCCESS)
+            return status;
+        if (values->component_offsets[component + 1] < values->component_offsets[component] ||
+            values->component_offsets[component + 1] - values->component_offsets[component] != dof_count)
+            return CONSTRAINT_INVALID_ARGUMENT;
+    }
+    return CONSTRAINT_SUCCESS;
+}
+
 static constraint_status_t constraint_reference_validate(const constraint_kform_spec_t *const test_spec,
                                                          const constraint_element_side_t sides[const static 2])
 {
@@ -801,6 +914,124 @@ constraint_status_t constraint_physical_side_assemble(
         }
     }
     *out_row_count = row_count;
+    *out_entry_count = entry;
+    return CONSTRAINT_SUCCESS;
+}
+
+constraint_status_t constraint_physical_side_assemble_precomputed(
+    const constraint_kform_spec_t *const test_spec, const constraint_element_side_t *const side,
+    const constraint_face_quadrature_t *const quadrature, const double *const surface_weights,
+    const constraint_trace_pullback_t *const pullback, const constraint_trace_basis_values_t *const test_basis,
+    const constraint_trace_basis_values_t *const element_basis, const size_t row_offset_capacity,
+    size_t row_offsets[const static row_offset_capacity], const size_t entry_capacity,
+    constraint_entry_t entries[const static entry_capacity], size_t *const out_row_count, size_t *const out_entry_count)
+{
+    if (!out_row_count || !out_entry_count || !side || !quadrature || !surface_weights)
+        return CONSTRAINT_INVALID_ARGUMENT;
+
+    size_t required_rows;
+    size_t required_entries;
+    constraint_status_t status = constraint_physical_side_counts(test_spec, side, &required_rows, &required_entries);
+    if (status != CONSTRAINT_SUCCESS)
+        return status;
+    size_t required_offsets;
+    status = constraint_rows_required_offset_count(required_rows, &required_offsets);
+    if (status != CONSTRAINT_SUCCESS)
+        return status;
+    if (row_offset_capacity < required_offsets || entry_capacity < required_entries)
+        return CONSTRAINT_INSUFFICIENT_STORAGE;
+
+    size_t point_count;
+    status = quadrature_total_count(quadrature->ndim, quadrature->axes, &point_count);
+    if (status != CONSTRAINT_SUCCESS || quadrature->point_count != point_count)
+        return status == CONSTRAINT_SUCCESS ? CONSTRAINT_INVALID_ARGUMENT : status;
+    if (test_spec->order != 0 && (!pullback || !pullback->values || pullback->physical_component_count == 0 ||
+                                  pullback->point_count != point_count))
+        return CONSTRAINT_INVALID_ARGUMENT;
+
+    const constraint_kform_spec_t element_spec = {
+        .ndim = side->ndim, .order = test_spec->order, .basis_specs = side->basis_specs};
+    status = validate_trace_basis_values(test_spec, test_basis, point_count);
+    if (status != CONSTRAINT_SUCCESS)
+        return status;
+    status = validate_trace_basis_values(&element_spec, element_basis, point_count);
+    if (status != CONSTRAINT_SUCCESS)
+        return status;
+
+    size_t test_component_count;
+    status = constraint_kform_component_count(test_spec, &test_component_count);
+    if (status != CONSTRAINT_SUCCESS)
+        return status;
+    const unsigned face_component_count = combination_total_count((uint8_t)test_spec->ndim, (uint8_t)test_spec->order);
+    const size_t *const test_offsets = test_basis->component_offsets;
+    const size_t *const element_offsets = element_basis->component_offsets;
+    size_t row = 0;
+    size_t entry = 0;
+    row_offsets[0] = 0;
+    for (unsigned test_component = 0; test_component < test_component_count; ++test_component)
+    {
+        const size_t test_dof_count = test_offsets[test_component + 1] - test_offsets[test_component];
+        for (size_t test_dof = 0; test_dof < test_dof_count; ++test_dof, ++row)
+        {
+            unsigned test_element_component = 0;
+            int test_orientation_sign = 1;
+            status = mapped_component_for_index(side, test_spec->ndim, test_spec->order, test_component,
+                                                &test_element_component, &test_orientation_sign);
+            if (status != CONSTRAINT_SUCCESS)
+                return status;
+            for (unsigned face_component = 0; face_component < face_component_count; ++face_component)
+            {
+                unsigned element_component;
+                int orientation_sign;
+                status = mapped_component_for_index(side, test_spec->ndim, test_spec->order, face_component,
+                                                    &element_component, &orientation_sign);
+                if (status != CONSTRAINT_SUCCESS)
+                    return status;
+                const size_t element_dof_count =
+                    element_offsets[element_component + 1] - element_offsets[element_component];
+                for (size_t element_dof = 0; element_dof < element_dof_count; ++element_dof)
+                {
+                    double coefficient = 0.0;
+                    for (size_t point = 0; point < point_count; ++point)
+                    {
+                        size_t remaining = point;
+                        double quadrature_weight = 1.0;
+                        for (unsigned idim = quadrature->ndim; idim > 0; --idim)
+                        {
+                            const unsigned axis = idim - 1;
+                            const unsigned node = (unsigned)(remaining % quadrature->axes[axis].count);
+                            remaining /= quadrature->axes[axis].count;
+                            quadrature_weight *= quadrature->axes[axis].weights[node];
+                        }
+                        double pullback_factor = 1.0;
+                        if (test_spec->order != 0)
+                            pullback_factor =
+                                trace_pullback_dot(pullback, test_element_component, element_component,
+                                                   pullback->physical_component_count, point_count, point);
+                        const double test_value = test_basis->values[test_offsets[test_component] * point_count +
+                                                                     point * test_dof_count + test_dof];
+                        const double element_value =
+                            element_basis->values[element_offsets[element_component] * point_count +
+                                                  point * element_dof_count + element_dof];
+                        coefficient +=
+                            quadrature_weight * surface_weights[point] * pullback_factor * test_value * element_value;
+                    }
+                    entries[entry++] = (constraint_entry_t){
+                        .side = 0,
+                        .component = element_component,
+                        .local_dof = element_dof,
+                        .coefficient = (double)test_orientation_sign * (double)orientation_sign * coefficient,
+                    };
+                }
+            }
+            row_offsets[row + 1] = entry;
+        }
+    }
+    if (row_offset_capacity < row + 1)
+        return CONSTRAINT_INSUFFICIENT_STORAGE;
+    if (entry_capacity < entry)
+        return CONSTRAINT_INSUFFICIENT_STORAGE;
+    *out_row_count = row;
     *out_entry_count = entry;
     return CONSTRAINT_SUCCESS;
 }

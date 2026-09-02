@@ -5,6 +5,8 @@
 #include "function_space_objects.h"
 #include "integration_objects.h"
 #include "mappings.h"
+#include <stdbool.h>
+#include <stdint.h>
 
 static double evaluate_basis_at_integration_point(const unsigned n_space_dim, const multidim_iterator_t *iter_int,
                                                   const multidim_iterator_t *iter_basis,
@@ -727,6 +729,72 @@ static void compute_kform_mass_matrix_block(
         }
     }
 }
+static void compute_tensor_product_basis_values(const unsigned n, const unsigned order, const uint8_t *const component,
+                                                const basis_set_t *basis_sets[static n],
+                                                const basis_set_t *basis_sets_lower[static n],
+                                                const integration_spec_t integration_specs[static n],
+                                                const size_t integration_strides[static n],
+                                                const size_t integration_point_count, const size_t basis_count,
+                                                double values[restrict])
+{
+    for (size_t point = 0; point < integration_point_count; ++point)
+    {
+        double *const point_values = values + point * basis_count;
+        point_values[0] = 1.0;
+        size_t current_count = 1;
+        unsigned component_axis = 0;
+        for (unsigned axis = 0; axis < n; ++axis)
+        {
+            const bool active = order != 0 && component_axis < order && component[component_axis] == axis;
+            if (active)
+                component_axis += 1;
+            const basis_set_t *const basis = active ? basis_sets_lower[axis] : basis_sets[axis];
+            const size_t basis_dim = (size_t)basis->spec.order + 1;
+            const size_t integration_dim = (size_t)integration_specs[axis].order + 1;
+            const size_t integration_index = (point / integration_strides[axis]) % integration_dim;
+            for (size_t previous = current_count; previous > 0; --previous)
+            {
+                const double previous_value = point_values[previous - 1];
+                for (size_t basis_index = basis_dim; basis_index > 0; --basis_index)
+                {
+                    point_values[(previous - 1) * basis_dim + basis_index - 1] =
+                        previous_value * basis_set_basis_values(basis, (unsigned)(basis_index - 1))[integration_index];
+                }
+            }
+            current_count *= basis_dim;
+        }
+        ASSERT(current_count == basis_count, "Tensor-product basis count mismatch (%zu vs %zu).", current_count,
+               basis_count);
+    }
+}
+
+static void compute_kform_mass_matrix_block_precomputed(const size_t integration_point_count, const size_t dofs_left,
+                                                        const size_t dofs_right,
+                                                        const double basis_values_left[restrict],
+                                                        const double basis_values_right[restrict],
+                                                        const double integration_weights[restrict],
+                                                        const size_t row_offset, const size_t col_offset,
+                                                        const size_t row_stride, double matrix[restrict])
+{
+    for (size_t left = 0; left < dofs_left; ++left)
+        for (size_t right = 0; right < dofs_right; ++right)
+            matrix[(row_offset + left) * row_stride + col_offset + right] = 0.0;
+
+    for (size_t point = 0; point < integration_point_count; ++point)
+    {
+        const double *const values_left = basis_values_left + point * dofs_left;
+        const double *const values_right = basis_values_right + point * dofs_right;
+        const double weight = integration_weights[point];
+        for (size_t left = 0; left < dofs_left; ++left)
+        {
+            double *const matrix_row = matrix + (row_offset + left) * row_stride + col_offset;
+            const double weighted_left = weight * values_left[left];
+#pragma omp simd
+            for (size_t right = 0; right < dofs_right; ++right)
+                matrix_row[right] += weighted_left * values_right[right];
+        }
+    }
+}
 
 static void compute_mass_matrix_integration_weights(const space_map_object *space_map, const Py_ssize_t order,
                                                     const unsigned n_coords, const size_t total_int_pts,
@@ -881,25 +949,27 @@ static PyObject *compute_kform_mass_matrix(PyObject *module, PyObject *const *ar
 
     // Compute needed space
     combination_iterator_t *iter_component_right, *iter_component_left;
-    multidim_iterator_t *iter_basis_right, *iter_basis_left, *iter_int_pts;
     const integration_rule_t **integration_rules;
     const basis_set_t **basis_sets_left, **basis_sets_right, **basis_sets_left_lower, **basis_sets_right_lower;
     basis_spec_t *lower_basis_buffer;
+    size_t *integration_strides;
     double *restrict integration_weights;
     double *restrict base_weights;
+    double *restrict basis_values_left;
+    double *restrict basis_values_right;
+    void *basis_mem;
+    const unsigned component_count = combination_total_count((uint8_t)n, (uint8_t)order);
     void *const mem_1 = cutl_alloc_group(
         &PYTHON_ALLOCATOR, (const cutl_alloc_info_t[]){
                                {combination_iterator_required_memory(order), (void **)&iter_component_right},
                                {combination_iterator_required_memory(order), (void **)&iter_component_left},
-                               {multidim_iterator_needed_memory(n), (void **)&iter_basis_right},
-                               {multidim_iterator_needed_memory(n), (void **)&iter_basis_left},
-                               {multidim_iterator_needed_memory(n), (void **)&iter_int_pts},
                                {sizeof(integration_rule_t *) * n, (void **)&integration_rules},
                                {sizeof(basis_set_t *) * n, (void **)&basis_sets_left},
                                {sizeof(basis_set_t *) * n, (void **)&basis_sets_left_lower},
                                {sizeof(basis_set_t *) * n, (void **)&basis_sets_right},
                                {sizeof(basis_set_t *) * n, (void **)&basis_sets_right_lower},
                                {sizeof(basis_spec_t) * n, (void **)&lower_basis_buffer},
+                               {sizeof(*integration_strides) * n, (void **)&integration_strides},
                                {sizeof(double) * int_pts_cnt, (void **)&integration_weights},
                                {sizeof(double) * int_pts_cnt, (void **)&base_weights},
                                {},
@@ -907,27 +977,37 @@ static PyObject *compute_kform_mass_matrix(PyObject *module, PyObject *const *ar
     if (!mem_1)
         return NULL;
 
-    // Might as well prepare the integration point iterator now
-    for (unsigned i = 0; i < n; ++i)
-        multidim_iterator_init_dim(iter_int_pts, i, space_map->int_specs[i].order + 1);
-
-    // Count up rows and columns based on DoFs of all components combined
+    // Prepare row-major strides for the tensor-product integration points.
+    size_t integration_stride = 1;
+    for (unsigned i = n; i > 0; --i)
+    {
+        const unsigned axis = i - 1;
+        integration_strides[axis] = integration_stride;
+        integration_stride *= (size_t)space_map->int_specs[axis].order + 1;
+    }
+    ASSERT(integration_stride == int_pts_cnt, "Integration point count mismatch (%zu vs %u).", integration_stride,
+           int_pts_cnt);
+    // Count up rows and columns based on DoFs of all components combined.
     size_t row_cnt = 0, col_cnt = 0;
-    // Loop over input and output bases
+    size_t max_dofs_left = 0, max_dofs_right = 0;
+    // Loop over input and output bases.
     combination_iterator_init(iter_component_right, n, order);
     for (const uint8_t *p_in = combination_iterator_current(iter_component_right);
          !combination_iterator_is_done(iter_component_right); combination_iterator_next(iter_component_right))
     {
-        col_cnt += kform_basis_get_num_dofs(n, fn_right->specs, order, p_in);
+        const size_t dofs = kform_basis_get_num_dofs(n, fn_right->specs, order, p_in);
+        col_cnt += dofs;
+        max_dofs_right = max_dofs_right > dofs ? max_dofs_right : dofs;
     }
 
     combination_iterator_init(iter_component_left, n, order);
     for (const uint8_t *p_out = combination_iterator_current(iter_component_left);
          !combination_iterator_is_done(iter_component_left); combination_iterator_next(iter_component_left))
     {
-        row_cnt += kform_basis_get_num_dofs(n, fn_left->specs, order, p_out);
+        const size_t dofs = kform_basis_get_num_dofs(n, fn_left->specs, order, p_out);
+        row_cnt += dofs;
+        max_dofs_left = max_dofs_left > dofs ? max_dofs_left : dofs;
     }
-
     const npy_intp dims[2] = {(npy_intp)row_cnt, (npy_intp)col_cnt};
     PyArrayObject *const array_out = (PyArrayObject *)PyArray_SimpleNew(2, dims, NPY_DOUBLE);
     if (!array_out)
@@ -1034,59 +1114,113 @@ static PyObject *compute_kform_mass_matrix(PyObject *module, PyObject *const *ar
         return NULL;
     }
 
-    // Compute base integration weights right now
-    // Compute the integration weights in advance
-    size_t idx = 0;
-    for (multidim_iterator_set_to_start(iter_int_pts); !multidim_iterator_is_at_end(iter_int_pts);
-         multidim_iterator_advance(iter_int_pts, n - 1, 1), ++idx)
+    // Compute tensor-product integration weights without iterator lookups.
+    for (size_t point = 0; point < int_pts_cnt; ++point)
     {
-        const double int_weight = calculate_integration_weight(n, iter_int_pts, integration_rules);
-        base_weights[idx] = int_weight;
+        double int_weight = 1.0;
+        for (unsigned axis = 0; axis < n; ++axis)
+        {
+            const size_t integration_dim = (size_t)space_map->int_specs[axis].order + 1;
+            const size_t integration_index = (point / integration_strides[axis]) % integration_dim;
+            int_weight *= integration_rule_weights_const(integration_rules[axis])[integration_index];
+        }
+        base_weights[point] = int_weight;
+    }
+
+    if (max_dofs_left > SIZE_MAX / (size_t)int_pts_cnt || max_dofs_right > SIZE_MAX / (size_t)int_pts_cnt)
+    {
+        PyErr_SetString(PyExc_OverflowError, "Mass matrix basis values exceed the size limit.");
+        for (unsigned i = 0; i < n; ++i)
+        {
+            integration_rule_registry_release_rule(integration_registry->registry, integration_rules[i]);
+            basis_set_registry_release_basis_set(basis_registry->registry, basis_sets_left[i]);
+            basis_set_registry_release_basis_set(basis_registry->registry, basis_sets_right[i]);
+            basis_set_registry_release_basis_set(basis_registry->registry, basis_sets_left_lower[i]);
+            basis_set_registry_release_basis_set(basis_registry->registry, basis_sets_right_lower[i]);
+        }
+        Py_DECREF(array_out);
+        Py_XDECREF(transform_array);
+        cutl_dealloc(&PYTHON_ALLOCATOR, mem_1);
+        return NULL;
+    }
+    const size_t basis_values_left_count = max_dofs_left * (size_t)int_pts_cnt;
+    const size_t basis_values_right_count = max_dofs_right * (size_t)int_pts_cnt;
+    if (basis_values_left_count > SIZE_MAX / sizeof(double) || basis_values_right_count > SIZE_MAX / sizeof(double))
+    {
+        PyErr_SetString(PyExc_OverflowError, "Mass matrix basis values exceed the size limit.");
+        for (unsigned i = 0; i < n; ++i)
+        {
+            integration_rule_registry_release_rule(integration_registry->registry, integration_rules[i]);
+            basis_set_registry_release_basis_set(basis_registry->registry, basis_sets_left[i]);
+            basis_set_registry_release_basis_set(basis_registry->registry, basis_sets_right[i]);
+            basis_set_registry_release_basis_set(basis_registry->registry, basis_sets_left_lower[i]);
+            basis_set_registry_release_basis_set(basis_registry->registry, basis_sets_right_lower[i]);
+        }
+        Py_DECREF(array_out);
+        Py_XDECREF(transform_array);
+        cutl_dealloc(&PYTHON_ALLOCATOR, mem_1);
+        return NULL;
+    }
+    basis_mem = cutl_alloc_group(
+        &PYTHON_ALLOCATOR,
+        (const cutl_alloc_info_t[]){{sizeof(double) * basis_values_left_count, (void **)&basis_values_left},
+                                    {sizeof(double) * basis_values_right_count, (void **)&basis_values_right},
+                                    {}});
+    if (!basis_mem)
+    {
+        PyErr_NoMemory();
+        for (unsigned i = 0; i < n; ++i)
+        {
+            integration_rule_registry_release_rule(integration_registry->registry, integration_rules[i]);
+            basis_set_registry_release_basis_set(basis_registry->registry, basis_sets_left[i]);
+            basis_set_registry_release_basis_set(basis_registry->registry, basis_sets_right[i]);
+            basis_set_registry_release_basis_set(basis_registry->registry, basis_sets_left_lower[i]);
+            basis_set_registry_release_basis_set(basis_registry->registry, basis_sets_right_lower[i]);
+        }
+        Py_DECREF(array_out);
+        Py_XDECREF(transform_array);
+        cutl_dealloc(&PYTHON_ALLOCATOR, mem_1);
+        return NULL;
     }
 
     npy_double *restrict const ptr_mat_out = PyArray_DATA(array_out);
 
-    // Now compute numerical integrals
+    // Assemble each component block from basis values cached at all integration points.
     size_t row_offset = 0;
     size_t basis_idx_left = 0;
-
-    // Loop over left k-form components
     combination_iterator_init(iter_component_left, n, order);
     for (const uint8_t *p_basis_components_left = combination_iterator_current(iter_component_left);
          !combination_iterator_is_done(iter_component_left);
          combination_iterator_next(iter_component_left), ++basis_idx_left)
     {
-        // Set the iterator for basis functions of the left k-form component
-        kform_basis_set_iterator(n, fn_left->specs, order, p_basis_components_left, iter_basis_left);
-        const unsigned dofs_left = kform_basis_get_num_dofs(n, fn_left->specs, order, p_basis_components_left);
+        const size_t dofs_left = kform_basis_get_num_dofs(n, fn_left->specs, order, p_basis_components_left);
+        compute_tensor_product_basis_values(n, (unsigned)order, p_basis_components_left, basis_sets_left,
+                                            basis_sets_left_lower, space_map->int_specs, integration_strides,
+                                            int_pts_cnt, dofs_left, basis_values_left);
 
         size_t col_offset = 0;
         size_t basis_idx_right = 0;
-        // Loop over right k-form components
         combination_iterator_init(iter_component_right, n, order);
         for (const uint8_t *p_basis_components_right = combination_iterator_current(iter_component_right);
              !combination_iterator_is_done(iter_component_right);
              combination_iterator_next(iter_component_right), ++basis_idx_right)
         {
-            const unsigned dofs_right = kform_basis_get_num_dofs(n, fn_right->specs, order, p_basis_components_right);
+            const size_t dofs_right = kform_basis_get_num_dofs(n, fn_right->specs, order, p_basis_components_right);
             if (basis_idx_left <= basis_idx_right || !symmetric)
             {
-                // Must compute the block
                 compute_mass_matrix_integration_weights(space_map, order, n_coords, int_pts_cnt, base_weights,
                                                         integration_weights, transform_array, basis_idx_left,
                                                         basis_idx_right);
-
-                // Set the iterator for basis functions of the right k-form component
-                kform_basis_set_iterator(n, fn_right->specs, order, p_basis_components_right, iter_basis_right);
-
-                compute_kform_mass_matrix_block(n, order, p_basis_components_left, order, p_basis_components_right,
-                                                iter_basis_left, iter_basis_right, iter_int_pts, integration_weights,
-                                                basis_sets_left, basis_sets_right, basis_sets_left_lower,
-                                                basis_sets_right_lower, row_offset, col_offset, col_cnt, ptr_mat_out);
+                compute_tensor_product_basis_values(n, (unsigned)order, p_basis_components_right, basis_sets_right,
+                                                    basis_sets_right_lower, space_map->int_specs, integration_strides,
+                                                    int_pts_cnt, dofs_right, basis_values_right);
+                compute_kform_mass_matrix_block_precomputed(int_pts_cnt, dofs_left, dofs_right, basis_values_left,
+                                                            basis_values_right, integration_weights, row_offset,
+                                                            col_offset, col_cnt, ptr_mat_out);
             }
             else
             {
-                // We can copy and transpose the block instead of computing, which will save quite some time.
+                // Copy and transpose the block instead of computing it twice.
                 for (size_t i = 0; i < dofs_left; ++i)
                 {
                     for (size_t j = 0; j < dofs_right; ++j)
@@ -1096,14 +1230,17 @@ static PyObject *compute_kform_mass_matrix(PyObject *module, PyObject *const *ar
                     }
                 }
             }
-
             col_offset += dofs_right;
         }
-
+        ASSERT(basis_idx_right == component_count, "Right component count mismatch (%zu vs %u).", basis_idx_right,
+               component_count);
         row_offset += dofs_left;
     }
+    ASSERT(basis_idx_left == component_count, "Left component count mismatch (%zu vs %u).", basis_idx_left,
+           component_count);
+    ASSERT(row_offset == row_cnt, "Row offset at the end of the matrix (%zu vs %zu).", row_offset, row_cnt);
 
-    // Release integration rules and basis
+    cutl_dealloc(&PYTHON_ALLOCATOR, basis_mem);
     for (unsigned j = 0; j < n; ++j)
     {
         integration_rule_registry_release_rule(integration_registry->registry, integration_rules[j]);

@@ -97,6 +97,21 @@ typedef struct
 } constraint_trace_pullback_t;
 
 /**
+ * @brief Precomputed tensor-product basis values for trace assembly.
+ *
+ * Values are laid out by component, then point, then local degree of freedom:
+ * ``values[offsets[c] * point_count + point * dofs[c] + dof]``. The offsets
+ * array has ``component_count + 1`` entries and stores cumulative DoF counts.
+ */
+typedef struct
+{
+    size_t component_count;
+    size_t point_count;
+    const size_t *component_offsets;
+    const double *values;
+} constraint_trace_basis_values_t;
+
+/**
  * @brief Single non-zero entry of an assembled constraint matrix row.
  *
  * The entry couples one degree of freedom of the test space (the row) with
@@ -334,6 +349,25 @@ constraint_status_t constraint_physical_side_assemble(
     const constraint_kform_spec_t *test_spec, const constraint_element_side_t *side,
     const constraint_face_quadrature_t *quadrature, const double *surface_weights,
     const constraint_trace_pullback_t *pullback, size_t row_offset_capacity,
+    size_t row_offsets[const static row_offset_capacity], size_t entry_capacity,
+    constraint_entry_t entries[const static entry_capacity], size_t *out_row_count, size_t *out_entry_count);
+
+/**
+ * @brief Assemble a physical trace using caller-precomputed basis values.
+ *
+ * This has the same output and sign conventions as
+ * @ref constraint_physical_side_assemble, but obtains both the test and
+ * element trace basis values from registry-independent precomputed tables.
+ *
+ * @param test_basis Precomputed values for the canonical test components.
+ * @param element_basis Precomputed values for all element components of the
+ *        traced form.
+ */
+constraint_status_t constraint_physical_side_assemble_precomputed(
+    const constraint_kform_spec_t *test_spec, const constraint_element_side_t *side,
+    const constraint_face_quadrature_t *quadrature, const double *surface_weights,
+    const constraint_trace_pullback_t *pullback, const constraint_trace_basis_values_t *test_basis,
+    const constraint_trace_basis_values_t *element_basis, size_t row_offset_capacity,
     size_t row_offsets[const static row_offset_capacity], size_t entry_capacity,
     constraint_entry_t entries[const static entry_capacity], size_t *out_row_count, size_t *out_entry_count);
 

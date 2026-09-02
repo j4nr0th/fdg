@@ -810,9 +810,15 @@ def test_kform_boundary_load_round_trip(ndim: int, deformed: bool) -> None:
     assert err_recover < 1e-10
 
 
-@pytest.mark.parametrize("ndim", range(2, 5))
-@pytest.mark.parametrize("k", range(1, 5))
-@pytest.mark.parametrize("component", range(10))
+_GENERAL_FORM_CASES = tuple(
+    pytest.param(ndim, k, component, id=f"{ndim}d-k{k}-component{component}")
+    for ndim in range(2, 5)
+    for k in range(1, ndim)
+    for component in range(math.comb(ndim, k))
+)
+
+
+@pytest.mark.parametrize(("ndim", "k", "component"), _GENERAL_FORM_CASES)
 def test_kform_boundary_load_general_form_chain_integral(
     ndim: int, k: int, component: int
 ) -> None:
@@ -831,8 +837,6 @@ def test_kform_boundary_load_general_form_chain_integral(
     on a mapped element (the map-dependent physical scalings cancel because
     both sides are metric-free reference-frame pairings).
     """
-    if k >= ndim or component >= math.comb(ndim, k):
-        pytest.skip("case outside the ndim-k-component grid")
     mesh = Mesh.from_corners(ndim, _grid_corners(ndim))
     integration = IntegrationSpace(
         *(IntegrationSpecs(4, IntegrationMethod.GAUSS) for _ in range(ndim))
@@ -855,9 +859,9 @@ def test_kform_boundary_load_general_form_chain_integral(
 
     datum_components = [
         (
-            lambda *x, idx=i: np.ones_like(x[0])
-            if idx == component
-            else np.zeros_like(x[0])
+            lambda *x, idx=i: (
+                np.ones_like(x[0]) if idx == component else np.zeros_like(x[0])
+            )
         )
         for i in range(specs_u.component_count)
     ]

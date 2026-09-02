@@ -291,6 +291,60 @@ static void test_physical_scalar_measure(void)
         TEST_NUMBERS_CLOSE(entries[i].coefficient, 3.0 * reference_entries[i].coefficient, 1e-12, 0);
 }
 
+static void test_physical_precomputed_scalar(void)
+{
+    const basis_spec_t test_basis[] = {basis_spec(1)};
+    const basis_spec_t element_basis[] = {basis_spec(1), basis_spec(1)};
+    const int8_t orientation[] = {-1, 2};
+    const double nodes[] = {-0.5773502691896258, 0.5773502691896258};
+    const double weights[] = {1.0, 1.0};
+    const double surface_weights[] = {3.0, 3.0};
+    const constraint_quadrature_t axes[] = {{.count = 2, .nodes = nodes, .weights = weights}};
+    const constraint_face_quadrature_t quadrature = {.ndim = 1, .axes = axes, .point_count = 2};
+    const constraint_kform_spec_t test_spec = {.ndim = 1, .order = 0, .basis_specs = test_basis};
+    const constraint_element_side_t side = {.ndim = 2, .basis_specs = element_basis, .orientation = orientation};
+    const size_t test_offsets[] = {0, 2};
+    const double test_values[] = {1.0, nodes[0], 1.0, nodes[1]};
+    const constraint_trace_basis_values_t test_basis_values = {
+        .component_count = 1, .point_count = 2, .component_offsets = test_offsets, .values = test_values};
+    const size_t element_offsets[] = {0, 4};
+    const double element_values[] = {1.0, -1.0, nodes[0], -nodes[0], 1.0, -1.0, nodes[1], -nodes[1]};
+    const constraint_trace_basis_values_t element_basis_values = {
+        .component_count = 1, .point_count = 2, .component_offsets = element_offsets, .values = element_values};
+    size_t reference_offsets[3];
+    constraint_entry_t reference_entries[8];
+    size_t reference_rows;
+    size_t reference_entry_count;
+    TEST_ASSERTION(constraint_physical_side_assemble(&test_spec, &side, &quadrature, surface_weights, NULL, 3,
+                                                     reference_offsets, 8, reference_entries, &reference_rows,
+                                                     &reference_entry_count) == CONSTRAINT_SUCCESS,
+                   "Could not assemble scalar reference trace.");
+
+    size_t offsets[3];
+    constraint_entry_t entries[8];
+    size_t rows;
+    size_t entry_count;
+    TEST_ASSERTION(constraint_physical_side_assemble_precomputed(&test_spec, &side, &quadrature, surface_weights, NULL,
+                                                                 &test_basis_values, &element_basis_values, 3, offsets,
+                                                                 8, entries, &rows, &entry_count) == CONSTRAINT_SUCCESS,
+                   "Could not assemble precomputed scalar trace.");
+    TEST_ASSERTION(rows == reference_rows && entry_count == reference_entry_count,
+                   "Precomputed trace dimensions differ from the reference.");
+    for (size_t i = 0; i < rows + 1; ++i)
+        TEST_ASSERTION(offsets[i] == reference_offsets[i], "Precomputed trace offsets differ at %zu.", i);
+    for (size_t i = 0; i < entry_count; ++i)
+    {
+        TEST_ASSERTION(entries[i].component == reference_entries[i].component &&
+                           entries[i].local_dof == reference_entries[i].local_dof,
+                       "Precomputed trace metadata differs at %zu.", i);
+        TEST_NUMBERS_CLOSE(entries[i].coefficient, reference_entries[i].coefficient, 1e-12, i);
+    }
+    TEST_ASSERTION(constraint_physical_side_assemble_precomputed(
+                       &test_spec, &side, &quadrature, surface_weights, NULL, &test_basis_values, &element_basis_values,
+                       3, offsets, 7, entries, &rows, &entry_count) == CONSTRAINT_INSUFFICIENT_STORAGE,
+                   "Precomputed trace accepted insufficient entry storage.");
+}
+
 static void test_physical_single_side(void)
 {
     const basis_spec_t test_basis[] = {basis_spec(1)};
@@ -500,6 +554,7 @@ int main(void)
     test_reference_edge_assembly();
     test_reference_one_form_component();
     test_physical_scalar_measure();
+    test_physical_precomputed_scalar();
     test_physical_single_side();
     test_physical_general_boundary_dimensions();
     test_physical_one_form_pullback();
