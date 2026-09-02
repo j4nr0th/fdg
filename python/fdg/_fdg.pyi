@@ -971,9 +971,54 @@ class Mesh:
         """Assemble hierarchical physical k-form continuity rows.
 
         Shared objects are visited from the highest dimension down to points.
-        The supplied test specification lists are indexed by object dimension,
-        object ID, and canonical k-form component. Empty component lists skip a
-        stratum without inferring a test basis.
+        Consecutive elements in each object's ascending incident-element list
+        are paired, which avoids cycles while retaining one constraint path
+        through every shared object.
+
+        Parameters
+        ----------
+        element_specs : Sequence[KFormSpecs]
+            One volume k-form specification per mesh element. The sequence
+            must contain exactly ``element_count`` entries. All specifications
+            must have the mesh dimension and the same k-form degree; their
+            basis orders may differ.
+
+        element_maps : Sequence[SpaceMap]
+            One reference-to-physical map per mesh element. The sequence must
+            contain exactly ``element_count`` maps, each with the mesh
+            dimension. These maps supply the physical trace geometry.
+
+        test_specs : Sequence[Sequence[Sequence[KFormSpecs]]]
+            Explicit trace test specifications indexed as
+            ``test_specs[mdim][object_id][component]``. The outer sequence
+            has one entry for each dimension ``0 <= mdim < ndim``; each object
+            sequence has the number of mesh objects of that dimension; and
+            each component sequence has ``binom(mdim, k)`` entries when
+            ``mdim >= k`` and is empty otherwise. The entries use canonical
+            object coordinates. Basis types and orders are never inferred, so
+            a lower-order test space can weakly constrain a higher-order trace.
+            An empty component sequence skips that shared object.
+
+        Returns
+        -------
+        row_offsets : ndarray[uintp]
+            CSR-like row boundaries of length ``number_of_rows + 1``. Entry
+            ``i`` belongs to ``[row_offsets[i], row_offsets[i + 1])``. Empty
+            output is represented by ``[0]``.
+
+        element_ids : ndarray[uint64]
+            Global element ID for each packed entry.
+
+        components : ndarray[uint32]
+            Element-frame k-form component for each packed entry.
+
+        local_dofs : ndarray[uintp]
+            Local DoF index within the component named by ``components``.
+
+        coefficients : ndarray[double]
+            Physical trace coefficient for each packed entry. The first side
+            of every pair has positive sign and the second side has negative
+            sign.
         """
         ...
 

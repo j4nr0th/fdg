@@ -172,15 +172,33 @@ the lowest, ensures that no degree of freedom is constrained more than once.
 Hierarchical continuity
 -----------------------
 
-The global method returns packed rows with five arrays:
-``(row_offsets, element_ids, components, local_dofs, coefficients)``. The
-element IDs replace the side field of the one-boundary API, and the two
-consecutive traces appear with opposite signs. Empty or skipped stages keep
-the valid empty representation ``row_offsets == [0]``.
+The global method accepts three explicit sequences:
 
-The caller supplies one test :class:`KFormSpecs` per canonical component for
-each object. This explicit input is also the mechanism for weakly constraining
-a higher-order trace with a lower-order test space on an hp boundary.
+``element_specs``
+    One volume :class:`KFormSpecs` per element. The sequence length must equal
+    ``mesh.element_count``; all specifications have the mesh dimension and the
+    same k-form degree, while their basis orders may differ.
+
+``element_maps``
+    One :class:`SpaceMap` per element, also of length ``mesh.element_count``.
+    These maps provide the physical geometry used for each trace.
+
+``test_specs``
+    Nested as ``test_specs[mdim][object_id][component]``. It has one outer
+    entry per object dimension, one object entry per mesh object, and one
+    explicit :class:`KFormSpecs` per canonical k-form component when
+    ``mdim >= k``. Entries for lower-dimensional objects are empty. Basis types
+    and orders are never inferred; callers can therefore weakly constrain a
+    higher-order trace with a lower-order test space.
+
+The method returns five packed one-dimensional arrays:
+``(row_offsets, element_ids, components, local_dofs, coefficients)``.
+``row_offsets`` is a CSR-like boundary array of length ``n_rows + 1``;
+``element_ids``, ``components``, ``local_dofs`` and ``coefficients`` contain
+one record per nonzero row entry. The element IDs replace the side field of
+the one-boundary API, and the two consecutive traces appear with opposite
+signs. Empty or skipped stages keep the valid empty representation
+``row_offsets == [0]`` with empty entry arrays.
 
 Boundary constraints
 --------------------

@@ -1213,8 +1213,16 @@ static PyMethodDef mesh_methods[] = {
         .ml_meth = (void *)mesh_compute_kform_continuity_constraints,
         .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
         .ml_doc = "compute_kform_continuity_constraints(element_specs, element_maps, test_specs, /) -> "
-                  "tuple[numpy.ndarray, ...]\\n"
-                  "Assemble hierarchical physical k-form continuity rows for all shared mesh strata.",
+                  "tuple[numpy.ndarray, ...]\n"
+                  "Assemble hierarchical physical k-form continuity rows from shared faces down to points.\n"
+                  "Parameters:\n"
+                  "  element_specs: one KFormSpecs object per mesh element; all have the mesh dimension and k-form "
+                  "degree.\n"
+                  "  element_maps: one SpaceMap object per mesh element; maps supply physical trace geometry.\n"
+                  "  test_specs: explicit test specs indexed by [object dimension][object ID][component].\n"
+                  "Returns (row_offsets, element_ids, components, local_dofs, coefficients), five packed one-"
+                  "dimensional arrays. The first pair side is positive and the second is negative; empty output has "
+                  "row_offsets=[0] and empty entry arrays.",
     },
     {
         .ml_name = "compute_kform_boundary_constraints",
