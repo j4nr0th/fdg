@@ -32,7 +32,6 @@ disjoint components and do not over-constrain the system.
 
 from itertools import combinations
 from time import perf_counter
-from typing import cast
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -59,8 +58,8 @@ from fdg import (
     reconstruct,
     transform_kform_to_target,
 )
-from fdg.domains import _vtk_3d_indices
 from fdg.integration import Integrable
+from fdg.visualization import lagrange_hexahedral_grid, sample_kform_on_uniform_grid
 
 # %%
 #
@@ -712,73 +711,28 @@ plot_convergence(
 # %%
 # The highest-order three-dimensional solution is rendered with pyvista. The
 # hexahedral mesh is built from the topological mesh as cubic Lagrange cells,
-# whose curved edges and faces are rendered exactly, and the error against the
-# manufactured solution is sampled on a uniform grid inside the deformed
-# domain.
+# whose curved edges and faces are rendered exactly. The solution and error are
+# sampled independently on every element, then transformed from reference
+# k-forms to physical k-forms with :class:`SampledSpaceMap`.
 #
 
 
-def hexa_mesh_vtk(mesh: Mesh) -> pv.UnstructuredGrid:
-    """Build a pyvista grid of the hexahedral elements as curved Lagrange cells."""
-    p = GEO_ORDER
-    npts = 2 * p + 1
-    nodes = np.linspace(-1.0, 1.0, npts)
-    gx, gy, gz = np.meshgrid(nodes, nodes, nodes, indexing="ij")
-    xd, yd, zd = deformed_map(gx, gy, gz)
-    points = np.stack(
-        [xd.ravel(order="F"), yd.ravel(order="F"), zd.ravel(order="F")], axis=1
-    )
-    # _vtk_3d_indices maps every natural tensor-product point to its VTK local
-    # index; scattering the point ids through it reorders them into the VTK
-    # Lagrange-hexahedron numbering.
-    vtk_idx = _vtk_3d_indices(p, p, p)
-    cells = []
-    for e in range(mesh.element_count):
-        ix, iy, iz = (e & 1), ((e >> 1) & 1), ((e >> 2) & 1)
-        a, b, c = np.meshgrid(
-            np.arange(p + 1), np.arange(p + 1), np.arange(p + 1), indexing="ij"
-        )
-        global_ids = (
-            (ix * p + a + npts * (iy * p + b + npts * (iz * p + c)))
-            .ravel(order="F")
-            .astype(np.intp)
-        )
-        vtk_order = np.empty_like(global_ids)
-        vtk_order[vtk_idx] = global_ids
-        cells.append(np.concatenate((np.array([(p + 1) ** 3], dtype=np.intp), vtk_order)))
-    celltypes = np.full(len(cells), pv.CellType.LAGRANGE_HEXAHEDRON, dtype=np.uint8)
-    return pv.UnstructuredGrid(np.concatenate(cells), celltypes, points)
-
-
-def element_index(g: npt.NDArray[np.double]) -> npt.NDArray[np.intp]:
-    """Grid element index of the points with grid coordinates g."""
-    return np.clip(np.floor(g + 1.0), 0, 1).astype(np.intp)
-
-
 def sample_error_grid(
-    u_dofs: list[np.ndarray], specs_u: KFormSpecs, npts: int
-) -> tuple[npt.NDArray[np.double], ...]:
-    """Sample the pointwise error against the manufactured solution."""
-    nodes = np.linspace(-1.0, 1.0, npts)
-    gx, gy, gz = np.meshgrid(nodes, nodes, nodes, indexing="ij")
-    ex, ey, ez = (element_index(g) for g in (gx, gy, gz))
-    ref = np.zeros_like(gx)
-    for e, ue in enumerate(u_dofs):
-        ix, iy, iz = (e & 1), ((e >> 1) & 1), ((e >> 2) & 1)
-        mask = (ex == ix) & (ey == iy) & (ez == iz)
-        dofs = DegreesOfFreedom(specs_u.get_component_function_space(0), ue)
-        ref[mask] = reconstruct(
-            dofs,
-            2.0 * gx[mask] - (2 * ix - 1),
-            2.0 * gy[mask] - (2 * iy - 1),
-            2.0 * gz[mask] - (2 * iz - 1),
+    u_dofs: list[np.ndarray],
+    specs_u: KFormSpecs,
+    maps: list[SpaceMap],
+    npts: int,
+) -> list[tuple[npt.NDArray[np.double], npt.NDArray[np.double]]]:
+    """Sample the pointwise physical error on every element."""
+    samples = []
+    for ue, sm in zip(u_dofs, maps, strict=True):
+        sampled_map, (u_phys,) = sample_kform_on_uniform_grid(specs_u, ue, sm, npts - 1)
+        positions = np.asarray(sampled_map.positions)
+        exact = manufactured_solution(
+            *(positions[..., axis] for axis in range(positions.shape[-1]))
         )
-    xd, yd, zd = deformed_map(gx, gy, gz)
-    # The physical n-form density is the reference density divided by the
-    # Jacobian determinant of the element map (math_background.rst).
-    det = 0.125 * np.linalg.det(jacobian(gx, gy, gz))
-    err = ref / det - manufactured_solution(xd, yd, zd)
-    return xd, yd, zd, err
+        samples.append((positions, u_phys - exact))
+    return samples
 
 
 ORDER_VIS = 3
@@ -794,96 +748,81 @@ test_specs_vis = KFormSpecs(
 q_dofs_vis, u_dofs_vis, _ = solve(
     mesh_3d, maps_vis, specs_q_vis, specs_u_vis, test_specs_vis, strong_neighboring
 )
-xd_vis, yd_vis, zd_vis, err_vis = sample_error_grid(u_dofs_vis, specs_u_vis, 25)
+ERROR_ORDER_VIS = 24
+error_samples_vis = sample_error_grid(
+    u_dofs_vis, specs_u_vis, maps_vis, ERROR_ORDER_VIS + 1
+)
 
 
 # %%
-# The error is shown as :math:`\log_{10}` of its absolute value on three
-# orthogonal slices through the deformed domain, together with the edges of
-# the hexahedral elements. Values below :math:`10^{-10}` of the maximum are
-# clamped to the lowest color, so the colormap is not dominated by near-zero
-# noise.
+# The error is shown directly on high-order Lagrange hexahedral cells as
+# :math:`\\log_{10}` of its absolute value. Values below :math:`10^{-10}` of the
+# maximum are clamped to the lowest color, so the colormap is not dominated by
+# near-zero noise.
 #
-logerr = np.log10(np.abs(err_vis))
-finite = np.isfinite(logerr)
-hi = float(np.max(logerr[finite]))
-lo = max(hi - 10.0, float(np.min(logerr[finite])))
-logerr = np.clip(logerr, lo, hi)
-
-image = pv.StructuredGrid(xd_vis, yd_vis, zd_vis)
-image.point_data["logerr"] = logerr.ravel(order="F")
+logerr_samples = [np.log10(np.abs(error)) for _, error in error_samples_vis]
+finite = np.concatenate([values[np.isfinite(values)] for values in logerr_samples])
+hi = float(np.max(finite))
+lo = max(hi - 10.0, float(np.min(finite)))
+error_grid = lagrange_hexahedral_grid(
+    maps_vis,
+    ERROR_ORDER_VIS,
+    point_data={"logerr": [np.clip(values, lo, hi) for values in logerr_samples]},
+)
 
 plotter = pv.Plotter()
-for axis in range(3):
-    normal = np.zeros(3)
-    normal[axis] = 1.0
-    plotter.add_mesh(
-        cast(pv.DataSet, image.slice(normal=normal)),
-        scalars="logerr",
-        cmap="viridis",
-        clim=(lo, hi),
-        show_scalar_bar=(axis == 0),
-        scalar_bar_args={"title": "log10 |u - u_exact|"},
-    )
-plotter.add_mesh(hexa_mesh_vtk(mesh_3d), style="wireframe", color="black")
+plotter.add_mesh(
+    error_grid,
+    scalars="logerr",
+    cmap="viridis",
+    clim=(lo, hi),
+    scalar_bar_args={"title": "log10 |u - u_exact|"},
+)
+plotter.add_mesh(
+    lagrange_hexahedral_grid(maps_vis, GEO_ORDER), style="wireframe", color="black"
+)
 plotter.camera_position = "iso"
 plotter.show()
 
 
 # %%
 # The flux :math:`q` of the mixed formulation is a 2-form in three dimensions;
-# on the uniform grid of this example its Hodge star is a vector field. The
-# flux is transformed to the physical domain on a uniform grid of points and
-# rendered as arrows, whose length and color encode its magnitude.
+# its physical components are transformed on a uniform grid before taking the
+# Euclidean Hodge star to obtain the vector field rendered as arrows.
 #
 
 
 def flux_grid(
-    q_dofs: list[np.ndarray], specs_q: KFormSpecs, npts: int
+    q_dofs: list[np.ndarray],
+    specs_q: KFormSpecs,
+    maps: list[SpaceMap],
+    npts: int,
 ) -> tuple[npt.NDArray[np.double], npt.NDArray[np.double], npt.NDArray[np.double]]:
-    """Evaluate the physical flux vector on a uniform grid in the domain."""
-    nodes = np.linspace(-1.0, 1.0, npts)
-    gx, gy, gz = np.meshgrid(nodes, nodes, nodes, indexing="ij")
-    ex, ey, ez = (element_index(g) for g in (gx, gy, gz))
-    vec = np.zeros(gx.shape + (3,))
-    for e, qe in enumerate(q_dofs):
-        ix, iy, iz = (e & 1), ((e >> 1) & 1), ((e >> 2) & 1)
-        mask = (ex == ix) & (ey == iy) & (ez == iz)
-        xi = (
-            2.0 * gx[mask] - (2 * ix - 1),
-            2.0 * gy[mask] - (2 * iy - 1),
-            2.0 * gz[mask] - (2 * iz - 1),
+    """Evaluate the physical flux vector on uniform grids in the elements."""
+    origins = []
+    vectors = []
+    for qe, sm in zip(q_dofs, maps, strict=True):
+        sampled_map, components = sample_kform_on_uniform_grid(specs_q, qe, sm, npts - 1)
+        positions = np.asarray(sampled_map.positions)
+        origins.append(
+            np.stack([positions[..., axis].ravel() for axis in range(3)], axis=1)
         )
-        g = (gx[mask], gy[mask], gz[mask])
-        sol_q = KForm(specs_q)
-        sol_q.values[:] = qe
-        comps = []
-        for c in range(specs_q.component_count):
-            dofs = DegreesOfFreedom(
-                specs_q.get_component_function_space(c), sol_q.get_component_dofs(c)
+        # star(dx1^dx2) = dx3, star(dx1^dx3) = -dx2,
+        # star(dx2^dx3) = dx1.
+        vectors.append(
+            np.stack(
+                [
+                    component.ravel()
+                    for component in (components[2], -components[1], components[0])
+                ],
+                axis=1,
             )
-            comps.append(reconstruct(dofs, *xi))
-        # Physical components of the 2-form: the exterior power of the inverse
-        # Jacobian of the element map (math_background.rst), evaluated
-        # pointwise. The element map is xi -> phi(0.5 xi + idx - 0.5), so its
-        # Jacobian is half the Jacobian of the grid deformation.
-        Gfes = np.linalg.inv(0.5 * jacobian(*g))
-        subsets = [(0, 1), (0, 2), (1, 2)]
-        phys = np.zeros((3, len(gx[mask])))
-        for b, (i, j) in enumerate(subsets):
-            for a, (p, q) in enumerate(subsets):
-                phys[b] += comps[a] * (
-                    Gfes[..., p, i] * Gfes[..., q, j] - Gfes[..., p, j] * Gfes[..., q, i]
-                )
-        # Euclidean Hodge star of a 2-form in three dimensions:
-        # star(dx1^dx2) = dx3, star(dx1^dx3) = -dx2, star(dx2^dx3) = dx1.
-        vec[mask] = np.stack([phys[2], -phys[1], phys[0]], axis=1)
-    px, py, pz = deformed_map(gx, gy, gz)
-    origins = np.stack([px.ravel(), py.ravel(), pz.ravel()], axis=1)
-    return origins, vec.reshape(-1, 3), np.linalg.norm(vec, axis=-1).ravel()
+        )
+    vector = np.concatenate(vectors)
+    return np.concatenate(origins), vector, np.linalg.norm(vector, axis=1)
 
 
-origins_vis, flux_vis, mag_vis = flux_grid(q_dofs_vis, specs_q_vis, 9)
+origins_vis, flux_vis, mag_vis = flux_grid(q_dofs_vis, specs_q_vis, maps_vis, 9)
 
 arrows = pv.PolyData(origins_vis)
 arrows["flux"] = flux_vis
@@ -891,13 +830,13 @@ arrows["mag"] = mag_vis
 
 plotter_flux = pv.Plotter()
 plotter_flux.add_mesh(
-    cast(
-        pv.DataSet, arrows.glyph(orient="flux", scale="mag", factor=0.25 / mag_vis.max())
-    ),
+    arrows.glyph(orient="flux", scale="mag", factor=0.25 / mag_vis.max()),
     cmap="plasma",
     scalars="mag",
     scalar_bar_args={"title": "flux magnitude"},
 )
-plotter_flux.add_mesh(hexa_mesh_vtk(mesh_3d), style="wireframe", color="black")
+plotter_flux.add_mesh(
+    lagrange_hexahedral_grid(maps_vis, GEO_ORDER), style="wireframe", color="black"
+)
 plotter_flux.camera_position = "iso"
 plotter_flux.show()

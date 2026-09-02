@@ -825,7 +825,7 @@ class Quad(HypercubeDomain):
 
 @lru_cache
 def _vtk_3d_indices(p0: int, p1: int, p2: int) -> npt.NDArray[np.uintp]:
-    """Permutation from natural tensor-product order onto VTK Lagrange-hexahedron order.
+    """Permutation from C-order tensor points onto VTK Lagrange order.
 
     Parameters
     ----------
@@ -834,20 +834,22 @@ def _vtk_3d_indices(p0: int, p1: int, p2: int) -> npt.NDArray[np.uintp]:
 
     p1 : int
         Polynomial order along the second parametric axis.
+
     p2 : int
         Polynomial order along the third parametric axis.
 
     Returns
     -------
     idx : (N,) int ndarray, N = (p0+1)*(p1+1)*(p2+1)
-        VTK local indices of the natural points.
-        Reorder with ``vtk_order = np.empty_like(natural); vtk_order[idx] = natural``.
+        VTK local indices of the C-order tensor points. Reorder with
+        ``vtk_order = np.empty_like(natural); vtk_order[idx] = natural``.
     """
-    # i varies fastest
-    k, j, i = np.meshgrid(
-        np.arange(p2 + 1),
-        np.arange(p1 + 1),
+    # The C-order natural point index has the third parametric axis varying
+    # fastest, while VTK orders points by vertices, edges, faces, and body.
+    i, j, k = np.meshgrid(
         np.arange(p0 + 1),
+        np.arange(p1 + 1),
+        np.arange(p2 + 1),
         indexing="ij",
     )
     i = i.ravel()

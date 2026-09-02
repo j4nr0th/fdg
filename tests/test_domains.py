@@ -5,6 +5,7 @@ import itertools
 import numpy as np
 import pytest
 from fdg import Hypercube, Quad
+from fdg.domains import _vtk_3d_indices
 
 
 def _curved_boundary_points() -> list[tuple[np.ndarray, np.ndarray]]:
@@ -52,6 +53,22 @@ def test_hypercube_from_corners_uses_mesh_corner_order() -> None:
     for coordinate, reference in zip(sampled, points, strict=True):
         assert coordinate == pytest.approx((reference + 1) / 2)
     assert domain.compute_size() == pytest.approx(1.0)
+
+
+def test_vtk_indices_use_c_order_natural_points() -> None:
+    """VTK permutation consumes tensor-product points in C order."""
+    p0, p1, p2 = 2, 3, 4
+    natural = np.arange((p0 + 1) * (p1 + 1) * (p2 + 1)).reshape((p0 + 1, p1 + 1, p2 + 1))
+    vtk_order = np.empty(natural.size, dtype=np.intp)
+    vtk_order[_vtk_3d_indices(p0, p1, p2)] = natural.ravel()
+
+    expected_vertices = natural[
+        (0, p0, p0, 0, 0, p0, p0, 0),
+        (0, 0, p1, p1, 0, 0, p1, p1),
+        (0, 0, 0, 0, p2, p2, p2, p2),
+    ]
+    np.testing.assert_array_equal(vtk_order[:8], expected_vertices)
+    np.testing.assert_array_equal(np.sort(vtk_order), np.arange(natural.size))
 
 
 def test_hypercube_from_boundary_pairs() -> None:

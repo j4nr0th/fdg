@@ -59,16 +59,17 @@ from fdg import (
     KForm,
     KFormSpecs,
     Mesh,
+    SampledSpaceMap,
     SpaceMap,
     compute_kform_boundary_load,
     compute_kform_mass_matrix,
     incidence_kform_operator,
     reconstruct,
     transform_kform_to_target,
+    transform_kform_to_target_sampled,
 )
 from fdg.domains import _vtk_3d_indices
 from matplotlib import pyplot as plt
-from scipy.interpolate import RegularGridInterpolator
 
 # %%
 # Boundary data
@@ -347,37 +348,17 @@ def render_curved(p: int, dp_int: int, dp_plot: int, geom) -> None:
         gfun=solution,
     )
     dof_obj = u.get_component(0)
+
+    sampled_map = SampledSpaceMap.on_uniform_grid(space_map, orders=3 * (p + dp_plot,))
+
     # Create the reconstruction grid and reconstruct the values and positions.
     ref_grid = np.meshgrid(
-        *(np.linspace(-1.0, 1.0, p + dp_plot) for _ in range(3)), indexing="ij"
+        *(np.linspace(-1.0, 1.0, p + dp_plot + 1) for _ in range(3)), indexing="ij"
     )
     u_ref = np.asarray(reconstruct(dof_obj, *ref_grid))
-    # u_phys = transform_kform_to_target(u.specs.order, space_map, [u_ref])[0]
-    # points = np.array(geom(ref_grid))
+    u_phys = transform_kform_to_target_sampled(u.specs.order, sampled_map, [u_ref])[0]
+    points = np.stack(geom(ref_grid), axis=-1).reshape(-1, 3)
 
-    geo_grid = np.meshgrid(*([np.linspace(-1.0, 1.0, GEO_ORDER + 1)] * 3), indexing="ij")
-    basis_geo = FunctionSpace(
-        *(BasisSpecs(BasisType.LAGRANGE_UNIFORM, GEO_ORDER) for _ in range(3))
-    )
-    map_dofs = [
-        DegreesOfFreedom(basis_geo, np.asarray(v).ravel()) for v in geom(geo_grid)
-    ]
-    physical = [np.asarray(reconstruct(dof, *ref_grid)) for dof in map_dofs]
-    points = np.stack([physical[d].ravel(order="F") for d in range(3)], axis=1)
-    # Push the reference coordinates through the map to get physical coordinates.
-    fine_axes = [np.linspace(-1.0, 1.0, 65) for _ in range(3)]
-    fine_grid = np.meshgrid(*fine_axes, indexing="ij")
-    fine_coords = geom(fine_grid)
-    jac = np.empty((3, 3) + fine_grid[0].shape)
-    for a in range(3):
-        for b in range(3):
-            jac[a, b] = np.gradient(fine_coords[a], fine_axes[b], axis=b, edge_order=2)
-    det_fine = np.linalg.det(np.moveaxis(jac, (0, 1), (-2, -1)))
-    det = RegularGridInterpolator(fine_axes, det_fine)(
-        np.stack([g.reshape(-1) for g in ref_grid], axis=-1)
-    ).reshape(ref_grid[0].shape)
-    u_phys = u_ref / det
-    # Scatter the natural tensor-product data into VTK's point ordering.
     n_points = points.shape[0]
     vtk_order = np.empty(n_points, dtype=np.intp)
     vtk_order[_vtk_3d_indices(*(s - 1 for s in u_phys.shape))] = np.arange(

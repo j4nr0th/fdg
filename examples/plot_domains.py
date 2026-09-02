@@ -9,6 +9,7 @@ This example demonstrates how different domains look and behave like.
 
 import numpy as np
 from fdg import Hypercube, Line, Quad
+from fdg.visualization import sample_domain
 from matplotlib import pyplot as plt
 
 
@@ -29,11 +30,11 @@ def _sample_projected(
     samples: int,
     projection: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Sample a domain and project its physical coordinates into 3D."""
+    """Sample a domain with a sampled space map and project it into 3D."""
+    physical = sample_domain(domain, samples - 1)
     reference = np.meshgrid(
         *([np.linspace(-1, +1, samples)] * domain.ndim_reference), indexing="ij"
     )
-    physical = np.stack(domain.sample(*reference), axis=-1)
     projected = np.einsum("...j,ij->...i", physical, projection)
     return projected.reshape(-1, 3), reference[-1].reshape(-1)
 
@@ -43,7 +44,7 @@ def _sample_boundary_shell(
     samples: int,
     projection: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Sample and project every boundary face of a domain."""
+    """Sample and project every boundary face with sampled space maps."""
     nodes = np.linspace(-1, +1, samples)
     projected_faces: list[np.ndarray] = []
     colors: list[np.ndarray] = []
@@ -52,9 +53,7 @@ def _sample_boundary_shell(
             *([nodes] * (domain.ndim_reference - 1)), indexing="ij"
         )
         for end in (False, True):
-            physical = np.stack(
-                domain.boundary(boundary_axis, end).sample(*face_reference), axis=-1
-            )
+            physical = sample_domain(domain.boundary(boundary_axis, end), samples - 1)
             projected_faces.append(
                 np.einsum("...j,ij->...i", physical, projection).reshape(-1, 3)
             )
