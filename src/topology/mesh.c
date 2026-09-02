@@ -918,6 +918,30 @@ topo_status_t topo_mesh_iterate_shared_all(const topo_mesh_t *const mesh, topo_m
     return TOPO_SUCCESS;
 }
 
+topo_status_t topo_mesh_iterate_shared_pairs(const topo_mesh_t *const mesh, topo_mesh_pair_callback_t callback,
+                                             void *const user_data)
+{
+    if (!mesh || !callback)
+        return TOPO_INVALID_ARGUMENT;
+    for (unsigned mdim = mesh->ndim; mdim-- > 0;)
+    {
+        const topo_obj_immersion_t *const immersion = mesh->immersions + mdim;
+        for (uint64_t object_id = 0; object_id < immersion->object_count; ++object_id)
+        {
+            uint64_t element_count;
+            const uint64_t *element_ids;
+            const int8_t *orientations;
+            topo_obj_immersion_of_object(immersion, object_id, &element_count, &element_ids, &orientations);
+            for (uint64_t pair = 1; pair < element_count; ++pair)
+            {
+                callback(mesh, mdim, object_id, element_ids[pair - 1], orientations + (pair - 1) * mesh->ndim,
+                         element_ids[pair], orientations + pair * mesh->ndim, user_data);
+            }
+        }
+    }
+    return TOPO_SUCCESS;
+}
+
 topo_status_t topo_mesh_iterate_boundary(const topo_mesh_t *const mesh, const unsigned mdim,
                                          topo_mesh_callback_t callback, void *const user_data)
 {

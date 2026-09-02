@@ -52,13 +52,12 @@ static constraint_status_t validate_kform_spec(const constraint_kform_spec_t *co
 
     for (unsigned idim = 0; idim < spec->ndim; ++idim)
     {
-        if (spec->basis_specs[idim].order == 0 || spec->basis_specs[idim].type <= BASIS_INVALID ||
+        if ((spec->order != 0 && spec->basis_specs[idim].order == 0) || spec->basis_specs[idim].type <= BASIS_INVALID ||
             spec->basis_specs[idim].type > BASIS_BERNSTEIN)
             return CONSTRAINT_INVALID_ORDER;
     }
     return CONSTRAINT_SUCCESS;
 }
-
 static void component_axes(const unsigned ndim, const unsigned order, const unsigned component,
                            uint8_t axes[const static order == 0 ? 1 : order])
 {
@@ -86,7 +85,7 @@ static constraint_status_t validate_element_side(const constraint_kform_spec_t *
     for (unsigned i = 0; i < side->ndim; ++i)
     {
         used_axes[i] = false;
-        if (side->basis_specs[i].order == 0 || side->basis_specs[i].type <= BASIS_INVALID ||
+        if ((test_spec->order != 0 && side->basis_specs[i].order == 0) || side->basis_specs[i].type <= BASIS_INVALID ||
             side->basis_specs[i].type > BASIS_BERNSTEIN)
             return CONSTRAINT_INVALID_ARGUMENT;
     }

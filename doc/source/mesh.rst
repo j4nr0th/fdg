@@ -125,7 +125,7 @@ proportional to the number of fixed axes.
 Shared objects and the mesh boundary
 ------------------------------------
 
-The mesh offers two iteration families:
+The mesh offers three iteration families:
 
 - :meth:`Mesh.iterate_shared` and :meth:`Mesh.iterate_shared_all` visit the
   objects that are contained in at least two elements, with the element IDs
@@ -133,6 +133,10 @@ The mesh offers two iteration families:
   be enforced. To build constraints without over-constraining, pair the
   consecutive elements of each shared object and constrain only the interior
   of the object, skipping its own boundaries.
+- :meth:`Mesh.compute_kform_continuity_constraints` performs that pairing and
+  assembles physical trace rows from faces down to points. Its
+  ``test_specs[mdim][object_id]`` entries are supplied by the caller, so basis
+  types and orders are never inferred. An empty entry skips that stratum.
 - :meth:`Mesh.iterate_boundary` and :meth:`Mesh.iterate_boundary_all` visit
   the objects that lie on the outer boundary of the mesh: an object lies on
   the boundary when it is contained in a *boundary face*, an object of
@@ -164,6 +168,19 @@ The ``*_all`` variants iterate the object dimensions from :math:`N - 1`
 down to zero. This is the order required for continuity constraints:
 constraining the shared objects dimension by dimension, from the highest to
 the lowest, ensures that no degree of freedom is constrained more than once.
+
+Hierarchical continuity
+-----------------------
+
+The global method returns packed rows with five arrays:
+``(row_offsets, element_ids, components, local_dofs, coefficients)``. The
+element IDs replace the side field of the one-boundary API, and the two
+consecutive traces appear with opposite signs. Empty or skipped stages keep
+the valid empty representation ``row_offsets == [0]``.
+
+The caller supplies one test :class:`KFormSpecs` per canonical component for
+each object. This explicit input is also the mechanism for weakly constraining
+a higher-order trace with a lower-order test space on an hp boundary.
 
 Boundary constraints
 --------------------

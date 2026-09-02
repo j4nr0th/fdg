@@ -2,6 +2,7 @@
 #include "../common/common.h"
 
 #include <limits.h>
+#include <stdbool.h>
 #include <string.h>
 
 typedef struct
@@ -32,6 +33,53 @@ static void count_descending(const topo_mesh_t *mesh, const topo_mesh_shared_obj
     TEST_ASSERTION(object->mdim <= order->last_mdim, "Iteration over all dimensions is not descending.");
     order->last_mdim = object->mdim;
     order->counts[object->mdim] += 1;
+}
+
+typedef struct
+{
+    unsigned last_mdim;
+    bool seen_dimension[3];
+    uint64_t last_object[3];
+    uint64_t pair_counts[3];
+    uint64_t target_object;
+    uint64_t target_pairs;
+} pair_capture_t;
+
+static void capture_pair(const topo_mesh_t *const mesh, const unsigned mdim, const uint64_t object_id,
+                         const uint64_t element_id_1, const int8_t *const orientation_1, const uint64_t element_id_2,
+                         const int8_t *const orientation_2, void *const user_data)
+{
+    pair_capture_t *const capture = user_data;
+    TEST_ASSERTION(mdim < mesh->ndim && mdim < 3, "Pair iterator returned an invalid dimension.");
+    TEST_ASSERTION(mdim <= capture->last_mdim, "Pair iteration is not dimension-descending.");
+    capture->last_mdim = mdim;
+    if (capture->seen_dimension[mdim])
+        TEST_ASSERTION(object_id >= capture->last_object[mdim], "Pair iteration is not object-ID ascending.");
+    capture->seen_dimension[mdim] = true;
+    capture->last_object[mdim] = object_id;
+    TEST_ASSERTION(element_id_1 < element_id_2, "Pair element IDs are not sorted.");
+
+    uint64_t element_count;
+    const uint64_t *element_ids;
+    const int8_t *orientations;
+    topo_obj_immersion_of_object(mesh->immersions + mdim, object_id, &element_count, &element_ids, &orientations);
+    uint64_t pair_index = element_count;
+    for (uint64_t index = 1; index < element_count; ++index)
+    {
+        if (element_ids[index - 1] == element_id_1 && element_ids[index] == element_id_2)
+        {
+            pair_index = index;
+            break;
+        }
+    }
+    TEST_ASSERTION(pair_index < element_count, "Pair callback did not match an immersion occurrence.");
+    TEST_ASSERTION(
+        memcmp(orientation_1, orientations + (pair_index - 1) * mesh->ndim, mesh->ndim * sizeof(*orientation_1)) == 0 &&
+            memcmp(orientation_2, orientations + pair_index * mesh->ndim, mesh->ndim * sizeof(*orientation_2)) == 0,
+        "Pair callback returned incorrect orientations.");
+    capture->pair_counts[mdim] += 1;
+    if (mdim == 0 && object_id == capture->target_object)
+        capture->target_pairs += 1;
 }
 
 static void test_1d(void)
@@ -230,6 +278,13 @@ static void test_2d(void)
     TEST_ASSERTION(topo_mesh_iterate_boundary(mesh, 0, count_shared, &boundary_points) == TOPO_SUCCESS,
                    "Could not iterate over boundary points.");
     TEST_ASSERTION(boundary_points.count == 8, "Unexpected number of boundary points.");
+
+    pair_capture_t pair_capture = {.last_mdim = UINT_MAX, .target_object = grid2(1, 1)};
+    TEST_ASSERTION(topo_mesh_iterate_shared_pairs(mesh, capture_pair, &pair_capture) == TOPO_SUCCESS,
+                   "Could not iterate over shared element pairs.");
+    TEST_ASSERTION(pair_capture.pair_counts[1] == 4 && pair_capture.pair_counts[0] == 7 &&
+                       pair_capture.target_pairs == 3,
+                   "Shared pair iterator returned incorrect two-dimensional pair counts.");
 
     // Lookup of object positions within one element.
     uint64_t object;
@@ -455,6 +510,29 @@ static void test_3d_eight_cubes(void)
         }
         TEST_ASSERTION(max_count == 8, "Unexpected maximum point connectivity.");
     }
+
+    pair_capture_t pair_capture = {.last_mdim = UINT_MAX, .target_object = 13};
+    TEST_ASSERTION(topo_mesh_iterate_shared_pairs(mesh, capture_pair, &pair_capture) == TOPO_SUCCESS,
+                   "Could not iterate over shared element pairs.");
+    uint64_t expected_pairs[3] = {0, 0, 0};
+    const topo_obj_immersion_t *const pair_immersions = topo_mesh_immersions(mesh);
+    for (unsigned mdim = 0; mdim < 3; ++mdim)
+    {
+        for (uint64_t object_id = 0; object_id < pair_immersions[mdim].object_count; ++object_id)
+        {
+            uint64_t element_count;
+            const uint64_t *unused_ids;
+            const int8_t *unused_orientations;
+            topo_obj_immersion_of_object(pair_immersions + mdim, object_id, &element_count, &unused_ids,
+                                         &unused_orientations);
+            if (element_count > 1)
+                expected_pairs[mdim] += element_count - 1;
+        }
+    }
+    TEST_ASSERTION(pair_capture.pair_counts[2] == expected_pairs[2] &&
+                       pair_capture.pair_counts[1] == expected_pairs[1] && pair_capture.pair_counts[0] == 37 &&
+                       pair_capture.target_pairs == 7,
+                   "Shared pair iterator returned incorrect three-dimensional pair counts.");
 
     topo_mesh_free(mesh, allocator);
 }

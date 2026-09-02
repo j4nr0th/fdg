@@ -64,6 +64,23 @@ static void test_invalid_specs(void)
                    "Invalid component specification was accepted.");
 }
 
+static void test_zero_order_scalar_constraints(void)
+{
+    const basis_spec_t zero_basis[] = {basis_spec(0)};
+    const constraint_kform_spec_t scalar = {.ndim = 1, .order = 0, .basis_specs = zero_basis};
+    const constraint_kform_spec_t positive_form = {.ndim = 1, .order = 1, .basis_specs = zero_basis};
+    size_t component_count;
+    size_t dof_count;
+
+    TEST_ASSERTION(constraint_kform_component_count(&scalar, &component_count) == CONSTRAINT_SUCCESS &&
+                       component_count == 1,
+                   "Scalar degree-zero test basis was rejected.");
+    TEST_ASSERTION(constraint_kform_component_dof_count(&scalar, 0, &dof_count) == CONSTRAINT_SUCCESS && dof_count == 1,
+                   "Unexpected scalar degree-zero DoF count.");
+    TEST_ASSERTION(constraint_kform_component_count(&positive_form, &component_count) == CONSTRAINT_INVALID_ORDER,
+                   "Degree-zero basis was accepted for a positive-degree form.");
+}
+
 static void test_row_representation(void)
 {
     const constraint_entry_t entries[] = {
@@ -476,6 +493,7 @@ int main(void)
     test_component_layout();
     test_scalar_component();
     test_invalid_specs();
+    test_zero_order_scalar_constraints();
     test_row_representation();
     test_reference_sizing();
     test_reference_endpoint_assembly();

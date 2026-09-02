@@ -25,7 +25,7 @@ static PyObject *kform_spec_new(PyTypeObject *type, PyObject *args, PyObject *kw
     for (unsigned i = 0; i < ndim; ++i)
     {
         const basis_spec_t *const spec = space->specs + i;
-        if (spec->order == 0)
+        if (order != 0 && spec->order == 0)
         {
             PyErr_Format(PyExc_ValueError, "Expected order > 0 for dimension %u, got 0.", i);
             return NULL;

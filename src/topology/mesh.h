@@ -88,6 +88,22 @@ typedef struct
 typedef void (*topo_mesh_callback_t)(const topo_mesh_t *mesh, const topo_mesh_shared_object_t *object, void *user_data);
 
 /**
+ * Callback invoked for each consecutive pair of elements containing a shared object.
+ *
+ * @param mesh The mesh being iterated.
+ * @param mdim Dimension of the shared object.
+ * @param object_id ID of the shared object.
+ * @param element_id_1 First element ID in the pair.
+ * @param orientation_1 Orientation of the object in the first element.
+ * @param element_id_2 Second element ID in the pair.
+ * @param orientation_2 Orientation of the object in the second element.
+ * @param user_data Opaque pointer passed through from the iteration function.
+ */
+typedef void (*topo_mesh_pair_callback_t)(const topo_mesh_t *mesh, unsigned mdim, uint64_t object_id,
+                                          uint64_t element_id_1, const int8_t *orientation_1, uint64_t element_id_2,
+                                          const int8_t *orientation_2, void *user_data);
+
+/**
  * Create a mesh from already computed collections and immersions.
  *
  * The mesh takes ownership of all passed arrays on success; each of them must
@@ -292,6 +308,22 @@ topo_status_t topo_mesh_iterate_shared(const topo_mesh_t *mesh, unsigned mdim, t
  *         invalid.
  */
 topo_status_t topo_mesh_iterate_shared_all(const topo_mesh_t *mesh, topo_mesh_callback_t callback, void *user_data);
+
+/**
+ * Iterate over consecutive element pairs of all shared objects, from dimension
+ * ``ndim - 1`` down to dimension zero.
+ *
+ * Each object contained in elements ``[e0, ..., eN]`` invokes the callback for
+ * ``(e0, e1)``, ..., ``(eN-1, eN)``. This produces an acyclic spanning path
+ * through every shared object's element occurrences.
+ *
+ * @param mesh Mesh to iterate over.
+ * @param callback Callback invoked for every consecutive pair.
+ * @param user_data Pointer passed to the callback.
+ * @return TOPO_SUCCESS on success, TOPO_INVALID_ARGUMENT if an argument is invalid.
+ */
+topo_status_t topo_mesh_iterate_shared_pairs(const topo_mesh_t *mesh, topo_mesh_pair_callback_t callback,
+                                             void *user_data);
 
 /**
  * Iterate over all objects of one dimension that lie on the outer boundary of

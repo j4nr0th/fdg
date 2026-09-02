@@ -274,24 +274,3 @@ void topo_iterate_boundary(unsigned ndim, unsigned mdim, topo_bnd_iter_t bnd_ite
                            bool skip_edges,
                            void (*callback)(uint64_t idx_bnd, uint64_t idx_1, uint64_t idx_2, void *user_data),
                            void *user_data);
-
-/**
- * Connect elements together based on their boundaries.
- *
- * Iterates over all immersed boundary objects of every dimension and, for
- * each pair of elements that share a boundary object, computes the local
- * orders of the shared boundary as the per-axis minimum of the two element
- * orders. The connectivity itself is implicit in the immersion
- * information; this function currently only performs the shared-boundary
- * order bookkeeping.
- *
- * @param n_elements Number of elements with ndim each.
- * @param ndim Number of dimensions for the space elements are in.
- * @param element_orders Orders for each element for each of the dimensions.
- *        Must have `ndim * n_elements` entries, ordered by element ID, with
- *        the ID of each element within the range of the immersion data.
- * @param immersions Array with boundary immersions for each order of boundaries.
- */
-void topo_connect_boundaries(uint64_t n_elements, unsigned ndim,
-                             const unsigned element_orders[static ndim * n_elements],
-                             const topo_obj_immersion_t immersions[static const ndim]);

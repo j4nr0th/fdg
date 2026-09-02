@@ -955,6 +955,28 @@ class Mesh:
         """
         ...
 
+    def compute_kform_continuity_constraints(
+        self,
+        element_specs: Sequence[KFormSpecs],
+        element_maps: Sequence[SpaceMap],
+        test_specs: Sequence[Sequence[Sequence[KFormSpecs]]],
+        /,
+    ) -> tuple[
+        npt.NDArray[np.uintp],
+        npt.NDArray[np.uint64],
+        npt.NDArray[np.uint32],
+        npt.NDArray[np.uintp],
+        npt.NDArray[np.double],
+    ]:
+        """Assemble hierarchical physical k-form continuity rows.
+
+        Shared objects are visited from the highest dimension down to points.
+        The supplied test specification lists are indexed by object dimension,
+        object ID, and canonical k-form component. Empty component lists skip a
+        stratum without inferring a test basis.
+        """
+        ...
+
 @final
 class CoordinateMap:
     """Mapping between reference and physical coordinates.
