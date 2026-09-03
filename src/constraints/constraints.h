@@ -97,6 +97,24 @@ typedef struct
 } constraint_trace_pullback_t;
 
 /**
+ * @brief One two-sided physical trace assembly item in a batch.
+ *
+ * All items passed to the batch functions use the same test specification;
+ * their side, quadrature, metric, and pullback data may differ.
+ */
+typedef struct
+{
+    // Two element side specifications, with entries weighted by +1 and -1.
+    const constraint_element_side_t *sides;
+    // Two canonical-face quadrature descriptions.
+    const constraint_face_quadrature_t *quadrature;
+    // Two unsigned face-measure arrays, one per side.
+    const double *surface_weights[2];
+    // Two sampled physical k-form pullbacks.
+    const constraint_trace_pullback_t *pullbacks;
+} constraint_physical_batch_item_t;
+
+/**
  * @brief Precomputed tensor-product basis values for trace assembly.
  *
  * Values are laid out by component, then point, then local degree of freedom:
@@ -446,6 +464,31 @@ constraint_status_t constraint_physical_assemble(
     const constraint_kform_spec_t *test_spec, const constraint_element_side_t sides[const static 2],
     const constraint_face_quadrature_t quadrature[const static 2], const double *const surface_weights[const static 2],
     const constraint_trace_pullback_t pullbacks[const static 2], size_t row_offset_capacity,
+    size_t row_offsets[const static row_offset_capacity], size_t entry_capacity,
+    constraint_entry_t entries[const static entry_capacity], size_t *out_row_count, size_t *out_entry_count);
+
+/**
+ * @brief Compute storage requirements for a batch of physical trace matrices.
+ *
+ * The same test space is used for every item. The output counts are the sums
+ * of the per-item row and entry counts, in batch order.
+ */
+constraint_status_t constraint_physical_batch_required(
+    const constraint_kform_spec_t *test_spec, size_t item_count,
+    const constraint_physical_batch_item_t items[const static item_count], size_t *out_row_count,
+    size_t *out_entry_count);
+
+/**
+ * @brief Assemble a batch of physical trace matrices into one packed matrix.
+ *
+ * Rows from each item are concatenated in input order. Within each item the
+ * entry side field remains zero or one and retains the usual +1/-1 signs.
+ * This keeps common test-space setup and dispatch at the caller's batch
+ * boundary while allowing geometry and orientations to vary per item.
+ */
+constraint_status_t constraint_physical_batch_assemble(
+    const constraint_kform_spec_t *test_spec, size_t item_count,
+    const constraint_physical_batch_item_t items[const static item_count], size_t row_offset_capacity,
     size_t row_offsets[const static row_offset_capacity], size_t entry_capacity,
     constraint_entry_t entries[const static entry_capacity], size_t *out_row_count, size_t *out_entry_count);
 

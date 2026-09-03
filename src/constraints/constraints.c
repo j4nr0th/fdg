@@ -794,6 +794,90 @@ constraint_status_t constraint_physical_assemble(
     return CONSTRAINT_SUCCESS;
 }
 
+constraint_status_t constraint_physical_batch_required(
+    const constraint_kform_spec_t *const test_spec, const size_t item_count,
+    const constraint_physical_batch_item_t items[const static item_count], size_t *const out_row_count,
+    size_t *const out_entry_count)
+{
+    if (!out_row_count || !out_entry_count)
+        return CONSTRAINT_INVALID_ARGUMENT;
+    size_t total_rows = 0;
+    size_t total_entries = 0;
+    for (size_t item = 0; item < item_count; ++item)
+    {
+        if (!items[item].sides || !items[item].quadrature || !items[item].surface_weights[0] ||
+            !items[item].surface_weights[1])
+            return CONSTRAINT_INVALID_ARGUMENT;
+        if (test_spec && test_spec->order != 0 && !items[item].pullbacks)
+            return CONSTRAINT_INVALID_ARGUMENT;
+        size_t item_rows;
+        size_t item_entries;
+        const constraint_status_t status =
+            constraint_physical_required(test_spec, items[item].sides, &item_rows, &item_entries);
+        if (status != CONSTRAINT_SUCCESS)
+            return status;
+        if (total_rows > SIZE_MAX - item_rows || total_entries > SIZE_MAX - item_entries)
+            return CONSTRAINT_SIZE_OVERFLOW;
+        total_rows += item_rows;
+        total_entries += item_entries;
+    }
+    if (item_count == 0)
+    {
+        size_t ignored;
+        const constraint_status_t status = constraint_kform_component_count(test_spec, &ignored);
+        if (status != CONSTRAINT_SUCCESS)
+            return status;
+    }
+    *out_row_count = total_rows;
+    *out_entry_count = total_entries;
+    return CONSTRAINT_SUCCESS;
+}
+
+constraint_status_t constraint_physical_batch_assemble(
+    const constraint_kform_spec_t *const test_spec, const size_t item_count,
+    const constraint_physical_batch_item_t items[const static item_count], const size_t row_offset_capacity,
+    size_t row_offsets[const static row_offset_capacity], const size_t entry_capacity,
+    constraint_entry_t entries[const static entry_capacity], size_t *const out_row_count, size_t *const out_entry_count)
+{
+    if (!out_row_count || !out_entry_count)
+        return CONSTRAINT_INVALID_ARGUMENT;
+    size_t required_rows;
+    size_t required_entries;
+    constraint_status_t status =
+        constraint_physical_batch_required(test_spec, item_count, items, &required_rows, &required_entries);
+    if (status != CONSTRAINT_SUCCESS)
+        return status;
+    size_t required_offsets;
+    status = constraint_rows_required_offset_count(required_rows, &required_offsets);
+    if (status != CONSTRAINT_SUCCESS)
+        return status;
+    if (row_offset_capacity < required_offsets || entry_capacity < required_entries)
+        return CONSTRAINT_INSUFFICIENT_STORAGE;
+
+    size_t row = 0;
+    size_t entry = 0;
+    row_offsets[0] = 0;
+    for (size_t item = 0; item < item_count; ++item)
+    {
+        size_t item_rows;
+        size_t item_entries;
+        status = constraint_physical_assemble(test_spec, items[item].sides, items[item].quadrature,
+                                              items[item].surface_weights, items[item].pullbacks,
+                                              row_offset_capacity - row, row_offsets + row, entry_capacity - entry,
+                                              entries + entry, &item_rows, &item_entries);
+        if (status != CONSTRAINT_SUCCESS)
+            return status;
+        row_offsets[row] = entry;
+        for (size_t local_row = 1; local_row <= item_rows; ++local_row)
+            row_offsets[row + local_row] += entry;
+        row += item_rows;
+        entry += item_entries;
+    }
+    *out_row_count = row;
+    *out_entry_count = entry;
+    return CONSTRAINT_SUCCESS;
+}
+
 constraint_status_t constraint_physical_side_assemble(
     const constraint_kform_spec_t *const test_spec, const constraint_element_side_t *const side,
     const constraint_face_quadrature_t *const quadrature, const double *const surface_weights,

@@ -5,7 +5,7 @@ import itertools
 import numpy as np
 import pytest
 from fdg import Hypercube, Quad
-from fdg.domains import _vtk_3d_indices
+from fdg.domains import _vtk_2d_indices, _vtk_3d_indices
 
 
 def _curved_boundary_points() -> list[tuple[np.ndarray, np.ndarray]]:
@@ -68,6 +68,18 @@ def test_vtk_indices_use_c_order_natural_points() -> None:
         (0, 0, 0, 0, p2, p2, p2, p2),
     ]
     np.testing.assert_array_equal(vtk_order[:8], expected_vertices)
+    np.testing.assert_array_equal(np.sort(vtk_order), np.arange(natural.size))
+
+
+def test_vtk_2d_indices_use_c_order_natural_points() -> None:
+    """Quadrilateral vertices and all node indices use the VTK ordering."""
+    p0, p1 = 2, 3
+    natural = np.arange((p0 + 1) * (p1 + 1)).reshape((p0 + 1, p1 + 1))
+    vtk_order = np.empty(natural.size, dtype=np.intp)
+    vtk_order[_vtk_2d_indices(p0, p1)] = natural.ravel()
+
+    expected_vertices = natural[(0, p0, p0, 0), (0, 0, p1, p1)]
+    np.testing.assert_array_equal(vtk_order[:4], expected_vertices)
     np.testing.assert_array_equal(np.sort(vtk_order), np.arange(natural.size))
 
 

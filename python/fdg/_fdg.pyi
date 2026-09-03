@@ -1,11 +1,17 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Self, final
 
 import numpy as np
 import numpy.typing as npt
 
+from fdg.boundary_conditions import (
+    BoundaryCondition,
+    BoundaryData,
+    BoundaryPair,
+    BoundaryPairGroup,
+)
 from fdg.enum_type import _BasisTypeHint, _IntegrationMethodHint
 
 @final
@@ -1019,6 +1025,107 @@ class Mesh:
             Physical trace coefficient for each packed entry. The first side
             of every pair has positive sign and the second side has negative
             sign.
+        """
+        ...
+
+    def compute_kform_boundary_constraints_batch(
+        self,
+        test_spec: KFormSpecs,
+        element_spec: KFormSpecs,
+        element_maps: Sequence[SpaceMap],
+        element_ids: Sequence[int],
+        boundary_ids: Sequence[int],
+        /,
+    ) -> tuple[
+        npt.NDArray[np.uintp],
+        npt.NDArray[np.uint64],
+        npt.NDArray[np.uint32],
+        npt.NDArray[np.uintp],
+        npt.NDArray[np.double],
+    ]:
+        """Assemble one test trace specification for each requested boundary.
+
+        Parameters
+        ----------
+        test_spec : KFormSpecs
+            Trace test-space specification. Its dimension is the boundary
+            object dimension, and its k-form order must equal
+            ``element_spec.order``.
+        element_spec : KFormSpecs
+            Volume trial-space specification shared by every batch item.
+        element_maps : sequence of SpaceMap
+            Element maps, one per item, in the same order as
+            ``element_ids`` and ``boundary_ids``. Each map must describe the
+            mesh dimension.
+        element_ids : sequence of int
+            Global mesh element ID for each requested boundary trace.
+        boundary_ids : sequence of int
+            Boundary-object ID for each trace. Item ``i`` must belong to
+            ``element_ids[i]``.
+
+        Returns
+        -------
+        tuple of ndarray
+            Five packed arrays: ``row_offsets``, ``element_ids``,
+            ``components``, ``local_dofs``, and ``coefficients``. Rows are
+            concatenated in input order. ``components`` and ``local_dofs``
+            identify element-local k-form entries, and ``coefficients`` holds
+            their physical trace weights. An empty batch returns
+            ``row_offsets == [0]`` and empty entry arrays.
+        """
+        ...
+
+    def compute_kform_global_constraints(
+        self,
+        element_specs: Sequence[KFormSpecs],
+        element_maps: Sequence[SpaceMap],
+        test_specs: Sequence[Sequence[Sequence[KFormSpecs]]],
+        boundary_conditions: Mapping[int, BoundaryData]
+        | Sequence[BoundaryCondition]
+        | None = None,
+        periodic_pairs: Sequence[BoundaryPair | BoundaryPairGroup] | None = None,
+        /,
+    ) -> tuple[
+        tuple[
+            npt.NDArray[np.uintp],
+            npt.NDArray[np.uint64],
+            npt.NDArray[np.uint32],
+            npt.NDArray[np.uintp],
+            npt.NDArray[np.double],
+        ],
+        npt.NDArray[np.double],
+    ]:
+        """Assemble global k-form trace constraints and their right-hand side.
+
+        The existing shared-object continuity rows are augmented by optional
+        physical boundary data and explicit periodic or transformed boundary
+        pairs. Boundary face data are propagated to all lower-dimensional
+        descendants and imposed once on a deterministic owner element, so
+        adjacent prescribed faces do not duplicate edge or point equations.
+
+        Parameters
+        ----------
+        element_specs, element_maps, test_specs
+            The same per-element specifications, maps, and explicit hierarchical
+            test-space structure accepted by
+            :meth:`compute_kform_continuity_constraints`.
+
+        periodic_pairs : sequence of BoundaryPair or BoundaryPairGroup, optional
+            Explicit pairs of outer faces, or ordered groups of equal-length
+            face collections. Each group is expanded to corresponding lower
+            strata; ``axis_map`` is a signed permutation of canonical boundary
+            axes, allowing reversals and axis permutations. Duplicate
+            lower-stratum relations are reduced to an acyclic forest.
+
+        Returns
+        -------
+        rows : tuple of arrays
+            ``(row_offsets, element_ids, components, local_dofs, coefficients)``
+            in the global packed-row format.
+
+        rhs : ndarray[double]
+            One prescribed value per packed constraint row. Shared and periodic
+            rows have zero right-hand side.
         """
         ...
 

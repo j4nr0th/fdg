@@ -46,6 +46,13 @@ from fdg._fdg import transform_kform_to_target as transform_kform_to_target
 from fdg._fdg import (
     transform_kform_to_target_sampled as transform_kform_to_target_sampled,
 )
+from fdg.boundary_conditions import BoundaryCondition as BoundaryCondition
+from fdg.boundary_conditions import BoundaryData as BoundaryData
+from fdg.boundary_conditions import BoundaryPair as BoundaryPair
+from fdg.boundary_conditions import BoundaryPairGroup as BoundaryPairGroup
+from fdg.boundary_conditions import (
+    compute_kform_global_constraints as compute_kform_global_constraints,
+)
 
 # DoFs functions
 from fdg.degrees_of_freedom import reconstruct as reconstruct

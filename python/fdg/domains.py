@@ -824,6 +824,71 @@ class Quad(HypercubeDomain):
 
 
 @lru_cache
+def _vtk_2d_indices(p0: int, p1: int) -> npt.NDArray[np.uintp]:
+    """Return the scatter permutation from C-order to VTK point order.
+
+    Parameters
+    ----------
+    p0 : int
+        Polynomial order along the first reference axis.
+    p1 : int
+        Polynomial order along the second reference axis.
+
+    Returns
+    -------
+    idx : (N,) uintp ndarray, N = (p0 + 1) * (p1 + 1)
+        VTK local indices of the C-order tensor-product points. Reorder with
+        ``vtk_order = np.empty_like(natural); vtk_order[idx] = natural``.
+        VTK orders points as four vertices, oriented edge interiors, and then
+        the tensor-product cell interior.
+
+    Raises
+    ------
+    ValueError
+        If either polynomial order is less than one.
+
+    Notes
+    -----
+    The result is cached. Callers must treat the returned array as read-only;
+    mutating it would change the cached permutation for future calls.
+    """
+    if p0 < 1 or p1 < 1:
+        raise ValueError("VTK quadrilateral orders must be positive.")
+    i, j = np.meshgrid(
+        np.arange(p0 + 1),
+        np.arange(p1 + 1),
+        indexing="ij",
+    )
+    i = i.ravel()
+    j = j.ravel()
+    ibdy = np.asarray((i == 0) | (i == p0), np.bool, copy=None)
+    jbdy = np.asarray((j == 0) | (j == p1), np.bool, copy=None)
+    idx = np.empty(i.size, dtype=np.uintp)
+
+    vertices = ibdy & jbdy
+    idx[vertices] = np.where(
+        i[vertices] != 0,
+        np.where(j[vertices] != 0, 2, 1),
+        np.where(j[vertices] != 0, 3, 0),
+    )
+
+    edge_base = 4
+    bottom = ~ibdy & (j == 0)
+    idx[bottom] = edge_base + i[bottom] - 1
+    right = (i == p0) & ~jbdy
+    idx[right] = edge_base + (p0 - 1) + j[right] - 1
+    top = ~ibdy & (j == p1)
+    idx[top] = edge_base + (p0 - 1) + (p1 - 1) + (i[top] - 1)
+    left = (i == 0) & ~jbdy
+    idx[left] = edge_base + 2 * (p0 - 1) + (p1 - 1) + (j[left] - 1)
+
+    body = ~ibdy & ~jbdy
+    body_base = edge_base + 2 * (p0 + p1 - 2)
+    idx[body] = body_base + (i[body] - 1) + (p0 - 1) * (j[body] - 1)
+    return idx
+
+
+@lru_cache
 def _vtk_3d_indices(p0: int, p1: int, p2: int) -> npt.NDArray[np.uintp]:
     """Permutation from C-order tensor points onto VTK Lagrange order.
 

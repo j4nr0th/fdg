@@ -19,7 +19,7 @@ from fdg._fdg import (
     transform_kform_to_target_sampled,
 )
 from fdg.degrees_of_freedom import reconstruct
-from fdg.domains import HypercubeDomain, _vtk_3d_indices
+from fdg.domains import HypercubeDomain, _vtk_2d_indices, _vtk_3d_indices
 from fdg.enum_type import IntegrationMethod
 
 
@@ -112,6 +112,112 @@ def sample_domain(
     )
     sampled_map = SampledSpaceMap.on_uniform_grid(domain(integration), orders=orders)
     return np.asarray(sampled_map.positions)
+
+
+def lagrange_quadrilateral_grid(
+    space_maps: Sequence[SpaceMap],
+    order: int,
+    point_data: Mapping[str, Sequence[npt.ArrayLike]] | None = None,
+) -> pv.UnstructuredGrid:
+    """Build one VTK Lagrange quadrilateral per sampled element map.
+
+    Parameters
+    ----------
+    space_maps : sequence of SpaceMap
+        Element maps with exactly two reference dimensions. Their physical
+        output may have two or three coordinates.
+    order : int
+        Positive polynomial order used for uniform tensor-product sampling in
+        both reference directions.
+    point_data : mapping[str, sequence of array-like], optional
+        Named scalar arrays to attach as point data. The sequence for each
+        name must have one item per map, and each item must have shape
+        ``(order + 1, order + 1)`` in C-order reference-grid layout.
+
+    Returns
+    -------
+    pyvista.UnstructuredGrid
+        An unstructured grid containing one
+        ``LAGRANGE_QUADRILATERAL`` cell per map. Points and point data are
+        reordered from C-order tensor-product layout into VTK's
+        vertices-edges-interior layout. Two-coordinate maps are embedded in
+        the ``z = 0`` plane.
+
+    Raises
+    ------
+    ValueError
+        If ``order`` is not positive, a map does not have two reference
+        dimensions, a map does not produce two or three physical coordinates,
+        a point-data sequence has the wrong length, or an array has the wrong
+        tensor-grid shape.
+
+    Notes
+    -----
+    Sampling is performed directly on each map. This is preferable to
+    slicing a high-order three-dimensional VTK cell when a visualization
+    plane is known in advance, because the resulting cell topology remains
+    an explicit high-order quadrilateral.
+    """
+    if order < 1:
+        raise ValueError("The Lagrange order must be positive.")
+    if point_data is None:
+        point_data = {}
+    if any(len(values) != len(space_maps) for values in point_data.values()):
+        raise ValueError("Every point-data sequence must match the number of elements.")
+
+    points: list[npt.NDArray[np.double]] = []
+    cells: list[npt.NDArray[np.intp]] = []
+    sampled_data: dict[str, list[npt.NDArray[np.double]]] = {
+        name: [] for name in point_data
+    }
+    point_offset = 0
+    point_count = (order + 1) ** 2
+    vtk_indices = _vtk_2d_indices(order, order).astype(np.intp, copy=False)
+
+    for element, space_map in enumerate(space_maps):
+        if space_map.input_dimensions != 2:
+            raise ValueError("Lagrange quadrilaterals require two reference dimensions.")
+        sampled_map = SampledSpaceMap.on_uniform_grid(space_map, orders=(order, order))
+        positions = np.asarray(sampled_map.positions)
+        if positions.shape[-1] not in (2, 3):
+            raise ValueError("Lagrange quadrilaterals require 2D or 3D coordinates.")
+        if positions.shape[-1] == 2:
+            points.append(
+                np.column_stack(
+                    [
+                        positions[..., 0].ravel(),
+                        positions[..., 1].ravel(),
+                        np.zeros(point_count),
+                    ]
+                )
+            )
+        else:
+            points.append(
+                np.stack([positions[..., axis].ravel() for axis in range(3)], axis=1)
+            )
+        for name, values in point_data.items():
+            data = np.asarray(values[element])
+            if data.shape != positions.shape[:-1]:
+                raise ValueError(
+                    f"Point data {name!r} has shape {data.shape}, expected "
+                    f"{positions.shape[:-1]}."
+                )
+            sampled_data[name].append(data.ravel())
+        vtk_order = np.empty(point_count, dtype=np.intp)
+        vtk_order[vtk_indices] = np.arange(
+            point_offset, point_offset + point_count, dtype=np.intp
+        )
+        cells.append(np.concatenate((np.array([point_count], dtype=np.intp), vtk_order)))
+        point_offset += point_count
+
+    grid = pv.UnstructuredGrid(
+        np.concatenate(cells),
+        np.full(len(cells), pv.CellType.LAGRANGE_QUADRILATERAL, dtype=np.uint8),
+        np.concatenate(points, axis=0),
+    )
+    for name, values in sampled_data.items():
+        grid.point_data[name] = np.concatenate(values)
+    return grid
 
 
 def lagrange_hexahedral_grid(

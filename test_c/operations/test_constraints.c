@@ -291,6 +291,54 @@ static void test_physical_scalar_measure(void)
         TEST_NUMBERS_CLOSE(entries[i].coefficient, 3.0 * reference_entries[i].coefficient, 1e-12, 0);
 }
 
+static void test_physical_batch_scalar(void)
+{
+    const basis_spec_t test_basis[] = {basis_spec(1)};
+    const basis_spec_t element_basis[] = {basis_spec(1), basis_spec(1)};
+    const int8_t lower[] = {-1, 2};
+    const int8_t upper[] = {1, 2};
+    const double nodes[] = {-0.5773502691896258, 0.5773502691896258};
+    const double weights[] = {1.0, 1.0};
+    const double surface_weights[] = {3.0, 3.0};
+    const constraint_quadrature_t axes[] = {{.count = 2, .nodes = nodes, .weights = weights}};
+    const constraint_face_quadrature_t quadrature[] = {
+        {.ndim = 1, .axes = axes, .point_count = 2},
+        {.ndim = 1, .axes = axes, .point_count = 2},
+    };
+    const constraint_element_side_t sides[] = {
+        {.ndim = 2, .basis_specs = element_basis, .orientation = lower},
+        {.ndim = 2, .basis_specs = element_basis, .orientation = upper},
+    };
+    const constraint_kform_spec_t test_spec = {.ndim = 1, .order = 0, .basis_specs = test_basis};
+    const constraint_physical_batch_item_t items[] = {
+        {.sides = sides,
+         .quadrature = quadrature,
+         .surface_weights = {surface_weights, surface_weights},
+         .pullbacks = NULL},
+        {.sides = sides,
+         .quadrature = quadrature,
+         .surface_weights = {surface_weights, surface_weights},
+         .pullbacks = NULL},
+    };
+    size_t required_rows;
+    size_t required_entries;
+    TEST_ASSERTION(constraint_physical_batch_required(&test_spec, 2, items, &required_rows, &required_entries) ==
+                       CONSTRAINT_SUCCESS,
+                   "Could not size physical constraint batch.");
+    TEST_ASSERTION(required_rows == 4 && required_entries == 32, "Unexpected physical batch dimensions.");
+
+    size_t row_offsets[5];
+    constraint_entry_t entries[32];
+    size_t row_count;
+    size_t entry_count;
+    TEST_ASSERTION(constraint_physical_batch_assemble(&test_spec, 2, items, 5, row_offsets, 32, entries, &row_count,
+                                                      &entry_count) == CONSTRAINT_SUCCESS,
+                   "Could not assemble physical constraint batch.");
+    TEST_ASSERTION(row_count == required_rows && entry_count == required_entries && row_offsets[0] == 0 &&
+                       row_offsets[2] == 16 && row_offsets[4] == 32,
+                   "Physical batch output dimensions or offsets are wrong.");
+}
+
 static void test_physical_precomputed_scalar(void)
 {
     const basis_spec_t test_basis[] = {basis_spec(1)};
@@ -554,6 +602,7 @@ int main(void)
     test_reference_edge_assembly();
     test_reference_one_form_component();
     test_physical_scalar_measure();
+    test_physical_batch_scalar();
     test_physical_precomputed_scalar();
     test_physical_single_side();
     test_physical_general_boundary_dimensions();

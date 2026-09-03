@@ -120,6 +120,52 @@ def test_direct_laplace_solves_have_continuous_full_rank_systems() -> None:
         assert results[1][2] <= results[0][2] + 1.0e-10
 
 
+@pytest.mark.parametrize("ndim,order", ((2, 1), (2, 2), (3, 1), (3, 2)))
+def test_dirichlet_rows_use_one_owner_per_boundary_object(ndim: int, order: int) -> None:
+    """Each hierarchical boundary object contributes rows from one element."""
+    mesh = make_mesh(ndim)
+    maps = make_element_maps(ndim, order + 4)
+    base_space = FunctionSpace(
+        *(BasisSpecs(BasisType.LAGRANGE_GAUSS_LOBATTO, order) for _ in range(ndim))
+    )
+    element_specs = [KFormSpecs(0, base_space) for _ in maps]
+    test_specs = make_test_specs(mesh, element_specs, 0, BasisType.LEGENDRE)
+    boundary_data = {
+        int(object_id): lambda *coordinates: np.ones_like(coordinates[0])
+        for _, object_id, _, _ in mesh.iterate_boundary(ndim - 1)
+    }
+    packed, boundary_rhs = mesh.compute_kform_global_constraints(
+        element_specs, maps, test_specs, boundary_data
+    )
+    row_offsets, element_ids, _, _, _ = packed
+    shared_rows = build_continuity_rows(mesh, maps, element_specs, test_specs)[0].size - 1
+    row = shared_rows
+    for mdim, object_id, element_ids_object, _ in mesh.iterate_boundary_all():
+        object_rows = sum(
+            int(np.sum(test_spec.component_dof_counts))
+            for test_spec in test_specs[mdim][int(object_id)]
+        )
+        if object_rows == 0:
+            continue
+        entries = element_ids[int(row_offsets[row]) : int(row_offsets[row + object_rows])]
+        assert np.unique(entries).tolist() == [int(element_ids_object[0])]
+        row += object_rows
+    assert row == boundary_rhs.size == row_offsets.size - 1
+
+
+def test_direct_laplace_dirichlet_solves_propagate_owner_values() -> None:
+    """Owner rows plus retained continuity rows solve the strong BC problem."""
+    for ndim in (2, 3):
+        results = [solve_direct_laplace(ndim, order, "dirichlet") for order in (1, 2)]
+        for solution, continuity, error, rank, constraint_count, residual in results:
+            del solution
+            assert rank == continuity.shape[1] + constraint_count
+            assert constraint_count > continuity.shape[0]
+            assert residual < 1.0e-12
+            assert np.isfinite(error)
+        assert results[1][2] <= results[0][2] + 1.0e-10
+
+
 def _explicit_test_specs(mesh, form_order: int) -> list[list[list[KFormSpecs]]]:
     """Build valid hierarchical positive-order trace tests."""
     result: list[list[list[KFormSpecs]]] = []

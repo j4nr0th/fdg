@@ -20,6 +20,12 @@ solves the resulting Lagrange-multiplier saddle system without constructing a
 dense global matrix. A final convergence plot shows the physical :math:`L^2`
 error for each mesh dimension as the polynomial order increases.
 
+The same hierarchy supports scalar Dirichlet data. Boundary objects are visited
+from faces down to points, and the boundary trace is imposed on only the
+lowest-ID incident element of each object. Existing shared-object continuity
+rows then propagate that prescribed trace to the other incident elements, so a
+boundary node is never independently constrained multiple times.
+
 The prototype deliberately keeps the test spaces explicit. On a shared
 object, the default scalar trace test degree is the minimum element degree
 minus two in every tangential direction. Thus degree-one traces have no
@@ -32,6 +38,7 @@ from __future__ import annotations
 
 from itertools import combinations, product
 from time import perf_counter
+from typing import Literal
 
 import numpy as np
 import numpy.typing as npt
@@ -218,19 +225,22 @@ def make_test_specs(
     """Build explicit per-object trace tests for the scalar prototype."""
     ndim = mesh.ndim
     result: list[list[list[KFormSpecs]]] = []
-    shared_by_dimension: list[dict[int, tuple[np.ndarray, np.ndarray]]] = []
+    incidents_by_dimension: list[dict[int, tuple[np.ndarray, np.ndarray]]] = []
     for mdim in range(ndim):
-        shared_by_dimension.append(
-            {
-                int(object_id): (element_ids, orientations)
-                for _, object_id, element_ids, orientations in mesh.iterate_shared(mdim)
-            }
-        )
+        incidents: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+        for iterator in (mesh.iterate_shared(mdim), mesh.iterate_boundary(mdim)):
+            incidents.update(
+                {
+                    int(object_id): (element_ids, orientations)
+                    for _, object_id, element_ids, orientations in iterator
+                }
+            )
+        incidents_by_dimension.append(incidents)
 
     for mdim in range(ndim):
         objects: list[list[KFormSpecs]] = []
         for object_id in range(_object_count(mesh, mdim)):
-            incident = shared_by_dimension[mdim].get(object_id)
+            incident = incidents_by_dimension[mdim].get(object_id)
             if incident is None or mdim < form_order:
                 objects.append([])
                 continue
@@ -421,14 +431,14 @@ def packed_to_sparse(
 
 
 # %%
-# Manufactured Neumann problem
-# ----------------------------
+# Manufactured solution and boundary data
+# ---------------------------------------
 #
-# To measure the discretization error without imposing a separate boundary
-# policy, use a smooth solution whose normal derivative vanishes on the outer
-# boundary. Its compatible source is obtained analytically from ``-Delta(u)``.
-# The additive constant is fixed by one scalar gauge row, because the
-# homogeneous-Neumann Laplacian has the usual constant nullspace.
+# The same smooth field supplies both the compatible source and, when selected,
+# the Dirichlet boundary datum. Its normal derivative vanishes on the outer
+# boundary, so it remains a valid manufactured solution for the Neumann case.
+# The Neumann nullspace is removed with one gauge equation; the Dirichlet case
+# instead removes that nullspace through its hierarchical boundary rows.
 
 
 def manufactured_solution(*coordinates: npt.NDArray[np.double]) -> npt.NDArray[np.double]:
@@ -468,15 +478,24 @@ def manufactured_source(*coordinates: npt.NDArray[np.double]) -> npt.NDArray[np.
 # rows are converted directly to a sparse matrix, then appended to the
 # block-diagonal operator as Lagrange-multiplier equations.
 #
+# For Dirichlet data, the same descending boundary hierarchy supplies one
+# owner trace per boundary object. Shared-boundary continuity rows remain in
+# the system and transfer that owner value to the other incident elements.
+#
 # The resulting saddle system is solved with SciPy's sparse LU factorization.
 # This keeps the global matrix sparse while retaining the direct formulation;
 # a Schur-complement implementation could reuse the same block structure.
 
 
 def solve_direct_laplace(
-    ndim: int, order: int
+    ndim: int,
+    order: int,
+    boundary_condition: Literal["neumann", "dirichlet"] = "neumann",
 ) -> tuple[np.ndarray, scipy.sparse.csr_matrix, float, int, int, float]:
-    """Solve one direct primal problem and return diagnostics."""
+    """Solve the direct primal problem with a selected scalar boundary condition."""
+    if boundary_condition not in ("neumann", "dirichlet"):
+        raise ValueError("boundary_condition must be 'neumann' or 'dirichlet'.")
+
     mesh = make_mesh(ndim)
     maps = make_element_maps(ndim, order + 4)
     base_space = FunctionSpace(
@@ -508,8 +527,20 @@ def solve_direct_laplace(
         [scipy.sparse.csc_matrix(local) for local in local_stiffnesses], format="csc"
     )
 
-    gauge = scipy.sparse.csr_matrix(([1.0], ([0], [0])), shape=(1, total_dofs))
-    constraints = scipy.sparse.vstack((continuity, gauge), format="csr")
+    if boundary_condition == "dirichlet":
+        boundary_conditions = {
+            int(object_id): manufactured_solution
+            for _, object_id, _, _ in mesh.iterate_boundary(ndim - 1)
+        }
+        global_packed, constraint_rhs = mesh.compute_kform_global_constraints(
+            element_specs, maps, tests, boundary_conditions
+        )
+        constraints = packed_to_sparse(global_packed, element_specs)
+    else:
+        gauge = scipy.sparse.csr_matrix(([1.0], ([0], [0])), shape=(1, total_dofs))
+        constraints = scipy.sparse.vstack((continuity, gauge), format="csr")
+        constraint_rhs = np.zeros(constraints.shape[0])
+        constraint_rhs[-1] = 1.0
     saddle = scipy.sparse.bmat(
         [
             [stiffness, constraints.T],
@@ -517,16 +548,16 @@ def solve_direct_laplace(
         ],
         format="csc",
     )
-    constraint_rhs = np.zeros(constraints.shape[0])
-    constraint_rhs[-1] = 1.0
     # The sparse LU factorization both solves the augmented system and
     # certifies nonsingularity for this diagnostic example.
     factor = scipy.sparse.linalg.splu(saddle)
     solution = factor.solve(np.concatenate((rhs, constraint_rhs)))[:total_dofs]
-    continuity_residual = float(np.max(np.abs(continuity @ solution), initial=0.0))
-    if continuity_residual > 1.0e-10:
+    constraint_residual = float(
+        np.max(np.abs(constraints @ solution - constraint_rhs), initial=0.0)
+    )
+    if constraint_residual > 1.0e-10:
         raise RuntimeError(
-            f"0-form continuity residual is too large: {continuity_residual:.3e}"
+            f"0-form boundary/continuity residual is too large: {constraint_residual:.3e}"
         )
 
     error_squared = 0.0
@@ -553,7 +584,7 @@ def solve_direct_laplace(
         float(np.sqrt(error_squared)),
         rank,
         constraints.shape[0],
-        continuity_residual,
+        constraint_residual,
     )
 
 
@@ -561,65 +592,79 @@ def solve_direct_laplace(
 # Convergence study and error plot
 # --------------------------------
 #
-# Run the same constrained solve at increasing polynomial orders. The printed
-# residual checks the continuity equations, while the physical :math:`L^2`
-# error measures approximation quality rather than algebraic satisfaction.
-# The plot uses a logarithmic error axis so the p-refinement trend is visible.
-
-
+# Run both boundary-condition variants at increasing polynomial orders. For
+# Dirichlet data are passed to ``Mesh.compute_kform_global_constraints``, which
+# imposes the hierarchical trace on the lowest-ID incident element of each
+# boundary object. Retained continuity rows propagate that trace to every
+# other incident element.
+#
+# The printed residual checks both continuity and boundary equations, while the
+# physical :math:`L^2` error measures approximation quality. The plot uses a
+# logarithmic error axis so the p-refinement trend is visible.
 def main() -> None:
-    """Report p-refinement for curved 2D, 3D, and 4D meshes."""
+    """Report p-refinement for both scalar boundary-condition variants."""
     order_sweeps = {
         2: (1, 2, 3, 4, 5, 6, 7, 8),
         3: (1, 2, 3, 4, 5),
         # Keep the 4D sweep short to bound gallery runtime.
         4: (1, 2),
     }
-    convergence: dict[int, tuple[tuple[int, ...], list[float]]] = {}
-    for ndim, orders in order_sweeps.items():
-        print(
-            f"{ndim}D curved mesh (deformation={DEFORMATION:g}):",
-            flush=True,
-        )
-        errors: list[float] = []
-        for order in orders:
-            started = perf_counter()
-            solution, continuity, error, rank, constraint_count, residual = (
-                solve_direct_laplace(ndim, order)
-            )
-            elapsed = perf_counter() - started
-            del solution
-            errors.append(error)
-            system_size = continuity.shape[1] + constraint_count
+    boundary_conditions: tuple[Literal["neumann", "dirichlet"], ...] = (
+        "neumann",
+        "dirichlet",
+    )
+    convergence: dict[tuple[str, int], tuple[tuple[int, ...], list[float]]] = {}
+    for boundary_condition in boundary_conditions:
+        for ndim, orders in order_sweeps.items():
             print(
-                f"  p={order}: 0-form continuity residual={residual:.3e}, "
-                f"rows={continuity.shape[0]}, nnz={continuity.nnz}, "
-                f"rank={rank}/{system_size}, L2={error:.6e}, solve={elapsed:.2f}s",
+                f"{ndim}D curved mesh ({boundary_condition}, "
+                f"deformation={DEFORMATION:g}):",
                 flush=True,
             )
-        convergence[ndim] = (orders, errors)
-        ratios = [previous / current for previous, current in zip(errors, errors[1:])]
-        print(
-            "  L2 errors: " + ", ".join(f"{error:.6e}" for error in errors),
-            flush=True,
-        )
-        if ratios:
+            errors: list[float] = []
+            for order in orders:
+                started = perf_counter()
+                solution, continuity, error, rank, constraint_count, residual = (
+                    solve_direct_laplace(ndim, order, boundary_condition)
+                )
+                elapsed = perf_counter() - started
+                del solution
+                errors.append(error)
+                system_size = continuity.shape[1] + constraint_count
+                print(
+                    f"  p={order}: trace/continuity residual={residual:.3e}, "
+                    f"rows={continuity.shape[0]}, nnz={continuity.nnz}, "
+                    f"rank={rank}/{system_size}, L2={error:.6e}, solve={elapsed:.2f}s",
+                    flush=True,
+                )
+            convergence[(boundary_condition, ndim)] = (orders, errors)
+            ratios = [previous / current for previous, current in zip(errors, errors[1:])]
             print(
-                "  successive improvement: "
-                + ", ".join(f"{ratio:.3f}x" for ratio in ratios),
+                "  L2 errors: " + ", ".join(f"{error:.6e}" for error in errors),
                 flush=True,
             )
+            if ratios:
+                print(
+                    "  successive improvement: "
+                    + ", ".join(f"{ratio:.3f}x" for ratio in ratios),
+                    flush=True,
+                )
 
     fig, axis = plt.subplots()
-    for ndim, (orders, errors) in convergence.items():
-        axis.semilogy(orders, errors, marker="o", label=f"{ndim}D")
+    for (boundary_condition, ndim), (orders, errors) in convergence.items():
+        axis.semilogy(
+            orders,
+            errors,
+            marker="o",
+            label=f"{ndim}D {boundary_condition}",
+        )
     axis.set(
         xlabel="polynomial order p",
         ylabel=r"$\|u_h - u\|_{L^2}$",
         title="Curved multi-element 0-form Laplace error",
     )
     axis.grid(True, which="both")
-    axis.legend(title="mesh dimension")
+    axis.legend(title="boundary condition")
     fig.tight_layout()
     if "agg" not in plt.get_backend().lower():
         plt.show()

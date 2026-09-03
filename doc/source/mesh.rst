@@ -200,6 +200,76 @@ the one-boundary API, and the two consecutive traces appear with opposite
 signs. Empty or skipped stages keep the valid empty representation
 ``row_offsets == [0]`` with empty entry arrays.
 
+
+Global boundary and periodic constraints
+-----------------------------------------
+
+:meth:`Mesh.compute_kform_global_constraints` combines the ordinary shared
+object continuity rows with optional prescribed data and boundary-to-boundary
+relations. ``boundary_conditions`` maps codimension-one outer-face IDs to a
+callable, or accepts :class:`BoundaryCondition` records. A callable receives
+one array of physical coordinates per ambient dimension. For a positive
+k-form, provide one callable per ambient physical k-form component in
+canonical combination order.
+
+Each selected face is expanded to all of its lower-dimensional descendants.
+When selected faces meet, the descendant is processed once; the library checks
+that all callables assigned to that object produce the same trace moments. The
+trace rows are imposed on the lowest-ID incident element, while retained
+continuity rows propagate the value to the remaining elements.
+
+:class:`BoundaryPair` describes periodic, mirrored, or axis-rotated equality
+between two outer faces. Its ``axis_map`` is a signed permutation of canonical
+boundary axes. For subdivided boundaries, :class:`BoundaryPairGroup` accepts
+ordered ``left_faces`` and ``right_faces`` collections of equal length and
+pairs entries at equal positions. For example, ``BoundaryPairGroup(x_min,
+x_max, (1, 2))`` connects every patch in ``x_min`` to its corresponding patch
+in ``x_max``. The group is expanded by the global method; no face geometry is
+inferred. Multiple groups can describe the x, y, and z identifications of a
+periodic cube. Lower-dimensional duplicate relations are reduced to an
+acyclic spanning forest, avoiding redundant cycles at face intersections.
+
+The face pair is expanded to corresponding lower-dimensional objects, with the
+induced k-form component signs and basis reversals included in the packed rows.
+Pairing is explicit because mesh topology does not contain geometric
+information with which to infer periodic counterparts.
+
+For repeated one-sided traces sharing one test specification, :meth:`Mesh.compute_kform_boundary_constraints_batch`
+accepts one element specification and equal-length ``element_maps``,
+``element_ids``, and ``boundary_ids`` sequences. The batch items are paired
+by position: item ``i`` uses ``element_maps[i]`` and ``boundary_ids[i]`` on
+``element_ids[i]``. ``test_spec`` supplies the trace basis type, per-axis
+orders, and k-form degree; ``element_spec`` is the shared volume trial
+specification. The method does not infer a test space or geometry.
+
+It returns five packed arrays:
+
+``row_offsets``
+    ``uintp`` CSR-like offsets of length ``row_count + 1``. Rows for each
+    batch item are concatenated in input order.
+
+``element_ids``
+    ``uint64`` global element ID for each packed row entry.
+
+``components``
+    ``uint32`` element-frame k-form component for each packed row entry.
+
+``local_dofs``
+    ``uintp`` DoF index within the component named by ``components``.
+
+``coefficients``
+    ``double`` physical trace coefficient for each packed row entry. The
+    batch method assembles one positive-side trace per requested item.
+
+An empty batch has ``row_offsets == [0]`` and empty entry arrays. The method
+raises if the three input sequences have different lengths, a map has the
+wrong dimension, an element ID is outside the mesh, or a requested boundary
+object is not present in its element.
+
+The global method returns the packed five-array row representation and a sixth
+``rhs`` array with one prescribed value per row. Shared and periodic rows have
+zero right-hand side; only prescribed boundary rows contribute nonzero values.
+
 Boundary constraints
 --------------------
 
