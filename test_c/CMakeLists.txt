@@ -111,3 +111,19 @@ add_test(NAME mesh COMMAND test_mesh)
 add_executable(test_constraints operations/test_constraints.c)
 target_link_libraries(test_constraints PRIVATE test_common)
 add_test(NAME constraints COMMAND test_constraints)
+
+add_executable(test_element_data data/test_element_data.c)
+target_link_libraries(test_element_data PRIVATE test_common)
+add_test(NAME element_data COMMAND test_element_data)
+
+add_executable(test_element_geometry data/test_element_geometry.c)
+target_link_libraries(test_element_geometry PRIVATE test_common)
+add_test(NAME element_geometry COMMAND test_element_geometry)
+
+add_executable(test_element_dofs data/test_element_dofs.c)
+target_link_libraries(test_element_dofs PRIVATE test_common)
+add_test(NAME element_dofs COMMAND test_element_dofs)
+
+add_executable(test_element_kforms data/test_element_kforms.c)
+target_link_libraries(test_element_kforms PRIVATE test_common)
+add_test(NAME element_kforms COMMAND test_element_kforms)

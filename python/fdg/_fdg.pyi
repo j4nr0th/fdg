@@ -631,6 +631,502 @@ class DegreesOfFreedom:
         ...
 
 @final
+class ElementDoFs:
+    """Batched degrees of freedom: the DoF vector of every element.
+
+    Instead of storing one Python object per element, this type stores a
+    small table of distinct function-space options and, per element, an
+    index into that table along with an offset into one large, flat array
+    of values.
+
+    Accessing the array views :attr:`values`, :attr:`offsets` or
+    :attr:`element_options` freezes the collection: no further elements can
+    be added, but values of existing elements can still be overwritten with
+    :meth:`set_element_values`.
+    """
+
+    def __new__(cls) -> Self: ...
+    @classmethod
+    def from_elements(cls, dofs: Sequence[DegreesOfFreedom], /) -> ElementDoFs:
+        """Create a new collection from a sequence of degrees of freedom.
+
+        Parameters
+        ----------
+        dofs : Sequence[DegreesOfFreedom]
+            Degrees of freedom of every element, in element order.
+
+        Returns
+        -------
+        ElementDoFs
+            Collection holding the degrees of freedom of all elements.
+        """
+        ...
+    @classmethod
+    def zeros(cls, space: FunctionSpace, count: int, /) -> ElementDoFs:
+        """Create a zero-initialized collection with one shared function space.
+
+        Parameters
+        ----------
+        space : FunctionSpace
+            Function space of every element.
+        count : int
+            Number of zero-initialized elements.
+
+        Returns
+        -------
+        ElementDoFs
+            Collection holding ``count`` zero elements.
+        """
+        ...
+    @classmethod
+    def zeros_from_options(
+        cls, spaces: Sequence[FunctionSpace], indices: Sequence[int], /
+    ) -> ElementDoFs:
+        """Create a zero-initialized collection with per-element function spaces.
+
+        Parameters
+        ----------
+        spaces : Sequence[FunctionSpace]
+            The distinct function spaces of the options table.
+        indices : Sequence[int]
+            Option index of every element; also fixes the element count.
+
+        Returns
+        -------
+        ElementDoFs
+            Collection holding one zero element per index.
+        """
+        ...
+    def add_element(self, dofs: DegreesOfFreedom, /) -> None:
+        """Add the degrees of freedom of one element to the collection.
+
+        Parameters
+        ----------
+        dofs : DegreesOfFreedom
+            Degrees of freedom of the element.
+        """
+        ...
+    def dofs(self, element_id: int, /) -> DegreesOfFreedom:
+        """Get the degrees of freedom of one element.
+
+        Parameters
+        ----------
+        element_id : int
+            Index of the element.
+
+        Returns
+        -------
+        DegreesOfFreedom
+            Degrees of freedom holding the stored values of the element.
+        """
+        ...
+    def option(self, index: int, /) -> FunctionSpace:
+        """Get the function space of one option.
+
+        Parameters
+        ----------
+        index : int
+            Index into the options table.
+
+        Returns
+        -------
+        FunctionSpace
+            Function space of the option.
+        """
+        ...
+    def set_element_values(self, element_id: int, values: npt.ArrayLike, /) -> None:
+        """Overwrite the stored values of one element.
+
+        Parameters
+        ----------
+        element_id : int
+            Index of the element.
+        values : array_like
+            Flat array with as many entries as the element's option stores.
+        """
+        ...
+    @property
+    def element_count(self) -> int:
+        """Number of stored elements."""
+        ...
+    @property
+    def option_count(self) -> int:
+        """Number of distinct options in the options table."""
+        ...
+    @property
+    def values(self) -> npt.NDArray[np.double]:
+        """Flat array of all element values. Freezes the collection on access."""
+        ...
+    @property
+    def offsets(self) -> npt.NDArray[np.uint64]:
+        """CSR offsets of the per-element value blocks.
+
+        The array has ``element_count + 1`` entries. Accessing this property
+        freezes the collection.
+        """
+        ...
+    @property
+    def element_options(self) -> npt.NDArray[np.uint32]:
+        """Option index of every element. Freezes the collection on access."""
+        ...
+
+@final
+class ElementKForms:
+    """Batched k-form data: a fixed set of labeled k-form fields, grouped per element.
+
+    When setting up a finite element system one computes element matrices,
+    so the k-forms of one element are needed together. Each keyword
+    argument of the constructor defines one field: the keyword is its
+    unique label and the value its k-form order. All fields are derived
+    from one base function space per element; the distinct base spaces
+    form the options of the collection. Every element added with
+    :meth:`add_element` then stores the values of all fields, in field
+    order.
+
+    The collection is created empty with :meth:`from_elements`, zero
+    initialized with :meth:`zeros` or :meth:`zeros_from_options`, or
+    filled field by field through the constructor.
+
+    Accessing the array views :meth:`values` or :meth:`offsets` freezes the
+    collection: no further elements can be added, but the values of
+    existing elements can still be overwritten with
+    :meth:`set_field_values`.
+    """
+
+    def __new__(cls, ndim: int, /, **fields: int) -> Self: ...
+    @classmethod
+    def from_elements(
+        cls,
+        ndim: int,
+        fields: Sequence[tuple[str, int]],
+        elements: Sequence[tuple[KForm, ...]],
+        /,
+    ) -> ElementKForms:
+        """Create a new collection from labeled fields and per-element k-form groups.
+
+        Parameters
+        ----------
+        ndim : int
+            Number of reference dimensions, shared by all fields.
+        fields : Sequence[tuple[str, int]]
+            One ``(label, order)`` pair per k-form field, in field order.
+        elements : Sequence[tuple[KForm, ...]]
+            One tuple of k-forms per element, in field order. All k-forms
+            of one element must share one base function space; distinct
+            spaces across elements are stored as separate options.
+
+        Returns
+        -------
+        ElementKForms
+            Collection holding the k-form values of all elements.
+        """
+        ...
+    @classmethod
+    def zeros(
+        cls,
+        ndim: int,
+        fields: Sequence[tuple[str, int]],
+        space: FunctionSpace,
+        count: int,
+        /,
+    ) -> ElementKForms:
+        """Create a zero-initialized collection with one shared base function space.
+
+        Parameters
+        ----------
+        ndim : int
+            Number of reference dimensions, shared by all fields.
+        fields : Sequence[tuple[str, int]]
+            One ``(label, order)`` pair per k-form field, in field order.
+        space : FunctionSpace
+            Base function space shared by every element; all fields are
+            derived from it.
+        count : int
+            Number of zero-initialized elements.
+
+        Returns
+        -------
+        ElementKForms
+            Collection holding ``count`` zero elements.
+        """
+        ...
+    @classmethod
+    def zeros_from_options(
+        cls,
+        ndim: int,
+        fields: Sequence[tuple[str, int]],
+        spaces: Sequence[FunctionSpace],
+        indices: Sequence[int],
+        /,
+    ) -> ElementKForms:
+        """Create a zero-initialized collection with per-element base spaces.
+
+        Parameters
+        ----------
+        ndim : int
+            Number of reference dimensions, shared by all fields.
+        fields : Sequence[tuple[str, int]]
+            One ``(label, order)`` pair per k-form field, in field order.
+        spaces : Sequence[FunctionSpace]
+            The distinct base function spaces; all fields are derived from
+            the base space of an element.
+        indices : Sequence[int]
+            Index into ``spaces`` for every element; also fixes the
+            element count.
+
+        Returns
+        -------
+        ElementKForms
+            Collection holding one zero element per index.
+        """
+        ...
+    def add_element(self, *kforms: KForm) -> None:
+        """Add the k-form values of one element to the collection.
+
+        Parameters
+        ----------
+        *kforms : KForm
+            One k-form per field, in field order. The order and dimension
+            of every k-form must match its field, and all k-forms of the
+            element must share one base function space.
+        """
+        ...
+    def kform(self, element_id: int, label: str, /) -> KForm:
+        """Get the values of one field of one element as a k-form.
+
+        Parameters
+        ----------
+        element_id : int
+            Index of the element.
+        label : str
+            Label of the field.
+
+        Returns
+        -------
+        KForm
+            K-form holding the stored values of the field.
+        """
+        ...
+    def kforms(self, element_id: int, /) -> tuple[KForm, ...]:
+        """Get the k-forms of all fields of one element, in field order.
+
+        Parameters
+        ----------
+        element_id : int
+            Index of the element.
+
+        Returns
+        -------
+        tuple[KForm, ...]
+            One k-form per field, in field order.
+        """
+        ...
+    def specs(self, element_id: int, label: str, /) -> KFormSpecs:
+        """Get the specifications of one field on the base space of one element.
+
+        Parameters
+        ----------
+        element_id : int
+            Index of the element.
+        label : str
+            Label of the field.
+
+        Returns
+        -------
+        KFormSpecs
+            Specifications of the field, derived from the element's base
+            function space.
+        """
+        ...
+    def set_field_values(
+        self, element_id: int, label: str, values: npt.ArrayLike, /
+    ) -> None:
+        """Overwrite the stored values of one field of one element.
+
+        Parameters
+        ----------
+        element_id : int
+            Index of the element.
+        label : str
+            Label of the field.
+        values : array_like
+            Flat array with as many entries as the field stores per element.
+        """
+        ...
+    def values(self, label: str, /) -> npt.NDArray[np.double]:
+        """Get the flat value array of one field. Freezes the collection on access.
+
+        Parameters
+        ----------
+        label : str
+            Label of the field.
+
+        Returns
+        -------
+        array
+            One block of field values per element.
+        """
+        ...
+    def offsets(self, label: str, /) -> npt.NDArray[np.uint64]:
+        """Get the CSR offsets of one field's per-element value blocks.
+
+        Accessing this method freezes the collection.
+
+        Parameters
+        ----------
+        label : str
+            Label of the field.
+
+        Returns
+        -------
+        array
+            Array with ``element_count + 1`` offsets.
+        """
+        ...
+    @property
+    def element_count(self) -> int:
+        """Number of stored elements."""
+        ...
+    @property
+    def labels(self) -> tuple[str, ...]:
+        """Labels of the k-form fields, in field order."""
+        ...
+
+@final
+class MeshGeometry:
+    """Batched geometry data: the space map of every element of a mesh.
+
+    Elements of a mesh often share only a few distinct geometry
+    specifications (function spaces and integration spaces). Instead of
+    storing one Python object per element, this type stores a small table
+    of distinct options and, per element, an index into that table along
+    with an offset into one large, flat array of coordinate values.
+
+    Accessing the array views :attr:`values`, :attr:`offsets` or
+    :attr:`element_options` freezes the collection: no further elements can
+    be added, but values of existing elements can still be overwritten with
+    :meth:`set_element_values`.
+    """
+
+    def __new__(cls) -> Self: ...
+    @classmethod
+    def from_elements(cls, space_maps: Sequence[SpaceMap], /) -> MeshGeometry:
+        """Create a new collection from a sequence of space maps.
+
+        Parameters
+        ----------
+        space_maps : Sequence[SpaceMap]
+            Geometry of every element, in element order.
+
+        Returns
+        -------
+        MeshGeometry
+            Collection holding the geometry of all elements.
+        """
+        ...
+    @classmethod
+    def from_mesh_points(
+        cls, mesh: Mesh, points: npt.ArrayLike, integration: IntegrationSpace, /
+    ) -> MeshGeometry:
+        """Create geometry data from the physical coordinates of the mesh points.
+
+        Every element is equipped with a multilinear (order-1 Lagrange on
+        uniform nodes) geometry, matching the convention of
+        ``Hypercube.from_corners``: corner ``k`` of an element lies on the
+        positive side of axis ``d`` exactly when bit ``d`` of ``k`` is set.
+
+        Parameters
+        ----------
+        mesh : Mesh
+            Mesh providing the elements and the point connectivity.
+        points : array_like
+            Array of shape ``(mesh.point_count, C)`` with the physical
+            coordinates of every mesh point.
+        integration : IntegrationSpace
+            Integration space with one specification per reference dimension.
+
+        Returns
+        -------
+        MeshGeometry
+            Geometry collection with one element per mesh element, in mesh
+            element order.
+        """
+        ...
+    def add_element(self, space_map: SpaceMap, /) -> None:
+        """Add the geometry of one element to the collection.
+
+        Parameters
+        ----------
+        space_map : SpaceMap
+            Space map of the element. All coordinate maps of the space map
+            must share one function space.
+        """
+        ...
+    def space_map(self, element_id: int, /) -> SpaceMap:
+        """Get the geometry of one element as a space map.
+
+        Parameters
+        ----------
+        element_id : int
+            Index of the element.
+
+        Returns
+        -------
+        SpaceMap
+            Space map built from the stored coordinate data of the element.
+        """
+        ...
+    def option(self, index: int, /) -> tuple[FunctionSpace, IntegrationSpace]:
+        """Get the geometry specification of one option.
+
+        Parameters
+        ----------
+        index : int
+            Index into the options table.
+
+        Returns
+        -------
+        tuple[FunctionSpace, IntegrationSpace]
+            Function and integration space of the option.
+        """
+        ...
+    def set_element_values(self, element_id: int, values: npt.ArrayLike, /) -> None:
+        """Overwrite the stored coordinate values of one element.
+
+        Parameters
+        ----------
+        element_id : int
+            Index of the element.
+        values : array_like
+            Flat array with as many entries as the element's option stores.
+        """
+        ...
+    @property
+    def element_count(self) -> int:
+        """Number of stored elements."""
+        ...
+    @property
+    def option_count(self) -> int:
+        """Number of distinct options in the options table."""
+        ...
+    @property
+    def values(self) -> npt.NDArray[np.double]:
+        """Flat array of all element values. Freezes the collection on access."""
+        ...
+    @property
+    def offsets(self) -> npt.NDArray[np.uint64]:
+        """CSR offsets of the per-element value blocks.
+
+        The array has ``element_count + 1`` entries. Accessing this property
+        freezes the collection.
+        """
+        ...
+    @property
+    def element_options(self) -> npt.NDArray[np.uint32]:
+        """Option index of every element. Freezes the collection on access."""
+        ...
+
+@final
 class KFormSpecs:
     """Differential k-form specification.
 

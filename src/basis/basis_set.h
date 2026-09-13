@@ -514,6 +514,7 @@ static inline unsigned *outer_product_pair_iterator_basis_indices_right(const ou
     return (unsigned *)(iter->data + (iter->ndim - 1) * sizeof(double)) + 2 * iter->ndim;
 }
 
+// TODO: move these bigger functions to the source file instead.
 static inline size_t outer_product_pair_iterator_data_size(unsigned ndim)
 {
     // base size

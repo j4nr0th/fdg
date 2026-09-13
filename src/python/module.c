@@ -3,6 +3,7 @@
 //
 #define PY_ARRAY_UNIQUE_SYMBOL _fdg
 #include "module.h"
+#include "element_data_objects.h"
 
 //  Numpy
 #include <numpy/ndarrayobject.h>
@@ -133,6 +134,12 @@ static int interplib_add_types(PyObject *mod)
             NULL ||
         (module_state->kform_type = cpyutl_add_type_from_spec_to_module(mod, &kform_type_spec, NULL)) == NULL ||
         (module_state->mesh_type = cpyutl_add_type_from_spec_to_module(mod, &mesh_type_spec, NULL)) == NULL ||
+        (module_state->mesh_geometry_type = cpyutl_add_type_from_spec_to_module(mod, &mesh_geometry_type_spec, NULL)) ==
+            NULL ||
+        (module_state->element_kforms_type =
+             cpyutl_add_type_from_spec_to_module(mod, &element_kforms_type_spec, NULL)) == NULL ||
+        (module_state->element_dofs_type = cpyutl_add_type_from_spec_to_module(mod, &element_dofs_type_spec, NULL)) ==
+            NULL ||
         (module_state->sampled_space_mapping_type =
              cpyutl_add_type_from_spec_to_module(mod, &sampled_space_map_type_spec, NULL)) == NULL)
     {

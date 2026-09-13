@@ -47,6 +47,16 @@ set(CONSTRAINT_SOURCE_FILES
         src/constraints/constraints.c
         src/constraints/constraints.h
 )
+set(DATA_SOURCE_FILES
+        src/data/element_data.c
+        src/data/element_data.h
+        src/data/element_geometry.c
+        src/data/element_geometry.h
+        src/data/element_dofs.c
+        src/data/element_dofs.h
+        src/data/element_kforms.c
+        src/data/element_kforms.h
+)
 
 set(INTEGRATION_SOURCE_FILES
         src/integration/integration_rules.c
@@ -97,6 +107,7 @@ add_library(fdg STATIC
         ${BASIS_SOURCE_FILES}
         ${COMMON_SOURCE_FILES}
         ${CONSTRAINT_SOURCE_FILES}
+        ${DATA_SOURCE_FILES}
         ${INTEGRATION_SOURCE_FILES}
         ${OPERATIONS_SOURCE_FILES}
         ${POLYNOMIALS_SOURCE_FILES}
@@ -127,6 +138,7 @@ set(PYTHON_NUMERICS_SOURCE_FILES
         src/python/kform_objects.c
         src/python/general.c
         src/python/mesh_objects.c
+        src/python/element_data_objects.c
         src/python/sampled_space_map.c
 )
 

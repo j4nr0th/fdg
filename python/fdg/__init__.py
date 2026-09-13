@@ -8,6 +8,8 @@ from fdg._fdg import BasisSpecs as BasisSpecs
 from fdg._fdg import CoordinateMap as CoordinateMap
 from fdg._fdg import CovectorBasis as CovectorBasis
 from fdg._fdg import DegreesOfFreedom as DegreesOfFreedom
+from fdg._fdg import ElementDoFs as ElementDoFs
+from fdg._fdg import ElementKForms as ElementKForms
 from fdg._fdg import FunctionSpace as FunctionSpace
 from fdg._fdg import IntegrationRegistry as IntegrationRegistry
 from fdg._fdg import IntegrationSpace as IntegrationSpace
@@ -15,6 +17,7 @@ from fdg._fdg import IntegrationSpecs as IntegrationSpecs
 from fdg._fdg import KForm as KForm
 from fdg._fdg import KFormSpecs as KFormSpecs
 from fdg._fdg import Mesh as Mesh
+from fdg._fdg import MeshGeometry as MeshGeometry
 from fdg._fdg import SampledSpaceMap as SampledSpaceMap
 from fdg._fdg import SpaceMap as SpaceMap
 from fdg._fdg import compute_gradient_mass_matrix as compute_gradient_mass_matrix

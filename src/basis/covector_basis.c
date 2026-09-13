@@ -177,3 +177,24 @@ covector_basis_t covector_basis_hodge(const covector_basis_t basis)
 
     return hodge_basis;
 }
+
+unsigned kform_basis_get_num_dofs(const unsigned ndim, const basis_spec_t basis[static ndim], const unsigned order,
+                                  const uint8_t components[static order])
+{
+    unsigned dofs = 1;
+    for (unsigned idim = 0, icomponent = 0; idim < ndim; ++idim)
+    {
+        unsigned n;
+        if (icomponent != order && idim == components[icomponent])
+        {
+            n = basis[idim].order;
+            icomponent += 1;
+        }
+        else
+        {
+            n = basis[idim].order + 1;
+        }
+        dofs *= n;
+    }
+    return dofs;
+}
