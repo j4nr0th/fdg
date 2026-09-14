@@ -812,7 +812,7 @@ static double evaluate_basis_value(const basis_spec_t spec, const unsigned index
 }
 
 /**
- * @brief Validate quadrature axes and compute their tensor-product size.
+ * @brief Compute the tensor-product size for quadrature rule set.
  *
  * Point flattening throughout this file treats the final axis as the fastest
  * varying axis. The product is accumulated with a pre-check so malformed
@@ -820,27 +820,18 @@ static double evaluate_basis_value(const basis_spec_t spec, const unsigned index
  *
  * @param ndim Number of axes.
  * @param quadrature Axis rules; may be null only when `ndim == 0`.
- * @param out_count Receives the product of all axis counts.
- * @return `CONSTRAINT_SUCCESS`, `CONSTRAINT_INVALID_ARGUMENT`, or
- *         `CONSTRAINT_SIZE_OVERFLOW`.
+ * @return The total number of quadrature points, or `CONSTRAINT_SIZE_OVERFLOW` if the product exceeds `SIZE_MAX`.
  */
-static constraint_status_t quadrature_total_count(const unsigned ndim, const constraint_quadrature_t *quadrature,
-                                                  size_t *const out_count)
+static inline size_t quadrature_total_count(const unsigned ndim, const integration_rule_t *quadrature[static ndim])
 {
-    if (ndim != 0 && !quadrature)
-        return CONSTRAINT_INVALID_ARGUMENT;
-
     size_t count = 1;
     for (unsigned idim = 0; idim < ndim; ++idim)
     {
-        if (quadrature[idim].count == 0 || !quadrature[idim].nodes || !quadrature[idim].weights)
-            return CONSTRAINT_INVALID_ARGUMENT;
-        if (count > SIZE_MAX / quadrature[idim].count)
+        if (count > SIZE_MAX / quadrature[idim]->n_nodes)
             return CONSTRAINT_SIZE_OVERFLOW;
-        count *= quadrature[idim].count;
+        count *= quadrature[idim]->n_nodes;
     }
-    *out_count = count;
-    return CONSTRAINT_SUCCESS;
+    return count;
 }
 
 /**
@@ -856,6 +847,39 @@ static double trace_basis_product_at_point(const constraint_kform_spec_t *test_s
                                            unsigned element_component,
                                            const unsigned element_digits[const static side->ndim],
                                            const double face_nodes[const static test_spec->ndim]);
+
+/**
+ * @brief Compute the quadrature weight and face node coordinates for a given point index.
+ *
+ * This function decodes the tensor-product point index into individual axis node indices,
+ * retrieves the corresponding node coordinates and weights from the quadrature rules,
+ * and computes the total quadrature weight as the product of the individual axis weights.
+ *
+ * @param ndim Number of face dimensions.
+ * @param quadrature Face-axis quadrature rules.
+ * @param point Tensor-product point index.
+ * @param face_nodes Receives the coordinates of the face nodes.
+ * @return The quadrature weight for the given point index.
+ */
+static inline double face_quadrature(const unsigned ndim, const integration_rule_t *quadrature[static ndim],
+                                     const size_t point, double *restrict face_nodes)
+{
+    size_t remaining = point;
+    double quadrature_weight = 1.0;
+
+    for (unsigned idim = ndim; idim > 0; --idim)
+    {
+        const unsigned face_axis = idim - 1;
+        const integration_rule_t *const face_rule = quadrature[face_axis];
+        const unsigned node_index = (unsigned)(remaining % face_rule->n_nodes);
+        remaining /= face_rule->n_nodes;
+        // This check gets pulled out of the loop or optimized away (since it should be inline)
+        if (face_nodes)
+            face_nodes[face_axis] = integration_rule_nodes_const(face_rule)[node_index];
+        quadrature_weight *= integration_rule_weights_const(face_rule)[node_index];
+    }
+    return quadrature_weight;
+}
 
 /**
  * @brief Integrate one test/element trace-basis product over a face.
@@ -875,30 +899,19 @@ static double trace_basis_product_at_point(const constraint_kform_spec_t *test_s
  */
 static double trace_inner_product(const constraint_kform_spec_t *const test_spec,
                                   const constraint_element_side_t *const side,
-                                  const constraint_quadrature_t *quadrature, const unsigned test_component,
+                                  const integration_rule_t *quadrature[static test_spec->ndim],
+                                  const unsigned test_component,
                                   const unsigned test_digits[const static test_spec->ndim],
                                   const unsigned element_component,
                                   const unsigned element_digits[const static side->ndim])
 {
     const unsigned face_dim = test_spec->ndim;
-    size_t quadrature_count;
-    const constraint_status_t quadrature_status = quadrature_total_count(face_dim, quadrature, &quadrature_count);
-    if (quadrature_status != CONSTRAINT_SUCCESS)
-        return 0.0;
+    const size_t quadrature_count = quadrature_total_count(face_dim, quadrature);
     double result = 0;
     double face_nodes[UINT8_MAX];
     for (size_t point = 0; point < quadrature_count; ++point)
     {
-        size_t remaining = point;
-        double weight = 1.0;
-        for (unsigned idim = face_dim; idim > 0; --idim)
-        {
-            const unsigned face_axis = idim - 1;
-            const unsigned index = (unsigned)(remaining % quadrature[face_axis].count);
-            remaining /= quadrature[face_axis].count;
-            face_nodes[face_axis] = quadrature[face_axis].nodes[index];
-            weight *= quadrature[face_axis].weights[index];
-        }
+        const double weight = face_quadrature(face_dim, quadrature, point, face_nodes);
         result += weight * trace_basis_product_at_point(test_spec, side, test_component, test_digits, element_component,
                                                         element_digits, face_nodes);
     }
@@ -1083,23 +1096,21 @@ constraint_status_t constraint_physical_assemble(
             if (!pullbacks[side_index].values || pullbacks[side_index].physical_component_count == 0 ||
                 pullbacks[side_index].point_count == 0)
                 return CONSTRAINT_INVALID_ARGUMENT;
-            size_t side_point_count;
-            status =
-                quadrature_total_count(quadrature[side_index].ndim, quadrature[side_index].axes, &side_point_count);
-            if (status != CONSTRAINT_SUCCESS || side_point_count != quadrature[side_index].point_count ||
+            const size_t side_point_count =
+                quadrature_total_count(quadrature[side_index].ndim, quadrature[side_index].axes);
+            if (side_point_count != quadrature[side_index].point_count ||
                 side_point_count != pullbacks[side_index].point_count)
-                return status == CONSTRAINT_SUCCESS ? CONSTRAINT_INVALID_ARGUMENT : status;
+                return CONSTRAINT_INVALID_ARGUMENT;
         }
     }
     else
     {
         for (unsigned side_index = 0; side_index < 2; ++side_index)
         {
-            size_t side_point_count;
-            status =
-                quadrature_total_count(quadrature[side_index].ndim, quadrature[side_index].axes, &side_point_count);
-            if (status != CONSTRAINT_SUCCESS || side_point_count != quadrature[side_index].point_count)
-                return status == CONSTRAINT_SUCCESS ? CONSTRAINT_INVALID_ARGUMENT : status;
+            const size_t side_point_count =
+                quadrature_total_count(quadrature[side_index].ndim, quadrature[side_index].axes);
+            if (side_point_count != quadrature[side_index].point_count)
+                return CONSTRAINT_INVALID_ARGUMENT;
         }
     }
 
@@ -1158,27 +1169,16 @@ constraint_status_t constraint_physical_assemble(
                         decode_component_dof(side->ndim, test_spec->order, side->basis_specs, element_component,
                                              element_dof, element_digits);
                         double coefficient = 0.0;
-                        size_t point_count;
-                        status = quadrature_total_count(quadrature[side_index].ndim, quadrature[side_index].axes,
-                                                        &point_count);
-                        if (status != CONSTRAINT_SUCCESS)
-                            return status;
+                        const size_t point_count =
+                            quadrature_total_count(quadrature[side_index].ndim, quadrature[side_index].axes);
                         // Decode the flat tensor-product point index with the
                         // final face axis as the fastest-changing coordinate.
                         for (size_t point = 0; point < point_count; ++point)
                         {
-                            size_t remaining = point;
-                            double quadrature_weight = 1.0;
                             double face_nodes[UINT8_MAX];
-                            for (unsigned idim = test_spec->ndim; idim > 0; --idim)
-                            {
-                                const unsigned face_axis = idim - 1;
-                                const unsigned node_index =
-                                    (unsigned)(remaining % quadrature[side_index].axes[face_axis].count);
-                                remaining /= quadrature[side_index].axes[face_axis].count;
-                                face_nodes[face_axis] = quadrature[side_index].axes[face_axis].nodes[node_index];
-                                quadrature_weight *= quadrature[side_index].axes[face_axis].weights[node_index];
-                            }
+                            const double quadrature_weight =
+                                face_quadrature(test_spec->ndim, quadrature[side_index].axes, point, face_nodes);
+
                             double pullback_factor = 1.0;
                             if (test_spec->order != 0)
                             {
@@ -1377,10 +1377,10 @@ constraint_status_t constraint_physical_side_assemble(
     if (row_offset_capacity < required_offsets || entry_capacity < required_entries)
         return CONSTRAINT_INSUFFICIENT_STORAGE;
 
-    size_t point_count;
-    status = quadrature_total_count(quadrature->ndim, quadrature->axes, &point_count);
-    if (status != CONSTRAINT_SUCCESS || point_count != quadrature->point_count)
-        return status == CONSTRAINT_SUCCESS ? CONSTRAINT_INVALID_ARGUMENT : status;
+    const size_t point_count = quadrature_total_count(quadrature->ndim, quadrature->axes);
+    if (point_count != quadrature->point_count)
+        return CONSTRAINT_INVALID_ARGUMENT;
+
     if (test_spec->order != 0 && (!pullback || !pullback->values || pullback->physical_component_count == 0 ||
                                   pullback->point_count != point_count))
         return CONSTRAINT_INVALID_ARGUMENT;
@@ -1435,17 +1435,10 @@ constraint_status_t constraint_physical_side_assemble(
                     double coefficient = 0.0;
                     for (size_t point = 0; point < point_count; ++point)
                     {
-                        size_t remaining = point;
-                        double quadrature_weight = 1.0;
                         double face_nodes[UINT8_MAX];
-                        for (unsigned idim = test_spec->ndim; idim > 0; --idim)
-                        {
-                            const unsigned face_axis = idim - 1;
-                            const unsigned node_index = (unsigned)(remaining % quadrature->axes[face_axis].count);
-                            remaining /= quadrature->axes[face_axis].count;
-                            face_nodes[face_axis] = quadrature->axes[face_axis].nodes[node_index];
-                            quadrature_weight *= quadrature->axes[face_axis].weights[node_index];
-                        }
+                        double quadrature_weight =
+                            face_quadrature(test_spec->ndim, quadrature->axes, point, face_nodes);
+
                         double pullback_factor = 1.0;
                         if (test_spec->order != 0)
                         {
@@ -1524,10 +1517,9 @@ constraint_status_t constraint_physical_side_assemble_precomputed(
     if (row_offset_capacity < required_offsets || entry_capacity < required_entries)
         return CONSTRAINT_INSUFFICIENT_STORAGE;
 
-    size_t point_count;
-    status = quadrature_total_count(quadrature->ndim, quadrature->axes, &point_count);
-    if (status != CONSTRAINT_SUCCESS || quadrature->point_count != point_count)
-        return status == CONSTRAINT_SUCCESS ? CONSTRAINT_INVALID_ARGUMENT : status;
+    const size_t point_count = quadrature_total_count(quadrature->ndim, quadrature->axes);
+    if (quadrature->point_count != point_count)
+        return CONSTRAINT_INVALID_ARGUMENT;
     if (test_spec->order != 0 && (!pullback || !pullback->values || pullback->physical_component_count == 0 ||
                                   pullback->point_count != point_count))
         return CONSTRAINT_INVALID_ARGUMENT;
@@ -1577,15 +1569,8 @@ constraint_status_t constraint_physical_side_assemble_precomputed(
                     double coefficient = 0.0;
                     for (size_t point = 0; point < point_count; ++point)
                     {
-                        size_t remaining = point;
-                        double quadrature_weight = 1.0;
-                        for (unsigned idim = quadrature->ndim; idim > 0; --idim)
-                        {
-                            const unsigned axis = idim - 1;
-                            const unsigned node = (unsigned)(remaining % quadrature->axes[axis].count);
-                            remaining /= quadrature->axes[axis].count;
-                            quadrature_weight *= quadrature->axes[axis].weights[node];
-                        }
+                        const double quadrature_weight =
+                            face_quadrature(test_spec->ndim, quadrature->axes, point, NULL);
                         double pullback_factor = 1.0;
                         if (test_spec->order != 0)
                             pullback_factor =
@@ -1654,10 +1639,7 @@ constraint_status_t constraint_physical_side_load(const constraint_kform_spec_t 
     if (side->ndim != test_spec->ndim + 1)
         return CONSTRAINT_INVALID_ARGUMENT;
 
-    size_t point_count;
-    status = quadrature_total_count(quadrature->ndim, quadrature->axes, &point_count);
-    if (status != CONSTRAINT_SUCCESS)
-        return status;
+    const size_t point_count = quadrature_total_count(quadrature->ndim, quadrature->axes);
     if (quadrature->ndim != test_spec->ndim || point_count != quadrature->point_count)
         return CONSTRAINT_INVALID_ARGUMENT;
 
@@ -1727,17 +1709,8 @@ constraint_status_t constraint_physical_side_load(const constraint_kform_spec_t 
             double coefficient = 0.0;
             for (size_t point = 0; point < point_count; ++point)
             {
-                size_t remaining = point;
-                double quadrature_weight = 1.0;
                 double face_nodes[UINT8_MAX];
-                for (unsigned idim = test_spec->ndim; idim > 0; --idim)
-                {
-                    const unsigned face_axis = idim - 1;
-                    const unsigned node_index = (unsigned)(remaining % quadrature->axes[face_axis].count);
-                    remaining /= quadrature->axes[face_axis].count;
-                    face_nodes[face_axis] = quadrature->axes[face_axis].nodes[node_index];
-                    quadrature_weight *= quadrature->axes[face_axis].weights[node_index];
-                }
+                const double quadrature_weight = face_quadrature(test_spec->ndim, quadrature->axes, point, face_nodes);
                 const double weight_total =
                     surface_weights ? quadrature_weight * surface_weights[point] : quadrature_weight;
                 coefficient += weight_total * datum_values[datum_component * point_count + point] *
@@ -1771,7 +1744,7 @@ constraint_status_t constraint_physical_side_load(const constraint_kform_spec_t 
  */
 constraint_status_t constraint_reference_assemble(
     const constraint_kform_spec_t *const test_spec, const constraint_element_side_t sides[const static 2],
-    const constraint_quadrature_t *quadrature, const size_t row_offset_capacity,
+    const integration_rule_t **quadrature, const size_t row_offset_capacity,
     size_t row_offsets[const static row_offset_capacity], const size_t entry_capacity,
     constraint_entry_t entries[const static entry_capacity], size_t *const out_row_count, size_t *const out_entry_count)
 {
@@ -1790,12 +1763,6 @@ constraint_status_t constraint_reference_assemble(
         return status;
     if (row_offset_capacity < required_offsets || entry_capacity < required_entries)
         return CONSTRAINT_INSUFFICIENT_STORAGE;
-
-    size_t quadrature_count;
-    status = quadrature_total_count(test_spec->ndim, quadrature, &quadrature_count);
-    if (status != CONSTRAINT_SUCCESS)
-        return status;
-    (void)quadrature_count;
 
     size_t component_count;
     status = constraint_kform_component_count(test_spec, &component_count);

@@ -1,6 +1,27 @@
 #include "../../src/constraints/constraints.h"
 #include "../common/common.h"
 
+static void *test_allocate(void *ctx, size_t size)
+{
+    return malloc(size);
+}
+
+static void test_free(void *ctx, void *ptr)
+{
+    free(ptr);
+}
+
+static void *test_reallocate(void *ctx, void *ptr, size_t size)
+{
+    return realloc(ptr, size);
+}
+
+static cutl_allocator_t SYSTEM_TEST_ALLOCATOR = {
+    .allocate = test_allocate,
+    .deallocate = test_free,
+    .reallocate = test_reallocate,
+};
+
 static basis_spec_t basis_spec(const unsigned order)
 {
     return (basis_spec_t){.type = BASIS_LEGENDRE, .order = order};
@@ -174,9 +195,8 @@ static void test_reference_edge_assembly(void)
     const basis_spec_t element_basis[] = {basis_spec(1), basis_spec(1)};
     const int8_t lower[] = {-1, 2};
     const int8_t upper_reversed[] = {1, -2};
-    const double nodes[] = {-0.5773502691896258, 0.5773502691896258};
-    const double weights[] = {1.0, 1.0};
-    const constraint_quadrature_t quadrature[] = {{.count = 2, .nodes = nodes, .weights = weights}};
+    integration_rule_t *quadrature;
+    integration_rule_for_order(&quadrature, INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE, 1, &SYSTEM_TEST_ALLOCATOR);
     const constraint_kform_spec_t test_spec = {.ndim = 1, .order = 0, .basis_specs = test_basis};
     const constraint_element_side_t sides[] = {
         {.ndim = 2, .basis_specs = element_basis, .orientation = lower},
@@ -194,8 +214,9 @@ static void test_reference_edge_assembly(void)
     TEST_ASSERTION(required_rows == 2 && required_entries == 16, "Unexpected edge sizing: %zu rows, %zu entries.",
                    required_rows, required_entries);
 
-    const constraint_status_t status = constraint_reference_assemble(&test_spec, sides, quadrature, 3, row_offsets, 16,
-                                                                     entries, &row_count, &entry_count);
+    const constraint_status_t status =
+        constraint_reference_assemble(&test_spec, sides, (const integration_rule_t **)&quadrature, 3, row_offsets, 16,
+                                      entries, &row_count, &entry_count);
     TEST_ASSERTION(status == CONSTRAINT_SUCCESS, "Could not assemble edge constraint: %s (%s)",
                    constraint_status_to_str(status), constraint_status_msg(status));
     TEST_ASSERTION(row_count == 2 && entry_count == 16, "Unexpected edge constraint dimensions.");
@@ -212,6 +233,7 @@ static void test_reference_edge_assembly(void)
     TEST_NUMBERS_CLOSE(entries[13].coefficient, 2.0 / 3.0, 1e-12, 0);
     TEST_NUMBERS_CLOSE(entries[14].coefficient, 0.0, 1e-12, 0);
     TEST_NUMBERS_CLOSE(entries[15].coefficient, 2.0 / 3.0, 1e-12, 0);
+    cutl_dealloc(&SYSTEM_TEST_ALLOCATOR, quadrature);
 }
 
 static void test_reference_one_form_component(void)
@@ -220,9 +242,8 @@ static void test_reference_one_form_component(void)
     const basis_spec_t element_basis[] = {basis_spec(1), basis_spec(1)};
     const int8_t lower[] = {-1, 2};
     const int8_t upper[] = {1, 2};
-    const double nodes[] = {-0.5773502691896258, 0.5773502691896258};
-    const double weights[] = {1.0, 1.0};
-    const constraint_quadrature_t quadrature[] = {{.count = 2, .nodes = nodes, .weights = weights}};
+    integration_rule_t *quadrature;
+    integration_rule_for_order(&quadrature, INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE, 1, &SYSTEM_TEST_ALLOCATOR);
     const constraint_kform_spec_t test_spec = {.ndim = 1, .order = 1, .basis_specs = test_basis};
     const constraint_element_side_t sides[] = {
         {.ndim = 2, .basis_specs = element_basis, .orientation = lower},
@@ -233,7 +254,8 @@ static void test_reference_one_form_component(void)
     size_t row_count;
     size_t entry_count;
 
-    TEST_ASSERTION(constraint_reference_assemble(&test_spec, sides, quadrature, 2, row_offsets, 4, entries, &row_count,
+    TEST_ASSERTION(constraint_reference_assemble(&test_spec, sides, (const integration_rule_t **)&quadrature, 2,
+                                                 row_offsets, 4, entries, &row_count,
                                                  &entry_count) == CONSTRAINT_SUCCESS,
                    "Could not assemble tangential one-form constraint.");
     TEST_ASSERTION(row_count == 1 && entry_count == 4, "Unexpected tangential one-form dimensions.");
@@ -248,6 +270,7 @@ static void test_reference_one_form_component(void)
     TEST_ASSERTION(constraint_reference_required(&invalid_test, sides, &required_rows, &required_entries) ==
                        CONSTRAINT_INVALID_ORDER,
                    "A normal one-form test was accepted on a one-dimensional boundary.");
+    cutl_dealloc(&SYSTEM_TEST_ALLOCATOR, quadrature);
 }
 
 static void test_physical_scalar_measure(void)
@@ -256,13 +279,12 @@ static void test_physical_scalar_measure(void)
     const basis_spec_t element_basis[] = {basis_spec(1), basis_spec(1)};
     const int8_t lower[] = {-1, 2};
     const int8_t upper[] = {1, 2};
-    const double nodes[] = {-0.5773502691896258, 0.5773502691896258};
-    const double weights[] = {1.0, 1.0};
     const double surface_weights[] = {3.0, 3.0};
-    const constraint_quadrature_t quadrature[] = {{.count = 2, .nodes = nodes, .weights = weights}};
+    integration_rule_t *quadrature;
+    integration_rule_for_order(&quadrature, INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE, 1, &SYSTEM_TEST_ALLOCATOR);
     const constraint_face_quadrature_t face_quadrature[] = {
-        {.ndim = 1, .axes = quadrature, .point_count = 2},
-        {.ndim = 1, .axes = quadrature, .point_count = 2},
+        {.ndim = 1, .axes = (const integration_rule_t **)&quadrature, .point_count = 2},
+        {.ndim = 1, .axes = (const integration_rule_t **)&quadrature, .point_count = 2},
     };
     const double *const side_surface_weights[] = {surface_weights, surface_weights};
     const constraint_kform_spec_t test_spec = {.ndim = 1, .order = 0, .basis_specs = test_basis};
@@ -280,8 +302,8 @@ static void test_physical_scalar_measure(void)
     size_t reference_row_count;
     size_t reference_entry_count;
 
-    TEST_ASSERTION(constraint_reference_assemble(&test_spec, sides, quadrature, 3, reference_row_offsets, 16,
-                                                 reference_entries, &reference_row_count,
+    TEST_ASSERTION(constraint_reference_assemble(&test_spec, sides, (const integration_rule_t **)&quadrature, 3,
+                                                 reference_row_offsets, 16, reference_entries, &reference_row_count,
                                                  &reference_entry_count) == CONSTRAINT_SUCCESS,
                    "Could not assemble reference scalar constraint.");
 
@@ -295,6 +317,8 @@ static void test_physical_scalar_measure(void)
                    "Unexpected weighted scalar dimensions.");
     for (size_t i = 0; i < entry_count; ++i)
         TEST_NUMBERS_CLOSE(entries[i].coefficient, 3.0 * reference_entries[i].coefficient, 1e-12, 0);
+
+    cutl_dealloc(&SYSTEM_TEST_ALLOCATOR, quadrature);
 }
 
 static void test_physical_batch_scalar(void)
@@ -303,13 +327,12 @@ static void test_physical_batch_scalar(void)
     const basis_spec_t element_basis[] = {basis_spec(1), basis_spec(1)};
     const int8_t lower[] = {-1, 2};
     const int8_t upper[] = {1, 2};
-    const double nodes[] = {-0.5773502691896258, 0.5773502691896258};
-    const double weights[] = {1.0, 1.0};
     const double surface_weights[] = {3.0, 3.0};
-    const constraint_quadrature_t axes[] = {{.count = 2, .nodes = nodes, .weights = weights}};
-    const constraint_face_quadrature_t quadrature[] = {
-        {.ndim = 1, .axes = axes, .point_count = 2},
-        {.ndim = 1, .axes = axes, .point_count = 2},
+    integration_rule_t *quadrature;
+    integration_rule_for_order(&quadrature, INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE, 1, &SYSTEM_TEST_ALLOCATOR);
+    const constraint_face_quadrature_t quadrature_faces[] = {
+        {.ndim = 1, .axes = (const integration_rule_t **)&quadrature, .point_count = 2},
+        {.ndim = 1, .axes = (const integration_rule_t **)&quadrature, .point_count = 2},
     };
     const constraint_element_side_t sides[] = {
         {.ndim = 2, .basis_specs = element_basis, .orientation = lower},
@@ -318,11 +341,11 @@ static void test_physical_batch_scalar(void)
     const constraint_kform_spec_t test_spec = {.ndim = 1, .order = 0, .basis_specs = test_basis};
     const constraint_physical_batch_item_t items[] = {
         {.sides = sides,
-         .quadrature = quadrature,
+         .quadrature = quadrature_faces,
          .surface_weights = {surface_weights, surface_weights},
          .pullbacks = NULL},
         {.sides = sides,
-         .quadrature = quadrature,
+         .quadrature = quadrature_faces,
          .surface_weights = {surface_weights, surface_weights},
          .pullbacks = NULL},
     };
@@ -343,6 +366,7 @@ static void test_physical_batch_scalar(void)
     TEST_ASSERTION(row_count == required_rows && entry_count == required_entries && row_offsets[0] == 0 &&
                        row_offsets[2] == 16 && row_offsets[4] == 32,
                    "Physical batch output dimensions or offsets are wrong.");
+    cutl_dealloc(&SYSTEM_TEST_ALLOCATOR, quadrature);
 }
 
 static void test_physical_precomputed_scalar(void)
@@ -350,11 +374,12 @@ static void test_physical_precomputed_scalar(void)
     const basis_spec_t test_basis[] = {basis_spec(1)};
     const basis_spec_t element_basis[] = {basis_spec(1), basis_spec(1)};
     const int8_t orientation[] = {-1, 2};
-    const double nodes[] = {-0.5773502691896258, 0.5773502691896258};
-    const double weights[] = {1.0, 1.0};
     const double surface_weights[] = {3.0, 3.0};
-    const constraint_quadrature_t axes[] = {{.count = 2, .nodes = nodes, .weights = weights}};
-    const constraint_face_quadrature_t quadrature = {.ndim = 1, .axes = axes, .point_count = 2};
+    integration_rule_t *quadrature;
+    integration_rule_for_order(&quadrature, INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE, 1, &SYSTEM_TEST_ALLOCATOR);
+    const double *nodes = integration_rule_nodes_const(quadrature);
+    const constraint_face_quadrature_t face_quadrature = {
+        .ndim = 1, .axes = (const integration_rule_t **)&quadrature, .point_count = 2};
     const constraint_kform_spec_t test_spec = {.ndim = 1, .order = 0, .basis_specs = test_basis};
     const constraint_element_side_t side = {.ndim = 2, .basis_specs = element_basis, .orientation = orientation};
     const size_t test_offsets[] = {0, 2};
@@ -369,7 +394,7 @@ static void test_physical_precomputed_scalar(void)
     constraint_entry_t reference_entries[8];
     size_t reference_rows;
     size_t reference_entry_count;
-    TEST_ASSERTION(constraint_physical_side_assemble(&test_spec, &side, &quadrature, surface_weights, NULL, 3,
+    TEST_ASSERTION(constraint_physical_side_assemble(&test_spec, &side, &face_quadrature, surface_weights, NULL, 3,
                                                      reference_offsets, 8, reference_entries, &reference_rows,
                                                      &reference_entry_count) == CONSTRAINT_SUCCESS,
                    "Could not assemble scalar reference trace.");
@@ -378,9 +403,9 @@ static void test_physical_precomputed_scalar(void)
     constraint_entry_t entries[8];
     size_t rows;
     size_t entry_count;
-    TEST_ASSERTION(constraint_physical_side_assemble_precomputed(&test_spec, &side, &quadrature, surface_weights, NULL,
-                                                                 &test_basis_values, &element_basis_values, 3, offsets,
-                                                                 8, entries, &rows, &entry_count) == CONSTRAINT_SUCCESS,
+    TEST_ASSERTION(constraint_physical_side_assemble_precomputed(
+                       &test_spec, &side, &face_quadrature, surface_weights, NULL, &test_basis_values,
+                       &element_basis_values, 3, offsets, 8, entries, &rows, &entry_count) == CONSTRAINT_SUCCESS,
                    "Could not assemble precomputed scalar trace.");
     TEST_ASSERTION(rows == reference_rows && entry_count == reference_entry_count,
                    "Precomputed trace dimensions differ from the reference.");
@@ -393,10 +418,13 @@ static void test_physical_precomputed_scalar(void)
                        "Precomputed trace metadata differs at %zu.", i);
         TEST_NUMBERS_CLOSE(entries[i].coefficient, reference_entries[i].coefficient, 1e-12, i);
     }
-    TEST_ASSERTION(constraint_physical_side_assemble_precomputed(
-                       &test_spec, &side, &quadrature, surface_weights, NULL, &test_basis_values, &element_basis_values,
-                       3, offsets, 7, entries, &rows, &entry_count) == CONSTRAINT_INSUFFICIENT_STORAGE,
+    TEST_ASSERTION(constraint_physical_side_assemble_precomputed(&test_spec, &side, &face_quadrature, surface_weights,
+                                                                 NULL, &test_basis_values, &element_basis_values, 3,
+                                                                 offsets, 7, entries, &rows,
+                                                                 &entry_count) == CONSTRAINT_INSUFFICIENT_STORAGE,
                    "Precomputed trace accepted insufficient entry storage.");
+
+    cutl_dealloc(&SYSTEM_TEST_ALLOCATOR, quadrature);
 }
 
 static void test_physical_single_side(void)
@@ -404,11 +432,11 @@ static void test_physical_single_side(void)
     const basis_spec_t test_basis[] = {basis_spec(1)};
     const basis_spec_t element_basis[] = {basis_spec(1), basis_spec(1)};
     const int8_t orientation[] = {-1, 2};
-    const double nodes[] = {-0.5773502691896258, 0.5773502691896258};
-    const double weights[] = {1.0, 1.0};
     const double surface_weights[] = {1.0, 1.0};
-    const constraint_quadrature_t axes[] = {{.count = 2, .nodes = nodes, .weights = weights}};
-    const constraint_face_quadrature_t quadrature = {.ndim = 1, .axes = axes, .point_count = 2};
+    integration_rule_t *quadrature;
+    integration_rule_for_order(&quadrature, INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE, 1, &SYSTEM_TEST_ALLOCATOR);
+    const constraint_face_quadrature_t face_quadrature = {
+        .ndim = 1, .axes = (const integration_rule_t **)&quadrature, .point_count = 2};
     const constraint_kform_spec_t test_spec = {.ndim = 1, .order = 0, .basis_specs = test_basis};
     const constraint_element_side_t side = {.ndim = 2, .basis_specs = element_basis, .orientation = orientation};
     size_t row_offsets[3];
@@ -416,7 +444,7 @@ static void test_physical_single_side(void)
     size_t row_count;
     size_t entry_count;
 
-    TEST_ASSERTION(constraint_physical_side_assemble(&test_spec, &side, &quadrature, surface_weights, NULL, 3,
+    TEST_ASSERTION(constraint_physical_side_assemble(&test_spec, &side, &face_quadrature, surface_weights, NULL, 3,
                                                      row_offsets, 8, entries, &row_count,
                                                      &entry_count) == CONSTRAINT_SUCCESS,
                    "Could not assemble one-element scalar boundary constraints.");
@@ -424,6 +452,7 @@ static void test_physical_single_side(void)
     TEST_ASSERTION(row_offsets[0] == 0 && row_offsets[1] == 4 && row_offsets[2] == 8,
                    "Unexpected one-element row offsets.");
     TEST_ASSERTION(entries[0].side == 0 && entries[7].side == 0, "Unexpected one-element side metadata.");
+    cutl_dealloc(&SYSTEM_TEST_ALLOCATOR, quadrature);
 }
 
 static void test_physical_general_boundary_dimensions(void)
@@ -451,10 +480,10 @@ static void test_physical_general_boundary_dimensions(void)
     const basis_spec_t line_test_basis[] = {basis_spec(1)};
     const constraint_kform_spec_t line_test = {.ndim = 1, .order = 0, .basis_specs = line_test_basis};
     const constraint_element_side_t line_side = {.ndim = 3, .basis_specs = line_basis, .orientation = line_orientation};
-    const double line_nodes[] = {-0.5773502691896258, 0.5773502691896258};
-    const double line_weights[] = {1.0, 1.0};
-    const constraint_quadrature_t line_axes[] = {{.count = 2, .nodes = line_nodes, .weights = line_weights}};
-    const constraint_face_quadrature_t line_quadrature = {.ndim = 1, .axes = line_axes, .point_count = 2};
+    integration_rule_t *quad_rule;
+    integration_rule_for_order(&quad_rule, INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE, 1, &SYSTEM_TEST_ALLOCATOR);
+    const constraint_face_quadrature_t line_quadrature = {
+        .ndim = 1, .axes = (const integration_rule_t **)&quad_rule, .point_count = 2};
     const double line_surface[] = {1.0, 1.0};
     TEST_ASSERTION(constraint_physical_side_required(&line_test, &line_side, &row_count, &entry_count) ==
                        CONSTRAINT_SUCCESS,
@@ -474,10 +503,7 @@ static void test_physical_general_boundary_dimensions(void)
     const basis_spec_t face_test_basis[] = {basis_spec(1), basis_spec(1)};
     const constraint_kform_spec_t face_test = {.ndim = 2, .order = 0, .basis_specs = face_test_basis};
     const constraint_element_side_t face_side = {.ndim = 4, .basis_specs = face_basis, .orientation = face_orientation};
-    const constraint_quadrature_t face_axes[] = {
-        {.count = 2, .nodes = line_nodes, .weights = line_weights},
-        {.count = 2, .nodes = line_nodes, .weights = line_weights},
-    };
+    const integration_rule_t *face_axes[2] = {quad_rule, quad_rule};
     const constraint_face_quadrature_t face_quadrature = {.ndim = 2, .axes = face_axes, .point_count = 4};
     const double face_surface[] = {1.0, 1.0, 1.0, 1.0};
     TEST_ASSERTION(constraint_physical_side_required(&face_test, &face_side, &row_count, &entry_count) ==
@@ -506,6 +532,7 @@ static void test_physical_general_boundary_dimensions(void)
                    constraint_status_to_str(face_status));
     TEST_ASSERTION(face_one_form_entries[0].component == 1 && face_one_form_entries[8].component == 3,
                    "Unexpected odd-orientation one-form component mapping.");
+    cutl_dealloc(&SYSTEM_TEST_ALLOCATOR, quad_rule);
 }
 
 static void test_physical_one_form_pullback(void)
@@ -514,16 +541,15 @@ static void test_physical_one_form_pullback(void)
     const basis_spec_t element_basis[] = {basis_spec(1), basis_spec(1)};
     const int8_t lower[] = {-1, 2};
     const int8_t upper[] = {1, 2};
-    const double nodes[] = {-0.5773502691896258, 0.5773502691896258};
-    const double weights[] = {1.0, 1.0};
     const double surface_weights[] = {1.0, 1.0};
     const double identity_pullback[] = {
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0,
     };
-    const constraint_quadrature_t quadrature[] = {{.count = 2, .nodes = nodes, .weights = weights}};
+    integration_rule_t *quad_rule;
+    integration_rule_for_order(&quad_rule, INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE, 1, &SYSTEM_TEST_ALLOCATOR);
     const constraint_face_quadrature_t face_quadrature[] = {
-        {.ndim = 1, .axes = quadrature, .point_count = 2},
-        {.ndim = 1, .axes = quadrature, .point_count = 2},
+        {.ndim = 1, .axes = (const integration_rule_t **)&quad_rule, .point_count = 2},
+        {.ndim = 1, .axes = (const integration_rule_t **)&quad_rule, .point_count = 2},
     };
     const double *const side_surface_weights[] = {surface_weights, surface_weights};
     const constraint_kform_spec_t test_spec = {.ndim = 1, .order = 1, .basis_specs = test_basis};
@@ -552,6 +578,7 @@ static void test_physical_one_form_pullback(void)
     TEST_NUMBERS_CLOSE(entries[1].coefficient, -2.0, 1e-12, 0);
     TEST_NUMBERS_CLOSE(entries[2].coefficient, -2.0, 1e-12, 0);
     TEST_NUMBERS_CLOSE(entries[3].coefficient, -2.0, 1e-12, 0);
+    cutl_dealloc(&SYSTEM_TEST_ALLOCATOR, quad_rule);
 }
 
 static void test_physical_two_form_face_components(void)
@@ -559,14 +586,11 @@ static void test_physical_two_form_face_components(void)
     const basis_spec_t test_basis[] = {basis_spec(1), basis_spec(1)};
     const basis_spec_t element_basis[] = {basis_spec(1), basis_spec(1), basis_spec(1)};
     const int8_t orientation[] = {-1, 3, 2};
-    const double nodes[] = {-0.5773502691896258, 0.5773502691896258};
-    const double weights[] = {1.0, 1.0};
     const double surface_weights[] = {1.0, 1.0, 1.0, 1.0};
-    const constraint_quadrature_t axes[] = {
-        {.count = 2, .nodes = nodes, .weights = weights},
-        {.count = 2, .nodes = nodes, .weights = weights},
-    };
-    const constraint_face_quadrature_t quadrature = {.ndim = 2, .axes = axes, .point_count = 4};
+    integration_rule_t *quad_rule;
+    integration_rule_for_order(&quad_rule, INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE, 1, &SYSTEM_TEST_ALLOCATOR);
+    const constraint_face_quadrature_t quadrature = {
+        .ndim = 2, .axes = (const integration_rule_t *[]){quad_rule, quad_rule}, .point_count = 4};
     double pullback_values[3 * 3 * 4] = {0};
     for (unsigned component = 0; component < 3; ++component)
         for (unsigned point = 0; point < 4; ++point)
@@ -594,6 +618,7 @@ static void test_physical_two_form_face_components(void)
                    "Two-form face assembly did not match its required storage.");
     TEST_ASSERTION(entries[0].component == 2 && entries[1].component == 2,
                    "Unexpected two-form face component mapping.");
+    cutl_dealloc(&SYSTEM_TEST_ALLOCATOR, quad_rule);
 }
 
 static void test_boundary_test_specs(void)

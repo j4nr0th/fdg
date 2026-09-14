@@ -14,8 +14,7 @@
  * assembly buffers may be partially populated only where a function documents
  * that behavior.
  */
-#ifndef FDG_CONSTRAINTS_H
-#define FDG_CONSTRAINTS_H
+#pragma once
 
 #include "../basis/basis_set.h"
 #include <stdbool.h>
@@ -77,19 +76,6 @@ typedef struct
 } constraint_element_side_t;
 
 /**
- * @brief One-dimensional quadrature rule along one canonical face axis.
- *
- * `nodes[0..count)` and `weights[0..count)` are borrowed arrays. A valid rule
- * has a positive `count` and non-null arrays.
- */
-typedef struct
-{
-    unsigned count;        /**< Number of nodes and weights on this axis. */
-    const double *nodes;   /**< Quadrature nodes in canonical coordinates. */
-    const double *weights; /**< Corresponding quadrature weights. */
-} constraint_quadrature_t;
-
-/**
  * @brief Tensor-product quadrature rule over a canonical face.
  *
  * `axes` has `ndim` entries. The flattened point index uses the last face axis
@@ -98,9 +84,9 @@ typedef struct
  */
 typedef struct
 {
-    unsigned ndim;                       /**< Number of quadrature axes. */
-    const constraint_quadrature_t *axes; /**< `ndim` one-dimensional rules. */
-    size_t point_count;                  /**< Cached product of the axis node counts. */
+    unsigned ndim;                   /**< Number of quadrature axes. */
+    const integration_rule_t **axes; /**< `ndim` one-dimensional rules. */
+    size_t point_count;              /**< Cached product of the axis node counts. */
 } constraint_face_quadrature_t;
 
 /**
@@ -324,7 +310,7 @@ constraint_status_t constraint_reference_required(const constraint_kform_spec_t 
  */
 constraint_status_t constraint_reference_assemble(const constraint_kform_spec_t *test_spec,
                                                   const constraint_element_side_t sides[const static 2],
-                                                  const constraint_quadrature_t *quadrature, size_t row_offset_capacity,
+                                                  const integration_rule_t **quadrature, size_t row_offset_capacity,
                                                   size_t row_offsets[const static row_offset_capacity],
                                                   size_t entry_capacity,
                                                   constraint_entry_t entries[const static entry_capacity],
@@ -573,5 +559,3 @@ constraint_status_t constraint_rows_required_entry_capacity(size_t row_count, si
  *         `CONSTRAINT_INVALID_ARGUMENT` otherwise.
  */
 constraint_status_t constraint_rows_validate(constraint_rows_view_t view);
-
-#endif // FDG_CONSTRAINTS_H

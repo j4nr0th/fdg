@@ -506,7 +506,6 @@ typedef struct
     PyObject *face_object;
     integration_space_object *face_space;
     integration_spec_t *canonical_specs;
-    constraint_quadrature_t *quadrature_axes;
     const integration_rule_t **rules;
     size_t point_count;
     void *memory;
@@ -806,10 +805,8 @@ static int make_boundary_face_setup(const interplib_module_state_t *state, const
     if (face_dim > 0)
     {
         setup->memory = cutl_alloc_group(
-            &PYTHON_ALLOCATOR,
-            (const cutl_alloc_info_t[]){{sizeof(*setup->canonical_specs) * face_dim, (void **)&setup->canonical_specs},
-                                        {sizeof(*setup->quadrature_axes) * face_dim, (void **)&setup->quadrature_axes},
-                                        {}});
+            &PYTHON_ALLOCATOR, (const cutl_alloc_info_t[]){
+                                   {sizeof(*setup->canonical_specs) * face_dim, (void **)&setup->canonical_specs}, {}});
         if (!setup->memory)
             goto fail;
     }
@@ -827,18 +824,15 @@ static int make_boundary_face_setup(const interplib_module_state_t *state, const
     setup->rules = python_integration_rules_get(face_dim, face_specs, integration_registry->registry);
     if (!setup->rules)
         goto fail;
-    for (unsigned face_axis = 0; face_axis < face_dim; ++face_axis)
-    {
-        const int8_t mapping = orientation[fixed_count + face_axis];
-        const unsigned source_axis = (unsigned)(mapping < 0 ? -mapping : mapping) - 1;
-        const unsigned source_face_axis = get_source_face_axis(element_dim, face_dim, orientation, source_axis);
-        const integration_rule_t *const rule = setup->rules[source_face_axis];
-        setup->quadrature_axes[face_axis] = (constraint_quadrature_t){
-            .count = rule->n_nodes,
-            .nodes = integration_rule_nodes_const(rule),
-            .weights = integration_rule_weights_const(rule),
-        };
-    }
+    // TODO: check if this was fine to remove
+    // for (unsigned face_axis = 0; face_axis < face_dim; ++face_axis)
+    // {
+    //     const int8_t mapping = orientation[fixed_count + face_axis];
+    //     const unsigned source_axis = (unsigned)(mapping < 0 ? -mapping : mapping) - 1;
+    //     const unsigned source_face_axis = get_source_face_axis(element_dim, face_dim, orientation, source_axis);
+    //     const integration_rule_t *const rule = setup->rules[source_face_axis];
+    //     setup->rule_data[face_axis] = *rule;
+    // }
     return 0;
 fail:
     release_boundary_face_setup(state, face_dim, setup);
@@ -895,7 +889,7 @@ PyObject *compute_kform_boundary_constraints_impl(const interplib_module_state_t
                                                              .point_count = setup.point_count,
                                                              .values = PyArray_DATA(pullback)};
     const constraint_face_quadrature_t face_quadrature = {
-        .ndim = face_dim, .axes = setup.quadrature_axes, .point_count = setup.point_count};
+        .ndim = face_dim, .axes = setup.rules, .point_count = setup.point_count};
     size_t row_count;
     size_t entry_count;
     constraint_status_t constraint_status =
@@ -1013,7 +1007,6 @@ PyObject *compute_kform_reference_constraints_impl(const interplib_module_state_
     PyArrayObject *dof_array = NULL;
     PyArrayObject *coefficient_array = NULL;
     integration_spec_t *rule_specs = NULL;
-    constraint_quadrature_t *quadrature_axes = NULL;
     const integration_rule_t **rules = NULL;
     constraint_entry_t *entries = NULL;
     void *scratch_memory = NULL;
@@ -1031,8 +1024,7 @@ PyObject *compute_kform_reference_constraints_impl(const interplib_module_state_
     if (face_dim > 0)
     {
         rule_specs = PyMem_Malloc(face_dim * sizeof(*rule_specs));
-        quadrature_axes = PyMem_Malloc(face_dim * sizeof(*quadrature_axes));
-        if (!rule_specs || !quadrature_axes)
+        if (!rule_specs)
             goto fail;
         const unsigned fixed_count = element_dim_1 - face_dim;
         for (unsigned face_axis = 0; face_axis < face_dim; ++face_axis)
@@ -1052,14 +1044,6 @@ PyObject *compute_kform_reference_constraints_impl(const interplib_module_state_
                                              ((integration_registry_object *)state->registry_integration)->registry);
         if (!rules)
             goto fail;
-        for (unsigned face_axis = 0; face_axis < face_dim; ++face_axis)
-        {
-            quadrature_axes[face_axis] = (constraint_quadrature_t){
-                .count = rules[face_axis]->n_nodes,
-                .nodes = integration_rule_nodes_const(rules[face_axis]),
-                .weights = integration_rule_weights_const(rules[face_axis]),
-            };
-        }
     }
 
     const constraint_kform_spec_t test_descriptor = {
@@ -1099,9 +1083,9 @@ PyObject *compute_kform_reference_constraints_impl(const interplib_module_state_
         goto fail;
     size_t actual_rows;
     size_t actual_entries;
-    constraint_status = constraint_reference_assemble(&test_descriptor, sides, quadrature_axes, row_count + 1,
-                                                      (size_t *)PyArray_DATA(row_array), entry_count, entries,
-                                                      &actual_rows, &actual_entries);
+    constraint_status =
+        constraint_reference_assemble(&test_descriptor, sides, rules, row_count + 1, (size_t *)PyArray_DATA(row_array),
+                                      entry_count, entries, &actual_rows, &actual_entries);
     if (constraint_status != CONSTRAINT_SUCCESS)
     {
         PyErr_Format(PyExc_ValueError, "Could not assemble reference constraints: %s.",
@@ -1117,7 +1101,6 @@ PyObject *compute_kform_reference_constraints_impl(const interplib_module_state_
     }
 
     PyMem_Free(rule_specs);
-    PyMem_Free(quadrature_axes);
     python_integration_rules_release(face_dim, rules,
                                      ((integration_registry_object *)state->registry_integration)->registry);
     cutl_dealloc(&PYTHON_ALLOCATOR, scratch_memory);
@@ -1147,7 +1130,6 @@ fail:
     Py_XDECREF(dof_array);
     Py_XDECREF(coefficient_array);
     PyMem_Free(rule_specs);
-    PyMem_Free(quadrature_axes);
     if (rules)
         python_integration_rules_release(face_dim, rules,
                                          ((integration_registry_object *)state->registry_integration)->registry);
@@ -1384,7 +1366,7 @@ static PyObject *compute_kform_boundary_load(PyObject *module, PyObject *const *
     const constraint_element_side_t side_descriptor = {
         .ndim = element_dim, .basis_specs = element_spec->function_space->specs, .orientation = orientation};
     const constraint_face_quadrature_t face_quadrature = {
-        .ndim = face_dim, .axes = setup.quadrature_axes, .point_count = setup.point_count};
+        .ndim = face_dim, .axes = setup.rules, .point_count = setup.point_count};
     const constraint_kform_spec_t element_descriptor = {
         .ndim = element_dim, .order = order, .basis_specs = element_spec->function_space->specs};
     size_t element_component_count;
