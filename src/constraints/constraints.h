@@ -18,6 +18,7 @@
 #define FDG_CONSTRAINTS_H
 
 #include "../basis/basis_set.h"
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -247,6 +248,40 @@ constraint_status_t constraint_kform_component_dof_count(const constraint_kform_
  */
 constraint_status_t constraint_kform_component_offsets(const constraint_kform_spec_t *spec, size_t offset_count,
                                                        size_t offsets[const static offset_count]);
+
+/**
+ * @brief Derive per-component test-space basis specifications on a boundary.
+ *
+ * For every canonical boundary axis the derived order is the lowest order
+ * among the incident elements (mapped through their orientation records);
+ * each component then reduces the order by two on axes without one of its
+ * covector axes and is reported absent when any reduced order would become
+ * negative. Basis families follow the element achieving the per-axis minimum
+ * unless overridden.
+ *
+ * @param ndim Element dimension.
+ * @param boundary_dim Boundary-object dimension, strictly below `ndim`.
+ * @param order Form degree, at most `boundary_dim`.
+ * @param element_count Number of incident elements, at least one.
+ * @param element_bases Borrowed per-element array of axis specifications.
+ * @param orientations Signed one-based orientation records; the fixed-axis
+ *        prefix must increase in absolute value.
+ * @param type_override Family forced onto every output axis, or
+ *        `BASIS_INVALID` to derive families from the incident elements.
+ * @param out_capacity Available component-major output slots; at least the
+ *        number of components of the boundary space.
+ * @param out_specs Component-major axis specifications; absent components
+ *        clamp negative orders to zero.
+ * @param out_present Component availability flags.
+ * @return A public constraint status.
+ */
+constraint_status_t constraint_boundary_test_specs(const unsigned ndim, const unsigned boundary_dim,
+                                                   const unsigned order, const size_t element_count,
+                                                   const basis_spec_t *const *const element_bases,
+                                                   const int8_t *const orientations,
+                                                   const basis_set_type_t type_override, const size_t out_capacity,
+                                                   basis_spec_t out_specs[const static out_capacity],
+                                                   bool out_present[const static out_capacity]);
 
 /**
  * @brief Compute storage requirements for a two-sided reference trace matrix.

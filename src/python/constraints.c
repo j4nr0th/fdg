@@ -635,12 +635,16 @@ static int make_trace_basis_table(const unsigned element_dim, const unsigned fac
         for (unsigned axis = 0; axis < ndim; ++axis)
         {
             lower_specs[axis] = basis_specs[axis];
-            lower_specs[axis].order -= 1;
+            // Order-zero axes cannot lose another degree; no component reads
+            // their lowered table because the matching components have no DoFs.
+            if (lower_specs[axis].order > 0)
+                lower_specs[axis].order -= 1;
         }
         for (unsigned axis = 0; axis < free_count; ++axis)
         {
             free_specs_lower[axis] = free_specs[axis];
-            free_specs_lower[axis].order -= 1;
+            if (free_specs_lower[axis].order > 0)
+                free_specs_lower[axis].order -= 1;
         }
     }
 
@@ -711,6 +715,8 @@ static int make_trace_basis_table(const unsigned element_dim, const unsigned fac
     for (unsigned component = 0; component < component_count; ++component)
     {
         const size_t dof_count = out->component_offsets[component + 1] - out->component_offsets[component];
+        if (dof_count == 0)
+            continue;
         combination_set_to_index((uint8_t)ndim, (uint8_t)order, component_axes, component);
         double *const component_values = out->values + out->component_offsets[component] * point_count;
         for (size_t point = 0; point < point_count; ++point)
@@ -989,6 +995,163 @@ fail:
     release_trace_basis_table(&element_basis_table);
     Py_XDECREF(pullback);
     release_boundary_face_setup(state, face_dim, &setup);
+    return NULL;
+}
+
+PyObject *compute_kform_reference_constraints_impl(const interplib_module_state_t *state, kform_spec_object *test_spec,
+                                                   kform_spec_object *element_spec_1, const int8_t *orientation_1,
+                                                   kform_spec_object *element_spec_2, const int8_t *orientation_2)
+{
+    const unsigned face_dim = Py_SIZE(test_spec->function_space);
+    const unsigned order = test_spec->order;
+    const unsigned element_dim_1 = Py_SIZE(element_spec_1->function_space);
+    const unsigned element_dim_2 = Py_SIZE(element_spec_2->function_space);
+
+    PyArrayObject *row_array = NULL;
+    PyArrayObject *side_array = NULL;
+    PyArrayObject *component_array = NULL;
+    PyArrayObject *dof_array = NULL;
+    PyArrayObject *coefficient_array = NULL;
+    integration_spec_t *rule_specs = NULL;
+    constraint_quadrature_t *quadrature_axes = NULL;
+    const integration_rule_t **rules = NULL;
+    constraint_entry_t *entries = NULL;
+    void *scratch_memory = NULL;
+
+    if (element_dim_1 != element_dim_2 || element_dim_1 <= face_dim)
+    {
+        PyErr_SetString(PyExc_ValueError, "Both element sides must share the boundary's element dimension.");
+        goto fail;
+    }
+
+    // Per face axis, a Gauss-Legendre rule chosen exact for the pairing
+    // integrand: the trace factors reach the test order plus the larger
+    // element order on the mapped axis, with one spare degree for the
+    // inactive-axis basis shifts.
+    if (face_dim > 0)
+    {
+        rule_specs = PyMem_Malloc(face_dim * sizeof(*rule_specs));
+        quadrature_axes = PyMem_Malloc(face_dim * sizeof(*quadrature_axes));
+        if (!rule_specs || !quadrature_axes)
+            goto fail;
+        const unsigned fixed_count = element_dim_1 - face_dim;
+        for (unsigned face_axis = 0; face_axis < face_dim; ++face_axis)
+        {
+            const unsigned test_order = test_spec->function_space->specs[face_axis].order;
+            const int8_t mapping_1 = orientation_1[fixed_count + face_axis];
+            const int8_t mapping_2 = orientation_2[fixed_count + face_axis];
+            const unsigned axis_1 = (unsigned)(mapping_1 < 0 ? -mapping_1 : mapping_1) - 1;
+            const unsigned axis_2 = (unsigned)(mapping_2 < 0 ? -mapping_2 : mapping_2) - 1;
+            const unsigned order_1 = element_spec_1->function_space->specs[axis_1].order;
+            const unsigned order_2 = element_spec_2->function_space->specs[axis_2].order;
+            const unsigned accuracy = test_order + (order_1 > order_2 ? order_1 : order_2) + 1;
+            rule_specs[face_axis] =
+                (integration_spec_t){.type = INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE, .order = accuracy / 2 + 1};
+        }
+        rules = python_integration_rules_get(face_dim, rule_specs,
+                                             ((integration_registry_object *)state->registry_integration)->registry);
+        if (!rules)
+            goto fail;
+        for (unsigned face_axis = 0; face_axis < face_dim; ++face_axis)
+        {
+            quadrature_axes[face_axis] = (constraint_quadrature_t){
+                .count = rules[face_axis]->n_nodes,
+                .nodes = integration_rule_nodes_const(rules[face_axis]),
+                .weights = integration_rule_weights_const(rules[face_axis]),
+            };
+        }
+    }
+
+    const constraint_kform_spec_t test_descriptor = {
+        .ndim = face_dim, .order = order, .basis_specs = test_spec->function_space->specs};
+    const constraint_element_side_t sides[2] = {
+        {.ndim = element_dim_1, .basis_specs = element_spec_1->function_space->specs, .orientation = orientation_1},
+        {.ndim = element_dim_2, .basis_specs = element_spec_2->function_space->specs, .orientation = orientation_2},
+    };
+    size_t row_count;
+    size_t entry_count;
+    constraint_status_t constraint_status =
+        constraint_reference_required(&test_descriptor, sides, &row_count, &entry_count);
+    if (constraint_status != CONSTRAINT_SUCCESS)
+    {
+        PyErr_Format(PyExc_ValueError, "Could not size reference constraints: %s.",
+                     constraint_status_to_str(constraint_status));
+        goto fail;
+    }
+    if (entry_count > SIZE_MAX / sizeof(*entries))
+    {
+        PyErr_SetString(PyExc_OverflowError, "Reference constraint entries exceed the size limit.");
+        goto fail;
+    }
+    scratch_memory = cutl_alloc_group(
+        &PYTHON_ALLOCATOR, (const cutl_alloc_info_t[]){{sizeof(*entries) * entry_count, (void **)&entries}, {}});
+    if (!scratch_memory)
+        goto fail;
+
+    const npy_intp row_dims[1] = {(npy_intp)(row_count + 1)};
+    const npy_intp entry_dims[1] = {(npy_intp)entry_count};
+    row_array = (PyArrayObject *)PyArray_SimpleNew(1, row_dims, NPY_UINTP);
+    side_array = (PyArrayObject *)PyArray_SimpleNew(1, entry_dims, NPY_UINT8);
+    component_array = (PyArrayObject *)PyArray_SimpleNew(1, entry_dims, NPY_UINT32);
+    dof_array = (PyArrayObject *)PyArray_SimpleNew(1, entry_dims, NPY_UINTP);
+    coefficient_array = (PyArrayObject *)PyArray_SimpleNew(1, entry_dims, NPY_DOUBLE);
+    if (!row_array || !side_array || !component_array || !dof_array || !coefficient_array)
+        goto fail;
+    size_t actual_rows;
+    size_t actual_entries;
+    constraint_status = constraint_reference_assemble(&test_descriptor, sides, quadrature_axes, row_count + 1,
+                                                      (size_t *)PyArray_DATA(row_array), entry_count, entries,
+                                                      &actual_rows, &actual_entries);
+    if (constraint_status != CONSTRAINT_SUCCESS)
+    {
+        PyErr_Format(PyExc_ValueError, "Could not assemble reference constraints: %s.",
+                     constraint_status_to_str(constraint_status));
+        goto fail;
+    }
+    for (size_t i = 0; i < actual_entries; ++i)
+    {
+        ((uint8_t *)PyArray_DATA(side_array))[i] = entries[i].side;
+        ((uint32_t *)PyArray_DATA(component_array))[i] = entries[i].component;
+        ((size_t *)PyArray_DATA(dof_array))[i] = entries[i].local_dof;
+        ((double *)PyArray_DATA(coefficient_array))[i] = entries[i].coefficient;
+    }
+
+    PyMem_Free(rule_specs);
+    PyMem_Free(quadrature_axes);
+    python_integration_rules_release(face_dim, rules,
+                                     ((integration_registry_object *)state->registry_integration)->registry);
+    cutl_dealloc(&PYTHON_ALLOCATOR, scratch_memory);
+    {
+        PyObject *result = PyTuple_New(5);
+        if (!result)
+        {
+            Py_DECREF(row_array);
+            Py_DECREF(side_array);
+            Py_DECREF(component_array);
+            Py_DECREF(dof_array);
+            Py_DECREF(coefficient_array);
+            return NULL;
+        }
+        PyTuple_SET_ITEM(result, 0, row_array);
+        PyTuple_SET_ITEM(result, 1, side_array);
+        PyTuple_SET_ITEM(result, 2, component_array);
+        PyTuple_SET_ITEM(result, 3, dof_array);
+        PyTuple_SET_ITEM(result, 4, coefficient_array);
+        return result;
+    }
+
+fail:
+    Py_XDECREF(row_array);
+    Py_XDECREF(side_array);
+    Py_XDECREF(component_array);
+    Py_XDECREF(dof_array);
+    Py_XDECREF(coefficient_array);
+    PyMem_Free(rule_specs);
+    PyMem_Free(quadrature_axes);
+    if (rules)
+        python_integration_rules_release(face_dim, rules,
+                                         ((integration_registry_object *)state->registry_integration)->registry);
+    cutl_dealloc(&PYTHON_ALLOCATOR, scratch_memory);
     return NULL;
 }
 static PyObject *compute_kform_boundary_load(PyObject *module, PyObject *const *args, const Py_ssize_t nargs,

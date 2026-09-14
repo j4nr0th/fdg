@@ -68,9 +68,11 @@ const char *constraint_status_msg(const constraint_status_t status)
  * @brief Validate the common k-form specification invariants.
  *
  * The combination iterator stores dimensions and form degree in `uint8_t`, so
- * dimensions are bounded before any narrowing conversion. Non-scalar forms
- * need a positive basis order on every axis because an active covector lowers
- * that order by one during DoF counting and trace evaluation.
+ * dimensions and basis orders are bounded before any narrowing conversion.
+ * Zero-order axes are permitted for test specifications: their one-dimensional
+ * factors evaluate to constants, and components whose active covector axes
+ * have zero order simply contribute no DoFs. Element-side specifications keep
+ * the stricter check in `validate_element_side`.
  *
  * @param spec Specification to inspect; may be null.
  * @return The first applicable validation status.
@@ -88,12 +90,14 @@ static constraint_status_t validate_kform_spec(const constraint_kform_spec_t *co
     if (spec->ndim != 0 && !spec->basis_specs)
         return CONSTRAINT_INVALID_ARGUMENT;
 
-    // Active axes use one lower polynomial order, so reject zero order only
-    // for non-scalar forms while still validating every basis family.
+    // Validate every basis family and order. Orders share the uint8_t bound
+    // that keeps every stack scratch array in this file at a compile-time
+    // size; zero-order axes stay legal for test spaces because inactive axes
+    // contribute constant factors and active zero-order axes yield components
+    // without DoFs.
     for (unsigned idim = 0; idim < spec->ndim; ++idim)
     {
-        if ((spec->order != 0 && spec->basis_specs[idim].order == 0) ||
-            !basis_set_type_is_valid(spec->basis_specs[idim].type))
+        if (spec->basis_specs[idim].order > UINT8_MAX || !basis_set_type_is_valid(spec->basis_specs[idim].type))
             return CONSTRAINT_INVALID_ORDER;
     }
     return CONSTRAINT_SUCCESS;
@@ -156,17 +160,20 @@ static constraint_status_t validate_element_side(const constraint_kform_spec_t *
 {
     if (!side || side->ndim <= test_spec->ndim || !side->basis_specs || !side->orientation)
         return CONSTRAINT_INVALID_ARGUMENT;
+    // The element dimension bound keeps every stack array in this file at a
+    // compile-time size; records are int8_t, so larger dimensions are unusable
+    // anyway.
+    if (side->ndim > UINT8_MAX)
+        return CONSTRAINT_INVALID_DIMENSION;
 
-    // This short-lived VLA is proportional to the validated element dimension;
-    // it avoids heap ownership in a helper used by every assembly entry point.
-    bool used_axes[side->ndim];
+    bool used_axes[UINT8_MAX];
     // First validate basis metadata and initialize the occupancy map used to
     // detect duplicate absolute axis numbers.
     for (unsigned i = 0; i < side->ndim; ++i)
     {
         used_axes[i] = false;
-        if ((test_spec->order != 0 && side->basis_specs[i].order == 0) || side->basis_specs[i].type <= BASIS_INVALID ||
-            side->basis_specs[i].type > BASIS_BERNSTEIN)
+        if ((test_spec->order != 0 && side->basis_specs[i].order == 0) || side->basis_specs[i].order > UINT8_MAX ||
+            side->basis_specs[i].type <= BASIS_INVALID || side->basis_specs[i].type > BASIS_BERNSTEIN)
             return CONSTRAINT_INVALID_ARGUMENT;
     }
 
@@ -217,9 +224,9 @@ static constraint_status_t mapped_component(const constraint_element_side_t *con
                                             const uint8_t test_axes[const static order == 0 ? 1 : order],
                                             unsigned *const out_component, int *const out_sign)
 {
-    // The VLA is bounded by the validated form order and keeps this hot mapping
-    // path allocation-free; order zero still gets one harmless placeholder.
-    uint8_t mapped_axes[order == 0 ? 1 : order];
+    // Fixed-size scratch bounded by the validated form order; order zero
+    // still gets one harmless placeholder.
+    uint8_t mapped_axes[UINT8_MAX];
     const unsigned fixed_count = side->ndim - boundary_dim;
     int sign = 1;
     // Collect the mapped axes from the side's orientation and get the initial sign
@@ -485,7 +492,7 @@ static constraint_status_t constraint_reference_counts(const constraint_kform_sp
             return CONSTRAINT_SIZE_OVERFLOW;
         row_count += test_dof_count;
 
-        uint8_t test_axes[test_spec->order == 0 ? 1 : test_spec->order];
+        uint8_t test_axes[UINT8_MAX];
         component_axes(test_spec->ndim, test_spec->order, test_component, test_axes);
         size_t entries_per_row = 0;
         for (unsigned side = 0; side < 2; ++side)
@@ -590,7 +597,7 @@ static constraint_status_t constraint_physical_counts(const constraint_kform_spe
             // can couple to this test row through the physical pullback.
             for (unsigned face_component = 0; face_component < face_component_count; ++face_component)
             {
-                uint8_t face_axes[test_spec->order == 0 ? 1 : test_spec->order];
+                uint8_t face_axes[UINT8_MAX];
                 component_axes(test_spec->ndim, test_spec->order, face_component, face_axes);
                 unsigned element_component;
                 int orientation_sign;
@@ -679,7 +686,7 @@ static constraint_status_t constraint_physical_side_counts(const constraint_kfor
         size_t entries_per_row = 0;
         for (unsigned face_component = 0; face_component < face_component_count; ++face_component)
         {
-            uint8_t face_axes[test_spec->order == 0 ? 1 : test_spec->order];
+            uint8_t face_axes[UINT8_MAX];
             component_axes(test_spec->ndim, test_spec->order, face_component, face_axes);
             unsigned element_component;
             int orientation_sign;
@@ -741,7 +748,7 @@ constraint_status_t constraint_physical_side_required(const constraint_kform_spe
 static void decode_component_dof(const unsigned ndim, const unsigned order, const basis_spec_t basis[const static ndim],
                                  const unsigned component, size_t dof, unsigned digits[const static ndim])
 {
-    uint8_t axes[order == 0 ? 1 : order];
+    uint8_t axes[UINT8_MAX];
     component_axes(ndim, order, component, axes);
     for (unsigned idim = ndim; idim > 0; --idim)
     {
@@ -750,6 +757,33 @@ static void decode_component_dof(const unsigned ndim, const unsigned order, cons
         digits[idim - 1] = (unsigned)(dof % dimension_size);
         dof /= dimension_size;
     }
+}
+
+/**
+ * @brief Sum the local DoF counts of all components before one component.
+ *
+ * Replaces cumulative offset tables so callers never need scratch storage
+ * proportional to the component count.
+ *
+ * @param spec Validated k-form specification.
+ * @param component Exclusive component bound.
+ * @param out_start Receives the summed DoF count of components `[0, component)`.
+ * @return A public constraint status.
+ */
+static constraint_status_t component_dof_start(const constraint_kform_spec_t *const spec, const unsigned component,
+                                               size_t *const out_start)
+{
+    size_t start = 0;
+    for (unsigned index = 0; index < component; ++index)
+    {
+        size_t count;
+        const constraint_status_t status = constraint_kform_component_dof_count(spec, index, &count);
+        if (status != CONSTRAINT_SUCCESS)
+            return status;
+        start += count;
+    }
+    *out_start = start;
+    return CONSTRAINT_SUCCESS;
 }
 
 /**
@@ -770,8 +804,8 @@ static double evaluate_basis_value(const basis_spec_t spec, const unsigned index
     if (order == 0)
         return 1.0;
 
-    double values[order + 1];
-    double work[order + 1];
+    double values[UINT8_MAX + 1];
+    double work[UINT8_MAX + 1];
     basis_compute_at_point_prepare(spec.type, order, work);
     basis_compute_at_point_values(spec.type, order, 1, &x, values, work);
     return values[index];
@@ -852,7 +886,7 @@ static double trace_inner_product(const constraint_kform_spec_t *const test_spec
     if (quadrature_status != CONSTRAINT_SUCCESS)
         return 0.0;
     double result = 0;
-    double face_nodes[face_dim == 0 ? 1 : face_dim];
+    double face_nodes[UINT8_MAX];
     for (size_t point = 0; point < quadrature_count; ++point)
     {
         size_t remaining = point;
@@ -892,10 +926,10 @@ static double element_trace_basis_value(const unsigned face_dim, const constrain
                                         const double face_nodes[const static face_dim == 0 ? 1 : face_dim])
 {
     const unsigned fixed_count = side->ndim - face_dim;
-    uint8_t element_axes[order == 0 ? 1 : order];
+    uint8_t element_axes[UINT8_MAX];
     component_axes(side->ndim, order, element_component, element_axes);
 
-    double element_coordinates[side->ndim];
+    double element_coordinates[UINT8_MAX];
     // Fixed axes are boundary coordinates of the element; their orientation
     // sign selects the endpoint at which the face is embedded.
     for (unsigned fixed_axis = 0; fixed_axis < fixed_count; ++fixed_axis)
@@ -950,7 +984,7 @@ static double trace_basis_product_at_point(const constraint_kform_spec_t *const 
                                            const double face_nodes[const static test_spec->ndim])
 {
     const unsigned face_dim = test_spec->ndim;
-    uint8_t test_axes[test_spec->order == 0 ? 1 : test_spec->order];
+    uint8_t test_axes[UINT8_MAX];
     component_axes(face_dim, test_spec->order, test_component, test_axes);
 
     double value =
@@ -1073,10 +1107,6 @@ constraint_status_t constraint_physical_assemble(
     status = constraint_kform_component_count(test_spec, &test_component_count);
     if (status != CONSTRAINT_SUCCESS)
         return status;
-    size_t component_offsets[test_component_count + 1];
-    status = constraint_kform_component_offsets(test_spec, test_component_count + 1, component_offsets);
-    if (status != CONSTRAINT_SUCCESS)
-        return status;
 
     size_t row = 0;
     size_t entry = 0;
@@ -1085,12 +1115,15 @@ constraint_status_t constraint_physical_assemble(
     // component-local DoF order, with one offset written after each row.
     for (unsigned test_component = 0; test_component < test_component_count; ++test_component)
     {
-        uint8_t test_axes[test_spec->order == 0 ? 1 : test_spec->order];
+        uint8_t test_axes[UINT8_MAX];
         component_axes(test_spec->ndim, test_spec->order, test_component, test_axes);
-        const size_t test_dof_count = component_offsets[test_component + 1] - component_offsets[test_component];
+        size_t test_dof_count;
+        status = constraint_kform_component_dof_count(test_spec, test_component, &test_dof_count);
+        if (status != CONSTRAINT_SUCCESS)
+            return status;
         for (size_t test_dof = 0; test_dof < test_dof_count; ++test_dof, ++row)
         {
-            unsigned test_digits[test_spec->ndim == 0 ? 1 : test_spec->ndim];
+            unsigned test_digits[UINT8_MAX];
             decode_component_dof(test_spec->ndim, test_spec->order, test_spec->basis_specs, test_component, test_dof,
                                  test_digits);
             for (unsigned side_index = 0; side_index < 2; ++side_index)
@@ -1109,7 +1142,7 @@ constraint_status_t constraint_physical_assemble(
                 // pullback, so physical assembly visits all component blocks.
                 for (unsigned face_component = 0; face_component < face_component_count; ++face_component)
                 {
-                    uint8_t face_axes[test_spec->order == 0 ? 1 : test_spec->order];
+                    uint8_t face_axes[UINT8_MAX];
                     component_axes(test_spec->ndim, test_spec->order, face_component, face_axes);
                     unsigned element_component;
                     int orientation_sign;
@@ -1121,7 +1154,7 @@ constraint_status_t constraint_physical_assemble(
                     constraint_kform_component_dof_count(&element_spec, element_component, &element_dof_count);
                     for (size_t element_dof = 0; element_dof < element_dof_count; ++element_dof)
                     {
-                        unsigned element_digits[side->ndim];
+                        unsigned element_digits[UINT8_MAX];
                         decode_component_dof(side->ndim, test_spec->order, side->basis_specs, element_component,
                                              element_dof, element_digits);
                         double coefficient = 0.0;
@@ -1136,7 +1169,7 @@ constraint_status_t constraint_physical_assemble(
                         {
                             size_t remaining = point;
                             double quadrature_weight = 1.0;
-                            double face_nodes[test_spec->ndim == 0 ? 1 : test_spec->ndim];
+                            double face_nodes[UINT8_MAX];
                             for (unsigned idim = test_spec->ndim; idim > 0; --idim)
                             {
                                 const unsigned face_axis = idim - 1;
@@ -1356,10 +1389,6 @@ constraint_status_t constraint_physical_side_assemble(
     status = constraint_kform_component_count(test_spec, &component_count);
     if (status != CONSTRAINT_SUCCESS)
         return status;
-    size_t component_offsets[component_count + 1];
-    status = constraint_kform_component_offsets(test_spec, component_count + 1, component_offsets);
-    if (status != CONSTRAINT_SUCCESS)
-        return status;
 
     const unsigned face_component_count = combination_total_count((uint8_t)test_spec->ndim, (uint8_t)test_spec->order);
     size_t row = 0;
@@ -1367,12 +1396,15 @@ constraint_status_t constraint_physical_side_assemble(
     row_offsets[0] = 0;
     for (unsigned test_component = 0; test_component < component_count; ++test_component)
     {
-        uint8_t test_axes[test_spec->order == 0 ? 1 : test_spec->order];
+        uint8_t test_axes[UINT8_MAX];
         component_axes(test_spec->ndim, test_spec->order, test_component, test_axes);
-        const size_t test_dof_count = component_offsets[test_component + 1] - component_offsets[test_component];
+        size_t test_dof_count;
+        status = constraint_kform_component_dof_count(test_spec, test_component, &test_dof_count);
+        if (status != CONSTRAINT_SUCCESS)
+            return status;
         for (size_t test_dof = 0; test_dof < test_dof_count; ++test_dof, ++row)
         {
-            unsigned test_digits[test_spec->ndim == 0 ? 1 : test_spec->ndim];
+            unsigned test_digits[UINT8_MAX];
             decode_component_dof(test_spec->ndim, test_spec->order, test_spec->basis_specs, test_component, test_dof,
                                  test_digits);
             unsigned test_element_component = 0;
@@ -1383,7 +1415,7 @@ constraint_status_t constraint_physical_side_assemble(
 
             for (unsigned face_component = 0; face_component < face_component_count; ++face_component)
             {
-                uint8_t face_axes[test_spec->order == 0 ? 1 : test_spec->order];
+                uint8_t face_axes[UINT8_MAX];
                 component_axes(test_spec->ndim, test_spec->order, face_component, face_axes);
                 unsigned element_component;
                 int orientation_sign;
@@ -1397,7 +1429,7 @@ constraint_status_t constraint_physical_side_assemble(
                     return status;
                 for (size_t element_dof = 0; element_dof < element_dof_count; ++element_dof)
                 {
-                    unsigned element_digits[side->ndim];
+                    unsigned element_digits[UINT8_MAX];
                     decode_component_dof(side->ndim, test_spec->order, side->basis_specs, element_component,
                                          element_dof, element_digits);
                     double coefficient = 0.0;
@@ -1405,7 +1437,7 @@ constraint_status_t constraint_physical_side_assemble(
                     {
                         size_t remaining = point;
                         double quadrature_weight = 1.0;
-                        double face_nodes[test_spec->ndim == 0 ? 1 : test_spec->ndim];
+                        double face_nodes[UINT8_MAX];
                         for (unsigned idim = test_spec->ndim; idim > 0; --idim)
                         {
                             const unsigned face_axis = idim - 1;
@@ -1635,11 +1667,11 @@ constraint_status_t constraint_physical_side_load(const constraint_kform_spec_t 
     status = constraint_kform_component_count(&element_spec, &element_component_count);
     if (status != CONSTRAINT_SUCCESS)
         return status;
-    size_t element_offsets[element_component_count + 1];
-    status = constraint_kform_component_offsets(&element_spec, element_component_count + 1, element_offsets);
+    size_t value_total;
+    status = component_dof_start(&element_spec, (unsigned)element_component_count, &value_total);
     if (status != CONSTRAINT_SUCCESS)
         return status;
-    if (element_offsets[element_component_count] != value_count)
+    if (value_total != value_count)
         return CONSTRAINT_INVALID_ARGUMENT;
     const unsigned face_component_count = combination_total_count((uint8_t)test_spec->ndim, (uint8_t)test_spec->order);
     // The datum is an element-frame k-form with k = test_spec->order + 1, given
@@ -1654,7 +1686,7 @@ constraint_status_t constraint_physical_side_load(const constraint_kform_spec_t 
     const double side_sign = fixed_mapping < 0 ? -1.0 : 1.0;
     for (unsigned face_component = 0; face_component < face_component_count; ++face_component)
     {
-        uint8_t face_axes[test_spec->order == 0 ? 1 : test_spec->order];
+        uint8_t face_axes[UINT8_MAX];
         component_axes(test_spec->ndim, test_spec->order, face_component, face_axes);
         unsigned element_component;
         int orientation_sign;
@@ -1666,12 +1698,16 @@ constraint_status_t constraint_physical_side_load(const constraint_kform_spec_t 
         status = constraint_kform_component_dof_count(&element_spec, element_component, &element_dof_count);
         if (status != CONSTRAINT_SUCCESS)
             return status;
-        uint8_t element_axes[test_spec->order == 0 ? 1 : test_spec->order];
+        size_t element_start;
+        status = component_dof_start(&element_spec, element_component, &element_start);
+        if (status != CONSTRAINT_SUCCESS)
+            return status;
+        uint8_t element_axes[UINT8_MAX];
         component_axes(side->ndim, test_spec->order, element_component, element_axes);
         unsigned exponent_below_fixed = 0;
         for (unsigned i = 0; i < test_spec->order; ++i)
             exponent_below_fixed += element_axes[i] < fixed_axis ? 1u : 0u;
-        uint8_t datum_axes[test_spec->order == 0 ? 1 : test_spec->order + 1];
+        uint8_t datum_axes[UINT8_MAX + 1];
         for (unsigned i = 0; i < test_spec->order; ++i)
             datum_axes[i] = element_axes[i];
         datum_axes[test_spec->order] = (uint8_t)fixed_axis;
@@ -1685,7 +1721,7 @@ constraint_status_t constraint_physical_side_load(const constraint_kform_spec_t 
         const double sign = side_sign * (double)orientation_sign * (exponent_below_fixed % 2 == 0 ? 1.0 : -1.0);
         for (size_t element_dof = 0; element_dof < element_dof_count; ++element_dof)
         {
-            unsigned element_digits[side->ndim];
+            unsigned element_digits[UINT8_MAX];
             decode_component_dof(side->ndim, test_spec->order, side->basis_specs, element_component, element_dof,
                                  element_digits);
             double coefficient = 0.0;
@@ -1693,7 +1729,7 @@ constraint_status_t constraint_physical_side_load(const constraint_kform_spec_t 
             {
                 size_t remaining = point;
                 double quadrature_weight = 1.0;
-                double face_nodes[test_spec->ndim == 0 ? 1 : test_spec->ndim];
+                double face_nodes[UINT8_MAX];
                 for (unsigned idim = test_spec->ndim; idim > 0; --idim)
                 {
                     const unsigned face_axis = idim - 1;
@@ -1708,7 +1744,7 @@ constraint_status_t constraint_physical_side_load(const constraint_kform_spec_t 
                                element_trace_basis_value(test_spec->ndim, side, test_spec->order, element_component,
                                                          element_digits, face_nodes);
             }
-            values[element_offsets[element_component] + element_dof] += sign * coefficient;
+            values[element_start + element_dof] += sign * coefficient;
         }
     }
     return CONSTRAINT_SUCCESS;
@@ -1765,22 +1801,21 @@ constraint_status_t constraint_reference_assemble(
     status = constraint_kform_component_count(test_spec, &component_count);
     if (status != CONSTRAINT_SUCCESS)
         return status;
-    size_t component_offsets[component_count + 1];
-    status = constraint_kform_component_offsets(test_spec, component_count + 1, component_offsets);
-    if (status != CONSTRAINT_SUCCESS)
-        return status;
 
     size_t row = 0;
     size_t entry = 0;
     row_offsets[0] = 0;
     for (unsigned test_component = 0; test_component < component_count; ++test_component)
     {
-        uint8_t test_axes[test_spec->order == 0 ? 1 : test_spec->order];
+        uint8_t test_axes[UINT8_MAX];
         component_axes(test_spec->ndim, test_spec->order, test_component, test_axes);
-        const size_t test_dof_count = component_offsets[test_component + 1] - component_offsets[test_component];
+        size_t test_dof_count;
+        status = constraint_kform_component_dof_count(test_spec, test_component, &test_dof_count);
+        if (status != CONSTRAINT_SUCCESS)
+            return status;
         for (size_t test_dof = 0; test_dof < test_dof_count; ++test_dof, ++row)
         {
-            unsigned test_digits[test_spec->ndim == 0 ? 1 : test_spec->ndim];
+            unsigned test_digits[UINT8_MAX];
             decode_component_dof(test_spec->ndim, test_spec->order, test_spec->basis_specs, test_component, test_dof,
                                  test_digits);
             for (unsigned side_index = 0; side_index < 2; ++side_index)
@@ -1796,7 +1831,7 @@ constraint_status_t constraint_reference_assemble(
                 constraint_kform_component_dof_count(&element_spec, element_component, &element_dof_count);
                 for (size_t element_dof = 0; element_dof < element_dof_count; ++element_dof)
                 {
-                    unsigned element_digits[side->ndim];
+                    unsigned element_digits[UINT8_MAX];
                     decode_component_dof(side->ndim, test_spec->order, side->basis_specs, element_component,
                                          element_dof, element_digits);
                     entries[entry++] = (constraint_entry_t){
@@ -1865,7 +1900,7 @@ constraint_status_t constraint_kform_component_dof_count(const constraint_kform_
     if ((size_t)component >= component_count)
         return CONSTRAINT_INVALID_ARGUMENT;
 
-    uint8_t component_axes[spec->order == 0 ? 1 : spec->order];
+    uint8_t component_axes[UINT8_MAX];
     combination_set_to_index((uint8_t)spec->ndim, (uint8_t)spec->order, component_axes, component);
 
     size_t dof_count = 1;
@@ -1919,6 +1954,132 @@ constraint_status_t constraint_kform_component_offsets(const constraint_kform_sp
             return CONSTRAINT_SIZE_OVERFLOW;
         offset += dof_count;
         offsets[component + 1] = offset;
+    }
+    return CONSTRAINT_SUCCESS;
+}
+
+/**
+ * @brief Derive per-component test-space basis specifications on a boundary.
+ *
+ * For every canonical boundary axis the returned order is the lowest order
+ * found among the incident elements (mapped through their orientation
+ * records), so shared objects are never overconstrained by higher-order
+ * neighbours. Each component then reduces the order by two on every axis that
+ * does not carry one of its covector axes; a component is reported absent
+ * when any reduced order would become negative. The basis family of an axis
+ * is taken from the element achieving the per-axis minimum (ties keep the
+ * lowest element index), unless `type_override` selects a single family.
+ *
+ * @param ndim Element dimension.
+ * @param boundary_dim Boundary-object dimension, strictly below `ndim`.
+ * @param order Form degree, at most `boundary_dim`.
+ * @param element_count Number of incident elements, at least one.
+ * @param element_bases Borrowed per-element array of axis specifications.
+ * @param orientations Signed one-based orientation records; the fixed-axis
+ *        prefix must increase in absolute value.
+ * @param type_override Family forced onto every output axis, or
+ *        `BASIS_INVALID` to derive families from the incident elements.
+ * @param out_capacity Available component-major output slots.
+ * @param out_specs Component-major axis specifications; absent components
+ *        clamp negative orders to zero.
+ * @param out_present Component availability flags.
+ * @return A public constraint status.
+ */
+constraint_status_t constraint_boundary_test_specs(const unsigned ndim, const unsigned boundary_dim,
+                                                   const unsigned order, const size_t element_count,
+                                                   const basis_spec_t *const *const element_bases,
+                                                   const int8_t *const orientations,
+                                                   const basis_set_type_t type_override, const size_t out_capacity,
+                                                   basis_spec_t out_specs[const static out_capacity],
+                                                   bool out_present[const static out_capacity])
+{
+    if (!element_bases || !orientations || element_count == 0)
+        return CONSTRAINT_INVALID_ARGUMENT;
+    if (ndim == 0 || ndim > UINT8_MAX || boundary_dim >= ndim)
+        return CONSTRAINT_INVALID_DIMENSION;
+    if (order > boundary_dim)
+        return CONSTRAINT_INVALID_ORDER;
+    if (type_override != BASIS_INVALID && !basis_set_type_is_valid(type_override))
+        return CONSTRAINT_INVALID_ORDER;
+
+    const unsigned fixed_count = ndim - boundary_dim;
+    // Validate every incident basis family and orientation record before
+    // deriving anything; records must be signed permutations whose fixed
+    // normal-axis prefix increases in absolute value.
+    for (size_t element = 0; element < element_count; ++element)
+    {
+        if (!element_bases[element])
+            return CONSTRAINT_INVALID_ARGUMENT;
+        bool used_axes[UINT8_MAX];
+        for (unsigned idim = 0; idim < ndim; ++idim)
+        {
+            used_axes[idim] = false;
+            if (!basis_set_type_is_valid(element_bases[element][idim].type))
+                return CONSTRAINT_INVALID_ORDER;
+        }
+        for (unsigned idim = 0; idim < ndim; ++idim)
+        {
+            const int mapped_axis = orientations[element * ndim + idim];
+            const unsigned axis = (unsigned)(mapped_axis < 0 ? -mapped_axis : mapped_axis);
+            if (axis == 0 || axis > ndim || used_axes[axis - 1])
+                return CONSTRAINT_INVALID_ARGUMENT;
+            used_axes[axis - 1] = true;
+        }
+        for (unsigned idim = 1; idim < fixed_count; ++idim)
+        {
+            const int previous = orientations[element * ndim + idim - 1];
+            const int current = orientations[element * ndim + idim];
+            if ((current < 0 ? -current : current) <= (previous < 0 ? -previous : previous))
+                return CONSTRAINT_INVALID_ARGUMENT;
+        }
+    }
+
+    const uint8_t face_ndim = (uint8_t)boundary_dim;
+    const uint8_t form_order = (uint8_t)order;
+    const size_t component_count = combination_total_count(face_ndim, form_order);
+    if (out_capacity < component_count)
+        return CONSTRAINT_INSUFFICIENT_STORAGE;
+
+    // Per canonical axis, the minimum order and the family of the element
+    // achieving it; the strict comparison keeps the lowest element on ties.
+    unsigned min_order[UINT8_MAX];
+    basis_set_type_t min_type[UINT8_MAX];
+    for (unsigned axis = 0; axis < boundary_dim; ++axis)
+    {
+        min_order[axis] = UINT_MAX;
+        min_type[axis] = BASIS_INVALID;
+    }
+    for (size_t element = 0; element < element_count; ++element)
+    {
+        for (unsigned axis = 0; axis < boundary_dim; ++axis)
+        {
+            const int mapped_axis = orientations[element * ndim + fixed_count + axis];
+            const unsigned element_axis = (unsigned)(mapped_axis < 0 ? -mapped_axis : mapped_axis) - 1;
+            ASSERT(element_axis < ndim, "Mapped element axis out of bounds.");
+            const basis_spec_t *const spec = &element_bases[element][element_axis];
+            if (spec->order < min_order[axis])
+            {
+                min_order[axis] = spec->order;
+                min_type[axis] = spec->type;
+            }
+        }
+    }
+
+    // Reduce inactive axes by two and drop components that would go negative.
+    for (size_t component = 0; component < component_count; ++component)
+    {
+        uint8_t axes[UINT8_MAX];
+        component_axes(face_ndim, form_order, (unsigned)component, axes);
+        bool present = true;
+        for (unsigned axis = 0; axis < boundary_dim; ++axis)
+        {
+            const int reduced = (int)min_order[axis] - (component_has_axis(form_order, axes, axis) ? 0 : 2);
+            present = present && reduced >= 0;
+            out_specs[component * boundary_dim + axis] =
+                (basis_spec_t){.type = type_override != BASIS_INVALID ? type_override : min_type[axis],
+                               .order = (unsigned)(reduced < 0 ? 0 : reduced)};
+        }
+        out_present[component] = present;
     }
     return CONSTRAINT_SUCCESS;
 }

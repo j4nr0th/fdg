@@ -77,8 +77,14 @@ static void test_zero_order_scalar_constraints(void)
                    "Scalar degree-zero test basis was rejected.");
     TEST_ASSERTION(constraint_kform_component_dof_count(&scalar, 0, &dof_count) == CONSTRAINT_SUCCESS && dof_count == 1,
                    "Unexpected scalar degree-zero DoF count.");
-    TEST_ASSERTION(constraint_kform_component_count(&positive_form, &component_count) == CONSTRAINT_INVALID_ORDER,
-                   "Degree-zero basis was accepted for a positive-degree form.");
+    // Order-zero axes are legal for test spaces: the component with the
+    // zero-order axis active simply has no DoFs.
+    TEST_ASSERTION(constraint_kform_component_count(&positive_form, &component_count) == CONSTRAINT_SUCCESS &&
+                       component_count == 1,
+                   "Degree-zero basis was rejected for a positive-degree form.");
+    TEST_ASSERTION(constraint_kform_component_dof_count(&positive_form, 0, &dof_count) == CONSTRAINT_SUCCESS &&
+                       dof_count == 0,
+                   "Active degree-zero axis unexpectedly produced DoFs.");
 }
 
 static void test_row_representation(void)
@@ -590,6 +596,91 @@ static void test_physical_two_form_face_components(void)
                    "Unexpected two-form face component mapping.");
 }
 
+static void test_boundary_test_specs(void)
+{
+    // Two quadrilateral faces inside hexahedral elements: the face spans
+    // element axes 1 and 2 through the orientation records, so per-axis
+    // minima must follow the mapped axes rather than the canonical order.
+    const basis_spec_t element_0[] = {basis_spec(3), basis_spec(2), basis_spec(2)};
+    const basis_spec_t element_1[] = {basis_spec(2), basis_spec(3), basis_spec(3)};
+    const basis_spec_t *const element_bases[] = {element_0, element_1};
+    const int8_t orientations[] = {1, 2, 3, -2, 3, 1};
+
+    // Face axis 0 minimum: element 0 axis 1 (order 2, Legendre); face axis 1
+    // minimum: a tie at order 2 that keeps element 0's family.
+    basis_spec_t specs[2];
+    bool present[2];
+    TEST_ASSERTION(constraint_boundary_test_specs(3, 2, 0, 2, element_bases, orientations, BASIS_INVALID, 2, specs,
+                                                  present) == CONSTRAINT_SUCCESS,
+                   "Could not derive scalar boundary test specs.");
+    TEST_ASSERTION(present[0] && specs[0].order == 0 && specs[1].order == 0 && specs[0].type == BASIS_LEGENDRE &&
+                       specs[1].type == BASIS_LEGENDRE,
+                   "Unexpected scalar boundary test specs.");
+
+    TEST_ASSERTION(constraint_boundary_test_specs(3, 2, 1, 2, element_bases, orientations, BASIS_INVALID, 2, specs,
+                                                  present) == CONSTRAINT_SUCCESS,
+                   "Could not derive one-form boundary test specs.");
+    TEST_ASSERTION(present[0] && specs[0].order == 2 && specs[1].order == 0 && specs[0].type == BASIS_LEGENDRE &&
+                       specs[1].type == BASIS_LEGENDRE,
+                   "Inactive axes must reduce the order by two.");
+    TEST_ASSERTION(present[1] && specs[2].order == 0 && specs[3].order == 2,
+                   "Unexpected second one-form boundary component.");
+
+    TEST_ASSERTION(constraint_boundary_test_specs(3, 2, 2, 2, element_bases, orientations, BASIS_LAGRANGE_GAUSS, 1,
+                                                  specs, present) == CONSTRAINT_SUCCESS,
+                   "Could not derive overridden two-form boundary test specs.");
+    TEST_ASSERTION(present[0] && specs[0].order == 2 && specs[1].order == 2 && specs[0].type == BASIS_LAGRANGE_GAUSS &&
+                       specs[1].type == BASIS_LAGRANGE_GAUSS,
+                   "The basis family override was not applied.");
+
+    // An order-one face on order-(1, 1) elements leaves no reduced room on
+    // the inactive axis: the component must be reported absent.
+    const basis_spec_t low_element[] = {basis_spec(2), basis_spec(1), basis_spec(1)};
+    const basis_spec_t *const low_bases[] = {low_element};
+    const int8_t low_orientation[] = {1, 2, 3};
+    TEST_ASSERTION(constraint_boundary_test_specs(3, 2, 1, 1, low_bases, low_orientation, BASIS_INVALID, 2, specs,
+                                                  present) == CONSTRAINT_SUCCESS,
+                   "Could not derive low-order boundary test specs.");
+    TEST_ASSERTION(!present[0] && specs[0].order == 1 && specs[1].order == 0,
+                   "Absent components must clamp negative orders to zero.");
+    TEST_ASSERTION(!present[1], "Both one-form components cannot survive order-one elements.");
+
+    // Validation failures.
+    TEST_ASSERTION(constraint_boundary_test_specs(3, 2, 1, 2, element_bases, orientations, BASIS_INVALID, 1, specs,
+                                                  present) == CONSTRAINT_INSUFFICIENT_STORAGE,
+                   "Undersized output storage was accepted.");
+    TEST_ASSERTION(constraint_boundary_test_specs(3, 3, 0, 2, element_bases, orientations, BASIS_INVALID, 1, specs,
+                                                  present) == CONSTRAINT_INVALID_DIMENSION,
+                   "A boundary of full element dimension was accepted.");
+    TEST_ASSERTION(constraint_boundary_test_specs(3, 2, 3, 2, element_bases, orientations, BASIS_INVALID, 1, specs,
+                                                  present) == CONSTRAINT_INVALID_ORDER,
+                   "A form degree above the boundary dimension was accepted.");
+    TEST_ASSERTION(constraint_boundary_test_specs(3, 2, 1, 0, element_bases, orientations, BASIS_INVALID, 1, specs,
+                                                  present) == CONSTRAINT_INVALID_ARGUMENT,
+                   "An empty element list was accepted.");
+    TEST_ASSERTION(constraint_boundary_test_specs(3, 2, 1, 2, NULL, orientations, BASIS_INVALID, 1, specs, present) ==
+                       CONSTRAINT_INVALID_ARGUMENT,
+                   "Missing element bases were accepted.");
+    const int8_t duplicate_orientation[] = {1, 2, 2, -2, 3, 1};
+    TEST_ASSERTION(constraint_boundary_test_specs(3, 2, 1, 2, element_bases, duplicate_orientation, BASIS_INVALID, 1,
+                                                  specs, present) == CONSTRAINT_INVALID_ARGUMENT,
+                   "A duplicated orientation axis was accepted.");
+    const int8_t reversed_prefix[] = {3, 1, 2, 4, -2, 3, 1, 2};
+    const basis_spec_t element_2[] = {basis_spec(2), basis_spec(2), basis_spec(2), basis_spec(2)};
+    const basis_spec_t *const four_bases[] = {element_2, element_2};
+    TEST_ASSERTION(constraint_boundary_test_specs(4, 2, 1, 2, four_bases, reversed_prefix, BASIS_INVALID, 2, specs,
+                                                  present) == CONSTRAINT_INVALID_ARGUMENT,
+                   "A non-increasing fixed-axis prefix was accepted.");
+    const basis_spec_t invalid_type[] = {basis_spec(2), basis_spec(2), {BASIS_INVALID, 2}};
+    const basis_spec_t *const invalid_bases[] = {invalid_type};
+    TEST_ASSERTION(constraint_boundary_test_specs(3, 2, 1, 1, invalid_bases, low_orientation, BASIS_INVALID, 2, specs,
+                                                  present) == CONSTRAINT_INVALID_ORDER,
+                   "An invalid basis family was accepted.");
+    TEST_ASSERTION(constraint_boundary_test_specs(3, 2, 1, 1, low_bases, low_orientation, (basis_set_type_t)99, 2,
+                                                  specs, present) == CONSTRAINT_INVALID_ORDER,
+                   "An invalid basis family override was accepted.");
+}
+
 int main(void)
 {
     test_component_layout();
@@ -608,5 +699,5 @@ int main(void)
     test_physical_general_boundary_dimensions();
     test_physical_one_form_pullback();
     test_physical_two_form_face_components();
-    return 0;
+    test_boundary_test_specs();
 }

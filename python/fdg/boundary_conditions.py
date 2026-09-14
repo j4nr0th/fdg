@@ -19,6 +19,7 @@ from fdg._fdg import (
 
 if TYPE_CHECKING:
     from fdg._fdg import Mesh
+    from fdg.enum_type import BasisType
 
 BoundaryCallable = Callable[..., npt.ArrayLike]
 BoundaryData = BoundaryCallable | Sequence[BoundaryCallable]
@@ -813,7 +814,7 @@ def _append_boundary_rows(
     mesh: Mesh,
     maps: Sequence[SpaceMap],
     element_specs: Sequence[KFormSpecs],
-    test_specs: Sequence[Sequence[Sequence[KFormSpecs]]],
+    spaces: Sequence[Sequence[Sequence[KFormSpecs | None]]],
     sources: Mapping[tuple[int, int], Sequence[BoundaryData]],
     records: Mapping[
         tuple[int, int], tuple[npt.NDArray[np.uint64], npt.NDArray[np.int8]]
@@ -831,8 +832,10 @@ def _append_boundary_rows(
         Full element maps indexed by global element ID.
     element_specs : sequence of KFormSpecs
         Volume trial specifications indexed by global element ID.
-    test_specs : nested sequence of KFormSpecs
-        Test spaces indexed as ``test_specs[mdim][object_id][component]``.
+    spaces : nested sequence of KFormSpecs
+        Derived boundary test spaces from ``Mesh.kform_boundary_spaces``,
+        indexed as ``spaces[mdim][object_id][component]``; components
+        without rows hold ``None``.
     sources : mapping
         Boundary data keyed by ``(object_dimension, object_id)``.
     records : mapping
@@ -850,15 +853,17 @@ def _append_boundary_rows(
     for mdim, object_id, _, _ in mesh.iterate_boundary_all():
         key = (mdim, int(object_id))
         object_sources = sources.get(key)
-        object_tests = test_specs[mdim][int(object_id)]
+        object_spaces = spaces[mdim][int(object_id)]
         if not object_sources:
             continue
-        if not object_tests:
+        if not object_spaces:
             continue
         element_ids, orientations = records[key]
         element_id = int(element_ids[0])
         boundary_map = _restrict_map(maps[element_id], orientations[0], ndim, mdim)
-        for component, test_spec in enumerate(object_tests):
+        for component, test_spec in enumerate(object_spaces):
+            if test_spec is None:
+                continue
             local_result = mesh.compute_kform_boundary_constraints(
                 test_spec,
                 element_specs[element_id],
@@ -894,7 +899,7 @@ def _append_periodic_rows(
     mesh: Mesh,
     maps: Sequence[SpaceMap],
     element_specs: Sequence[KFormSpecs],
-    test_specs: Sequence[Sequence[Sequence[KFormSpecs]]],
+    spaces: Sequence[Sequence[Sequence[KFormSpecs | None]]],
     relations: Mapping[tuple[int, int, int], tuple[int, ...]],
     records: Mapping[
         tuple[int, int], tuple[npt.NDArray[np.uint64], npt.NDArray[np.int8]]
@@ -912,8 +917,10 @@ def _append_periodic_rows(
         Full element maps indexed by global element ID.
     element_specs : sequence of KFormSpecs
         Volume trial specifications indexed by global element ID.
-    test_specs : nested sequence of KFormSpecs
-        Test spaces indexed as ``test_specs[mdim][object_id][component]``.
+    spaces : nested sequence of KFormSpecs
+        Derived boundary test spaces from ``Mesh.kform_boundary_spaces``,
+        indexed as ``spaces[mdim][object_id][component]``; components
+        without rows hold ``None``.
     relations : mapping
         Signed-axis relations keyed by ``(mdim, left_id, right_id)``.
     records : mapping
@@ -934,15 +941,12 @@ def _append_periodic_rows(
     requests: dict[tuple[int, int, int], tuple[KFormSpecs, int, int]] = {}
     validated_relations = []
     for (mdim, left_id, right_id), axis_map in relation_items:
-        left_tests = test_specs[mdim][left_id]
-        right_tests = test_specs[mdim][right_id]
-        component_count = comb(mdim, order)
-        if not left_tests and not right_tests:
+        left_spaces = spaces[mdim][left_id]
+        right_spaces = spaces[mdim][right_id]
+        if not any(s is not None for s in left_spaces) and not any(
+            s is not None for s in right_spaces
+        ):
             continue
-        if len(left_tests) != component_count or len(right_tests) != component_count:
-            raise ValueError(
-                "Periodic boundary objects must provide matching test specifications."
-            )
         left_elements, _ = records[(mdim, left_id)]
         right_elements, _ = records[(mdim, right_id)]
         left_element = int(left_elements[0])
@@ -953,17 +957,21 @@ def _append_periodic_rows(
                 left_id,
                 right_id,
                 axis_map,
-                left_tests,
-                right_tests,
+                left_spaces,
+                right_spaces,
                 left_element,
                 right_element,
             )
         )
-        for left_component, left_test_spec in enumerate(left_tests):
+        for left_component, left_test_spec in enumerate(left_spaces):
+            if left_test_spec is None:
+                continue
             right_component, _ = _component_relation(
                 mdim, order, left_component, axis_map
             )
-            right_test_spec = right_tests[right_component]
+            right_test_spec = right_spaces[right_component]
+            if right_test_spec is None:
+                continue
             requests.setdefault(
                 (id(left_test_spec), left_element, left_id),
                 (left_test_spec, left_element, left_id),
@@ -1017,10 +1025,14 @@ def _append_periodic_rows(
         right_element,
     ) in validated_relations:
         for left_component, left_test_spec in enumerate(left_tests):
+            if left_test_spec is None:
+                continue
             right_component, form_sign = _component_relation(
                 mdim, order, left_component, axis_map
             )
             right_test_spec = right_tests[right_component]
+            if right_test_spec is None:
+                continue
             left_result = local_results[(id(left_test_spec), left_element, left_id)]
             right_result = local_results[(id(right_test_spec), right_element, right_id)]
             left_rows = _component_rows(
@@ -1053,12 +1065,14 @@ def _append_periodic_rows(
 def _compute_kform_global_constraints(
     mesh: Mesh,
     element_specs: Sequence[KFormSpecs],
-    element_maps: Sequence[SpaceMap],
-    test_specs: Sequence[Sequence[Sequence[KFormSpecs]]],
+    element_maps: Sequence[SpaceMap] | None,
     boundary_conditions: Mapping[int, BoundaryData]
     | Sequence[BoundaryCondition]
     | None = None,
     periodic_pairs: Sequence[BoundaryPair | BoundaryPairGroup] | None = None,
+    *,
+    basis_type: BasisType | None = None,
+    c1_continuous: bool = False,
 ) -> tuple[PackedRows, npt.NDArray[np.double]]:
     """Assemble shared, prescribed, and periodic global trace constraints.
 
@@ -1068,16 +1082,21 @@ def _compute_kform_global_constraints(
         Conforming hypercube mesh supplying topology and boundary orientation.
     element_specs : sequence of KFormSpecs
         One volume specification per mesh element.
-    element_maps : sequence of SpaceMap
-        One physical element map per mesh element.
-    test_specs : nested sequence of KFormSpecs
-        Explicit trace test spaces indexed as
-        ``test_specs[mdim][object_id][component]``.
+    element_maps : sequence of SpaceMap or None
+        One physical element map per mesh element. Required whenever
+        boundary data or periodic pairs are given, and whenever
+        ``c1_continuous`` is not set.
     boundary_conditions : mapping, sequence, or None, optional
         Prescribed physical data on outer faces. Mapping keys are face IDs;
         record sequences use ``BoundaryCondition`` objects.
     periodic_pairs : sequence of BoundaryPair or BoundaryPairGroup, optional
         Explicit outer-face identifications and signed axis maps.
+    basis_type : int, optional
+        Basis family forced onto every derived boundary test space.
+    c1_continuous : bool
+        Impose continuity in reference space without geometry factors;
+        ``element_maps`` may be omitted in that case unless boundary data or
+        periodic pairs require them.
 
     Returns
     -------
@@ -1087,12 +1106,25 @@ def _compute_kform_global_constraints(
 
     Notes
     -----
+    Boundary test spaces are derived automatically
+    (``Mesh.kform_boundary_spaces``): each component takes the lowest incident
+    element order per axis, reduced by two on axes without its covector.
     Shared-object continuity is assembled first. Prescribed and periodic rows
     are appended afterward, with periodic relations reduced to an acyclic
     spanning forest.
     """
+    need_maps = boundary_conditions is not None or periodic_pairs is not None
+    if element_maps is None and (need_maps or not c1_continuous):
+        raise ValueError(
+            "element_maps are required unless the mesh is declared C1 "
+            "continuous and no boundary data or periodic pairs are given."
+        )
+    spaces = mesh.kform_boundary_spaces(element_specs, basis_type=basis_type)
     shared = mesh.compute_kform_continuity_constraints(
-        element_specs, element_maps, test_specs
+        element_specs,
+        element_maps,
+        basis_type=basis_type,
+        c1_continuous=c1_continuous,
     )
     rows = _unpack(shared)
     rhs = [0.0] * len(rows)
@@ -1146,11 +1178,10 @@ def _compute_kform_global_constraints(
             "periodic constraints."
         )
 
-    _append_boundary_rows(
-        mesh, element_maps, element_specs, test_specs, sources, records, rows, rhs
-    )
+    maps: Sequence[SpaceMap] = element_maps if element_maps is not None else []
+    _append_boundary_rows(mesh, maps, element_specs, spaces, sources, records, rows, rhs)
     _append_periodic_rows(
-        mesh, element_maps, element_specs, test_specs, relations, records, rows, rhs
+        mesh, maps, element_specs, spaces, relations, records, rows, rhs
     )
     return _pack(rows, rhs)
 
@@ -1158,12 +1189,14 @@ def _compute_kform_global_constraints(
 def compute_kform_global_constraints(
     mesh: Mesh,
     element_specs: Sequence[KFormSpecs],
-    element_maps: Sequence[SpaceMap],
-    test_specs: Sequence[Sequence[Sequence[KFormSpecs]]],
+    element_maps: Sequence[SpaceMap] | None = None,
     boundary_conditions: Mapping[int, BoundaryData]
     | Sequence[BoundaryCondition]
     | None = None,
     periodic_pairs: Sequence[BoundaryPair | BoundaryPairGroup] | None = None,
+    *,
+    basis_type: BasisType | None = None,
+    c1_continuous: bool = False,
 ) -> tuple[PackedRows, npt.NDArray[np.double]]:
     """Assemble global shared, prescribed, and periodic trace rows.
 
@@ -1173,15 +1206,18 @@ def compute_kform_global_constraints(
         Conforming hypercube mesh supplying topology and boundary orientation.
     element_specs : sequence of KFormSpecs
         One volume specification per mesh element.
-    element_maps : sequence of SpaceMap
-        One physical element map per mesh element.
-    test_specs : nested sequence of KFormSpecs
-        Explicit trace test spaces indexed as
-        ``test_specs[mdim][object_id][component]``.
+    element_maps : sequence of SpaceMap or None
+        One physical element map per mesh element. Required whenever boundary
+        data or periodic pairs are given, and whenever ``c1_continuous`` is
+        not set.
     boundary_conditions : mapping, sequence, or None, optional
         Prescribed physical k-form data on outer faces.
     periodic_pairs : sequence of BoundaryPair or BoundaryPairGroup, optional
         Explicit outer-face identifications with signed axis maps.
+    basis_type : int, optional
+        Basis family forced onto every derived boundary test space.
+    c1_continuous : bool
+        Impose continuity in reference space without geometry factors.
 
     Returns
     -------
@@ -1193,7 +1229,8 @@ def compute_kform_global_constraints(
         mesh,
         element_specs,
         element_maps,
-        test_specs,
         boundary_conditions,
         periodic_pairs,
+        basis_type=basis_type,
+        c1_continuous=c1_continuous,
     )

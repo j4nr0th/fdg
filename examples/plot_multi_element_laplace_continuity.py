@@ -36,7 +36,7 @@ the maximum residual of these physical trace equations after the solve.
 
 from __future__ import annotations
 
-from itertools import combinations, product
+from itertools import product
 from time import perf_counter
 from typing import Literal
 
@@ -174,104 +174,17 @@ def make_element_maps(ndim: int, integration_order: int) -> list[SpaceMap]:
 
 
 # %%
-# Explicit test spaces for the hierarchy
-# ---------------------------------------
-#
-# A shared object is constrained in its own canonical coordinates. For every
-# canonical k-form component, the caller supplies a test ``KFormSpecs``. The
-# helper below chooses the minimum order seen by all incident elements and uses
-# order ``p`` on active component axes and ``p - 2`` on inactive axes. The
-# latter leaves only interior trace equations; the boundary of that object is
-# handled later when the hierarchy reaches the next lower dimension.
-#
-# This explicit construction also demonstrates the low-level API contract:
-# basis type and order are inputs, not values inferred by the C implementation.
-
-
-def _object_count(mesh: Mesh, mdim: int) -> int:
-    """Return the number of mesh objects of one dimension."""
-    if mdim == 0:
-        return mesh.point_count
-    return int(mesh.collections[mdim - 1].shape[0])
-
-
-def _mapped_orders(
-    element_specs: list[KFormSpecs],
-    mdim: int,
-    element_ids: npt.NDArray[np.uint64],
-    orientations: npt.NDArray[np.int8],
-) -> tuple[int, ...]:
-    """Return minimum element orders in the object's canonical axes."""
-    ndim = element_specs[0].dimension
-    fixed_count = ndim - mdim
-    result: list[int] = []
-    for canonical_axis in range(mdim):
-        orders = [
-            element_specs[int(element_id)].base_space.orders[
-                abs(int(orientations[row, fixed_count + canonical_axis])) - 1
-            ]
-            for row, element_id in enumerate(element_ids)
-        ]
-        result.append(min(orders))
-    return tuple(result)
-
-
-def make_test_specs(
-    mesh: Mesh,
-    element_specs: list[KFormSpecs],
-    form_order: int,
-    basis_type: BasisType,
-) -> list[list[list[KFormSpecs]]]:
-    """Build explicit per-object trace tests for the scalar prototype."""
-    ndim = mesh.ndim
-    result: list[list[list[KFormSpecs]]] = []
-    incidents_by_dimension: list[dict[int, tuple[np.ndarray, np.ndarray]]] = []
-    for mdim in range(ndim):
-        incidents: dict[int, tuple[np.ndarray, np.ndarray]] = {}
-        for iterator in (mesh.iterate_shared(mdim), mesh.iterate_boundary(mdim)):
-            incidents.update(
-                {
-                    int(object_id): (element_ids, orientations)
-                    for _, object_id, element_ids, orientations in iterator
-                }
-            )
-        incidents_by_dimension.append(incidents)
-
-    for mdim in range(ndim):
-        objects: list[list[KFormSpecs]] = []
-        for object_id in range(_object_count(mesh, mdim)):
-            incident = incidents_by_dimension[mdim].get(object_id)
-            if incident is None or mdim < form_order:
-                objects.append([])
-                continue
-            element_ids, orientations = incident
-            mapped_orders = _mapped_orders(element_specs, mdim, element_ids, orientations)
-            component_specs: list[KFormSpecs] = []
-            for active_axes in combinations(range(mdim), form_order):
-                test_orders = tuple(
-                    order if axis in active_axes else order - 2
-                    for axis, order in enumerate(mapped_orders)
-                )
-                if min(test_orders, default=0) < 0:
-                    continue
-                test_space = FunctionSpace(
-                    *(BasisSpecs(basis_type, order) for order in test_orders)
-                )
-                component_specs.append(KFormSpecs(form_order, test_space))
-            objects.append(component_specs)
-        result.append(objects)
-    return result
-
-
-# %%
 # Reference and production row assembly
 # --------------------------------------
 #
 # ``build_continuity_rows_reference`` is intentionally kept as a readable
 # Python reference. It walks shared objects from faces to points, pairs
 # consecutive incident elements, and reuses the one-boundary assembler for
-# both sides with opposite signs. ``build_continuity_rows`` then calls the
-# production C-backed method with exactly the same explicit test specification.
+# both sides with opposite signs. The trace test spaces are the ones derived
+# by ``Mesh.kform_boundary_spaces``: the lowest incident element order per
+# axis, reduced by two on axes without a component's covector.
+# ``build_continuity_rows`` then calls the production C-backed method, which
+# derives the same spaces internally.
 
 
 def _local_component_rows(
@@ -304,9 +217,11 @@ def build_continuity_rows_reference(
     mesh: Mesh,
     maps: list[SpaceMap],
     element_specs: list[KFormSpecs],
-    test_specs: list[list[list[KFormSpecs]]],
 ) -> PackedRows:
     """Assemble cycle-free rows using the local boundary API reference."""
+    test_specs: list[list[list[KFormSpecs | None]]] = mesh.kform_boundary_spaces(
+        element_specs
+    )
     rows: list[list[tuple[int, int, int, float]]] = []
     for mdim, object_id, shared_element_ids, _ in mesh.iterate_shared_all():
         object_tests = test_specs[mdim][int(object_id)]
@@ -317,6 +232,8 @@ def build_continuity_rows_reference(
         ):
             first_id, second_id = int(first), int(second)
             for component, test_spec in enumerate(object_tests):
+                if test_spec is None:
+                    continue
                 first_result = compute_kform_boundary_constraints(
                     test_spec,
                     element_specs[first_id],
@@ -373,10 +290,9 @@ def build_continuity_rows(
     mesh: Mesh,
     maps: list[SpaceMap],
     element_specs: list[KFormSpecs],
-    test_specs: list[list[list[KFormSpecs]]],
 ) -> PackedRows:
     """Assemble hierarchical rows through the public C-backed mesh method."""
-    return mesh.compute_kform_continuity_constraints(element_specs, maps, test_specs)
+    return mesh.compute_kform_continuity_constraints(element_specs, maps)
 
 
 def packed_to_dense(packed: PackedRows, element_specs: list[KFormSpecs]) -> np.ndarray:
@@ -502,8 +418,7 @@ def solve_direct_laplace(
         *(BasisSpecs(BasisType.LAGRANGE_GAUSS_LOBATTO, order) for _ in range(ndim))
     )
     element_specs = [KFormSpecs(0, base_space) for _ in maps]
-    tests = make_test_specs(mesh, element_specs, 0, BasisType.LEGENDRE)
-    packed = build_continuity_rows(mesh, maps, element_specs, tests)
+    packed = build_continuity_rows(mesh, maps, element_specs)
     continuity = packed_to_sparse(packed, element_specs)
 
     n0 = int(np.sum(element_specs[0].component_dof_counts))
@@ -533,7 +448,7 @@ def solve_direct_laplace(
             for _, object_id, _, _ in mesh.iterate_boundary(ndim - 1)
         }
         global_packed, constraint_rhs = mesh.compute_kform_global_constraints(
-            element_specs, maps, tests, boundary_conditions
+            element_specs, maps, boundary_conditions
         )
         constraints = packed_to_sparse(global_packed, element_specs)
     else:

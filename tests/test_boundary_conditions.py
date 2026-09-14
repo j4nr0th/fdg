@@ -21,7 +21,6 @@ from examples.plot_multi_element_laplace_continuity import (
     build_continuity_rows,
     make_element_maps,
     make_mesh,
-    make_test_specs,
     packed_to_dense,
 )
 
@@ -34,8 +33,7 @@ def _setup(ndim: int, order: int, form_order: int):
         *(BasisSpecs(BasisType.LAGRANGE_GAUSS_LOBATTO, order) for _ in range(ndim))
     )
     element_specs = [KFormSpecs(form_order, base_space) for _ in maps]
-    test_specs = make_test_specs(mesh, element_specs, form_order, BasisType.LEGENDRE)
-    return mesh, maps, element_specs, test_specs
+    return mesh, maps, element_specs
 
 
 def _paired_faces(mesh, axis: int = 0) -> tuple[int, int]:
@@ -56,7 +54,7 @@ def _paired_faces(mesh, axis: int = 0) -> tuple[int, int]:
 
 def test_adjacent_boundary_faces_deduplicate_intersection_rows() -> None:
     """Two prescribed faces on one element share one boundary-object row."""
-    mesh, maps, element_specs, test_specs = _setup(2, 1, 0)
+    mesh, maps, element_specs = _setup(2, 1, 0)
     faces = mesh.iterate_boundary(1)
     first = faces[0]
     second = next(item for item in faces[1:] if item[2][0] == first[2][0])
@@ -64,10 +62,8 @@ def test_adjacent_boundary_faces_deduplicate_intersection_rows() -> None:
         (int(first[1]), int(second[1])),
         lambda *coordinates: np.ones_like(coordinates[0]),
     )
-    result, rhs = mesh.compute_kform_global_constraints(
-        element_specs, maps, test_specs, [condition]
-    )
-    shared_rows = build_continuity_rows(mesh, maps, element_specs, test_specs)[0].size - 1
+    result, rhs = mesh.compute_kform_global_constraints(element_specs, maps, [condition])
+    shared_rows = build_continuity_rows(mesh, maps, element_specs)[0].size - 1
     assert rhs.size - shared_rows == 3
     assert result[0].size == rhs.size + 1
     np.testing.assert_allclose(rhs[:shared_rows], 0.0)
@@ -75,7 +71,7 @@ def test_adjacent_boundary_faces_deduplicate_intersection_rows() -> None:
 
 def test_inconsistent_adjacent_boundary_data_is_rejected() -> None:
     """Conflicting face data cannot silently choose an intersection value."""
-    mesh, maps, element_specs, test_specs = _setup(2, 1, 0)
+    mesh, maps, element_specs = _setup(2, 1, 0)
     faces = mesh.iterate_boundary(1)
     first = faces[0]
     second = next(item for item in faces[1:] if item[2][0] == first[2][0])
@@ -88,21 +84,19 @@ def test_inconsistent_adjacent_boundary_data_is_rejected() -> None:
         ),
     ]
     with pytest.raises(ValueError, match="disagree"):
-        mesh.compute_kform_global_constraints(element_specs, maps, test_specs, conditions)
+        mesh.compute_kform_global_constraints(element_specs, maps, conditions)
 
 
 def test_callable_boundary_data_supports_positive_k_forms() -> None:
     """Physical ambient component callables produce finite k-form RHS rows."""
-    mesh, maps, element_specs, test_specs = _setup(2, 2, 1)
+    mesh, maps, element_specs = _setup(2, 2, 1)
     face = int(mesh.iterate_boundary(1)[0][1])
     data = (
         lambda x, y: np.ones_like(x + y * 0.0),
         lambda x, y: np.zeros_like(x + y),
     )
-    result, rhs = mesh.compute_kform_global_constraints(
-        element_specs, maps, test_specs, {face: data}
-    )
-    shared_rows = build_continuity_rows(mesh, maps, element_specs, test_specs)[0].size - 1
+    result, rhs = mesh.compute_kform_global_constraints(element_specs, maps, {face: data})
+    shared_rows = build_continuity_rows(mesh, maps, element_specs)[0].size - 1
     assert rhs.size > shared_rows
     assert result[0].size == rhs.size + 1
     assert np.isfinite(rhs).all()
@@ -110,16 +104,15 @@ def test_callable_boundary_data_supports_positive_k_forms() -> None:
 
 def test_reversed_periodic_pair_expands_to_lower_strata() -> None:
     """A signed axis map adds transformed rows without boundary data."""
-    mesh, maps, element_specs, test_specs = _setup(2, 2, 0)
+    mesh, maps, element_specs = _setup(2, 2, 0)
     left, right = _paired_faces(mesh)
     result, rhs = mesh.compute_kform_global_constraints(
         element_specs,
         maps,
-        test_specs,
         None,
         [BoundaryPair(left, right, (-1,))],
     )
-    shared_rows = build_continuity_rows(mesh, maps, element_specs, test_specs)[0].size - 1
+    shared_rows = build_continuity_rows(mesh, maps, element_specs)[0].size - 1
     assert rhs.size > shared_rows
     assert result[0].size == rhs.size + 1
     np.testing.assert_allclose(rhs, 0.0)
@@ -127,12 +120,11 @@ def test_reversed_periodic_pair_expands_to_lower_strata() -> None:
 
 def test_axis_permutation_maps_positive_form_components() -> None:
     """Periodic axis permutations map k-form components and basis functions."""
-    mesh, maps, element_specs, test_specs = _setup(3, 3, 1)
+    mesh, maps, element_specs = _setup(3, 3, 1)
     left, right = _paired_faces(mesh)
     result, rhs = mesh.compute_kform_global_constraints(
         element_specs,
         maps,
-        test_specs,
         None,
         [BoundaryPair(left, right, (2, -1))],
     )
@@ -143,13 +135,12 @@ def test_axis_permutation_maps_positive_form_components() -> None:
 
 def test_invalid_periodic_axis_map_is_rejected() -> None:
     """Periodic relations require a signed permutation of boundary axes."""
-    mesh, maps, element_specs, test_specs = _setup(2, 1, 0)
+    mesh, maps, element_specs = _setup(2, 1, 0)
     left, right = _paired_faces(mesh)
     with pytest.raises(ValueError, match="signed permutation"):
         mesh.compute_kform_global_constraints(
             element_specs,
             maps,
-            test_specs,
             None,
             [BoundaryPair(left, right, (0,))],
         )
@@ -157,13 +148,12 @@ def test_invalid_periodic_axis_map_is_rejected() -> None:
 
 def test_boundary_and_periodic_constraints_cannot_overlap() -> None:
     """One boundary object cannot be prescribed and periodic simultaneously."""
-    mesh, maps, element_specs, test_specs = _setup(2, 1, 0)
+    mesh, maps, element_specs = _setup(2, 1, 0)
     left, right = _paired_faces(mesh)
     with pytest.raises(ValueError, match="both prescribed and periodic"):
         mesh.compute_kform_global_constraints(
             element_specs,
             maps,
-            test_specs,
             {left: lambda *coordinates: np.ones_like(coordinates[0])},
             [BoundaryPair(left, right, (1,))],
         )
@@ -188,15 +178,13 @@ def _face_group(mesh, axis: int, side: int) -> list[int]:
 
 def test_grouped_periodic_faces_connect_all_cube_sides() -> None:
     """Three paired face groups support a fully periodic subdivided cube."""
-    mesh, maps, element_specs, test_specs = _setup(3, 1, 0)
+    mesh, maps, element_specs = _setup(3, 1, 0)
     groups = [
         BoundaryPairGroup(_face_group(mesh, axis, -1), _face_group(mesh, axis, 1), (1, 2))
         for axis in range(3)
     ]
-    result, rhs = mesh.compute_kform_global_constraints(
-        element_specs, maps, test_specs, None, groups
-    )
-    shared_rows = build_continuity_rows(mesh, maps, element_specs, test_specs)[0].size - 1
+    result, rhs = mesh.compute_kform_global_constraints(element_specs, maps, None, groups)
+    shared_rows = build_continuity_rows(mesh, maps, element_specs)[0].size - 1
     assert result[0].size - 1 > shared_rows
     assert (
         np.linalg.matrix_rank(packed_to_dense(result, element_specs))
@@ -213,9 +201,10 @@ def test_grouped_periodic_faces_require_equal_lengths() -> None:
 
 def test_boundary_trace_batch_matches_one_sided_assembly() -> None:
     """The C batch path concatenates the established one-sided rows."""
-    mesh, maps, element_specs, test_specs = _setup(2, 2, 0)
+    mesh, maps, element_specs = _setup(2, 2, 0)
     faces = mesh.iterate_boundary(1)
-    test_spec = test_specs[1][int(faces[0][1])][0]
+    spaces = mesh.kform_boundary_spaces(element_specs)
+    test_spec = spaces[1][int(faces[0][1])][0]
     element_ids = [int(element_ids[0]) for _, _, element_ids, _ in faces]
     boundary_ids = [int(object_id) for _, object_id, _, _ in faces]
     batched = mesh.compute_kform_boundary_constraints_batch(

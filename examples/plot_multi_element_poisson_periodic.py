@@ -319,7 +319,6 @@ def solve(
     specs_q: KFormSpecs,
     specs_u: KFormSpecs,
     face_test: KFormSpecs,
-    test_specs: list[list[list[KFormSpecs]]],
     periodic: list[BoundaryPairGroup],
     z_faces: list[tuple[int, int, int]],
 ) -> tuple[list[np.ndarray], list[np.ndarray], float, float]:
@@ -393,7 +392,6 @@ def solve(
     packed, constraint_rhs = mesh.compute_kform_global_constraints(
         [specs_q] * element_count,
         maps,
-        test_specs,
         None,
         periodic,
     )
@@ -473,14 +471,16 @@ def solve_order(
     )
     specs_q = KFormSpecs(NDIM - 1, base_space)
     specs_u = KFormSpecs(NDIM, base_space)
-    face_test, test_specs = make_flux_test_specs(mesh, order)
+    face_test = KFormSpecs(
+        NDIM - 1,
+        FunctionSpace(*(BasisSpecs(BasisType.LEGENDRE, order) for _ in range(NDIM - 1))),
+    )
     q_dofs, u_dofs, constraint_residual, error = solve(
         mesh,
         maps,
         specs_q,
         specs_u,
         face_test,
-        test_specs,
         periodic,
         z_faces,
     )

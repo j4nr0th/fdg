@@ -28,6 +28,9 @@ FDG_INTERNAL
 basis_specs_object *basis_specs_object_create(PyTypeObject *type, basis_spec_t spec);
 
 FDG_INTERNAL
+basis_set_type_t basis_type_from_string(const char *str);
+
+FDG_INTERNAL
 const basis_set_t **python_basis_sets_get(unsigned n_basis, const basis_spec_t specs[const static n_basis],
                                           const integration_rule_t *rules[const static n_basis],
                                           basis_set_registry_t *registry);

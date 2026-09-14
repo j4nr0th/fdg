@@ -1479,9 +1479,11 @@ class Mesh:
     def compute_kform_continuity_constraints(
         self,
         element_specs: Sequence[KFormSpecs],
-        element_maps: Sequence[SpaceMap],
-        test_specs: Sequence[Sequence[Sequence[KFormSpecs]]],
+        element_maps: Sequence[SpaceMap] | None = None,
         /,
+        *,
+        basis_type: _BasisTypeHint | None = None,
+        c1_continuous: bool = False,
     ) -> tuple[
         npt.NDArray[np.uintp],
         npt.NDArray[np.uint64],
@@ -1489,12 +1491,18 @@ class Mesh:
         npt.NDArray[np.uintp],
         npt.NDArray[np.double],
     ]:
-        """Assemble hierarchical physical k-form continuity rows.
+        """Assemble k-form continuity rows between neighboring elements.
 
         Shared objects are visited from the highest dimension down to points.
         Consecutive elements in each object's ascending incident-element list
         are paired, which avoids cycles while retaining one constraint path
         through every shared object.
+
+        The trace test spaces are derived automatically: each canonical
+        component takes the lowest order of the incident elements on every
+        axis, reduced by two on axes that do not carry one of the component's
+        covector axes. Components whose reduced order would go negative are
+        skipped.
 
         Parameters
         ----------
@@ -1504,21 +1512,20 @@ class Mesh:
             must have the mesh dimension and the same k-form degree; their
             basis orders may differ.
 
-        element_maps : Sequence[SpaceMap]
-            One reference-to-physical map per mesh element. The sequence must
-            contain exactly ``element_count`` maps, each with the mesh
-            dimension. These maps supply the physical trace geometry.
+        element_maps : Sequence[SpaceMap], optional
+            One reference-to-physical map per mesh element supplying the
+            physical trace geometry. Required unless ``c1_continuous`` is
+            set.
 
-        test_specs : Sequence[Sequence[Sequence[KFormSpecs]]]
-            Explicit trace test specifications indexed as
-            ``test_specs[mdim][object_id][component]``. The outer sequence
-            has one entry for each dimension ``0 <= mdim < ndim``; each object
-            sequence has the number of mesh objects of that dimension; and
-            each component sequence has ``binom(mdim, k)`` entries when
-            ``mdim >= k`` and is empty otherwise. The entries use canonical
-            object coordinates. Basis types and orders are never inferred, so
-            a lower-order test space can weakly constrain a higher-order trace.
-            An empty component sequence skips that shared object.
+        basis_type : int, optional
+            Basis family forced onto every derived test space. Defaults to
+            the family of the incident element achieving the per-axis minimum
+            order.
+
+        c1_continuous : bool
+            Pair reference-space traces without geometry factors. With this
+            flag set, reference-domain continuity is imposed and
+            ``element_maps`` may be omitted.
 
         Returns
         -------
@@ -1537,9 +1544,43 @@ class Mesh:
             Local DoF index within the component named by ``components``.
 
         coefficients : ndarray[double]
-            Physical trace coefficient for each packed entry. The first side
-            of every pair has positive sign and the second side has negative
-            sign.
+            Trace coefficient for each packed entry. The first side of every
+            pair has positive sign and the second side has negative sign.
+        """
+        ...
+
+    def kform_boundary_spaces(
+        self,
+        element_specs: Sequence[KFormSpecs],
+        /,
+        *,
+        basis_type: _BasisTypeHint | None = None,
+    ) -> list[list[tuple[KFormSpecs, ...]]]:
+        """Derive the compatible boundary test space of every mesh object.
+
+        Each canonical component of a boundary object takes the lowest order
+        of the incident elements on every axis, reduced by two on axes that do
+        not carry one of the component's covector axes. Components whose
+        reduced order would go negative are omitted. Boundary-only objects
+        are derived from their single incident element.
+
+        Parameters
+        ----------
+        element_specs : Sequence[KFormSpecs]
+            One volume k-form specification per mesh element, exactly as for
+            :meth:`compute_kform_continuity_constraints`.
+
+        basis_type : int, optional
+            Basis family forced onto every derived test space. Defaults to
+            the family of the incident element achieving the per-axis minimum
+            order.
+
+        Returns
+        -------
+        list[list[tuple[KFormSpecs, ...]]]
+            ``spaces[mdim][object_id]`` holds one ``KFormSpecs`` per
+            canonical component that has rows on that object, in canonical
+            component order.
         """
         ...
 
@@ -1593,13 +1634,15 @@ class Mesh:
     def compute_kform_global_constraints(
         self,
         element_specs: Sequence[KFormSpecs],
-        element_maps: Sequence[SpaceMap],
-        test_specs: Sequence[Sequence[Sequence[KFormSpecs]]],
+        element_maps: Sequence[SpaceMap] | None = None,
         boundary_conditions: Mapping[int, BoundaryData]
         | Sequence[BoundaryCondition]
         | None = None,
         periodic_pairs: Sequence[BoundaryPair | BoundaryPairGroup] | None = None,
         /,
+        *,
+        basis_type: _BasisTypeHint | None = None,
+        c1_continuous: bool = False,
     ) -> tuple[
         tuple[
             npt.NDArray[np.uintp],
@@ -1612,18 +1655,27 @@ class Mesh:
     ]:
         """Assemble global k-form trace constraints and their right-hand side.
 
-        The existing shared-object continuity rows are augmented by optional
-        physical boundary data and explicit periodic or transformed boundary
-        pairs. Boundary face data are propagated to all lower-dimensional
-        descendants and imposed once on a deterministic owner element, so
-        adjacent prescribed faces do not duplicate edge or point equations.
+        Automatically derived shared-object continuity rows are augmented by
+        optional physical boundary data and explicit periodic or transformed
+        boundary pairs. Boundary face data are propagated to all
+        lower-dimensional descendants and imposed once on a deterministic
+        owner element, so adjacent prescribed faces do not duplicate edge or
+        point equations.
 
         Parameters
         ----------
-        element_specs, element_maps, test_specs
-            The same per-element specifications, maps, and explicit hierarchical
-            test-space structure accepted by
+        element_specs : Sequence[KFormSpecs]
+            One volume k-form specification per mesh element, exactly as for
             :meth:`compute_kform_continuity_constraints`.
+
+        element_maps : Sequence[SpaceMap], optional
+            One reference-to-physical map per mesh element. Required whenever
+            boundary data or periodic pairs are given, and whenever
+            ``c1_continuous`` is not set.
+
+        boundary_conditions : mapping or sequence, optional
+            Prescribed boundary data; see the :mod:`fdg.boundary_conditions`
+            documentation for the accepted forms.
 
         periodic_pairs : sequence of BoundaryPair or BoundaryPairGroup, optional
             Explicit pairs of outer faces, or ordered groups of equal-length
@@ -1631,6 +1683,14 @@ class Mesh:
             strata; ``axis_map`` is a signed permutation of canonical boundary
             axes, allowing reversals and axis permutations. Duplicate
             lower-stratum relations are reduced to an acyclic forest.
+
+        basis_type : int, optional
+            Basis family forced onto every derived test space.
+
+        c1_continuous : bool
+            Impose continuity in reference space without geometry factors;
+            ``element_maps`` may be omitted in that case unless boundary data
+            or periodic pairs require them.
 
         Returns
         -------

@@ -134,9 +134,15 @@ The mesh offers three iteration families:
   consecutive elements of each shared object and constrain only the interior
   of the object, skipping its own boundaries.
 - :meth:`Mesh.compute_kform_continuity_constraints` performs that pairing and
-  assembles physical trace rows from faces down to points. Its
-  ``test_specs[mdim][object_id]`` entries are supplied by the caller, so basis
-  types and orders are never inferred. An empty entry skips that stratum.
+  assembles physical trace rows from faces down to points. The trace test
+  spaces are derived automatically: each canonical component of a shared
+  object takes the lowest order of the incident elements on every axis,
+  reduced by two on axes that do not carry one of the component's covector
+  axes, so shared objects are never over-constrained by higher-order
+  neighbours. Components whose reduced order would go negative are skipped.
+- :meth:`Mesh.kform_boundary_spaces` exposes the same derived spaces for
+  every mesh object (including boundary objects contained in a single
+  element); prescribed-data assembly reuses them.
 - :meth:`Mesh.iterate_boundary` and :meth:`Mesh.iterate_boundary_all` visit
   the objects that lie on the outer boundary of the mesh: an object lies on
   the boundary when it is contained in a *boundary face*, an object of
@@ -172,7 +178,7 @@ the lowest, ensures that no degree of freedom is constrained more than once.
 Hierarchical continuity
 -----------------------
 
-The global method accepts three explicit sequences:
+The global method accepts the following sequences:
 
 ``element_specs``
     One volume :class:`KFormSpecs` per element. The sequence length must equal
@@ -181,15 +187,15 @@ The global method accepts three explicit sequences:
 
 ``element_maps``
     One :class:`SpaceMap` per element, also of length ``mesh.element_count``.
-    These maps provide the physical geometry used for each trace.
+    These maps provide the physical geometry used for each trace. They may be
+    omitted when ``c1_continuous`` is set, in which case traces are paired in
+    the reference domain without geometry factors.
 
-``test_specs``
-    Nested as ``test_specs[mdim][object_id][component]``. It has one outer
-    entry per object dimension, one object entry per mesh object, and one
-    explicit :class:`KFormSpecs` per canonical k-form component when
-    ``mdim >= k``. Entries for lower-dimensional objects are empty. Basis types
-    and orders are never inferred; callers can therefore weakly constrain a
-    higher-order trace with a lower-order test space.
+The boundary test spaces are derived automatically (see
+``Mesh.kform_boundary_spaces``); no explicit per-object test specification is
+required. An optional ``basis_type`` keyword forces one basis family onto every
+derived test space; by default each axis keeps the family of the incident
+element achieving the minimum mapped order.
 
 The method returns five packed one-dimensional arrays:
 ``(row_offsets, element_ids, components, local_dofs, coefficients)``.
@@ -217,6 +223,12 @@ When selected faces meet, the descendant is processed once; the library checks
 that all callables assigned to that object produce the same trace moments. The
 trace rows are imposed on the lowest-ID incident element, while retained
 continuity rows propagate the value to the remaining elements.
+
+
+The method accepts ``element_maps = None`` together with ``c1_continuous =
+True``, imposing reference-domain continuity without geometry factors.
+Prescribed data and periodic relations always require maps because their
+moments are physical.
 
 :class:`BoundaryPair` describes periodic, mirrored, or axis-rotated equality
 between two outer faces. Its ``axis_map`` is a signed permutation of canonical

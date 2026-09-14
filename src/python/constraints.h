@@ -10,4 +10,9 @@ PyObject *compute_kform_boundary_constraints_impl(const interplib_module_state_t
                                                   kform_spec_object *element_spec, space_map_object *element_map,
                                                   const int8_t *orientation);
 
+FDG_INTERNAL
+PyObject *compute_kform_reference_constraints_impl(const interplib_module_state_t *state, kform_spec_object *test_spec,
+                                                   kform_spec_object *element_spec_1, const int8_t *orientation_1,
+                                                   kform_spec_object *element_spec_2, const int8_t *orientation_2);
+
 #endif // FDG_PYTHON_CONSTRAINTS_H

@@ -22,16 +22,6 @@ static PyObject *kform_spec_new(PyTypeObject *type, PyObject *args, PyObject *kw
         return NULL;
     }
 
-    for (unsigned i = 0; i < ndim; ++i)
-    {
-        const basis_spec_t *const spec = space->specs + i;
-        if (order != 0 && spec->order == 0)
-        {
-            PyErr_Format(PyExc_ValueError, "Expected order > 0 for dimension %u, got 0.", i);
-            return NULL;
-        }
-    }
-
     const unsigned component_cnt = combination_total_count(ndim, order);
 
     kform_spec_object *const self = (kform_spec_object *)type->tp_alloc(type, component_cnt + 1);

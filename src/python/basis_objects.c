@@ -43,6 +43,11 @@ static basis_set_type_t get_basis_type(const char *str)
     return BASIS_INVALID;
 }
 
+basis_set_type_t basis_type_from_string(const char *str)
+{
+    return get_basis_type(str);
+}
+
 static const char *basis_type_string(const basis_set_type_t type)
 {
     switch (type)
