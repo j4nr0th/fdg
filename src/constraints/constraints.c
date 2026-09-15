@@ -65,44 +65,6 @@ const char *constraint_status_msg(const constraint_status_t status)
 #undef CONSTRAINT_STATUS_MSG
 
 /**
- * @brief Validate the common k-form specification invariants.
- *
- * The combination iterator stores dimensions and form degree in `uint8_t`, so
- * dimensions and basis orders are bounded before any narrowing conversion.
- * Zero-order axes are permitted for test specifications: their one-dimensional
- * factors evaluate to constants, and components whose active covector axes
- * have zero order simply contribute no DoFs. Element-side specifications keep
- * the stricter check in `validate_element_side`.
- *
- * @param spec Specification to inspect; may be null.
- * @return The first applicable validation status.
- */
-static constraint_status_t validate_kform_spec(const constraint_kform_spec_t *const spec)
-{
-    // Validate before narrowing to uint8_t for the combination iterator; this
-    // also guarantees later basis-order reductions cannot underflow.
-    if (!spec)
-        return CONSTRAINT_INVALID_ARGUMENT;
-    if (spec->ndim > UINT8_MAX)
-        return CONSTRAINT_INVALID_DIMENSION;
-    if (spec->order > spec->ndim)
-        return CONSTRAINT_INVALID_ORDER;
-    if (spec->ndim != 0 && !spec->basis_specs)
-        return CONSTRAINT_INVALID_ARGUMENT;
-
-    // Validate every basis family and order. Orders share the uint8_t bound
-    // that keeps every stack scratch array in this file at a compile-time
-    // size; zero-order axes stay legal for test spaces because inactive axes
-    // contribute constant factors and active zero-order axes yield components
-    // without DoFs.
-    for (unsigned idim = 0; idim < spec->ndim; ++idim)
-    {
-        if (spec->basis_specs[idim].order > UINT8_MAX || !basis_set_type_is_valid(spec->basis_specs[idim].type))
-            return CONSTRAINT_INVALID_ORDER;
-    }
-    return CONSTRAINT_SUCCESS;
-}
-/**
  * @brief Decode a component index into its sorted active-axis combination.
  *
  * `axes` receives the strictly increasing axis numbers used by the component's
@@ -155,7 +117,7 @@ static bool component_has_axis(const unsigned order, const uint8_t axes[const st
  * @param side Element-side specification to inspect.
  * @return A validation status.
  */
-static constraint_status_t validate_element_side(const constraint_kform_spec_t *const test_spec,
+static constraint_status_t validate_element_side(const kform_spec_t *const test_spec,
                                                  const constraint_element_side_t *const side)
 {
     if (!side || side->ndim <= test_spec->ndim || !side->basis_specs || !side->orientation)
@@ -397,24 +359,21 @@ static constraint_status_t mapped_component_for_index(const constraint_element_s
  * @param point_count Required number of points.
  * @return A validation status.
  */
-static constraint_status_t validate_trace_basis_values(const constraint_kform_spec_t *const spec,
+static constraint_status_t validate_trace_basis_values(const kform_spec_t *const spec,
                                                        const constraint_trace_basis_values_t *const values,
                                                        const size_t point_count)
 {
     if (!values || values->point_count != point_count || !values->component_offsets || !values->values)
         return CONSTRAINT_INVALID_ARGUMENT;
-    size_t component_count;
-    constraint_status_t status = constraint_kform_component_count(spec, &component_count);
-    if (status != CONSTRAINT_SUCCESS || values->component_count != component_count)
-        return status == CONSTRAINT_SUCCESS ? CONSTRAINT_INVALID_ARGUMENT : status;
+    const size_t component_count = kform_spec_component_count(spec);
+    if (values->component_count != component_count)
+        return CONSTRAINT_INVALID_ARGUMENT;
+
     if (values->component_offsets[0] != 0)
         return CONSTRAINT_INVALID_ARGUMENT;
     for (size_t component = 0; component < component_count; ++component)
     {
-        size_t dof_count;
-        status = constraint_kform_component_dof_count(spec, (unsigned)component, &dof_count);
-        if (status != CONSTRAINT_SUCCESS)
-            return status;
+        const size_t dof_count = kform_spec_component_dof_count(spec, (unsigned)component);
         if (values->component_offsets[component + 1] < values->component_offsets[component] ||
             values->component_offsets[component + 1] - values->component_offsets[component] != dof_count)
             return CONSTRAINT_INVALID_ARGUMENT;
@@ -432,12 +391,9 @@ static constraint_status_t validate_trace_basis_values(const constraint_kform_sp
  * @param sides Two element-side specifications.
  * @return A validation status.
  */
-static constraint_status_t constraint_reference_validate(const constraint_kform_spec_t *const test_spec,
+static constraint_status_t constraint_reference_validate(const kform_spec_t *const test_spec,
                                                          const constraint_element_side_t sides[const static 2])
 {
-    const constraint_status_t test_status = validate_kform_spec(test_spec);
-    if (test_status != CONSTRAINT_SUCCESS)
-        return test_status;
     if (test_spec->ndim == UINT_MAX)
         return CONSTRAINT_INVALID_DIMENSION;
     if (test_spec->order > test_spec->ndim)
@@ -465,7 +421,7 @@ static constraint_status_t constraint_reference_validate(const constraint_kform_
  * @param out_entry_count Receives the entry count.
  * @return A validation, overflow, or success status.
  */
-static constraint_status_t constraint_reference_counts(const constraint_kform_spec_t *const test_spec,
+static constraint_status_t constraint_reference_counts(const kform_spec_t *const test_spec,
                                                        const constraint_element_side_t sides[const static 2],
                                                        size_t *const out_row_count, size_t *const out_entry_count)
 {
@@ -473,10 +429,7 @@ static constraint_status_t constraint_reference_counts(const constraint_kform_sp
     if (status != CONSTRAINT_SUCCESS)
         return status;
 
-    size_t component_count;
-    constraint_status_t result = constraint_kform_component_count(test_spec, &component_count);
-    if (result != CONSTRAINT_SUCCESS)
-        return result;
+    const size_t component_count = kform_spec_component_count(test_spec);
 
     size_t row_count = 0;
     size_t entry_count = 0;
@@ -484,10 +437,7 @@ static constraint_status_t constraint_reference_counts(const constraint_kform_sp
     // assembly; each component contributes all of its local test DoFs.
     for (unsigned test_component = 0; test_component < component_count; ++test_component)
     {
-        size_t test_dof_count;
-        result = constraint_kform_component_dof_count(test_spec, test_component, &test_dof_count);
-        if (result != CONSTRAINT_SUCCESS)
-            return result;
+        const size_t test_dof_count = kform_spec_component_dof_count(test_spec, test_component);
         if (row_count > SIZE_MAX - test_dof_count)
             return CONSTRAINT_SIZE_OVERFLOW;
         row_count += test_dof_count;
@@ -501,13 +451,10 @@ static constraint_status_t constraint_reference_counts(const constraint_kform_sp
             int orientation_sign;
             mapped_component(sides + side, test_spec->ndim, test_spec->order, test_axes, &element_component,
                              &orientation_sign);
-            size_t element_dof_count;
-            result = constraint_kform_component_dof_count(
-                &(constraint_kform_spec_t){
-                    .ndim = sides[side].ndim, .order = test_spec->order, .basis_specs = sides[side].basis_specs},
-                element_component, &element_dof_count);
-            if (result != CONSTRAINT_SUCCESS)
-                return result;
+
+            const size_t element_dof_count = kform_spec_component_dof_count(
+                &(kform_spec_t){.ndim = sides[side].ndim, .order = test_spec->order, .basis = sides[side].basis_specs},
+                element_component);
             if (entries_per_row > SIZE_MAX - element_dof_count)
                 return CONSTRAINT_SIZE_OVERFLOW;
             entries_per_row += element_dof_count;
@@ -537,7 +484,7 @@ static constraint_status_t constraint_reference_counts(const constraint_kform_sp
  * @param out_entry_count Receives the entry count.
  * @return The status returned by constraint_reference_counts.
  */
-constraint_status_t constraint_reference_required(const constraint_kform_spec_t *const test_spec,
+constraint_status_t constraint_reference_required(const kform_spec_t *const test_spec,
                                                   const constraint_element_side_t sides[const static 2],
                                                   size_t *const out_row_count, size_t *const out_entry_count)
 {
@@ -560,7 +507,7 @@ constraint_status_t constraint_reference_required(const constraint_kform_spec_t 
  * @param out_entry_count Receives the entry count.
  * @return A validation, overflow, or success status.
  */
-static constraint_status_t constraint_physical_counts(const constraint_kform_spec_t *const test_spec,
+static constraint_status_t constraint_physical_counts(const kform_spec_t *const test_spec,
                                                       const constraint_element_side_t sides[const static 2],
                                                       size_t *const out_row_count, size_t *const out_entry_count)
 {
@@ -568,10 +515,7 @@ static constraint_status_t constraint_physical_counts(const constraint_kform_spe
     if (status != CONSTRAINT_SUCCESS)
         return status;
 
-    size_t test_component_count;
-    constraint_status_t result = constraint_kform_component_count(test_spec, &test_component_count);
-    if (result != CONSTRAINT_SUCCESS)
-        return result;
+    const size_t test_component_count = kform_spec_component_count(test_spec);
 
     size_t row_count = 0;
     size_t entry_count = 0;
@@ -579,10 +523,7 @@ static constraint_status_t constraint_physical_counts(const constraint_kform_spe
     // reference path which has one mapped component per side.
     for (unsigned test_component = 0; test_component < test_component_count; ++test_component)
     {
-        size_t test_dof_count;
-        result = constraint_kform_component_dof_count(test_spec, test_component, &test_dof_count);
-        if (result != CONSTRAINT_SUCCESS)
-            return result;
+        const size_t test_dof_count = kform_spec_component_dof_count(test_spec, test_component);
         if (row_count > SIZE_MAX - test_dof_count)
             return CONSTRAINT_SIZE_OVERFLOW;
         row_count += test_dof_count;
@@ -603,12 +544,9 @@ static constraint_status_t constraint_physical_counts(const constraint_kform_spe
                 int orientation_sign;
                 mapped_component(side, test_spec->ndim, test_spec->order, face_axes, &element_component,
                                  &orientation_sign);
-                const constraint_kform_spec_t element_spec = {
-                    .ndim = side->ndim, .order = test_spec->order, .basis_specs = side->basis_specs};
-                size_t element_dof_count;
-                result = constraint_kform_component_dof_count(&element_spec, element_component, &element_dof_count);
-                if (result != CONSTRAINT_SUCCESS)
-                    return result;
+                const kform_spec_t element_spec = {
+                    .ndim = side->ndim, .order = test_spec->order, .basis = side->basis_specs};
+                const size_t element_dof_count = kform_spec_component_dof_count(&element_spec, element_component);
                 if (entries_per_row > SIZE_MAX - element_dof_count)
                     return CONSTRAINT_SIZE_OVERFLOW;
                 entries_per_row += element_dof_count;
@@ -639,7 +577,7 @@ static constraint_status_t constraint_physical_counts(const constraint_kform_spe
  * @param out_entry_count Receives the entry count.
  * @return The status returned by constraint_physical_counts.
  */
-constraint_status_t constraint_physical_required(const constraint_kform_spec_t *const test_spec,
+constraint_status_t constraint_physical_required(const kform_spec_t *const test_spec,
                                                  const constraint_element_side_t sides[const static 2],
                                                  size_t *const out_row_count, size_t *const out_entry_count)
 {
@@ -660,7 +598,7 @@ constraint_status_t constraint_physical_required(const constraint_kform_spec_t *
  * @param out_entry_count Receives the entry count.
  * @return A validation, overflow, or success status.
  */
-static constraint_status_t constraint_physical_side_counts(const constraint_kform_spec_t *const test_spec,
+static constraint_status_t constraint_physical_side_counts(const kform_spec_t *const test_spec,
                                                            const constraint_element_side_t *const side,
                                                            size_t *const out_row_count, size_t *const out_entry_count)
 {
@@ -669,19 +607,13 @@ static constraint_status_t constraint_physical_side_counts(const constraint_kfor
     if (status != CONSTRAINT_SUCCESS)
         return status;
 
-    size_t component_count;
-    constraint_status_t result = constraint_kform_component_count(test_spec, &component_count);
-    if (result != CONSTRAINT_SUCCESS)
-        return result;
+    const size_t component_count = kform_spec_component_count(test_spec);
     size_t row_count = 0;
     size_t entry_count = 0;
     const unsigned face_component_count = combination_total_count((uint8_t)test_spec->ndim, (uint8_t)test_spec->order);
     for (unsigned test_component = 0; test_component < component_count; ++test_component)
     {
-        size_t test_dof_count;
-        result = constraint_kform_component_dof_count(test_spec, test_component, &test_dof_count);
-        if (result != CONSTRAINT_SUCCESS)
-            return result;
+        const size_t test_dof_count = kform_spec_component_dof_count(test_spec, test_component);
         row_count += test_dof_count;
         size_t entries_per_row = 0;
         for (unsigned face_component = 0; face_component < face_component_count; ++face_component)
@@ -691,12 +623,9 @@ static constraint_status_t constraint_physical_side_counts(const constraint_kfor
             unsigned element_component;
             int orientation_sign;
             mapped_component(side, test_spec->ndim, test_spec->order, face_axes, &element_component, &orientation_sign);
-            const constraint_kform_spec_t element_spec = {
-                .ndim = side->ndim, .order = test_spec->order, .basis_specs = side->basis_specs};
-            size_t element_dof_count;
-            result = constraint_kform_component_dof_count(&element_spec, element_component, &element_dof_count);
-            if (result != CONSTRAINT_SUCCESS)
-                return result;
+            const kform_spec_t element_spec = {
+                .ndim = side->ndim, .order = test_spec->order, .basis = side->basis_specs};
+            const size_t element_dof_count = kform_spec_component_dof_count(&element_spec, element_component);
             if (entries_per_row > SIZE_MAX - element_dof_count)
                 return CONSTRAINT_SIZE_OVERFLOW;
             entries_per_row += element_dof_count;
@@ -722,7 +651,7 @@ static constraint_status_t constraint_physical_side_counts(const constraint_kfor
  * @param out_entry_count Receives the entry count.
  * @return The status returned by constraint_physical_side_counts.
  */
-constraint_status_t constraint_physical_side_required(const constraint_kform_spec_t *const test_spec,
+constraint_status_t constraint_physical_side_required(const kform_spec_t *const test_spec,
                                                       const constraint_element_side_t *const side,
                                                       size_t *const out_row_count, size_t *const out_entry_count)
 {
@@ -767,23 +696,17 @@ static void decode_component_dof(const unsigned ndim, const unsigned order, cons
  *
  * @param spec Validated k-form specification.
  * @param component Exclusive component bound.
- * @param out_start Receives the summed DoF count of components `[0, component)`.
- * @return A public constraint status.
+ * @return The summed DoF count of components `[0, component)`.
  */
-static constraint_status_t component_dof_start(const constraint_kform_spec_t *const spec, const unsigned component,
-                                               size_t *const out_start)
+static size_t component_dof_start(const kform_spec_t *const spec, const unsigned component)
 {
     size_t start = 0;
     for (unsigned index = 0; index < component; ++index)
     {
-        size_t count;
-        const constraint_status_t status = constraint_kform_component_dof_count(spec, index, &count);
-        if (status != CONSTRAINT_SUCCESS)
-            return status;
+        const size_t count = kform_spec_component_dof_count(spec, index);
         start += count;
     }
-    *out_start = start;
-    return CONSTRAINT_SUCCESS;
+    return start;
 }
 
 /**
@@ -841,8 +764,8 @@ static inline size_t quadrature_total_count(const unsigned ndim, const integrati
  * pointwise basis implementation, while keeping pointwise multiplication in
  * one helper.
  */
-static double trace_basis_product_at_point(const constraint_kform_spec_t *test_spec,
-                                           const constraint_element_side_t *side, unsigned test_component,
+static double trace_basis_product_at_point(const kform_spec_t *test_spec, const constraint_element_side_t *side,
+                                           unsigned test_component,
                                            const unsigned test_digits[const static test_spec->ndim],
                                            unsigned element_component,
                                            const unsigned element_digits[const static side->ndim],
@@ -897,8 +820,7 @@ static inline double face_quadrature(const unsigned ndim, const integration_rule
  * @param element_digits Element component-local DoF digits.
  * @return The quadrature-weighted inner product.
  */
-static double trace_inner_product(const constraint_kform_spec_t *const test_spec,
-                                  const constraint_element_side_t *const side,
+static double trace_inner_product(const kform_spec_t *const test_spec, const constraint_element_side_t *const side,
                                   const integration_rule_t *quadrature[static test_spec->ndim],
                                   const unsigned test_component,
                                   const unsigned test_digits[const static test_spec->ndim],
@@ -989,7 +911,7 @@ static double element_trace_basis_value(const unsigned face_dim, const constrain
  * @param face_nodes Canonical face coordinates.
  * @return Product of the two trace basis values.
  */
-static double trace_basis_product_at_point(const constraint_kform_spec_t *const test_spec,
+static double trace_basis_product_at_point(const kform_spec_t *const test_spec,
                                            const constraint_element_side_t *const side, const unsigned test_component,
                                            const unsigned test_digits[const static test_spec->ndim],
                                            const unsigned element_component,
@@ -1005,10 +927,9 @@ static double trace_basis_product_at_point(const constraint_kform_spec_t *const 
     for (unsigned face_axis = 0; face_axis < face_dim; ++face_axis)
     {
         const bool test_active = component_has_axis(test_spec->order, test_axes, face_axis);
-        const unsigned test_order = test_spec->basis_specs[face_axis].order - (test_active ? 1 : 0);
-        value *=
-            evaluate_basis_value((basis_spec_t){.type = test_spec->basis_specs[face_axis].type, .order = test_order},
-                                 test_digits[face_axis], face_nodes[face_axis]);
+        const unsigned test_order = test_spec->basis[face_axis].order - (test_active ? 1 : 0);
+        value *= evaluate_basis_value((basis_spec_t){.type = test_spec->basis[face_axis].type, .order = test_order},
+                                      test_digits[face_axis], face_nodes[face_axis]);
     }
     return value;
 }
@@ -1065,7 +986,7 @@ static double trace_pullback_dot(const constraint_trace_pullback_t *const pullba
  * @return A public constraint status.
  */
 constraint_status_t constraint_physical_assemble(
-    const constraint_kform_spec_t *const test_spec, const constraint_element_side_t sides[const static 2],
+    const kform_spec_t *const test_spec, const constraint_element_side_t sides[const static 2],
     const constraint_face_quadrature_t quadrature[const static 2], const double *const surface_weights[const static 2],
     const constraint_trace_pullback_t pullbacks[const static 2], const size_t row_offset_capacity,
     size_t row_offsets[const static row_offset_capacity], const size_t entry_capacity,
@@ -1114,10 +1035,7 @@ constraint_status_t constraint_physical_assemble(
         }
     }
 
-    size_t test_component_count;
-    status = constraint_kform_component_count(test_spec, &test_component_count);
-    if (status != CONSTRAINT_SUCCESS)
-        return status;
+    const size_t test_component_count = kform_spec_component_count(test_spec);
 
     size_t row = 0;
     size_t entry = 0;
@@ -1128,14 +1046,11 @@ constraint_status_t constraint_physical_assemble(
     {
         uint8_t test_axes[UINT8_MAX];
         component_axes(test_spec->ndim, test_spec->order, test_component, test_axes);
-        size_t test_dof_count;
-        status = constraint_kform_component_dof_count(test_spec, test_component, &test_dof_count);
-        if (status != CONSTRAINT_SUCCESS)
-            return status;
+        const size_t test_dof_count = kform_spec_component_dof_count(test_spec, test_component);
         for (size_t test_dof = 0; test_dof < test_dof_count; ++test_dof, ++row)
         {
             unsigned test_digits[UINT8_MAX];
-            decode_component_dof(test_spec->ndim, test_spec->order, test_spec->basis_specs, test_component, test_dof,
+            decode_component_dof(test_spec->ndim, test_spec->order, test_spec->basis, test_component, test_dof,
                                  test_digits);
             for (unsigned side_index = 0; side_index < 2; ++side_index)
             {
@@ -1159,10 +1074,9 @@ constraint_status_t constraint_physical_assemble(
                     int orientation_sign;
                     mapped_component(side, test_spec->ndim, test_spec->order, face_axes, &element_component,
                                      &orientation_sign);
-                    const constraint_kform_spec_t element_spec = {
-                        .ndim = side->ndim, .order = test_spec->order, .basis_specs = side->basis_specs};
-                    size_t element_dof_count;
-                    constraint_kform_component_dof_count(&element_spec, element_component, &element_dof_count);
+                    const kform_spec_t element_spec = {
+                        .ndim = side->ndim, .order = test_spec->order, .basis = side->basis_specs};
+                    const size_t element_dof_count = kform_spec_component_dof_count(&element_spec, element_component);
                     for (size_t element_dof = 0; element_dof < element_dof_count; ++element_dof)
                     {
                         unsigned element_digits[UINT8_MAX];
@@ -1229,7 +1143,7 @@ constraint_status_t constraint_physical_assemble(
  * @return A validation, overflow, or success status.
  */
 constraint_status_t constraint_physical_batch_required(
-    const constraint_kform_spec_t *const test_spec, const size_t item_count,
+    const kform_spec_t *const test_spec, const size_t item_count,
     const constraint_physical_batch_item_t items[const static item_count], size_t *const out_row_count,
     size_t *const out_entry_count)
 {
@@ -1255,13 +1169,7 @@ constraint_status_t constraint_physical_batch_required(
         total_rows += item_rows;
         total_entries += item_entries;
     }
-    if (item_count == 0)
-    {
-        size_t ignored;
-        const constraint_status_t status = constraint_kform_component_count(test_spec, &ignored);
-        if (status != CONSTRAINT_SUCCESS)
-            return status;
-    }
+
     *out_row_count = total_rows;
     *out_entry_count = total_entries;
     return CONSTRAINT_SUCCESS;
@@ -1286,7 +1194,7 @@ constraint_status_t constraint_physical_batch_required(
  * @return A public constraint status.
  */
 constraint_status_t constraint_physical_batch_assemble(
-    const constraint_kform_spec_t *const test_spec, const size_t item_count,
+    const kform_spec_t *const test_spec, const size_t item_count,
     const constraint_physical_batch_item_t items[const static item_count], const size_t row_offset_capacity,
     size_t row_offsets[const static row_offset_capacity], const size_t entry_capacity,
     constraint_entry_t entries[const static entry_capacity], size_t *const out_row_count, size_t *const out_entry_count)
@@ -1356,7 +1264,7 @@ constraint_status_t constraint_physical_batch_assemble(
  * @return A public constraint status.
  */
 constraint_status_t constraint_physical_side_assemble(
-    const constraint_kform_spec_t *const test_spec, const constraint_element_side_t *const side,
+    const kform_spec_t *const test_spec, const constraint_element_side_t *const side,
     const constraint_face_quadrature_t *const quadrature, const double *const surface_weights,
     const constraint_trace_pullback_t *const pullback, const size_t row_offset_capacity,
     size_t row_offsets[const static row_offset_capacity], const size_t entry_capacity,
@@ -1385,10 +1293,7 @@ constraint_status_t constraint_physical_side_assemble(
                                   pullback->point_count != point_count))
         return CONSTRAINT_INVALID_ARGUMENT;
 
-    size_t component_count;
-    status = constraint_kform_component_count(test_spec, &component_count);
-    if (status != CONSTRAINT_SUCCESS)
-        return status;
+    const size_t component_count = kform_spec_component_count(test_spec);
 
     const unsigned face_component_count = combination_total_count((uint8_t)test_spec->ndim, (uint8_t)test_spec->order);
     size_t row = 0;
@@ -1398,14 +1303,12 @@ constraint_status_t constraint_physical_side_assemble(
     {
         uint8_t test_axes[UINT8_MAX];
         component_axes(test_spec->ndim, test_spec->order, test_component, test_axes);
-        size_t test_dof_count;
-        status = constraint_kform_component_dof_count(test_spec, test_component, &test_dof_count);
-        if (status != CONSTRAINT_SUCCESS)
-            return status;
+        const size_t test_dof_count = kform_spec_component_dof_count(test_spec, test_component);
+
         for (size_t test_dof = 0; test_dof < test_dof_count; ++test_dof, ++row)
         {
             unsigned test_digits[UINT8_MAX];
-            decode_component_dof(test_spec->ndim, test_spec->order, test_spec->basis_specs, test_component, test_dof,
+            decode_component_dof(test_spec->ndim, test_spec->order, test_spec->basis, test_component, test_dof,
                                  test_digits);
             unsigned test_element_component = 0;
             int test_orientation_sign = 1;
@@ -1421,12 +1324,9 @@ constraint_status_t constraint_physical_side_assemble(
                 int orientation_sign;
                 mapped_component(side, test_spec->ndim, test_spec->order, face_axes, &element_component,
                                  &orientation_sign);
-                const constraint_kform_spec_t element_spec = {
-                    .ndim = side->ndim, .order = test_spec->order, .basis_specs = side->basis_specs};
-                size_t element_dof_count;
-                status = constraint_kform_component_dof_count(&element_spec, element_component, &element_dof_count);
-                if (status != CONSTRAINT_SUCCESS)
-                    return status;
+                const kform_spec_t element_spec = {
+                    .ndim = side->ndim, .order = test_spec->order, .basis = side->basis_specs};
+                const size_t element_dof_count = kform_spec_component_dof_count(&element_spec, element_component);
                 for (size_t element_dof = 0; element_dof < element_dof_count; ++element_dof)
                 {
                     unsigned element_digits[UINT8_MAX];
@@ -1495,7 +1395,7 @@ constraint_status_t constraint_physical_side_assemble(
  * @return A public constraint status.
  */
 constraint_status_t constraint_physical_side_assemble_precomputed(
-    const constraint_kform_spec_t *const test_spec, const constraint_element_side_t *const side,
+    const kform_spec_t *const test_spec, const constraint_element_side_t *const side,
     const constraint_face_quadrature_t *const quadrature, const double *const surface_weights,
     const constraint_trace_pullback_t *const pullback, const constraint_trace_basis_values_t *const test_basis,
     const constraint_trace_basis_values_t *const element_basis, const size_t row_offset_capacity,
@@ -1524,8 +1424,7 @@ constraint_status_t constraint_physical_side_assemble_precomputed(
                                   pullback->point_count != point_count))
         return CONSTRAINT_INVALID_ARGUMENT;
 
-    const constraint_kform_spec_t element_spec = {
-        .ndim = side->ndim, .order = test_spec->order, .basis_specs = side->basis_specs};
+    const kform_spec_t element_spec = {.ndim = side->ndim, .order = test_spec->order, .basis = side->basis_specs};
     status = validate_trace_basis_values(test_spec, test_basis, point_count);
     if (status != CONSTRAINT_SUCCESS)
         return status;
@@ -1533,10 +1432,7 @@ constraint_status_t constraint_physical_side_assemble_precomputed(
     if (status != CONSTRAINT_SUCCESS)
         return status;
 
-    size_t test_component_count;
-    status = constraint_kform_component_count(test_spec, &test_component_count);
-    if (status != CONSTRAINT_SUCCESS)
-        return status;
+    const size_t test_component_count = kform_spec_component_count(test_spec);
     const unsigned face_component_count = combination_total_count((uint8_t)test_spec->ndim, (uint8_t)test_spec->order);
     const size_t *const test_offsets = test_basis->component_offsets;
     const size_t *const element_offsets = element_basis->component_offsets;
@@ -1621,7 +1517,7 @@ constraint_status_t constraint_physical_side_assemble_precomputed(
  * @param values Output accumulator.
  * @return A public constraint status.
  */
-constraint_status_t constraint_physical_side_load(const constraint_kform_spec_t *const test_spec,
+constraint_status_t constraint_physical_side_load(const kform_spec_t *const test_spec,
                                                   const constraint_element_side_t *const side,
                                                   const constraint_face_quadrature_t *const quadrature,
                                                   const double *const datum_values, const size_t value_count,
@@ -1643,16 +1539,9 @@ constraint_status_t constraint_physical_side_load(const constraint_kform_spec_t 
     if (quadrature->ndim != test_spec->ndim || point_count != quadrature->point_count)
         return CONSTRAINT_INVALID_ARGUMENT;
 
-    const constraint_kform_spec_t element_spec = {
-        .ndim = side->ndim, .order = test_spec->order, .basis_specs = side->basis_specs};
-    size_t element_component_count;
-    status = constraint_kform_component_count(&element_spec, &element_component_count);
-    if (status != CONSTRAINT_SUCCESS)
-        return status;
-    size_t value_total;
-    status = component_dof_start(&element_spec, (unsigned)element_component_count, &value_total);
-    if (status != CONSTRAINT_SUCCESS)
-        return status;
+    const kform_spec_t element_spec = {.ndim = side->ndim, .order = test_spec->order, .basis = side->basis_specs};
+    const size_t element_component_count = kform_spec_component_count(&element_spec);
+    const size_t value_total = component_dof_start(&element_spec, (unsigned)element_component_count);
     if (value_total != value_count)
         return CONSTRAINT_INVALID_ARGUMENT;
     const unsigned face_component_count = combination_total_count((uint8_t)test_spec->ndim, (uint8_t)test_spec->order);
@@ -1676,14 +1565,8 @@ constraint_status_t constraint_physical_side_load(const constraint_kform_spec_t 
             mapped_component(side, test_spec->ndim, test_spec->order, face_axes, &element_component, &orientation_sign);
         if (status != CONSTRAINT_SUCCESS)
             return status;
-        size_t element_dof_count;
-        status = constraint_kform_component_dof_count(&element_spec, element_component, &element_dof_count);
-        if (status != CONSTRAINT_SUCCESS)
-            return status;
-        size_t element_start;
-        status = component_dof_start(&element_spec, element_component, &element_start);
-        if (status != CONSTRAINT_SUCCESS)
-            return status;
+        const size_t element_dof_count = kform_spec_component_dof_count(&element_spec, element_component);
+        const size_t element_start = component_dof_start(&element_spec, element_component);
         uint8_t element_axes[UINT8_MAX];
         component_axes(side->ndim, test_spec->order, element_component, element_axes);
         unsigned exponent_below_fixed = 0;
@@ -1743,7 +1626,7 @@ constraint_status_t constraint_physical_side_load(const constraint_kform_spec_t 
  * @return A public constraint status.
  */
 constraint_status_t constraint_reference_assemble(
-    const constraint_kform_spec_t *const test_spec, const constraint_element_side_t sides[const static 2],
+    const kform_spec_t *const test_spec, const constraint_element_side_t sides[const static 2],
     const integration_rule_t **quadrature, const size_t row_offset_capacity,
     size_t row_offsets[const static row_offset_capacity], const size_t entry_capacity,
     constraint_entry_t entries[const static entry_capacity], size_t *const out_row_count, size_t *const out_entry_count)
@@ -1764,10 +1647,7 @@ constraint_status_t constraint_reference_assemble(
     if (row_offset_capacity < required_offsets || entry_capacity < required_entries)
         return CONSTRAINT_INSUFFICIENT_STORAGE;
 
-    size_t component_count;
-    status = constraint_kform_component_count(test_spec, &component_count);
-    if (status != CONSTRAINT_SUCCESS)
-        return status;
+    const size_t component_count = kform_spec_component_count(test_spec);
 
     size_t row = 0;
     size_t entry = 0;
@@ -1776,14 +1656,11 @@ constraint_status_t constraint_reference_assemble(
     {
         uint8_t test_axes[UINT8_MAX];
         component_axes(test_spec->ndim, test_spec->order, test_component, test_axes);
-        size_t test_dof_count;
-        status = constraint_kform_component_dof_count(test_spec, test_component, &test_dof_count);
-        if (status != CONSTRAINT_SUCCESS)
-            return status;
+        const size_t test_dof_count = kform_spec_component_dof_count(test_spec, test_component);
         for (size_t test_dof = 0; test_dof < test_dof_count; ++test_dof, ++row)
         {
             unsigned test_digits[UINT8_MAX];
-            decode_component_dof(test_spec->ndim, test_spec->order, test_spec->basis_specs, test_component, test_dof,
+            decode_component_dof(test_spec->ndim, test_spec->order, test_spec->basis, test_component, test_dof,
                                  test_digits);
             for (unsigned side_index = 0; side_index < 2; ++side_index)
             {
@@ -1792,10 +1669,9 @@ constraint_status_t constraint_reference_assemble(
                 int orientation_sign;
                 mapped_component(side, test_spec->ndim, test_spec->order, test_axes, &element_component,
                                  &orientation_sign);
-                const constraint_kform_spec_t element_spec = {
-                    .ndim = side->ndim, .order = test_spec->order, .basis_specs = side->basis_specs};
-                size_t element_dof_count;
-                constraint_kform_component_dof_count(&element_spec, element_component, &element_dof_count);
+                const kform_spec_t element_spec = {
+                    .ndim = side->ndim, .order = test_spec->order, .basis = side->basis_specs};
+                const size_t element_dof_count = kform_spec_component_dof_count(&element_spec, element_component);
                 for (size_t element_dof = 0; element_dof < element_dof_count; ++element_dof)
                 {
                     unsigned element_digits[UINT8_MAX];
@@ -1817,111 +1693,6 @@ constraint_status_t constraint_reference_assemble(
 
     *out_row_count = row_count;
     *out_entry_count = entry;
-    return CONSTRAINT_SUCCESS;
-}
-
-/**
- * @brief Count the validated specification's k-form components.
- *
- * The combination iterator supplies the binomial count and the public helper
- * preserves its validation status rather than narrowing invalid dimensions.
- *
- * @param spec Test-space specification.
- * @param out_count Receives `C(spec->ndim, spec->order)`.
- * @return A public constraint status.
- */
-constraint_status_t constraint_kform_component_count(const constraint_kform_spec_t *const spec, size_t *const out_count)
-{
-    if (!out_count)
-        return CONSTRAINT_INVALID_ARGUMENT;
-    const constraint_status_t status = validate_kform_spec(spec);
-    if (status != CONSTRAINT_SUCCESS)
-        return status;
-
-    *out_count = combination_total_count((uint8_t)spec->ndim, (uint8_t)spec->order);
-    return CONSTRAINT_SUCCESS;
-}
-
-/**
- * @brief Count the local DoFs of one validated k-form component.
- *
- * The component combination determines which axes use reduced covector basis
- * orders. The product is accumulated with an overflow check before output is
- * committed.
- *
- * @param spec Test-space specification.
- * @param component Component combination index.
- * @param out_count Receives the local DoF count.
- * @return A public constraint status.
- */
-constraint_status_t constraint_kform_component_dof_count(const constraint_kform_spec_t *const spec,
-                                                         const unsigned component, size_t *const out_count)
-{
-    if (!out_count)
-        return CONSTRAINT_INVALID_ARGUMENT;
-    const constraint_status_t status = validate_kform_spec(spec);
-    if (status != CONSTRAINT_SUCCESS)
-        return status;
-
-    const size_t component_count = combination_total_count((uint8_t)spec->ndim, (uint8_t)spec->order);
-    if ((size_t)component >= component_count)
-        return CONSTRAINT_INVALID_ARGUMENT;
-
-    uint8_t component_axes[UINT8_MAX];
-    combination_set_to_index((uint8_t)spec->ndim, (uint8_t)spec->order, component_axes, component);
-
-    size_t dof_count = 1;
-    for (unsigned idim = 0, iaxis = 0; idim < spec->ndim; ++idim)
-    {
-        const bool active = iaxis < spec->order && component_axes[iaxis] == idim;
-        const size_t dimension_size = (size_t)spec->basis_specs[idim].order + (active ? 0 : 1);
-        if (dimension_size != 0 && dof_count > SIZE_MAX / dimension_size)
-            return CONSTRAINT_SIZE_OVERFLOW;
-        dof_count *= dimension_size;
-        if (active)
-            ++iaxis;
-    }
-
-    *out_count = dof_count;
-    return CONSTRAINT_SUCCESS;
-}
-
-/**
- * @brief Build cumulative offsets for all component-local DoFs.
- *
- * The offset array is the shared indexing contract for packed values and
- * precomputed basis tables. Each component count is checked before the running
- * total advances, so a failure cannot publish an overflowing final offset.
- *
- * @param spec Test-space specification.
- * @param offset_count Number of available offset entries.
- * @param offsets Output cumulative offsets.
- * @return A public constraint status.
- */
-constraint_status_t constraint_kform_component_offsets(const constraint_kform_spec_t *const spec,
-                                                       const size_t offset_count,
-                                                       size_t offsets[const static offset_count])
-{
-    size_t component_count;
-    constraint_status_t status = constraint_kform_component_count(spec, &component_count);
-    if (status != CONSTRAINT_SUCCESS)
-        return status;
-    if (offset_count < component_count + 1)
-        return CONSTRAINT_INSUFFICIENT_STORAGE;
-
-    size_t offset = 0;
-    offsets[0] = 0;
-    for (size_t component = 0; component < component_count; ++component)
-    {
-        size_t dof_count;
-        status = constraint_kform_component_dof_count(spec, (unsigned)component, &dof_count);
-        if (status != CONSTRAINT_SUCCESS)
-            return status;
-        if (offset > SIZE_MAX - dof_count)
-            return CONSTRAINT_SIZE_OVERFLOW;
-        offset += dof_count;
-        offsets[component + 1] = offset;
-    }
     return CONSTRAINT_SUCCESS;
 }
 

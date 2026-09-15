@@ -17,6 +17,7 @@
 #pragma once
 
 #include "../basis/basis_set.h"
+#include "../kforms/kform_types.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -38,23 +39,6 @@ typedef enum
     CONSTRAINT_SIZE_OVERFLOW,        /**< A required size does not fit in size_t. */
     CONSTRAINT_INSUFFICIENT_STORAGE, /**< A caller-provided output buffer is too small. */
 } constraint_status_t;
-
-/**
- * @brief Specification of the test k-form space on the canonical face.
- *
- * `basis_specs` has `ndim` entries, one for each canonical face axis. The form
- * degree `order` must satisfy `0 <= order <= ndim`. For a non-scalar form
- * (`order != 0`), every one-dimensional basis order must be non-zero because
- * an active covector axis uses a basis of order one lower. For a scalar form,
- * zero-order one-dimensional bases are permitted. The pointer is borrowed and
- * may be null only when `ndim == 0`.
- */
-typedef struct
-{
-    unsigned ndim;                   /**< Number of canonical face dimensions. */
-    unsigned order;                  /**< Differential-form degree; never greater than `ndim`. */
-    const basis_spec_t *basis_specs; /**< `ndim` basis specifications, in face-axis order. */
-} constraint_kform_spec_t;
 
 /**
  * @brief Specification of one higher-dimensional element side.
@@ -187,55 +171,6 @@ const char *constraint_status_to_str(constraint_status_t status);
 const char *constraint_status_msg(constraint_status_t status);
 
 /**
- * @brief Count the k-form components in a test space.
- *
- * The result is `C(spec->ndim, spec->order)`. Components use the same
- * lexicographic combination order as the assembly routines.
- *
- * @param spec Test-space specification; it is fully validated.
- * @param out_count Receives the component count.
- * @return `CONSTRAINT_SUCCESS`, `CONSTRAINT_INVALID_ARGUMENT` for a null
- *         pointer, `CONSTRAINT_INVALID_DIMENSION` for a dimension above 255,
- *         or `CONSTRAINT_INVALID_ORDER` for an invalid degree, basis order,
- *         or basis type. `*out_count` is unchanged on failure.
- */
-constraint_status_t constraint_kform_component_count(const constraint_kform_spec_t *spec, size_t *out_count);
-
-/**
- * @brief Count the local DoFs of one k-form component.
- *
- * An active wedge axis contributes `basis_order` functions; an inactive axis
- * contributes `basis_order + 1`. The returned product is local to the
- * component, not its offset in the flattened array.
- *
- * @param spec Test-space specification, validated as above.
- * @param component Component index in `[0, C(spec->ndim, spec->order))`.
- * @param out_count Receives the local DoF count.
- * @return `CONSTRAINT_SUCCESS`, a validation error, `CONSTRAINT_INVALID_ARGUMENT`
- *         for an out-of-range component or null output, or
- *         `CONSTRAINT_SIZE_OVERFLOW` if the product overflows `size_t`.
- */
-constraint_status_t constraint_kform_component_dof_count(const constraint_kform_spec_t *spec, unsigned component,
-                                                         size_t *out_count);
-
-/**
- * @brief Compute cumulative offsets for all k-form components.
- *
- * On success, `offsets[c]` is the first flattened DoF of component `c`, and
- * `offsets[component_count]` is the total DoF count. Extra output entries are
- * not touched. If a late overflow is detected, earlier offsets may already
- * have been written.
- *
- * @param spec Test-space specification.
- * @param offset_count Number of entries available in `offsets`.
- * @param offsets Output array with at least `component_count + 1` entries.
- * @return `CONSTRAINT_SUCCESS`, a validation/overflow error, or
- *         `CONSTRAINT_INSUFFICIENT_STORAGE` when the array is too short.
- */
-constraint_status_t constraint_kform_component_offsets(const constraint_kform_spec_t *spec, size_t offset_count,
-                                                       size_t offsets[const static offset_count]);
-
-/**
  * @brief Derive per-component test-space basis specifications on a boundary.
  *
  * For every canonical boundary axis the derived order is the lowest order
@@ -282,7 +217,7 @@ constraint_status_t constraint_boundary_test_specs(const unsigned ndim, const un
  * @return `CONSTRAINT_SUCCESS`, a specification validation error, or
  *         `CONSTRAINT_SIZE_OVERFLOW`. Outputs are unchanged on failure.
  */
-constraint_status_t constraint_reference_required(const constraint_kform_spec_t *test_spec,
+constraint_status_t constraint_reference_required(const kform_spec_t *test_spec,
                                                   const constraint_element_side_t sides[const static 2],
                                                   size_t *out_row_count, size_t *out_entry_count);
 
@@ -308,7 +243,7 @@ constraint_status_t constraint_reference_required(const constraint_kform_spec_t 
  * @return `CONSTRAINT_SUCCESS`, `CONSTRAINT_INSUFFICIENT_STORAGE`, or an
  *         input/quadrature/overflow error. Counts are written only on success.
  */
-constraint_status_t constraint_reference_assemble(const constraint_kform_spec_t *test_spec,
+constraint_status_t constraint_reference_assemble(const kform_spec_t *test_spec,
                                                   const constraint_element_side_t sides[const static 2],
                                                   const integration_rule_t **quadrature, size_t row_offset_capacity,
                                                   size_t row_offsets[const static row_offset_capacity],
@@ -330,7 +265,7 @@ constraint_status_t constraint_reference_assemble(const constraint_kform_spec_t 
  * @return `CONSTRAINT_SUCCESS`, a validation error, or
  *         `CONSTRAINT_SIZE_OVERFLOW`. Outputs are unchanged on failure.
  */
-constraint_status_t constraint_physical_required(const constraint_kform_spec_t *test_spec,
+constraint_status_t constraint_physical_required(const kform_spec_t *test_spec,
                                                  const constraint_element_side_t sides[const static 2],
                                                  size_t *out_row_count, size_t *out_entry_count);
 
@@ -346,7 +281,7 @@ constraint_status_t constraint_physical_required(const constraint_kform_spec_t *
  * @return `CONSTRAINT_SUCCESS`, a validation error, or
  *         `CONSTRAINT_SIZE_OVERFLOW`. Outputs are unchanged on failure.
  */
-constraint_status_t constraint_physical_side_required(const constraint_kform_spec_t *test_spec,
+constraint_status_t constraint_physical_side_required(const kform_spec_t *test_spec,
                                                       const constraint_element_side_t *side, size_t *out_row_count,
                                                       size_t *out_entry_count);
 
@@ -375,14 +310,14 @@ constraint_status_t constraint_physical_side_required(const constraint_kform_spe
  *         input/quadrature/overflow error. Counts are written only on success.
  */
 constraint_status_t constraint_physical_side_assemble(
-    const constraint_kform_spec_t *test_spec, const constraint_element_side_t *side,
+    const kform_spec_t *test_spec, const constraint_element_side_t *side,
     const constraint_face_quadrature_t *quadrature, const double *surface_weights,
     const constraint_trace_pullback_t *pullback, size_t row_offset_capacity,
     size_t row_offsets[const static row_offset_capacity], size_t entry_capacity,
     constraint_entry_t entries[const static entry_capacity], size_t *out_row_count, size_t *out_entry_count);
 
 /**
- * @brief Assemble one physical trace using precomputed basis values.
+ * @brief Assemble one side of a physical trace using precomputed basis values.
  *
  * This has the same signs, row order, and coefficient definition as
  * constraint_physical_side_assemble, but reads the test and element trace
@@ -408,7 +343,7 @@ constraint_status_t constraint_physical_side_assemble(
  *         success.
  */
 constraint_status_t constraint_physical_side_assemble_precomputed(
-    const constraint_kform_spec_t *test_spec, const constraint_element_side_t *side,
+    const kform_spec_t *test_spec, const constraint_element_side_t *side,
     const constraint_face_quadrature_t *quadrature, const double *surface_weights,
     const constraint_trace_pullback_t *pullback, const constraint_trace_basis_values_t *test_basis,
     const constraint_trace_basis_values_t *element_basis, size_t row_offset_capacity,
@@ -442,8 +377,7 @@ constraint_status_t constraint_physical_side_assemble_precomputed(
  * @return `CONSTRAINT_SUCCESS` or an input/quadrature/overflow error. The
  *         accumulator may be partially updated if a later validation fails.
  */
-constraint_status_t constraint_physical_side_load(const constraint_kform_spec_t *test_spec,
-                                                  const constraint_element_side_t *side,
+constraint_status_t constraint_physical_side_load(const kform_spec_t *test_spec, const constraint_element_side_t *side,
                                                   const constraint_face_quadrature_t *quadrature,
                                                   const double *datum_values, size_t value_count,
                                                   const double *surface_weights,
@@ -472,7 +406,7 @@ constraint_status_t constraint_physical_side_load(const constraint_kform_spec_t 
  *         success.
  */
 constraint_status_t constraint_physical_assemble(
-    const constraint_kform_spec_t *test_spec, const constraint_element_side_t sides[const static 2],
+    const kform_spec_t *test_spec, const constraint_element_side_t sides[const static 2],
     const constraint_face_quadrature_t quadrature[const static 2], const double *const surface_weights[const static 2],
     const constraint_trace_pullback_t pullbacks[const static 2], size_t row_offset_capacity,
     size_t row_offsets[const static row_offset_capacity], size_t entry_capacity,
@@ -494,7 +428,7 @@ constraint_status_t constraint_physical_assemble(
  *         `CONSTRAINT_SIZE_OVERFLOW`. Outputs are unchanged on failure.
  */
 constraint_status_t constraint_physical_batch_required(
-    const constraint_kform_spec_t *test_spec, size_t item_count,
+    const kform_spec_t *test_spec, size_t item_count,
     const constraint_physical_batch_item_t items[const static item_count], size_t *out_row_count,
     size_t *out_entry_count);
 
@@ -519,7 +453,7 @@ constraint_status_t constraint_physical_batch_required(
  *         written output before a later item reports an error.
  */
 constraint_status_t constraint_physical_batch_assemble(
-    const constraint_kform_spec_t *test_spec, size_t item_count,
+    const kform_spec_t *test_spec, size_t item_count,
     const constraint_physical_batch_item_t items[const static item_count], size_t row_offset_capacity,
     size_t row_offsets[const static row_offset_capacity], size_t entry_capacity,
     constraint_entry_t entries[const static entry_capacity], size_t *out_row_count, size_t *out_entry_count);

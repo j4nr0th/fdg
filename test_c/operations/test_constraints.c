@@ -30,81 +30,49 @@ static basis_spec_t basis_spec(const unsigned order)
 static void test_component_layout(void)
 {
     const basis_spec_t basis[] = {basis_spec(2), basis_spec(3)};
-    const constraint_kform_spec_t spec = {.ndim = 2, .order = 1, .basis_specs = basis};
+    const kform_spec_t spec = {.ndim = 2, .order = 1, .basis = basis};
     size_t component_count;
     size_t offsets[3];
     size_t dof_count;
 
-    TEST_ASSERTION(constraint_kform_component_count(&spec, &component_count) == CONSTRAINT_SUCCESS,
-                   "Could not count k-form components.");
-    TEST_ASSERTION(component_count == 2, "Unexpected one-form component count.");
+    TEST_ASSERTION(kform_spec_component_count(&spec) == 2, "Unexpected one-form component count.");
 
-    TEST_ASSERTION(constraint_kform_component_dof_count(&spec, 0, &dof_count) == CONSTRAINT_SUCCESS,
-                   "Could not count first component DoFs.");
-    TEST_ASSERTION(dof_count == 8, "Unexpected first component DoF count.");
-    TEST_ASSERTION(constraint_kform_component_dof_count(&spec, 1, &dof_count) == CONSTRAINT_SUCCESS,
-                   "Could not count second component DoFs.");
-    TEST_ASSERTION(dof_count == 9, "Unexpected second component DoF count.");
+    TEST_ASSERTION(kform_spec_component_dof_count(&spec, 0) == 8, "Unexpected first component DoF count.");
+    TEST_ASSERTION(kform_spec_component_dof_count(&spec, 1) == 9, "Unexpected second component DoF count.");
 
-    TEST_ASSERTION(constraint_kform_component_offsets(&spec, 3, offsets) == CONSTRAINT_SUCCESS,
-                   "Could not compute component offsets.");
+    kform_spec_component_offsets(&spec, 3, offsets);
     TEST_ASSERTION(offsets[0] == 0 && offsets[1] == 8 && offsets[2] == 17, "Unexpected component offsets.");
 }
 
 static void test_scalar_component(void)
 {
     const basis_spec_t basis[] = {basis_spec(2)};
-    const constraint_kform_spec_t spec = {.ndim = 1, .order = 0, .basis_specs = basis};
+    const kform_spec_t spec = {.ndim = 1, .order = 0, .basis = basis};
     size_t component_count;
     size_t dof_count;
     size_t offsets[2];
 
-    TEST_ASSERTION(constraint_kform_component_count(&spec, &component_count) == CONSTRAINT_SUCCESS,
-                   "Could not count scalar components.");
-    TEST_ASSERTION(component_count == 1, "Unexpected scalar component count.");
-    TEST_ASSERTION(constraint_kform_component_dof_count(&spec, 0, &dof_count) == CONSTRAINT_SUCCESS,
-                   "Could not count scalar DoFs.");
-    TEST_ASSERTION(dof_count == 3, "Unexpected scalar DoF count.");
-    TEST_ASSERTION(constraint_kform_component_offsets(&spec, 2, offsets) == CONSTRAINT_SUCCESS,
-                   "Could not compute scalar component offsets.");
+    TEST_ASSERTION(kform_spec_component_count(&spec) == 1, "Unexpected scalar component count.");
+    TEST_ASSERTION(kform_spec_component_dof_count(&spec, 0) == 3, "Unexpected scalar DoF count.");
+    kform_spec_component_offsets(&spec, 2, offsets);
     TEST_ASSERTION(offsets[0] == 0 && offsets[1] == 3, "Unexpected scalar component offsets.");
-}
-
-static void test_invalid_specs(void)
-{
-    const basis_spec_t basis[] = {basis_spec(1), basis_spec(1)};
-    const constraint_kform_spec_t invalid_order = {.ndim = 2, .order = 3, .basis_specs = basis};
-    const constraint_kform_spec_t missing_basis = {.ndim = 1, .order = 0, .basis_specs = NULL};
-    size_t result;
-
-    TEST_ASSERTION(constraint_kform_component_count(&invalid_order, &result) == CONSTRAINT_INVALID_ORDER,
-                   "Invalid form order was accepted.");
-    TEST_ASSERTION(constraint_kform_component_count(&missing_basis, &result) == CONSTRAINT_INVALID_ARGUMENT,
-                   "Missing basis specifications were accepted.");
-    TEST_ASSERTION(constraint_kform_component_dof_count(&invalid_order, 0, &result) == CONSTRAINT_INVALID_ORDER,
-                   "Invalid component specification was accepted.");
 }
 
 static void test_zero_order_scalar_constraints(void)
 {
     const basis_spec_t zero_basis[] = {basis_spec(0)};
-    const constraint_kform_spec_t scalar = {.ndim = 1, .order = 0, .basis_specs = zero_basis};
-    const constraint_kform_spec_t positive_form = {.ndim = 1, .order = 1, .basis_specs = zero_basis};
+    const kform_spec_t scalar = {.ndim = 1, .order = 0, .basis = zero_basis};
+    const kform_spec_t positive_form = {.ndim = 1, .order = 1, .basis = zero_basis};
     size_t component_count;
     size_t dof_count;
 
-    TEST_ASSERTION(constraint_kform_component_count(&scalar, &component_count) == CONSTRAINT_SUCCESS &&
-                       component_count == 1,
-                   "Scalar degree-zero test basis was rejected.");
-    TEST_ASSERTION(constraint_kform_component_dof_count(&scalar, 0, &dof_count) == CONSTRAINT_SUCCESS && dof_count == 1,
-                   "Unexpected scalar degree-zero DoF count.");
+    TEST_ASSERTION(kform_spec_component_count(&scalar) == 1, "Scalar degree-zero test basis was rejected.");
+    TEST_ASSERTION(kform_spec_component_dof_count(&scalar, 0) == 1, "Unexpected scalar degree-zero DoF count.");
     // Order-zero axes are legal for test spaces: the component with the
     // zero-order axis active simply has no DoFs.
-    TEST_ASSERTION(constraint_kform_component_count(&positive_form, &component_count) == CONSTRAINT_SUCCESS &&
-                       component_count == 1,
+    TEST_ASSERTION(kform_spec_component_count(&positive_form) == 1,
                    "Degree-zero basis was rejected for a positive-degree form.");
-    TEST_ASSERTION(constraint_kform_component_dof_count(&positive_form, 0, &dof_count) == CONSTRAINT_SUCCESS &&
-                       dof_count == 0,
+    TEST_ASSERTION(kform_spec_component_dof_count(&positive_form, 0) == 0,
                    "Active degree-zero axis unexpectedly produced DoFs.");
 }
 
@@ -147,7 +115,7 @@ static void test_reference_sizing(void)
     const basis_spec_t element_basis_2[] = {basis_spec(2), basis_spec(1)};
     const int8_t orientation_1[] = {-1, 2};
     const int8_t orientation_2[] = {1, -2};
-    const constraint_kform_spec_t test_spec = {.ndim = 1, .order = 0, .basis_specs = test_basis};
+    const kform_spec_t test_spec = {.ndim = 1, .order = 0, .basis = test_basis};
     const constraint_element_side_t sides[] = {
         {.ndim = 2, .basis_specs = element_basis_1, .orientation = orientation_1},
         {.ndim = 2, .basis_specs = element_basis_2, .orientation = orientation_2},
@@ -166,7 +134,7 @@ static void test_reference_endpoint_assembly(void)
     const basis_spec_t element_basis[] = {basis_spec(1)};
     const int8_t lower[] = {-1};
     const int8_t upper[] = {1};
-    const constraint_kform_spec_t test_spec = {.ndim = 0, .order = 0, .basis_specs = NULL};
+    const kform_spec_t test_spec = {.ndim = 0, .order = 0, .basis = NULL};
     const constraint_element_side_t sides[] = {
         {.ndim = 1, .basis_specs = element_basis, .orientation = lower},
         {.ndim = 1, .basis_specs = element_basis, .orientation = upper},
@@ -197,7 +165,7 @@ static void test_reference_edge_assembly(void)
     const int8_t upper_reversed[] = {1, -2};
     integration_rule_t *quadrature;
     integration_rule_for_order(&quadrature, INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE, 1, &SYSTEM_TEST_ALLOCATOR);
-    const constraint_kform_spec_t test_spec = {.ndim = 1, .order = 0, .basis_specs = test_basis};
+    const kform_spec_t test_spec = {.ndim = 1, .order = 0, .basis = test_basis};
     const constraint_element_side_t sides[] = {
         {.ndim = 2, .basis_specs = element_basis, .orientation = lower},
         {.ndim = 2, .basis_specs = element_basis, .orientation = upper_reversed},
@@ -244,7 +212,7 @@ static void test_reference_one_form_component(void)
     const int8_t upper[] = {1, 2};
     integration_rule_t *quadrature;
     integration_rule_for_order(&quadrature, INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE, 1, &SYSTEM_TEST_ALLOCATOR);
-    const constraint_kform_spec_t test_spec = {.ndim = 1, .order = 1, .basis_specs = test_basis};
+    const kform_spec_t test_spec = {.ndim = 1, .order = 1, .basis = test_basis};
     const constraint_element_side_t sides[] = {
         {.ndim = 2, .basis_specs = element_basis, .orientation = lower},
         {.ndim = 2, .basis_specs = element_basis, .orientation = upper},
@@ -264,7 +232,7 @@ static void test_reference_one_form_component(void)
     TEST_NUMBERS_CLOSE(entries[2].coefficient, -2.0, 1e-12, 0);
     TEST_NUMBERS_CLOSE(entries[3].coefficient, -2.0, 1e-12, 0);
 
-    const constraint_kform_spec_t invalid_test = {.ndim = 1, .order = 2, .basis_specs = test_basis};
+    const kform_spec_t invalid_test = {.ndim = 1, .order = 2, .basis = test_basis};
     size_t required_rows;
     size_t required_entries;
     TEST_ASSERTION(constraint_reference_required(&invalid_test, sides, &required_rows, &required_entries) ==
@@ -287,7 +255,7 @@ static void test_physical_scalar_measure(void)
         {.ndim = 1, .axes = (const integration_rule_t **)&quadrature, .point_count = 2},
     };
     const double *const side_surface_weights[] = {surface_weights, surface_weights};
-    const constraint_kform_spec_t test_spec = {.ndim = 1, .order = 0, .basis_specs = test_basis};
+    const kform_spec_t test_spec = {.ndim = 1, .order = 0, .basis = test_basis};
     const constraint_element_side_t sides[] = {
         {.ndim = 2, .basis_specs = element_basis, .orientation = lower},
         {.ndim = 2, .basis_specs = element_basis, .orientation = upper},
@@ -338,7 +306,7 @@ static void test_physical_batch_scalar(void)
         {.ndim = 2, .basis_specs = element_basis, .orientation = lower},
         {.ndim = 2, .basis_specs = element_basis, .orientation = upper},
     };
-    const constraint_kform_spec_t test_spec = {.ndim = 1, .order = 0, .basis_specs = test_basis};
+    const kform_spec_t test_spec = {.ndim = 1, .order = 0, .basis = test_basis};
     const constraint_physical_batch_item_t items[] = {
         {.sides = sides,
          .quadrature = quadrature_faces,
@@ -380,7 +348,7 @@ static void test_physical_precomputed_scalar(void)
     const double *nodes = integration_rule_nodes_const(quadrature);
     const constraint_face_quadrature_t face_quadrature = {
         .ndim = 1, .axes = (const integration_rule_t **)&quadrature, .point_count = 2};
-    const constraint_kform_spec_t test_spec = {.ndim = 1, .order = 0, .basis_specs = test_basis};
+    const kform_spec_t test_spec = {.ndim = 1, .order = 0, .basis = test_basis};
     const constraint_element_side_t side = {.ndim = 2, .basis_specs = element_basis, .orientation = orientation};
     const size_t test_offsets[] = {0, 2};
     const double test_values[] = {1.0, nodes[0], 1.0, nodes[1]};
@@ -437,7 +405,7 @@ static void test_physical_single_side(void)
     integration_rule_for_order(&quadrature, INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE, 1, &SYSTEM_TEST_ALLOCATOR);
     const constraint_face_quadrature_t face_quadrature = {
         .ndim = 1, .axes = (const integration_rule_t **)&quadrature, .point_count = 2};
-    const constraint_kform_spec_t test_spec = {.ndim = 1, .order = 0, .basis_specs = test_basis};
+    const kform_spec_t test_spec = {.ndim = 1, .order = 0, .basis = test_basis};
     const constraint_element_side_t side = {.ndim = 2, .basis_specs = element_basis, .orientation = orientation};
     size_t row_offsets[3];
     constraint_entry_t entries[8];
@@ -459,7 +427,7 @@ static void test_physical_general_boundary_dimensions(void)
 {
     const basis_spec_t point_basis[] = {basis_spec(1), basis_spec(1), basis_spec(1)};
     const int8_t point_orientation[] = {-1, 2, 3};
-    const constraint_kform_spec_t point_test = {.ndim = 0, .order = 0, .basis_specs = NULL};
+    const kform_spec_t point_test = {.ndim = 0, .order = 0, .basis = NULL};
     const constraint_element_side_t point_side = {
         .ndim = 3, .basis_specs = point_basis, .orientation = point_orientation};
     const constraint_face_quadrature_t point_quadrature = {.ndim = 0, .axes = NULL, .point_count = 1};
@@ -478,7 +446,7 @@ static void test_physical_general_boundary_dimensions(void)
     const basis_spec_t line_basis[] = {basis_spec(1), basis_spec(1), basis_spec(1)};
     const int8_t line_orientation[] = {-1, 3, -2};
     const basis_spec_t line_test_basis[] = {basis_spec(1)};
-    const constraint_kform_spec_t line_test = {.ndim = 1, .order = 0, .basis_specs = line_test_basis};
+    const kform_spec_t line_test = {.ndim = 1, .order = 0, .basis = line_test_basis};
     const constraint_element_side_t line_side = {.ndim = 3, .basis_specs = line_basis, .orientation = line_orientation};
     integration_rule_t *quad_rule;
     integration_rule_for_order(&quad_rule, INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE, 1, &SYSTEM_TEST_ALLOCATOR);
@@ -501,7 +469,7 @@ static void test_physical_general_boundary_dimensions(void)
     const basis_spec_t face_basis[] = {basis_spec(1), basis_spec(1), basis_spec(1), basis_spec(1)};
     const int8_t face_orientation[] = {-1, 3, -2, 4};
     const basis_spec_t face_test_basis[] = {basis_spec(1), basis_spec(1)};
-    const constraint_kform_spec_t face_test = {.ndim = 2, .order = 0, .basis_specs = face_test_basis};
+    const kform_spec_t face_test = {.ndim = 2, .order = 0, .basis = face_test_basis};
     const constraint_element_side_t face_side = {.ndim = 4, .basis_specs = face_basis, .orientation = face_orientation};
     const integration_rule_t *face_axes[2] = {quad_rule, quad_rule};
     const constraint_face_quadrature_t face_quadrature = {.ndim = 2, .axes = face_axes, .point_count = 4};
@@ -512,7 +480,7 @@ static void test_physical_general_boundary_dimensions(void)
     TEST_ASSERTION(row_count == 4 && entry_count == 64, "Unexpected four-dimensional face dimensions.");
 
     const basis_spec_t face_one_form_basis[] = {basis_spec(1), basis_spec(1)};
-    const constraint_kform_spec_t face_one_form_test = {.ndim = 2, .order = 1, .basis_specs = face_one_form_basis};
+    const kform_spec_t face_one_form_test = {.ndim = 2, .order = 1, .basis = face_one_form_basis};
     double face_pullback_values[4 * 1 * 4];
     for (unsigned i = 0; i < sizeof(face_pullback_values) / sizeof(*face_pullback_values); ++i)
         face_pullback_values[i] = 1.0;
@@ -552,7 +520,7 @@ static void test_physical_one_form_pullback(void)
         {.ndim = 1, .axes = (const integration_rule_t **)&quad_rule, .point_count = 2},
     };
     const double *const side_surface_weights[] = {surface_weights, surface_weights};
-    const constraint_kform_spec_t test_spec = {.ndim = 1, .order = 1, .basis_specs = test_basis};
+    const kform_spec_t test_spec = {.ndim = 1, .order = 1, .basis = test_basis};
     const constraint_element_side_t sides[] = {
         {.ndim = 2, .basis_specs = element_basis, .orientation = lower},
         {.ndim = 2, .basis_specs = element_basis, .orientation = upper},
@@ -597,7 +565,7 @@ static void test_physical_two_form_face_components(void)
             pullback_values[(component * 3 + component) * 4 + point] = 1.0;
     const constraint_trace_pullback_t pullback = {
         .physical_component_count = 3, .point_count = 4, .values = pullback_values};
-    const constraint_kform_spec_t test_spec = {.ndim = 2, .order = 2, .basis_specs = test_basis};
+    const kform_spec_t test_spec = {.ndim = 2, .order = 2, .basis = test_basis};
     const constraint_element_side_t side = {.ndim = 3, .basis_specs = element_basis, .orientation = orientation};
     size_t row_count;
     size_t entry_count;
@@ -710,7 +678,6 @@ int main(void)
 {
     test_component_layout();
     test_scalar_component();
-    test_invalid_specs();
     test_zero_order_scalar_constraints();
     test_row_representation();
     test_reference_sizing();

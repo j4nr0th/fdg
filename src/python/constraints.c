@@ -673,13 +673,12 @@ static int make_trace_basis_table(const unsigned element_dim, const unsigned fac
         }
     }
 
-    const constraint_kform_spec_t descriptor = {.ndim = ndim, .order = order, .basis_specs = basis_specs};
+    const kform_spec_t descriptor = {.ndim = ndim, .order = order, .basis = basis_specs};
     size_t total_dofs = 0;
     for (unsigned component = 0; component < component_count; ++component)
     {
-        size_t dof_count;
-        if (constraint_kform_component_dof_count(&descriptor, component, &dof_count) != CONSTRAINT_SUCCESS ||
-            total_dofs > SIZE_MAX - dof_count)
+        const size_t dof_count = kform_spec_component_dof_count(&descriptor, component);
+        if (total_dofs > SIZE_MAX - dof_count)
         {
             PyErr_SetString(PyExc_OverflowError, "Trace basis DoF count exceeds the size limit.");
             goto fail;
@@ -702,12 +701,7 @@ static int make_trace_basis_table(const unsigned element_dim, const unsigned fac
     out->component_offsets[0] = 0;
     for (unsigned component = 0; component < component_count; ++component)
     {
-        size_t dof_count;
-        if (constraint_kform_component_dof_count(&descriptor, component, &dof_count) != CONSTRAINT_SUCCESS)
-        {
-            PyErr_SetString(PyExc_OverflowError, "Trace basis DoF count exceeds the size limit.");
-            goto fail;
-        }
+        const size_t dof_count = kform_spec_component_dof_count(&descriptor, component);
         out->component_offsets[component + 1] = out->component_offsets[component] + dof_count;
     }
 
@@ -881,8 +875,7 @@ PyObject *compute_kform_boundary_constraints_impl(const interplib_module_state_t
                         &pullback) < 0)
         goto fail;
 
-    const constraint_kform_spec_t test_descriptor = {
-        .ndim = face_dim, .order = order, .basis_specs = test_spec->function_space->specs};
+    const kform_spec_t test_descriptor = {.ndim = face_dim, .order = order, .basis = test_spec->function_space->specs};
     const constraint_element_side_t side_descriptor = {
         .ndim = element_dim, .basis_specs = element_spec->function_space->specs, .orientation = orientation};
     const constraint_trace_pullback_t pullback_descriptor = {.physical_component_count = (unsigned)Py_SIZE(element_map),
@@ -1046,8 +1039,7 @@ PyObject *compute_kform_reference_constraints_impl(const interplib_module_state_
             goto fail;
     }
 
-    const constraint_kform_spec_t test_descriptor = {
-        .ndim = face_dim, .order = order, .basis_specs = test_spec->function_space->specs};
+    const kform_spec_t test_descriptor = {.ndim = face_dim, .order = order, .basis = test_spec->function_space->specs};
     const constraint_element_side_t sides[2] = {
         {.ndim = element_dim_1, .basis_specs = element_spec_1->function_space->specs, .orientation = orientation_1},
         {.ndim = element_dim_2, .basis_specs = element_spec_2->function_space->specs, .orientation = orientation_2},
@@ -1361,43 +1353,27 @@ static PyObject *compute_kform_boundary_load(PyObject *module, PyObject *const *
     }
     Py_DECREF(coords_tuple);
 
-    const constraint_kform_spec_t test_descriptor = {
-        .ndim = face_dim, .order = order, .basis_specs = test_spec->function_space->specs};
+    const kform_spec_t test_descriptor = {.ndim = face_dim, .order = order, .basis = test_spec->function_space->specs};
     const constraint_element_side_t side_descriptor = {
         .ndim = element_dim, .basis_specs = element_spec->function_space->specs, .orientation = orientation};
     const constraint_face_quadrature_t face_quadrature = {
         .ndim = face_dim, .axes = setup.rules, .point_count = setup.point_count};
-    const constraint_kform_spec_t element_descriptor = {
-        .ndim = element_dim, .order = order, .basis_specs = element_spec->function_space->specs};
-    size_t element_component_count;
-    constraint_status_t constraint_status =
-        constraint_kform_component_count(&element_descriptor, &element_component_count);
-    if (constraint_status != CONSTRAINT_SUCCESS)
-    {
-        PyErr_Format(PyExc_ValueError, "Could not size the boundary load: %s.",
-                     constraint_status_to_str(constraint_status));
-        goto load_fail;
-    }
+    const kform_spec_t element_descriptor = {
+        .ndim = element_dim, .order = order, .basis = element_spec->function_space->specs};
+    const size_t element_component_count = kform_spec_component_count(&element_descriptor);
     size_t value_count = 0;
     for (unsigned component = 0; component < element_component_count; ++component)
     {
-        size_t component_dofs;
-        constraint_status = constraint_kform_component_dof_count(&element_descriptor, component, &component_dofs);
-        if (constraint_status != CONSTRAINT_SUCCESS || value_count > SIZE_MAX - component_dofs)
-        {
-            PyErr_Format(PyExc_ValueError, "Could not size the boundary load: %s.",
-                         constraint_status_to_str(constraint_status));
-            goto load_fail;
-        }
+        const size_t component_dofs = kform_spec_component_dof_count(&element_descriptor, component);
         value_count += component_dofs;
     }
     const npy_intp value_dims[1] = {(npy_intp)value_count};
     result = (PyObject *)PyArray_ZEROS(1, value_dims, NPY_DOUBLE, 0);
     if (!result)
         goto load_fail;
-    constraint_status = constraint_physical_side_load(&test_descriptor, &side_descriptor, &face_quadrature, data_owned,
-                                                      value_count, weighted ? surface_weights : NULL,
-                                                      (double *)PyArray_DATA((PyArrayObject *)result));
+    constraint_status_t constraint_status = constraint_physical_side_load(
+        &test_descriptor, &side_descriptor, &face_quadrature, data_owned, value_count,
+        weighted ? surface_weights : NULL, (double *)PyArray_DATA((PyArrayObject *)result));
     if (constraint_status != CONSTRAINT_SUCCESS)
     {
         PyErr_Format(PyExc_ValueError, "Could not assemble boundary load: %s.",
