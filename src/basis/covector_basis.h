@@ -171,21 +171,5 @@ int covector_basis_is_zero(covector_basis_t basis);
  * @return The Hodge dual of the basis.
  */
 covector_basis_t covector_basis_hodge(covector_basis_t basis);
-/**
- * @brief Get the number of DoFs of one k-form component.
- *
- * The component is identified by its @p order covector axes. Each axis of
- * the reference space contributes `order + 1` DoFs, except the covector
- * axes of the component, which contribute `order` DoFs each.
- *
- * @param ndim Number of reference dimensions.
- * @param basis Basis specification of each reference dimension.
- * @param order Order of the k-form; length of @p components.
- * @param components Sorted covector axes of the component.
- * @return Number of DoFs of the component.
- */
-FDG_INTERNAL
-unsigned kform_basis_get_num_dofs(unsigned ndim, const basis_spec_t FDG_ARRAY_ARG(basis, static ndim), unsigned order,
-                                  const uint8_t FDG_ARRAY_ARG(components, static order));
 
 #endif // FDG_COVECTOR_BASIS_H

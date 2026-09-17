@@ -21,6 +21,22 @@ FDG_INTERNAL
 dof_object *dof_object_create(PyTypeObject *subtype, const unsigned ndim,
                               const basis_spec_t basis_specs_in[static ndim]);
 
+/**
+ * Project the degrees of freedom onto the plane `x[idim] == value`.
+ *
+ * Python wrapper around the plane projection used to construct boundary
+ * spaces; requires `dofs->n_dims >= 1` and `idim < dofs->n_dims`.
+ *
+ * @param state Interpreter module state.
+ * @param dofs Degrees of freedom to project.
+ * @param idim Index of the fixed dimension.
+ * @param value Position of the plane along the fixed dimension.
+ * @return The projected degrees of freedom, or NULL with a Python exception set.
+ */
+FDG_INTERNAL
+dof_object *dof_at_boundary_impl(const interplib_module_state_t *state, const dof_object *dofs, unsigned idim,
+                                 double value);
+
 FDG_INTERNAL
 PyObject *dof_reconstruct_at_integration_points(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
                                                 Py_ssize_t nargs, const PyObject *kwnames);

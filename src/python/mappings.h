@@ -3,6 +3,7 @@
 
 #include "../integration/integration_rules.h"
 #include "../operations/matrices.h"
+#include "degrees_of_freedom.h"
 #include "module.h"
 
 typedef struct
@@ -27,6 +28,25 @@ const double *coordinate_map_values(const coordinate_map_object *map);
 FDG_INTERNAL
 const double *coordinate_map_gradient(const coordinate_map_object *map, unsigned dim);
 
+/**
+ * Construct a coordinate map that evaluates the given degrees of freedom on
+ * the given integration space, including all derivatives.
+ *
+ * @param type Coordinate map type to allocate (the registered
+ *             #coordinate_map_object type or a subtype).
+ * @param dofs Degrees of freedom describing the map. A reference is stored.
+ * @param integration_space Integration space the DoFs are evaluated on; only
+ *                          the specs are used.
+ * @param integration_registry Registry used to fetch integration rules.
+ * @param basis_registry Registry used to fetch basis sets.
+ * @return The new coordinate map, or NULL with a Python exception set.
+ */
+FDG_INTERNAL
+coordinate_map_object *coordinate_map_object_create(PyTypeObject *type, dof_object *dofs,
+                                                    const integration_space_object *integration_space,
+                                                    const integration_registry_object *integration_registry,
+                                                    const basis_registry_object *basis_registry);
+
 typedef struct
 {
     PyObject_VAR_HEAD;
@@ -40,6 +60,37 @@ typedef struct
 
 FDG_INTERNAL
 extern PyType_Spec space_map_type_spec;
+
+/**
+ * Construct a space map from already validated coordinate maps.
+ *
+ * The coordinate maps must share their integration spaces; this is verified.
+ * Each map in @p maps gets a new reference stored.
+ *
+ * @param subtype Space map type to allocate (the registered space map type or
+ *                a subtype).
+ * @param n_maps Number of coordinate maps; determines the physical dimension.
+ * @param maps The coordinate maps, one per physical dimension.
+ * @return The new space map, or NULL with a Python exception set.
+ */
+FDG_INTERNAL
+space_map_object *space_map_object_create(PyTypeObject *subtype, unsigned n_maps, coordinate_map_object *const *maps);
+
+/**
+ * Restrict a space map to a reference-space boundary `x[idim] == end ? +1 : -1`.
+ *
+ * @param state Interpreter module state.
+ * @param map Space map to restrict; must have `map->ndim >= 1` and
+ *            `idim < map->ndim`.
+ * @param idim Index of the fixed dimension.
+ * @param end Which side of the slab to restrict to; non-zero for the upper.
+ * @param provided_face_space Optional integration space for the face; must
+ *                            have `map->ndim - 1` dimensions if given.
+ * @return The restricted space map, or NULL with a Python exception set.
+ */
+FDG_INTERNAL
+space_map_object *space_map_boundary_impl(const interplib_module_state_t *state, const space_map_object *map,
+                                          unsigned idim, int end, integration_space_object *provided_face_space);
 
 /**
  * Retrieves the pointer to the start of the inverse mapping data at a specific

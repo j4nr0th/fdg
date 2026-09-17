@@ -340,4 +340,57 @@ unsigned integration_rule_spec_get_accuracy(integration_spec_t spec);
 FDG_INTERNAL
 size_t integration_specs_total_points(unsigned ndim, const integration_spec_t specs[static ndim]);
 
+/**
+ * @brief Compute strides of the tensor-product integration points.
+ *
+ * The last axis is the fastest, i.e. `strides[ndim - 1] == 1`, matching the
+ * project's multidim iterator. The tensor point with per-axis node index
+ * `ip[axis]` has the flat index `sum_axis(ip[axis] * strides[axis])`, and
+ * the total number of tensor points is #integration_specs_total_points.
+ *
+ * @param ndim Number of dimensions of the tensor product.
+ * @param specs Array of `ndim` integration specifications.
+ * @param strides Output array with `ndim` entries.
+ */
+FDG_INTERNAL
+void integration_spec_point_strides(unsigned ndim, const integration_spec_t specs[static ndim],
+                                    size_t strides[static ndim]);
+
+/**
+ * @brief Compute the tensor product of the axis quadrature weights.
+ *
+ * The weight of the flat tensor point `p` (last axis fastest, see
+ * #integration_spec_point_strides) is the product of the weights of the
+ * per-axis nodes selected by `p`.
+ *
+ * @param ndim Number of dimensions of the tensor product.
+ * @param rules Quadrature rule of each axis.
+ * @param weights Output array with #integration_specs_total_points entries
+ *                for the rules' specifications.
+ */
+FDG_INTERNAL
+void integration_rule_tensor_weights(unsigned ndim, const integration_rule_t *const rules[static ndim],
+                                     double weights[]);
+
+/**
+ * @brief Compute the total number of points of a tensor product of sampling
+ *        orders.
+ *
+ * Same counting rule as #integration_specs_total_points, but for a plain
+ * array of per-axis orders as used by sampled maps.
+ *
+ * @param ndim Number of dimensions of the tensor product.
+ * @param orders Array of `ndim` per-axis orders.
+ * @return The product of the node counts, i.e. `prod_i (orders[i] + 1)`.
+ */
+static inline size_t integration_orders_total_points(unsigned ndim, const unsigned orders[static ndim])
+{
+    size_t total = 1;
+    for (unsigned i = 0; i < ndim; ++i)
+    {
+        total *= orders[i] + 1;
+    }
+    return total;
+}
+
 #endif // FDG_INTEGRATION_RULES_H

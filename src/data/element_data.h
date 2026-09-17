@@ -6,7 +6,6 @@
 #include "../common/error.h"
 #include "../integration/integration_rules.h"
 #include <cutl/allocators.h>
-#include <cutl/iterators/combination_iterator.h>
 #include <stdint.h>
 
 /**

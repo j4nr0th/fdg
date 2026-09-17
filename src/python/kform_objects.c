@@ -28,22 +28,8 @@ static PyObject *kform_spec_new(PyTypeObject *type, PyObject *args, PyObject *kw
     if (!self)
         return NULL;
 
-    combination_iterator_t *const iter = PyMem_Malloc(combination_iterator_required_memory(order));
-    if (!iter)
-    {
-        PyMem_Free(self->component_offsets);
-        return NULL;
-    }
-    self->component_offsets[0] = 0;
-    combination_iterator_init(iter, ndim, order);
-    unsigned i = 0;
-    for (const uint8_t *const basis_components = combination_iterator_current(iter);
-         !combination_iterator_is_done(iter); combination_iterator_next(iter), ++i)
-    {
-        const unsigned ndofs = kform_basis_get_num_dofs(ndim, space->specs, order, basis_components);
-        self->component_offsets[i + 1] = self->component_offsets[i] + ndofs;
-    }
-    PyMem_Free(iter);
+    const kform_spec_t spec = {.ndim = ndim, .order = order, .basis = ndim ? space->specs : NULL};
+    kform_spec_component_offsets(&spec, component_cnt + 1, self->component_offsets);
 
     Py_INCREF(space);
     self->order = order;
@@ -189,19 +175,10 @@ static PyObject *kform_spec_get_component_covector_basis(PyObject *self, PyTypeO
         return NULL;
     }
 
-    uint8_t *covector_indices = PyMem_Malloc(k * sizeof(*covector_indices));
-    if (!covector_indices)
-        return NULL;
-
+    uint8_t covector_indices[UINT8_MAX];
     combination_set_to_index(n, k, covector_indices, idx);
-    covector_basis_t basis = {.dimension = n, .sign = 0};
-    for (unsigned i_covector = 0; i_covector < k; ++i_covector)
-    {
-        basis.basis_bits |= (1 << covector_indices[i_covector]);
-    }
-
+    const covector_basis_t basis = covector_basis_create_u8(n, 0, k, covector_indices);
     covector_basis_object *const covector_basis = covector_basis_object_create(state->covector_basis_type, basis);
-    PyMem_Free(covector_indices);
 
     return (PyObject *)covector_basis;
 }

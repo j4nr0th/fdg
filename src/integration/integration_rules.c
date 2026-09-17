@@ -414,6 +414,44 @@ size_t integration_specs_total_points(const unsigned ndim, const integration_spe
     return total;
 }
 
+void integration_spec_point_strides(const unsigned ndim, const integration_spec_t specs[static const ndim],
+                                    size_t strides[static const ndim])
+{
+    // Tensor points are enumerated with the LAST axis fastest, matching the
+    // multidim iterator and therefore the coordinate map point ordering.
+    size_t stride = 1;
+    for (unsigned i = ndim; i > 0; --i)
+    {
+        strides[i - 1] = stride;
+        stride *= (size_t)specs[i - 1].order + 1;
+    }
+}
+
+void integration_rule_tensor_weights(const unsigned ndim, const integration_rule_t *const rules[static const ndim],
+                                     double weights[])
+{
+    // Axis `ndim - 1` is the fastest. Processing axes from the last to the
+    // first makes each processed axis the next slower one: previous points
+    // repeat once per node of the current axis.
+    weights[0] = 1.0;
+    size_t filled = 1;
+    for (unsigned axis = ndim; axis > 0; --axis)
+    {
+        const double *const axis_weights = integration_rule_weights_const(rules[axis - 1]);
+        const size_t n_nodes = rules[axis - 1]->n_nodes;
+        for (size_t base = 0; base < filled; ++base)
+        {
+            const double base_weight = weights[base];
+            for (size_t node = 1; node < n_nodes; ++node)
+            {
+                weights[base + node * filled] = base_weight * axis_weights[node];
+            }
+            weights[base] = base_weight * axis_weights[0];
+        }
+        filled *= n_nodes;
+    }
+}
+
 const char *integration_rule_type_to_str(const integration_rule_type_t type)
 {
     switch (type)

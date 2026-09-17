@@ -1101,17 +1101,8 @@ static int mesh_build_boundary_spec_objects(const interplib_module_state_t *cons
                 memcpy(orientations + (size_t)index * (size_t)ndim,
                        immersion->element_orientation + (size_t)(begin + index) * (size_t)ndim, (size_t)ndim);
             }
-            const constraint_status_t status =
-                constraint_boundary_test_specs(ndim, mdim, order, (size_t)element_count, bases, orientations,
-                                               type_override, (size_t)component_count, derived, present);
-            if (status != CONSTRAINT_SUCCESS)
-            {
-                PyErr_Format(PyExc_ValueError,
-                             "Could not derive boundary test spaces for dimension %u object %llu: %s.", mdim,
-                             (unsigned long long)object_id, constraint_status_to_str(status));
-                failed = 1;
-                break;
-            }
+            constraint_boundary_test_specs(ndim, mdim, order, (size_t)element_count, bases, orientations, type_override,
+                                           derived, present);
             PyObject *const tuple = PyTuple_New((Py_ssize_t)component_count);
             if (!tuple)
             {

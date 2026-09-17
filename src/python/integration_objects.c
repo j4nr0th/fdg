@@ -654,11 +654,11 @@ static PyObject *integration_space_weights(PyObject *self, PyTypeObject *definin
         (integration_registry_object *)(nargs ? args[0] : state->registry_integration);
 
     const Py_ssize_t ndim = Py_SIZE(self);
-    const size_t mem_dims = sizeof(npy_intp) * ndim;
-    const size_t mem_iter = multidim_iterator_needed_memory(ndim);
-    npy_intp *const dims_out = PyMem_Malloc(mem_dims > mem_iter ? mem_dims : mem_iter);
+    npy_intp *const dims_out =
+        PyMem_Malloc(sizeof(npy_intp) * (size_t)ndim + sizeof(integration_rule_t *) * (size_t)ndim);
     if (!dims_out)
         return NULL;
+    const integration_rule_t **const rules = (const integration_rule_t **)(dims_out + ndim);
 
     for (unsigned i = 0; i < ndim; ++i)
     {
@@ -673,34 +673,16 @@ static PyObject *integration_space_weights(PyObject *self, PyTypeObject *definin
     }
 
     npy_double *const p_out = PyArray_DATA(out);
-    multidim_iterator_t *const iter = (multidim_iterator_t *)dims_out;
-    for (unsigned i = 0; i < ndim; ++i)
-    {
-        multidim_iterator_init_dim(iter, i, this->specs[i].order + 1);
-    }
     fdg_result_t res = FDG_SUCCESS;
     Py_BEGIN_ALLOW_THREADS;
 
-    p_out[0] = 1.0;
-    for (unsigned idim = 0; idim < ndim; ++idim)
+    for (unsigned i = 0; i < ndim && res == FDG_SUCCESS; ++i)
     {
-        const integration_rule_t *rule;
-        res = integration_rule_registry_get_rule(registry_object->registry, this->specs[idim], &rule);
-        if (res != FDG_SUCCESS)
-            break;
-        multidim_iterator_set_to_start(iter);
-        const unsigned npts = this->specs[idim].order + 1;
-        while (!multidim_iterator_is_at_end(iter))
-        {
-            const double prev_v = p_out[multidim_iterator_get_flat_index(iter)];
-            for (unsigned ipt = 0; ipt < npts; ++ipt)
-            {
-                ASSERT(!multidim_iterator_is_at_end(iter), "Iterator should not be at end at this point");
-                const size_t idx = multidim_iterator_get_flat_index(iter);
-                p_out[idx] = prev_v * integration_rule_weights_const(rule)[ipt];
-                multidim_iterator_advance(iter, idim, 1);
-            }
-        }
+        res = integration_rule_registry_get_rule(registry_object->registry, this->specs[i], &rules[i]);
+    }
+    if (res == FDG_SUCCESS)
+    {
+        integration_rule_tensor_weights((unsigned)ndim, rules, p_out);
     }
 
     Py_END_ALLOW_THREADS;

@@ -1,6 +1,9 @@
 #include "../../src/constraints/constraints.h"
 #include "../common/common.h"
 
+#include <limits.h>
+#include <stdlib.h>
+
 static void *test_allocate(void *ctx, size_t size)
 {
     return malloc(size);
@@ -31,15 +34,13 @@ static void test_component_layout(void)
 {
     const basis_spec_t basis[] = {basis_spec(2), basis_spec(3)};
     const kform_spec_t spec = {.ndim = 2, .order = 1, .basis = basis};
-    size_t component_count;
-    size_t offsets[3];
-    size_t dof_count;
 
     TEST_ASSERTION(kform_spec_component_count(&spec) == 2, "Unexpected one-form component count.");
 
     TEST_ASSERTION(kform_spec_component_dof_count(&spec, 0) == 8, "Unexpected first component DoF count.");
     TEST_ASSERTION(kform_spec_component_dof_count(&spec, 1) == 9, "Unexpected second component DoF count.");
 
+    size_t offsets[3];
     kform_spec_component_offsets(&spec, 3, offsets);
     TEST_ASSERTION(offsets[0] == 0 && offsets[1] == 8 && offsets[2] == 17, "Unexpected component offsets.");
 }
@@ -48,12 +49,10 @@ static void test_scalar_component(void)
 {
     const basis_spec_t basis[] = {basis_spec(2)};
     const kform_spec_t spec = {.ndim = 1, .order = 0, .basis = basis};
-    size_t component_count;
-    size_t dof_count;
-    size_t offsets[2];
 
     TEST_ASSERTION(kform_spec_component_count(&spec) == 1, "Unexpected scalar component count.");
     TEST_ASSERTION(kform_spec_component_dof_count(&spec, 0) == 3, "Unexpected scalar DoF count.");
+    size_t offsets[2];
     kform_spec_component_offsets(&spec, 2, offsets);
     TEST_ASSERTION(offsets[0] == 0 && offsets[1] == 3, "Unexpected scalar component offsets.");
 }
@@ -63,8 +62,6 @@ static void test_zero_order_scalar_constraints(void)
     const basis_spec_t zero_basis[] = {basis_spec(0)};
     const kform_spec_t scalar = {.ndim = 1, .order = 0, .basis = zero_basis};
     const kform_spec_t positive_form = {.ndim = 1, .order = 1, .basis = zero_basis};
-    size_t component_count;
-    size_t dof_count;
 
     TEST_ASSERTION(kform_spec_component_count(&scalar) == 1, "Scalar degree-zero test basis was rejected.");
     TEST_ASSERTION(kform_spec_component_dof_count(&scalar, 0) == 1, "Unexpected scalar degree-zero DoF count.");
@@ -76,36 +73,216 @@ static void test_zero_order_scalar_constraints(void)
                    "Active degree-zero axis unexpectedly produced DoFs.");
 }
 
-static void test_row_representation(void)
+/**
+ * @brief Test-side trace basis table with owned values.
+ *
+ * Mirrors the binding-layer table construction: fixed axes read endpoint
+ * sets, free axes read the canonical rule nodes with mirrored indices for
+ * reversed orientations, and active covector axes read the lowered sets.
+ */
+typedef struct
 {
-    const constraint_entry_t entries[] = {
-        {.side = 0, .component = 0, .local_dof = 4, .coefficient = 1.0},
-        {.side = 1, .component = 0, .local_dof = 2, .coefficient = -1.0},
-        {.side = 0, .component = 1, .local_dof = 7, .coefficient = 0.5},
-    };
-    const size_t offsets[] = {0, 2, 3};
-    const constraint_rows_view_t view = {
-        .row_count = 2,
-        .entry_count = 3,
-        .row_offsets = offsets,
-        .entries = entries,
-    };
-    size_t required;
+    kform_values_table_t descriptor;
+    size_t offsets[64];
+    double *values;
+} test_table_t;
 
-    TEST_ASSERTION(constraint_rows_required_offset_count(2, &required) == CONSTRAINT_SUCCESS && required == 3,
-                   "Unexpected row-offset capacity.");
-    TEST_ASSERTION(constraint_rows_required_entry_capacity(2, 3, &required) == CONSTRAINT_SUCCESS && required == 6,
-                   "Unexpected entry capacity.");
-    TEST_ASSERTION(constraint_rows_validate(view) == CONSTRAINT_SUCCESS, "Valid row representation was rejected.");
+static void test_table_free(test_table_t *const table)
+{
+    free(table->values);
+    *table = (test_table_t){};
+}
 
-    const size_t bad_offsets[] = {0, 4, 3};
-    TEST_ASSERTION(constraint_rows_validate((constraint_rows_view_t){2, 3, bad_offsets, entries}) ==
-                       CONSTRAINT_INVALID_ARGUMENT,
-                   "Non-monotonic row offsets were accepted.");
-    const constraint_entry_t bad_entry = {.side = 2};
-    TEST_ASSERTION(constraint_rows_validate((constraint_rows_view_t){1, 1, (size_t[]){0, 1}, &bad_entry}) ==
-                       CONSTRAINT_INVALID_ARGUMENT,
-                   "Invalid side was accepted.");
+static int test_table_build(basis_set_registry_t *registry, const unsigned element_dim, const unsigned face_dim,
+                            const unsigned order, const basis_spec_t *basis_specs, const int8_t *orientation,
+                            const integration_spec_t *canonical_specs, const integration_rule_t **canonical_rules,
+                            const size_t *canonical_strides, const int element_table, const size_t point_count,
+                            test_table_t *const out)
+{
+    const unsigned ndim = element_table ? element_dim : face_dim;
+    const unsigned component_count = combination_total_count((uint8_t)ndim, (uint8_t)order);
+    const unsigned free_count = face_dim;
+    TEST_ASSERTION(component_count < 64, "Test table component capacity exceeded.");
+
+    kform_trace_axis_t axes[UINT8_MAX];
+    const basis_set_t *basis_sets_storage[UINT8_MAX];
+    const basis_set_t *basis_sets_lower_storage[UINT8_MAX];
+    const basis_endpoint_set_t *endpoint_sets_storage[UINT8_MAX];
+    const basis_endpoint_set_t *endpoint_sets_lower_storage[UINT8_MAX];
+    const basis_set_t **basis_sets = NULL;
+    const basis_set_t **basis_sets_lower = NULL;
+    const basis_endpoint_set_t **endpoint_sets = NULL;
+    const basis_endpoint_set_t **endpoint_sets_lower = NULL;
+    basis_spec_t free_specs[UINT8_MAX];
+    basis_spec_t free_specs_lower[UINT8_MAX];
+    basis_spec_t lower_specs[UINT8_MAX];
+    unsigned source_axes[UINT8_MAX];
+    for (unsigned axis = 0; axis < ndim; ++axis)
+    {
+        axes[axis] = (kform_trace_axis_t){};
+        source_axes[axis] = face_dim;
+        if (!element_table)
+        {
+            source_axes[axis] = axis;
+            free_specs[axis] = basis_specs[axis];
+        }
+    }
+    if (face_dim > 0)
+    {
+        const unsigned fixed_count = element_dim - face_dim;
+        for (unsigned face_axis = 0; face_axis < face_dim; ++face_axis)
+        {
+            const int8_t mapping = orientation[fixed_count + face_axis];
+            const unsigned element_axis = (unsigned)(mapping < 0 ? -mapping : mapping) - 1;
+            if (element_table)
+            {
+                free_specs[face_axis] = basis_specs[element_axis];
+                source_axes[element_axis] = face_axis;
+            }
+        }
+    }
+    if (order > 0)
+    {
+        for (unsigned axis = 0; axis < ndim; ++axis)
+        {
+            lower_specs[axis] = basis_specs[axis];
+            if (lower_specs[axis].order > 0)
+                lower_specs[axis].order -= 1;
+        }
+        for (unsigned axis = 0; axis < free_count; ++axis)
+        {
+            free_specs_lower[axis] = free_specs[axis];
+            if (free_specs_lower[axis].order > 0)
+                free_specs_lower[axis].order -= 1;
+        }
+    }
+
+    if (ndim > 0 && element_table)
+    {
+        endpoint_sets = endpoint_sets_storage;
+        for (unsigned axis = 0; axis < ndim; ++axis)
+        {
+            TEST_ASSERTION(basis_set_registry_get_basis_endpoints(registry, &endpoint_sets[axis], basis_specs[axis]) ==
+                               FDG_SUCCESS,
+                           "Could not fetch endpoint sets.");
+        }
+        if (order > 0)
+        {
+            endpoint_sets_lower = endpoint_sets_lower_storage;
+            for (unsigned axis = 0; axis < ndim; ++axis)
+            {
+                TEST_ASSERTION(basis_set_registry_get_basis_endpoints(registry, &endpoint_sets_lower[axis],
+                                                                      lower_specs[axis]) == FDG_SUCCESS,
+                               "Could not fetch lowered endpoint sets.");
+            }
+        }
+    }
+    if (free_count > 0)
+    {
+        basis_sets = basis_sets_storage;
+        TEST_ASSERTION(basis_set_registry_get_basis_sets(registry, free_count, basis_sets, canonical_rules,
+                                                         free_specs) == FDG_SUCCESS,
+                       "Could not fetch basis sets.");
+        if (order > 0)
+        {
+            basis_sets_lower = basis_sets_lower_storage;
+            TEST_ASSERTION(basis_set_registry_get_basis_sets(registry, free_count, basis_sets_lower, canonical_rules,
+                                                             free_specs_lower) == FDG_SUCCESS,
+                           "Could not fetch lowered basis sets.");
+        }
+    }
+
+    if (element_table)
+    {
+        const unsigned fixed_count = element_dim - face_dim;
+        for (unsigned axis = 0; axis < ndim; ++axis)
+        {
+            const unsigned slot = source_axes[axis];
+            if (slot == face_dim)
+            {
+                unsigned fixed_axis = 0;
+                for (; fixed_axis < fixed_count; ++fixed_axis)
+                {
+                    if ((unsigned)(orientation[fixed_axis] < 0 ? -orientation[fixed_axis] : orientation[fixed_axis]) -
+                            1 ==
+                        axis)
+                        break;
+                }
+                TEST_ASSERTION(fixed_axis < fixed_count, "Axis is neither fixed nor free.");
+                axes[axis] = (kform_trace_axis_t){
+                    .endpoint = endpoint_sets[axis],
+                    .endpoint_lower = order > 0 ? endpoint_sets_lower[axis] : NULL,
+                    .end = orientation[fixed_axis] < 0 ? 0u : 1u,
+                };
+            }
+            else
+            {
+                const int8_t mapping = orientation[fixed_count + slot];
+                axes[axis] = (kform_trace_axis_t){
+                    .nodes = basis_sets[slot],
+                    .nodes_lower = order > 0 ? basis_sets_lower[slot] : NULL,
+                    .rule_size = canonical_specs[slot].order + 1,
+                    .stride_slot = slot,
+                    .mirror = mapping < 0,
+                };
+            }
+        }
+    }
+    else
+    {
+        for (unsigned axis = 0; axis < face_dim; ++axis)
+        {
+            axes[axis] = (kform_trace_axis_t){
+                .nodes = basis_sets[axis],
+                .nodes_lower = order > 0 ? basis_sets_lower[axis] : NULL,
+                .rule_size = canonical_specs[axis].order + 1,
+                .stride_slot = axis,
+                .mirror = 0,
+            };
+        }
+    }
+
+    const kform_spec_t descriptor = {.ndim = ndim, .order = order, .basis = basis_specs};
+    const size_t total_dofs = kform_spec_total_dofs(&descriptor);
+    *out = (test_table_t){};
+    out->values = malloc(sizeof(*out->values) * total_dofs * point_count);
+    TEST_ASSERTION(out->values != NULL, "Could not allocate test table values.");
+    kform_spec_component_offsets(&descriptor, component_count + 1, out->offsets);
+    for (unsigned component = 0; component < component_count; ++component)
+    {
+        const size_t dof_count = out->offsets[component + 1] - out->offsets[component];
+        if (dof_count == 0)
+            continue;
+        uint8_t component_axes[UINT8_MAX];
+        kform_component_axes(&descriptor, component, component_axes);
+        kform_component_basis_values(ndim, basis_specs, order, component_axes, axes, canonical_strides, point_count,
+                                     out->values + out->offsets[component] * point_count);
+    }
+    out->descriptor = (kform_values_table_t){.component_count = component_count,
+                                             .point_count = point_count,
+                                             .component_offsets = out->offsets,
+                                             .values = out->values};
+    if (basis_sets_lower)
+    {
+        for (unsigned axis = 0; axis < free_count; ++axis)
+            basis_set_registry_release_basis_set(registry, basis_sets_lower[axis]);
+    }
+    if (basis_sets)
+    {
+        for (unsigned axis = 0; axis < free_count; ++axis)
+            basis_set_registry_release_basis_set(registry, basis_sets[axis]);
+    }
+    if (endpoint_sets_lower)
+    {
+        for (unsigned axis = 0; axis < ndim; ++axis)
+            basis_set_registry_release_basis_endpoints(registry, endpoint_sets_lower[axis]);
+    }
+    if (endpoint_sets)
+    {
+        for (unsigned axis = 0; axis < ndim; ++axis)
+            basis_set_registry_release_basis_endpoints(registry, endpoint_sets[axis]);
+    }
+    return 0;
 }
 
 static void test_reference_sizing(void)
@@ -123,14 +300,16 @@ static void test_reference_sizing(void)
     size_t row_count;
     size_t entry_count;
 
-    TEST_ASSERTION(constraint_reference_required(&test_spec, sides, &row_count, &entry_count) == CONSTRAINT_SUCCESS,
-                   "Could not size reference constraints.");
+    constraint_reference_layout(&test_spec, sides, &row_count, &entry_count);
     TEST_ASSERTION(row_count == 2, "Unexpected reference constraint row count.");
     TEST_ASSERTION(entry_count == 24, "Unexpected reference constraint entry count.");
 }
 
 static void test_reference_endpoint_assembly(void)
 {
+    basis_set_registry_t *registry;
+    TEST_ASSERTION(basis_set_registry_create(&registry, 1, &SYSTEM_TEST_ALLOCATOR) == FDG_SUCCESS,
+                   "Could not create the basis registry.");
     const basis_spec_t element_basis[] = {basis_spec(1)};
     const int8_t lower[] = {-1};
     const int8_t upper[] = {1};
@@ -139,344 +318,492 @@ static void test_reference_endpoint_assembly(void)
         {.ndim = 1, .basis_specs = element_basis, .orientation = lower},
         {.ndim = 1, .basis_specs = element_basis, .orientation = upper},
     };
-    size_t row_offsets[2];
-    constraint_entry_t entries[4];
-    size_t row_count;
-    size_t entry_count;
+    const size_t point_count = 1;
+    const double point_weights[1] = {1.0};
+    test_table_t test_table;
+    test_table_build(registry, 1, 0, 0, element_basis, lower, NULL, NULL, NULL, 0, point_count, &test_table);
+    test_table_t element_tables_raw[2];
+    const kform_values_table_t *element_tables[2];
+    for (unsigned side = 0; side < 2; ++side)
+    {
+        test_table_build(registry, 1, 0, 0, element_basis, sides[side].orientation, NULL, NULL, NULL, 1, point_count,
+                         &element_tables_raw[side]);
+        element_tables[side] = &element_tables_raw[side].descriptor;
+    }
 
-    TEST_ASSERTION(constraint_reference_assemble(&test_spec, sides, NULL, 2, row_offsets, 4, entries, &row_count,
-                                                 &entry_count) == CONSTRAINT_SUCCESS,
-                   "Could not assemble endpoint constraint.");
-    TEST_ASSERTION(row_count == 1 && entry_count == 4, "Unexpected endpoint constraint dimensions.");
-    TEST_ASSERTION(row_offsets[0] == 0 && row_offsets[1] == 4, "Unexpected endpoint row offsets.");
-    TEST_ASSERTION(entries[0].side == 0 && entries[0].local_dof == 0, "Unexpected lower endpoint entry.");
-    TEST_NUMBERS_CLOSE(entries[0].coefficient, 1.0, 1e-12, 0);
-    TEST_NUMBERS_CLOSE(entries[1].coefficient, -1.0, 1e-12, 0);
-    TEST_ASSERTION(entries[2].side == 1 && entries[2].local_dof == 0, "Unexpected upper endpoint entry.");
-    TEST_NUMBERS_CLOSE(entries[2].coefficient, -1.0, 1e-12, 0);
-    TEST_NUMBERS_CLOSE(entries[3].coefficient, -1.0, 1e-12, 0);
+    uint8_t out_sides[4];
+    uint32_t out_components[4];
+    size_t out_local_dofs[4];
+    double out_coefficients[4];
+    size_t out_row_offsets[2];
+    constraint_reference_assemble(&test_spec, sides, point_weights, &test_table.descriptor, element_tables, out_sides,
+                                  out_components, out_local_dofs, out_coefficients, out_row_offsets);
+    TEST_ASSERTION(out_row_offsets[0] == 0 && out_row_offsets[1] == 4, "Unexpected endpoint row offsets.");
+    TEST_ASSERTION(out_sides[0] == 0 && out_local_dofs[0] == 0, "Unexpected lower endpoint entry.");
+    TEST_NUMBERS_CLOSE(out_coefficients[0], 1.0, 1e-12, 0);
+    TEST_NUMBERS_CLOSE(out_coefficients[1], -1.0, 1e-12, 0);
+    TEST_ASSERTION(out_sides[2] == 1 && out_local_dofs[2] == 0, "Unexpected upper endpoint entry.");
+    TEST_NUMBERS_CLOSE(out_coefficients[2], -1.0, 1e-12, 0);
+    TEST_NUMBERS_CLOSE(out_coefficients[3], -1.0, 1e-12, 0);
+
+    test_table_free(&test_table);
+    test_table_free(&element_tables_raw[0]);
+    test_table_free(&element_tables_raw[1]);
+    basis_set_registry_destroy(registry);
 }
 
 static void test_reference_edge_assembly(void)
 {
+    basis_set_registry_t *registry;
+    TEST_ASSERTION(basis_set_registry_create(&registry, 1, &SYSTEM_TEST_ALLOCATOR) == FDG_SUCCESS,
+                   "Could not create the basis registry.");
     const basis_spec_t test_basis[] = {basis_spec(1)};
     const basis_spec_t element_basis[] = {basis_spec(1), basis_spec(1)};
     const int8_t lower[] = {-1, 2};
     const int8_t upper_reversed[] = {1, -2};
     integration_rule_t *quadrature;
-    integration_rule_for_order(&quadrature, INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE, 1, &SYSTEM_TEST_ALLOCATOR);
+    TEST_ASSERTION(integration_rule_for_order(&quadrature, INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE, 1,
+                                              &SYSTEM_TEST_ALLOCATOR) == FDG_SUCCESS,
+                   "Could not create the quadrature rule.");
+    const integration_rule_t *rules[1] = {quadrature};
+    const integration_spec_t rule_specs[1] = {quadrature->spec};
+    size_t strides[1];
+    integration_spec_point_strides(1, rule_specs, strides);
+    const size_t point_count = integration_specs_total_points(1, rule_specs);
+    double point_weights[2];
+    integration_rule_tensor_weights(1, rules, point_weights);
+
     const kform_spec_t test_spec = {.ndim = 1, .order = 0, .basis = test_basis};
     const constraint_element_side_t sides[] = {
         {.ndim = 2, .basis_specs = element_basis, .orientation = lower},
         {.ndim = 2, .basis_specs = element_basis, .orientation = upper_reversed},
     };
-    size_t row_offsets[3];
-    constraint_entry_t entries[16];
+
     size_t row_count;
     size_t entry_count;
-    size_t required_rows;
-    size_t required_entries;
-    TEST_ASSERTION(constraint_reference_required(&test_spec, sides, &required_rows, &required_entries) ==
-                       CONSTRAINT_SUCCESS,
-                   "Could not size edge constraint.");
-    TEST_ASSERTION(required_rows == 2 && required_entries == 16, "Unexpected edge sizing: %zu rows, %zu entries.",
-                   required_rows, required_entries);
+    constraint_reference_layout(&test_spec, sides, &row_count, &entry_count);
+    TEST_ASSERTION(row_count == 2 && entry_count == 16, "Unexpected edge sizing: %zu rows, %zu entries.", row_count,
+                   entry_count);
 
-    const constraint_status_t status =
-        constraint_reference_assemble(&test_spec, sides, (const integration_rule_t **)&quadrature, 3, row_offsets, 16,
-                                      entries, &row_count, &entry_count);
-    TEST_ASSERTION(status == CONSTRAINT_SUCCESS, "Could not assemble edge constraint: %s (%s)",
-                   constraint_status_to_str(status), constraint_status_msg(status));
-    TEST_ASSERTION(row_count == 2 && entry_count == 16, "Unexpected edge constraint dimensions.");
-    TEST_ASSERTION(row_offsets[0] == 0 && row_offsets[1] == 8 && row_offsets[2] == 16, "Unexpected edge row offsets.");
-    TEST_NUMBERS_CLOSE(entries[0].coefficient, 2.0, 1e-12, 0);
-    TEST_NUMBERS_CLOSE(entries[1].coefficient, 0.0, 1e-12, 0);
-    TEST_NUMBERS_CLOSE(entries[2].coefficient, -2.0, 1e-12, 0);
-    TEST_NUMBERS_CLOSE(entries[3].coefficient, 0.0, 1e-12, 0);
-    TEST_NUMBERS_CLOSE(entries[8].coefficient, 0.0, 1e-12, 0);
-    TEST_NUMBERS_CLOSE(entries[9].coefficient, 2.0 / 3.0, 1e-12, 0);
-    TEST_NUMBERS_CLOSE(entries[10].coefficient, 0.0, 1e-12, 0);
-    TEST_NUMBERS_CLOSE(entries[11].coefficient, -2.0 / 3.0, 1e-12, 0);
-    TEST_NUMBERS_CLOSE(entries[12].coefficient, 0.0, 1e-12, 0);
-    TEST_NUMBERS_CLOSE(entries[13].coefficient, 2.0 / 3.0, 1e-12, 0);
-    TEST_NUMBERS_CLOSE(entries[14].coefficient, 0.0, 1e-12, 0);
-    TEST_NUMBERS_CLOSE(entries[15].coefficient, 2.0 / 3.0, 1e-12, 0);
+    test_table_t test_table;
+    test_table_build(registry, 2, 1, 0, test_basis, lower, rule_specs, rules, strides, 0, point_count, &test_table);
+    test_table_t element_tables_raw[2];
+    const kform_values_table_t *element_tables[2];
+    for (unsigned side = 0; side < 2; ++side)
+    {
+        test_table_build(registry, 2, 1, 0, element_basis, sides[side].orientation, rule_specs, rules, strides, 1,
+                         point_count, &element_tables_raw[side]);
+        element_tables[side] = &element_tables_raw[side].descriptor;
+    }
+
+    uint8_t out_sides[16];
+    uint32_t out_components[16];
+    size_t out_local_dofs[16];
+    double out_coefficients[16];
+    size_t out_row_offsets[3];
+    constraint_reference_assemble(&test_spec, sides, point_weights, &test_table.descriptor, element_tables, out_sides,
+                                  out_components, out_local_dofs, out_coefficients, out_row_offsets);
+    TEST_ASSERTION(out_row_offsets[0] == 0 && out_row_offsets[1] == 8 && out_row_offsets[2] == 16,
+                   "Unexpected edge row offsets.");
+    TEST_NUMBERS_CLOSE(out_coefficients[0], 2.0, 1e-12, 0);
+    TEST_NUMBERS_CLOSE(out_coefficients[1], 0.0, 1e-12, 0);
+    TEST_NUMBERS_CLOSE(out_coefficients[2], -2.0, 1e-12, 0);
+    TEST_NUMBERS_CLOSE(out_coefficients[3], 0.0, 1e-12, 0);
+    TEST_NUMBERS_CLOSE(out_coefficients[8], 0.0, 1e-12, 0);
+    TEST_NUMBERS_CLOSE(out_coefficients[9], 2.0 / 3.0, 1e-12, 0);
+    TEST_NUMBERS_CLOSE(out_coefficients[10], 0.0, 1e-12, 0);
+    TEST_NUMBERS_CLOSE(out_coefficients[11], -2.0 / 3.0, 1e-12, 0);
+    TEST_NUMBERS_CLOSE(out_coefficients[12], 0.0, 1e-12, 0);
+    TEST_NUMBERS_CLOSE(out_coefficients[13], 2.0 / 3.0, 1e-12, 0);
+    TEST_NUMBERS_CLOSE(out_coefficients[14], 0.0, 1e-12, 0);
+    TEST_NUMBERS_CLOSE(out_coefficients[15], 2.0 / 3.0, 1e-12, 0);
+
+    test_table_free(&test_table);
+    test_table_free(&element_tables_raw[0]);
+    test_table_free(&element_tables_raw[1]);
     cutl_dealloc(&SYSTEM_TEST_ALLOCATOR, quadrature);
+    basis_set_registry_destroy(registry);
 }
 
 static void test_reference_one_form_component(void)
 {
+    basis_set_registry_t *registry;
+    TEST_ASSERTION(basis_set_registry_create(&registry, 1, &SYSTEM_TEST_ALLOCATOR) == FDG_SUCCESS,
+                   "Could not create the basis registry.");
     const basis_spec_t test_basis[] = {basis_spec(1)};
     const basis_spec_t element_basis[] = {basis_spec(1), basis_spec(1)};
     const int8_t lower[] = {-1, 2};
     const int8_t upper[] = {1, 2};
     integration_rule_t *quadrature;
-    integration_rule_for_order(&quadrature, INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE, 1, &SYSTEM_TEST_ALLOCATOR);
+    TEST_ASSERTION(integration_rule_for_order(&quadrature, INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE, 1,
+                                              &SYSTEM_TEST_ALLOCATOR) == FDG_SUCCESS,
+                   "Could not create the quadrature rule.");
+    const integration_rule_t *rules[1] = {quadrature};
+    const integration_spec_t rule_specs[1] = {quadrature->spec};
+    size_t strides[1];
+    integration_spec_point_strides(1, rule_specs, strides);
+    const size_t point_count = integration_specs_total_points(1, rule_specs);
+    double point_weights[2];
+    integration_rule_tensor_weights(1, rules, point_weights);
+
     const kform_spec_t test_spec = {.ndim = 1, .order = 1, .basis = test_basis};
     const constraint_element_side_t sides[] = {
         {.ndim = 2, .basis_specs = element_basis, .orientation = lower},
         {.ndim = 2, .basis_specs = element_basis, .orientation = upper},
     };
-    size_t row_offsets[2];
-    constraint_entry_t entries[4];
-    size_t row_count;
-    size_t entry_count;
 
-    TEST_ASSERTION(constraint_reference_assemble(&test_spec, sides, (const integration_rule_t **)&quadrature, 2,
-                                                 row_offsets, 4, entries, &row_count,
-                                                 &entry_count) == CONSTRAINT_SUCCESS,
-                   "Could not assemble tangential one-form constraint.");
-    TEST_ASSERTION(row_count == 1 && entry_count == 4, "Unexpected tangential one-form dimensions.");
-    TEST_NUMBERS_CLOSE(entries[0].coefficient, 2.0, 1e-12, 0);
-    TEST_NUMBERS_CLOSE(entries[1].coefficient, -2.0, 1e-12, 0);
-    TEST_NUMBERS_CLOSE(entries[2].coefficient, -2.0, 1e-12, 0);
-    TEST_NUMBERS_CLOSE(entries[3].coefficient, -2.0, 1e-12, 0);
+    test_table_t test_table;
+    test_table_build(registry, 2, 1, 1, test_basis, lower, rule_specs, rules, strides, 0, point_count, &test_table);
+    test_table_t element_tables_raw[2];
+    const kform_values_table_t *element_tables[2];
+    for (unsigned side = 0; side < 2; ++side)
+    {
+        test_table_build(registry, 2, 1, 1, element_basis, sides[side].orientation, rule_specs, rules, strides, 1,
+                         point_count, &element_tables_raw[side]);
+        element_tables[side] = &element_tables_raw[side].descriptor;
+    }
 
-    const kform_spec_t invalid_test = {.ndim = 1, .order = 2, .basis = test_basis};
-    size_t required_rows;
-    size_t required_entries;
-    TEST_ASSERTION(constraint_reference_required(&invalid_test, sides, &required_rows, &required_entries) ==
-                       CONSTRAINT_INVALID_ORDER,
-                   "A normal one-form test was accepted on a one-dimensional boundary.");
+    uint8_t out_sides[4];
+    uint32_t out_components[4];
+    size_t out_local_dofs[4];
+    double out_coefficients[4];
+    size_t out_row_offsets[2];
+    constraint_reference_assemble(&test_spec, sides, point_weights, &test_table.descriptor, element_tables, out_sides,
+                                  out_components, out_local_dofs, out_coefficients, out_row_offsets);
+    TEST_NUMBERS_CLOSE(out_coefficients[0], 2.0, 1e-12, 0);
+    TEST_NUMBERS_CLOSE(out_coefficients[1], -2.0, 1e-12, 0);
+    TEST_NUMBERS_CLOSE(out_coefficients[2], -2.0, 1e-12, 0);
+    TEST_NUMBERS_CLOSE(out_coefficients[3], -2.0, 1e-12, 0);
+
+    test_table_free(&test_table);
+    test_table_free(&element_tables_raw[0]);
+    test_table_free(&element_tables_raw[1]);
     cutl_dealloc(&SYSTEM_TEST_ALLOCATOR, quadrature);
+    basis_set_registry_destroy(registry);
 }
 
 static void test_physical_scalar_measure(void)
 {
+    basis_set_registry_t *registry;
+    TEST_ASSERTION(basis_set_registry_create(&registry, 1, &SYSTEM_TEST_ALLOCATOR) == FDG_SUCCESS,
+                   "Could not create the basis registry.");
     const basis_spec_t test_basis[] = {basis_spec(1)};
     const basis_spec_t element_basis[] = {basis_spec(1), basis_spec(1)};
     const int8_t lower[] = {-1, 2};
     const int8_t upper[] = {1, 2};
     const double surface_weights[] = {3.0, 3.0};
     integration_rule_t *quadrature;
-    integration_rule_for_order(&quadrature, INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE, 1, &SYSTEM_TEST_ALLOCATOR);
-    const constraint_face_quadrature_t face_quadrature[] = {
-        {.ndim = 1, .axes = (const integration_rule_t **)&quadrature, .point_count = 2},
-        {.ndim = 1, .axes = (const integration_rule_t **)&quadrature, .point_count = 2},
-    };
-    const double *const side_surface_weights[] = {surface_weights, surface_weights};
+    TEST_ASSERTION(integration_rule_for_order(&quadrature, INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE, 1,
+                                              &SYSTEM_TEST_ALLOCATOR) == FDG_SUCCESS,
+                   "Could not create the quadrature rule.");
+    const integration_rule_t *rules[1] = {quadrature};
+    const integration_spec_t rule_specs[1] = {quadrature->spec};
+    size_t strides[1];
+    integration_spec_point_strides(1, rule_specs, strides);
+    const size_t point_count = integration_specs_total_points(1, rule_specs);
+    double point_weights[2];
+    integration_rule_tensor_weights(1, rules, point_weights);
+
     const kform_spec_t test_spec = {.ndim = 1, .order = 0, .basis = test_basis};
     const constraint_element_side_t sides[] = {
         {.ndim = 2, .basis_specs = element_basis, .orientation = lower},
         {.ndim = 2, .basis_specs = element_basis, .orientation = upper},
     };
-    const constraint_trace_pullback_t pullbacks[2] = {};
-    size_t row_offsets[3];
-    constraint_entry_t entries[16];
+
+    test_table_t test_table;
+    test_table_build(registry, 2, 1, 0, test_basis, lower, rule_specs, rules, strides, 0, point_count, &test_table);
+    test_table_t element_tables_raw[2];
+    constraint_assembly_inputs_t inputs[2];
+    for (unsigned side = 0; side < 2; ++side)
+    {
+        test_table_build(registry, 2, 1, 0, element_basis, sides[side].orientation, rule_specs, rules, strides, 1,
+                         point_count, &element_tables_raw[side]);
+        inputs[side] = (constraint_assembly_inputs_t){.point_weights = point_weights,
+                                                      .surface_weights = surface_weights,
+                                                      .test_table = &test_table.descriptor,
+                                                      .element_table = &element_tables_raw[side].descriptor,
+                                                      .pullback = NULL};
+    }
+
+    uint8_t reference_sides[16];
+    uint32_t reference_components[16];
+    size_t reference_local_dofs[16];
+    double reference_coefficients[16];
     size_t reference_row_offsets[3];
-    constraint_entry_t reference_entries[16];
-    size_t row_count;
-    size_t entry_count;
-    size_t reference_row_count;
-    size_t reference_entry_count;
+    const kform_values_table_t *reference_tables[2] = {&element_tables_raw[0].descriptor,
+                                                       &element_tables_raw[1].descriptor};
+    constraint_reference_assemble(&test_spec, sides, point_weights, &test_table.descriptor, reference_tables,
+                                  reference_sides, reference_components, reference_local_dofs, reference_coefficients,
+                                  reference_row_offsets);
 
-    TEST_ASSERTION(constraint_reference_assemble(&test_spec, sides, (const integration_rule_t **)&quadrature, 3,
-                                                 reference_row_offsets, 16, reference_entries, &reference_row_count,
-                                                 &reference_entry_count) == CONSTRAINT_SUCCESS,
-                   "Could not assemble reference scalar constraint.");
+    uint8_t out_sides[16];
+    uint32_t out_components[16];
+    size_t out_local_dofs[16];
+    double out_coefficients[16];
+    size_t out_row_offsets[3];
+    constraint_physical_assemble(&test_spec, sides, inputs, out_sides, out_components, out_local_dofs, out_coefficients,
+                                 out_row_offsets);
+    TEST_ASSERTION(out_row_offsets[0] == 0 && out_row_offsets[1] == 8 && out_row_offsets[2] == 16,
+                   "Unexpected weighted scalar row offsets.");
+    for (size_t i = 0; i < 16; ++i)
+    {
+        TEST_ASSERTION(out_components[i] == reference_components[i] && out_local_dofs[i] == reference_local_dofs[i],
+                       "Weighted scalar metadata differs from the reference at entry %zu.", i);
+        TEST_NUMBERS_CLOSE(out_coefficients[i], 3.0 * reference_coefficients[i], 1e-12, 0);
+    }
 
-    const constraint_status_t status =
-        constraint_physical_assemble(&test_spec, sides, face_quadrature, side_surface_weights, pullbacks, 3,
-                                     row_offsets, 16, entries, &row_count, &entry_count);
-    TEST_ASSERTION(status == CONSTRAINT_SUCCESS, "Could not assemble weighted scalar constraint: %s (%s)",
-                   constraint_status_to_str(status), constraint_status_msg(status));
-    TEST_ASSERTION(row_count == reference_row_count && entry_count == reference_entry_count && row_count == 2 &&
-                       entry_count == 16,
-                   "Unexpected weighted scalar dimensions.");
-    for (size_t i = 0; i < entry_count; ++i)
-        TEST_NUMBERS_CLOSE(entries[i].coefficient, 3.0 * reference_entries[i].coefficient, 1e-12, 0);
-
+    test_table_free(&test_table);
+    test_table_free(&element_tables_raw[0]);
+    test_table_free(&element_tables_raw[1]);
     cutl_dealloc(&SYSTEM_TEST_ALLOCATOR, quadrature);
+    basis_set_registry_destroy(registry);
 }
 
 static void test_physical_batch_scalar(void)
 {
+    basis_set_registry_t *registry;
+    TEST_ASSERTION(basis_set_registry_create(&registry, 1, &SYSTEM_TEST_ALLOCATOR) == FDG_SUCCESS,
+                   "Could not create the basis registry.");
     const basis_spec_t test_basis[] = {basis_spec(1)};
     const basis_spec_t element_basis[] = {basis_spec(1), basis_spec(1)};
     const int8_t lower[] = {-1, 2};
     const int8_t upper[] = {1, 2};
     const double surface_weights[] = {3.0, 3.0};
     integration_rule_t *quadrature;
-    integration_rule_for_order(&quadrature, INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE, 1, &SYSTEM_TEST_ALLOCATOR);
-    const constraint_face_quadrature_t quadrature_faces[] = {
-        {.ndim = 1, .axes = (const integration_rule_t **)&quadrature, .point_count = 2},
-        {.ndim = 1, .axes = (const integration_rule_t **)&quadrature, .point_count = 2},
-    };
+    TEST_ASSERTION(integration_rule_for_order(&quadrature, INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE, 1,
+                                              &SYSTEM_TEST_ALLOCATOR) == FDG_SUCCESS,
+                   "Could not create the quadrature rule.");
+    const integration_rule_t *rules[1] = {quadrature};
+    const integration_spec_t rule_specs[1] = {quadrature->spec};
+    size_t strides[1];
+    integration_spec_point_strides(1, rule_specs, strides);
+    const size_t point_count = integration_specs_total_points(1, rule_specs);
+    double point_weights[2];
+    integration_rule_tensor_weights(1, rules, point_weights);
+
     const constraint_element_side_t sides[] = {
         {.ndim = 2, .basis_specs = element_basis, .orientation = lower},
         {.ndim = 2, .basis_specs = element_basis, .orientation = upper},
     };
     const kform_spec_t test_spec = {.ndim = 1, .order = 0, .basis = test_basis};
-    const constraint_physical_batch_item_t items[] = {
-        {.sides = sides,
-         .quadrature = quadrature_faces,
-         .surface_weights = {surface_weights, surface_weights},
-         .pullbacks = NULL},
-        {.sides = sides,
-         .quadrature = quadrature_faces,
-         .surface_weights = {surface_weights, surface_weights},
-         .pullbacks = NULL},
-    };
-    size_t required_rows;
-    size_t required_entries;
-    TEST_ASSERTION(constraint_physical_batch_required(&test_spec, 2, items, &required_rows, &required_entries) ==
-                       CONSTRAINT_SUCCESS,
-                   "Could not size physical constraint batch.");
-    TEST_ASSERTION(required_rows == 4 && required_entries == 32, "Unexpected physical batch dimensions.");
 
-    size_t row_offsets[5];
-    constraint_entry_t entries[32];
+    test_table_t test_table;
+    test_table_build(registry, 2, 1, 0, test_basis, lower, rule_specs, rules, strides, 0, point_count, &test_table);
+    test_table_t element_tables_raw[2];
+    constraint_assembly_inputs_t inputs[2];
+    for (unsigned side = 0; side < 2; ++side)
+    {
+        test_table_build(registry, 2, 1, 0, element_basis, sides[side].orientation, rule_specs, rules, strides, 1,
+                         point_count, &element_tables_raw[side]);
+        inputs[side] = (constraint_assembly_inputs_t){.point_weights = point_weights,
+                                                      .surface_weights = surface_weights,
+                                                      .test_table = &test_table.descriptor,
+                                                      .element_table = &element_tables_raw[side].descriptor,
+                                                      .pullback = NULL};
+    }
+    const constraint_physical_batch_item_t items[] = {
+        {.sides = sides, .inputs = {inputs[0], inputs[1]}},
+        {.sides = sides, .inputs = {inputs[0], inputs[1]}},
+    };
+
     size_t row_count;
     size_t entry_count;
-    TEST_ASSERTION(constraint_physical_batch_assemble(&test_spec, 2, items, 5, row_offsets, 32, entries, &row_count,
-                                                      &entry_count) == CONSTRAINT_SUCCESS,
-                   "Could not assemble physical constraint batch.");
-    TEST_ASSERTION(row_count == required_rows && entry_count == required_entries && row_offsets[0] == 0 &&
-                       row_offsets[2] == 16 && row_offsets[4] == 32,
-                   "Physical batch output dimensions or offsets are wrong.");
+    constraint_physical_batch_layout(&test_spec, 2, items, &row_count, &entry_count);
+    TEST_ASSERTION(row_count == 4 && entry_count == 32, "Unexpected physical batch dimensions.");
+
+    uint8_t out_sides[32];
+    uint32_t out_components[32];
+    size_t out_local_dofs[32];
+    double out_coefficients[32];
+    size_t out_row_offsets[5];
+    constraint_physical_batch_assemble(&test_spec, 2, items, out_sides, out_components, out_local_dofs,
+                                       out_coefficients, out_row_offsets);
+    TEST_ASSERTION(out_row_offsets[0] == 0 && out_row_offsets[2] == 16 && out_row_offsets[4] == 32,
+                   "Physical batch output offsets are wrong.");
+
+    test_table_free(&test_table);
+    test_table_free(&element_tables_raw[0]);
+    test_table_free(&element_tables_raw[1]);
     cutl_dealloc(&SYSTEM_TEST_ALLOCATOR, quadrature);
+    basis_set_registry_destroy(registry);
 }
 
-static void test_physical_precomputed_scalar(void)
+static void test_physical_side_against_reference(void)
 {
+    basis_set_registry_t *registry;
+    TEST_ASSERTION(basis_set_registry_create(&registry, 1, &SYSTEM_TEST_ALLOCATOR) == FDG_SUCCESS,
+                   "Could not create the basis registry.");
     const basis_spec_t test_basis[] = {basis_spec(1)};
     const basis_spec_t element_basis[] = {basis_spec(1), basis_spec(1)};
     const int8_t orientation[] = {-1, 2};
     const double surface_weights[] = {3.0, 3.0};
     integration_rule_t *quadrature;
-    integration_rule_for_order(&quadrature, INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE, 1, &SYSTEM_TEST_ALLOCATOR);
-    const double *nodes = integration_rule_nodes_const(quadrature);
-    const constraint_face_quadrature_t face_quadrature = {
-        .ndim = 1, .axes = (const integration_rule_t **)&quadrature, .point_count = 2};
+    TEST_ASSERTION(integration_rule_for_order(&quadrature, INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE, 1,
+                                              &SYSTEM_TEST_ALLOCATOR) == FDG_SUCCESS,
+                   "Could not create the quadrature rule.");
+    const integration_rule_t *rules[1] = {quadrature};
+    const integration_spec_t rule_specs[1] = {quadrature->spec};
+    size_t strides[1];
+    integration_spec_point_strides(1, rule_specs, strides);
+    const size_t point_count = integration_specs_total_points(1, rule_specs);
+    double point_weights[2];
+    integration_rule_tensor_weights(1, rules, point_weights);
+
     const kform_spec_t test_spec = {.ndim = 1, .order = 0, .basis = test_basis};
     const constraint_element_side_t side = {.ndim = 2, .basis_specs = element_basis, .orientation = orientation};
-    const size_t test_offsets[] = {0, 2};
-    const double test_values[] = {1.0, nodes[0], 1.0, nodes[1]};
-    const constraint_trace_basis_values_t test_basis_values = {
-        .component_count = 1, .point_count = 2, .component_offsets = test_offsets, .values = test_values};
-    const size_t element_offsets[] = {0, 4};
-    const double element_values[] = {1.0, -1.0, nodes[0], -nodes[0], 1.0, -1.0, nodes[1], -nodes[1]};
-    const constraint_trace_basis_values_t element_basis_values = {
-        .component_count = 1, .point_count = 2, .component_offsets = element_offsets, .values = element_values};
-    size_t reference_offsets[3];
-    constraint_entry_t reference_entries[8];
-    size_t reference_rows;
-    size_t reference_entry_count;
-    TEST_ASSERTION(constraint_physical_side_assemble(&test_spec, &side, &face_quadrature, surface_weights, NULL, 3,
-                                                     reference_offsets, 8, reference_entries, &reference_rows,
-                                                     &reference_entry_count) == CONSTRAINT_SUCCESS,
-                   "Could not assemble scalar reference trace.");
+    const constraint_element_side_t sides[2] = {side, side};
 
-    size_t offsets[3];
-    constraint_entry_t entries[8];
-    size_t rows;
-    size_t entry_count;
-    TEST_ASSERTION(constraint_physical_side_assemble_precomputed(
-                       &test_spec, &side, &face_quadrature, surface_weights, NULL, &test_basis_values,
-                       &element_basis_values, 3, offsets, 8, entries, &rows, &entry_count) == CONSTRAINT_SUCCESS,
-                   "Could not assemble precomputed scalar trace.");
-    TEST_ASSERTION(rows == reference_rows && entry_count == reference_entry_count,
-                   "Precomputed trace dimensions differ from the reference.");
-    for (size_t i = 0; i < rows + 1; ++i)
-        TEST_ASSERTION(offsets[i] == reference_offsets[i], "Precomputed trace offsets differ at %zu.", i);
-    for (size_t i = 0; i < entry_count; ++i)
+    test_table_t test_table;
+    test_table_build(registry, 2, 1, 0, test_basis, orientation, rule_specs, rules, strides, 0, point_count,
+                     &test_table);
+    test_table_t element_table_raw;
+    test_table_build(registry, 2, 1, 0, element_basis, orientation, rule_specs, rules, strides, 1, point_count,
+                     &element_table_raw);
+    const constraint_assembly_inputs_t inputs = {.point_weights = point_weights,
+                                                 .surface_weights = surface_weights,
+                                                 .test_table = &test_table.descriptor,
+                                                 .element_table = &element_table_raw.descriptor,
+                                                 .pullback = NULL};
+
+    // The one-sided physical trace must equal side zero of the two-sided
+    // reference trace, scaled by the constant surface measure.
+    uint8_t reference_sides[16];
+    uint32_t reference_components[16];
+    size_t reference_local_dofs[16];
+    double reference_coefficients[16];
+    size_t reference_row_offsets[3];
+    const kform_values_table_t *reference_tables[2] = {&element_table_raw.descriptor, &element_table_raw.descriptor};
+    constraint_reference_assemble(&test_spec, sides, point_weights, &test_table.descriptor, reference_tables,
+                                  reference_sides, reference_components, reference_local_dofs, reference_coefficients,
+                                  reference_row_offsets);
+
+    uint32_t out_components[8];
+    size_t out_local_dofs[8];
+    double out_coefficients[8];
+    size_t out_row_offsets[3];
+    constraint_physical_side_assemble(&test_spec, &side, &inputs, out_components, out_local_dofs, out_coefficients,
+                                      out_row_offsets);
+    TEST_ASSERTION(out_row_offsets[0] == 0 && out_row_offsets[1] == 4 && out_row_offsets[2] == 8,
+                   "Unexpected one-sided row offsets.");
+    for (size_t row = 0; row < 2; ++row)
     {
-        TEST_ASSERTION(entries[i].component == reference_entries[i].component &&
-                           entries[i].local_dof == reference_entries[i].local_dof,
-                       "Precomputed trace metadata differs at %zu.", i);
-        TEST_NUMBERS_CLOSE(entries[i].coefficient, reference_entries[i].coefficient, 1e-12, i);
+        for (size_t i = 0; i < 4; ++i)
+        {
+            // Reference rows interleave side 0 and side 1; side zero holds
+            // the first four entries of each row.
+            const size_t entry = row * 4 + i;
+            const size_t reference_entry = row * 8 + i;
+            TEST_ASSERTION(out_components[entry] == reference_components[reference_entry] &&
+                               out_local_dofs[entry] == reference_local_dofs[reference_entry],
+                           "One-sided trace metadata differs at entry %zu.", entry);
+            TEST_NUMBERS_CLOSE(out_coefficients[entry], 3.0 * reference_coefficients[reference_entry], 1e-12, 0);
+        }
     }
-    TEST_ASSERTION(constraint_physical_side_assemble_precomputed(&test_spec, &side, &face_quadrature, surface_weights,
-                                                                 NULL, &test_basis_values, &element_basis_values, 3,
-                                                                 offsets, 7, entries, &rows,
-                                                                 &entry_count) == CONSTRAINT_INSUFFICIENT_STORAGE,
-                   "Precomputed trace accepted insufficient entry storage.");
 
+    test_table_free(&test_table);
+    test_table_free(&element_table_raw);
     cutl_dealloc(&SYSTEM_TEST_ALLOCATOR, quadrature);
-}
-
-static void test_physical_single_side(void)
-{
-    const basis_spec_t test_basis[] = {basis_spec(1)};
-    const basis_spec_t element_basis[] = {basis_spec(1), basis_spec(1)};
-    const int8_t orientation[] = {-1, 2};
-    const double surface_weights[] = {1.0, 1.0};
-    integration_rule_t *quadrature;
-    integration_rule_for_order(&quadrature, INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE, 1, &SYSTEM_TEST_ALLOCATOR);
-    const constraint_face_quadrature_t face_quadrature = {
-        .ndim = 1, .axes = (const integration_rule_t **)&quadrature, .point_count = 2};
-    const kform_spec_t test_spec = {.ndim = 1, .order = 0, .basis = test_basis};
-    const constraint_element_side_t side = {.ndim = 2, .basis_specs = element_basis, .orientation = orientation};
-    size_t row_offsets[3];
-    constraint_entry_t entries[8];
-    size_t row_count;
-    size_t entry_count;
-
-    TEST_ASSERTION(constraint_physical_side_assemble(&test_spec, &side, &face_quadrature, surface_weights, NULL, 3,
-                                                     row_offsets, 8, entries, &row_count,
-                                                     &entry_count) == CONSTRAINT_SUCCESS,
-                   "Could not assemble one-element scalar boundary constraints.");
-    TEST_ASSERTION(row_count == 2 && entry_count == 8, "Unexpected one-element constraint dimensions.");
-    TEST_ASSERTION(row_offsets[0] == 0 && row_offsets[1] == 4 && row_offsets[2] == 8,
-                   "Unexpected one-element row offsets.");
-    TEST_ASSERTION(entries[0].side == 0 && entries[7].side == 0, "Unexpected one-element side metadata.");
-    cutl_dealloc(&SYSTEM_TEST_ALLOCATOR, quadrature);
+    basis_set_registry_destroy(registry);
 }
 
 static void test_physical_general_boundary_dimensions(void)
 {
+    basis_set_registry_t *registry;
+    TEST_ASSERTION(basis_set_registry_create(&registry, 1, &SYSTEM_TEST_ALLOCATOR) == FDG_SUCCESS,
+                   "Could not create the basis registry.");
     const basis_spec_t point_basis[] = {basis_spec(1), basis_spec(1), basis_spec(1)};
     const int8_t point_orientation[] = {-1, 2, 3};
     const kform_spec_t point_test = {.ndim = 0, .order = 0, .basis = NULL};
     const constraint_element_side_t point_side = {
         .ndim = 3, .basis_specs = point_basis, .orientation = point_orientation};
-    const constraint_face_quadrature_t point_quadrature = {.ndim = 0, .axes = NULL, .point_count = 1};
-    const double point_weight[] = {1.0};
-    size_t row_offsets[2];
-    constraint_entry_t entries[8];
-    size_t row_count;
-    size_t entry_count;
+    const double point_weight[1] = {1.0};
 
-    TEST_ASSERTION(constraint_physical_side_assemble(&point_test, &point_side, &point_quadrature, point_weight, NULL, 2,
-                                                     row_offsets, 8, entries, &row_count,
-                                                     &entry_count) == CONSTRAINT_SUCCESS,
-                   "Could not assemble a three-dimensional point boundary.");
-    TEST_ASSERTION(row_count == 1 && entry_count == 8, "Unexpected point-boundary dimensions.");
+    test_table_t point_element_table;
+    test_table_build(registry, 3, 0, 0, point_basis, point_orientation, NULL, NULL, NULL, 1, 1, &point_element_table);
+    const constraint_assembly_inputs_t point_inputs = {.point_weights = point_weight,
+                                                       .surface_weights = NULL,
+                                                       .test_table = &point_element_table.descriptor,
+                                                       .element_table = &point_element_table.descriptor,
+                                                       .pullback = NULL};
+    uint32_t out_components[8];
+    size_t out_local_dofs[8];
+    double out_coefficients[8];
+    size_t out_row_offsets[2];
+    constraint_physical_side_assemble(&point_test, &point_side, &point_inputs, out_components, out_local_dofs,
+                                      out_coefficients, out_row_offsets);
+    TEST_ASSERTION(out_row_offsets[0] == 0 && out_row_offsets[1] == 8, "Unexpected point-boundary dimensions.");
 
+    // A three-dimensional line boundary with a permuted, reversed orientation.
     const basis_spec_t line_basis[] = {basis_spec(1), basis_spec(1), basis_spec(1)};
     const int8_t line_orientation[] = {-1, 3, -2};
     const basis_spec_t line_test_basis[] = {basis_spec(1)};
     const kform_spec_t line_test = {.ndim = 1, .order = 0, .basis = line_test_basis};
     const constraint_element_side_t line_side = {.ndim = 3, .basis_specs = line_basis, .orientation = line_orientation};
     integration_rule_t *quad_rule;
-    integration_rule_for_order(&quad_rule, INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE, 1, &SYSTEM_TEST_ALLOCATOR);
-    const constraint_face_quadrature_t line_quadrature = {
-        .ndim = 1, .axes = (const integration_rule_t **)&quad_rule, .point_count = 2};
+    TEST_ASSERTION(integration_rule_for_order(&quad_rule, INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE, 1,
+                                              &SYSTEM_TEST_ALLOCATOR) == FDG_SUCCESS,
+                   "Could not create the quadrature rule.");
+    const integration_rule_t *line_rules[1] = {quad_rule};
+    const integration_spec_t line_rule_specs[1] = {quad_rule->spec};
+    size_t line_strides[1];
+    integration_spec_point_strides(1, line_rule_specs, line_strides);
+    const size_t line_point_count = integration_specs_total_points(1, line_rule_specs);
+    double line_point_weights[2];
+    integration_rule_tensor_weights(1, line_rules, line_point_weights);
+    test_table_t line_test_table;
+    test_table_build(registry, 3, 1, 0, line_test_basis, line_orientation, line_rule_specs, line_rules, line_strides, 0,
+                     line_point_count, &line_test_table);
+    test_table_t line_element_table;
+    test_table_build(registry, 3, 1, 0, line_basis, line_orientation, line_rule_specs, line_rules, line_strides, 1,
+                     line_point_count, &line_element_table);
     const double line_surface[] = {1.0, 1.0};
-    TEST_ASSERTION(constraint_physical_side_required(&line_test, &line_side, &row_count, &entry_count) ==
-                       CONSTRAINT_SUCCESS,
-                   "Could not size a three-dimensional line boundary.");
-    constraint_entry_t *line_entries = malloc(entry_count * sizeof(*line_entries));
-    size_t *line_offsets = malloc((row_count + 1) * sizeof(*line_offsets));
-    TEST_ASSERTION(line_entries && line_offsets, "Could not allocate line-boundary test storage.");
-    TEST_ASSERTION(constraint_physical_side_assemble(&line_test, &line_side, &line_quadrature, line_surface, NULL,
-                                                     row_count + 1, line_offsets, entry_count, line_entries, &row_count,
-                                                     &entry_count) == CONSTRAINT_SUCCESS,
-                   "Could not assemble a three-dimensional line boundary.");
-    free(line_entries);
+    const constraint_assembly_inputs_t line_inputs = {.point_weights = line_point_weights,
+                                                      .surface_weights = line_surface,
+                                                      .test_table = &line_test_table.descriptor,
+                                                      .element_table = &line_element_table.descriptor,
+                                                      .pullback = NULL};
+    size_t row_count;
+    size_t entry_count;
+    constraint_physical_side_layout(&line_test, &line_side, &row_count, &entry_count);
+    uint32_t *const line_components = malloc(entry_count * sizeof(*line_components));
+    size_t *const line_local_dofs = malloc(entry_count * sizeof(*line_local_dofs));
+    double *const line_coefficients = malloc(entry_count * sizeof(*line_coefficients));
+    size_t *const line_offsets = malloc((row_count + 1) * sizeof(*line_offsets));
+    TEST_ASSERTION(line_components && line_local_dofs && line_coefficients && line_offsets,
+                   "Could not allocate line-boundary test storage.");
+    constraint_physical_side_assemble(&line_test, &line_side, &line_inputs, line_components, line_local_dofs,
+                                      line_coefficients, line_offsets);
+    free(line_components);
+    free(line_local_dofs);
+    free(line_coefficients);
     free(line_offsets);
 
+    // A four-dimensional face boundary, scalar and one-form.
     const basis_spec_t face_basis[] = {basis_spec(1), basis_spec(1), basis_spec(1), basis_spec(1)};
     const int8_t face_orientation[] = {-1, 3, -2, 4};
     const basis_spec_t face_test_basis[] = {basis_spec(1), basis_spec(1)};
     const kform_spec_t face_test = {.ndim = 2, .order = 0, .basis = face_test_basis};
     const constraint_element_side_t face_side = {.ndim = 4, .basis_specs = face_basis, .orientation = face_orientation};
-    const integration_rule_t *face_axes[2] = {quad_rule, quad_rule};
-    const constraint_face_quadrature_t face_quadrature = {.ndim = 2, .axes = face_axes, .point_count = 4};
+    const integration_rule_t *face_rules[2] = {quad_rule, quad_rule};
+    const integration_spec_t face_rule_specs[2] = {quad_rule->spec, quad_rule->spec};
+    size_t face_strides[2];
+    integration_spec_point_strides(2, face_rule_specs, face_strides);
+    const size_t face_point_count = integration_specs_total_points(2, face_rule_specs);
+    double face_point_weights[4];
+    integration_rule_tensor_weights(2, face_rules, face_point_weights);
+    test_table_t face_test_table;
+    test_table_build(registry, 4, 2, 0, face_test_basis, face_orientation, face_rule_specs, face_rules, face_strides, 0,
+                     face_point_count, &face_test_table);
+    test_table_t face_element_table;
+    test_table_build(registry, 4, 2, 0, face_basis, face_orientation, face_rule_specs, face_rules, face_strides, 1,
+                     face_point_count, &face_element_table);
     const double face_surface[] = {1.0, 1.0, 1.0, 1.0};
-    TEST_ASSERTION(constraint_physical_side_required(&face_test, &face_side, &row_count, &entry_count) ==
-                       CONSTRAINT_SUCCESS,
-                   "Could not size a four-dimensional face boundary.");
+    const constraint_assembly_inputs_t face_inputs = {.point_weights = face_point_weights,
+                                                      .surface_weights = face_surface,
+                                                      .test_table = &face_test_table.descriptor,
+                                                      .element_table = &face_element_table.descriptor,
+                                                      .pullback = NULL};
+    constraint_physical_side_layout(&face_test, &face_side, &row_count, &entry_count);
     TEST_ASSERTION(row_count == 4 && entry_count == 64, "Unexpected four-dimensional face dimensions.");
 
     const basis_spec_t face_one_form_basis[] = {basis_spec(1), basis_spec(1)};
@@ -486,25 +813,44 @@ static void test_physical_general_boundary_dimensions(void)
         face_pullback_values[i] = 1.0;
     const constraint_trace_pullback_t face_pullback = {
         .physical_component_count = 1, .point_count = 4, .values = face_pullback_values};
-    TEST_ASSERTION(constraint_physical_side_required(&face_one_form_test, &face_side, &row_count, &entry_count) ==
-                       CONSTRAINT_SUCCESS,
-                   "Could not size a four-dimensional one-form face boundary.");
+    test_table_t face_one_form_test_table;
+    test_table_build(registry, 4, 2, 1, face_one_form_basis, face_orientation, face_rule_specs, face_rules,
+                     face_strides, 0, face_point_count, &face_one_form_test_table);
+    test_table_t face_one_form_element_table;
+    test_table_build(registry, 4, 2, 1, face_basis, face_orientation, face_rule_specs, face_rules, face_strides, 1,
+                     face_point_count, &face_one_form_element_table);
+    const constraint_assembly_inputs_t face_one_form_inputs = {.point_weights = face_point_weights,
+                                                               .surface_weights = face_surface,
+                                                               .test_table = &face_one_form_test_table.descriptor,
+                                                               .element_table = &face_one_form_element_table.descriptor,
+                                                               .pullback = &face_pullback};
+    constraint_physical_side_layout(&face_one_form_test, &face_side, &row_count, &entry_count);
     TEST_ASSERTION(row_count == 4 && entry_count == 64, "Unexpected four-dimensional one-form dimensions.");
-    constraint_entry_t face_one_form_entries[64];
+    uint32_t face_one_form_components[64];
+    size_t face_one_form_local_dofs[64];
+    double face_one_form_coefficients[64];
     size_t face_one_form_offsets[5];
-    const constraint_status_t face_status = constraint_physical_side_assemble(
-        &face_one_form_test, &face_side, &face_quadrature, face_surface, &face_pullback, 5, face_one_form_offsets, 64,
-        face_one_form_entries, &row_count, &entry_count);
-    TEST_ASSERTION(face_status == CONSTRAINT_SUCCESS,
-                   "Could not assemble a four-dimensional one-form face boundary: %s",
-                   constraint_status_to_str(face_status));
-    TEST_ASSERTION(face_one_form_entries[0].component == 1 && face_one_form_entries[8].component == 3,
+    constraint_physical_side_assemble(&face_one_form_test, &face_side, &face_one_form_inputs, face_one_form_components,
+                                      face_one_form_local_dofs, face_one_form_coefficients, face_one_form_offsets);
+    TEST_ASSERTION(face_one_form_components[0] == 1 && face_one_form_components[8] == 3,
                    "Unexpected odd-orientation one-form component mapping.");
+
+    test_table_free(&point_element_table);
+    test_table_free(&line_test_table);
+    test_table_free(&line_element_table);
+    test_table_free(&face_test_table);
+    test_table_free(&face_element_table);
+    test_table_free(&face_one_form_test_table);
+    test_table_free(&face_one_form_element_table);
     cutl_dealloc(&SYSTEM_TEST_ALLOCATOR, quad_rule);
+    basis_set_registry_destroy(registry);
 }
 
 static void test_physical_one_form_pullback(void)
 {
+    basis_set_registry_t *registry;
+    TEST_ASSERTION(basis_set_registry_create(&registry, 1, &SYSTEM_TEST_ALLOCATOR) == FDG_SUCCESS,
+                   "Could not create the basis registry.");
     const basis_spec_t test_basis[] = {basis_spec(1)};
     const basis_spec_t element_basis[] = {basis_spec(1), basis_spec(1)};
     const int8_t lower[] = {-1, 2};
@@ -514,51 +860,84 @@ static void test_physical_one_form_pullback(void)
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0,
     };
     integration_rule_t *quad_rule;
-    integration_rule_for_order(&quad_rule, INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE, 1, &SYSTEM_TEST_ALLOCATOR);
-    const constraint_face_quadrature_t face_quadrature[] = {
-        {.ndim = 1, .axes = (const integration_rule_t **)&quad_rule, .point_count = 2},
-        {.ndim = 1, .axes = (const integration_rule_t **)&quad_rule, .point_count = 2},
-    };
-    const double *const side_surface_weights[] = {surface_weights, surface_weights};
+    TEST_ASSERTION(integration_rule_for_order(&quad_rule, INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE, 1,
+                                              &SYSTEM_TEST_ALLOCATOR) == FDG_SUCCESS,
+                   "Could not create the quadrature rule.");
+    const integration_rule_t *rules[1] = {quad_rule};
+    const integration_spec_t rule_specs[1] = {quad_rule->spec};
+    size_t strides[1];
+    integration_spec_point_strides(1, rule_specs, strides);
+    const size_t point_count = integration_specs_total_points(1, rule_specs);
+    double point_weights[2];
+    integration_rule_tensor_weights(1, rules, point_weights);
+
     const kform_spec_t test_spec = {.ndim = 1, .order = 1, .basis = test_basis};
     const constraint_element_side_t sides[] = {
         {.ndim = 2, .basis_specs = element_basis, .orientation = lower},
         {.ndim = 2, .basis_specs = element_basis, .orientation = upper},
     };
-    const constraint_trace_pullback_t pullbacks[] = {
+    const constraint_trace_pullback_t pullbacks[2] = {
         {.physical_component_count = 2, .point_count = 2, .values = identity_pullback},
         {.physical_component_count = 2, .point_count = 2, .values = identity_pullback},
     };
-    size_t row_offsets[2];
-    constraint_entry_t entries[4];
-    size_t row_count;
-    size_t entry_count;
 
-    TEST_ASSERTION(constraint_physical_assemble(&test_spec, sides, face_quadrature, side_surface_weights, pullbacks, 2,
-                                                row_offsets, 4, entries, &row_count,
-                                                &entry_count) == CONSTRAINT_SUCCESS,
-                   "Could not assemble pulled-back one-form constraint.");
-    TEST_ASSERTION(row_count == 1 && entry_count == 4, "Unexpected pulled-back one-form dimensions.");
-    TEST_ASSERTION(entries[0].component == 1 && entries[1].component == 1 && entries[2].component == 1 &&
-                       entries[3].component == 1,
+    test_table_t test_table;
+    test_table_build(registry, 2, 1, 1, test_basis, lower, rule_specs, rules, strides, 0, point_count, &test_table);
+    test_table_t element_tables_raw[2];
+    constraint_assembly_inputs_t inputs[2];
+    for (unsigned side = 0; side < 2; ++side)
+    {
+        test_table_build(registry, 2, 1, 1, element_basis, sides[side].orientation, rule_specs, rules, strides, 1,
+                         point_count, &element_tables_raw[side]);
+        inputs[side] = (constraint_assembly_inputs_t){.point_weights = point_weights,
+                                                      .surface_weights = surface_weights,
+                                                      .test_table = &test_table.descriptor,
+                                                      .element_table = &element_tables_raw[side].descriptor,
+                                                      .pullback = &pullbacks[side]};
+    }
+
+    uint8_t out_sides[4];
+    uint32_t out_components[4];
+    size_t out_local_dofs[4];
+    double out_coefficients[4];
+    size_t out_row_offsets[2];
+    constraint_physical_assemble(&test_spec, sides, inputs, out_sides, out_components, out_local_dofs, out_coefficients,
+                                 out_row_offsets);
+    TEST_ASSERTION(out_components[0] == 1 && out_components[1] == 1 && out_components[2] == 1 && out_components[3] == 1,
                    "Normal one-form component was included in the physical trace.");
-    TEST_NUMBERS_CLOSE(entries[0].coefficient, 2.0, 1e-12, 0);
-    TEST_NUMBERS_CLOSE(entries[1].coefficient, -2.0, 1e-12, 0);
-    TEST_NUMBERS_CLOSE(entries[2].coefficient, -2.0, 1e-12, 0);
-    TEST_NUMBERS_CLOSE(entries[3].coefficient, -2.0, 1e-12, 0);
+    TEST_NUMBERS_CLOSE(out_coefficients[0], 2.0, 1e-12, 0);
+    TEST_NUMBERS_CLOSE(out_coefficients[1], -2.0, 1e-12, 0);
+    TEST_NUMBERS_CLOSE(out_coefficients[2], -2.0, 1e-12, 0);
+    TEST_NUMBERS_CLOSE(out_coefficients[3], -2.0, 1e-12, 0);
+
+    test_table_free(&test_table);
+    test_table_free(&element_tables_raw[0]);
+    test_table_free(&element_tables_raw[1]);
     cutl_dealloc(&SYSTEM_TEST_ALLOCATOR, quad_rule);
+    basis_set_registry_destroy(registry);
 }
 
 static void test_physical_two_form_face_components(void)
 {
+    basis_set_registry_t *registry;
+    TEST_ASSERTION(basis_set_registry_create(&registry, 1, &SYSTEM_TEST_ALLOCATOR) == FDG_SUCCESS,
+                   "Could not create the basis registry.");
     const basis_spec_t test_basis[] = {basis_spec(1), basis_spec(1)};
     const basis_spec_t element_basis[] = {basis_spec(1), basis_spec(1), basis_spec(1)};
     const int8_t orientation[] = {-1, 3, 2};
     const double surface_weights[] = {1.0, 1.0, 1.0, 1.0};
     integration_rule_t *quad_rule;
-    integration_rule_for_order(&quad_rule, INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE, 1, &SYSTEM_TEST_ALLOCATOR);
-    const constraint_face_quadrature_t quadrature = {
-        .ndim = 2, .axes = (const integration_rule_t *[]){quad_rule, quad_rule}, .point_count = 4};
+    TEST_ASSERTION(integration_rule_for_order(&quad_rule, INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE, 1,
+                                              &SYSTEM_TEST_ALLOCATOR) == FDG_SUCCESS,
+                   "Could not create the quadrature rule.");
+    const integration_rule_t *rules[2] = {quad_rule, quad_rule};
+    const integration_spec_t rule_specs[2] = {quad_rule->spec, quad_rule->spec};
+    size_t strides[2];
+    integration_spec_point_strides(2, rule_specs, strides);
+    const size_t point_count = integration_specs_total_points(2, rule_specs);
+    double point_weights[4];
+    integration_rule_tensor_weights(2, rules, point_weights);
+
     double pullback_values[3 * 3 * 4] = {0};
     for (unsigned component = 0; component < 3; ++component)
         for (unsigned point = 0; point < 4; ++point)
@@ -567,26 +946,38 @@ static void test_physical_two_form_face_components(void)
         .physical_component_count = 3, .point_count = 4, .values = pullback_values};
     const kform_spec_t test_spec = {.ndim = 2, .order = 2, .basis = test_basis};
     const constraint_element_side_t side = {.ndim = 3, .basis_specs = element_basis, .orientation = orientation};
+
+    test_table_t test_table;
+    test_table_build(registry, 3, 2, 2, test_basis, orientation, rule_specs, rules, strides, 0, point_count,
+                     &test_table);
+    test_table_t element_table;
+    test_table_build(registry, 3, 2, 2, element_basis, orientation, rule_specs, rules, strides, 1, point_count,
+                     &element_table);
+    const constraint_assembly_inputs_t inputs = {.point_weights = point_weights,
+                                                 .surface_weights = surface_weights,
+                                                 .test_table = &test_table.descriptor,
+                                                 .element_table = &element_table.descriptor,
+                                                 .pullback = &pullback};
+
     size_t row_count;
     size_t entry_count;
-    TEST_ASSERTION(constraint_physical_side_required(&test_spec, &side, &row_count, &entry_count) == CONSTRAINT_SUCCESS,
-                   "Could not size a two-form face constraint.");
+    constraint_physical_side_layout(&test_spec, &side, &row_count, &entry_count);
     TEST_ASSERTION(row_count == 1 && entry_count == 2, "Unexpected two-form face dimensions.");
 
-    size_t row_offsets[2];
-    constraint_entry_t entries[2];
-    size_t actual_rows;
-    size_t actual_entries;
-    TEST_ASSERTION(constraint_physical_side_assemble(&test_spec, &side, &quadrature, surface_weights, &pullback, 2,
-                                                     row_offsets, 2, entries, &actual_rows,
-                                                     &actual_entries) == CONSTRAINT_SUCCESS,
-                   "Could not assemble a two-form face constraint.");
-    TEST_ASSERTION(actual_rows == row_count && actual_entries == entry_count && row_offsets[0] == 0 &&
-                       row_offsets[1] == 2,
+    uint32_t out_components[2];
+    size_t out_local_dofs[2];
+    double out_coefficients[2];
+    size_t out_row_offsets[2];
+    constraint_physical_side_assemble(&test_spec, &side, &inputs, out_components, out_local_dofs, out_coefficients,
+                                      out_row_offsets);
+    TEST_ASSERTION(out_row_offsets[0] == 0 && out_row_offsets[1] == 2,
                    "Two-form face assembly did not match its required storage.");
-    TEST_ASSERTION(entries[0].component == 2 && entries[1].component == 2,
-                   "Unexpected two-form face component mapping.");
+    TEST_ASSERTION(out_components[0] == 2 && out_components[1] == 2, "Unexpected two-form face component mapping.");
+
+    test_table_free(&test_table);
+    test_table_free(&element_table);
     cutl_dealloc(&SYSTEM_TEST_ALLOCATOR, quad_rule);
+    basis_set_registry_destroy(registry);
 }
 
 static void test_boundary_test_specs(void)
@@ -601,27 +992,21 @@ static void test_boundary_test_specs(void)
 
     // Face axis 0 minimum: element 0 axis 1 (order 2, Legendre); face axis 1
     // minimum: a tie at order 2 that keeps element 0's family.
-    basis_spec_t specs[2];
-    bool present[2];
-    TEST_ASSERTION(constraint_boundary_test_specs(3, 2, 0, 2, element_bases, orientations, BASIS_INVALID, 2, specs,
-                                                  present) == CONSTRAINT_SUCCESS,
-                   "Could not derive scalar boundary test specs.");
+    basis_spec_t specs[4];
+    bool present[4];
+    constraint_boundary_test_specs(3, 2, 0, 2, element_bases, orientations, BASIS_INVALID, specs, present);
     TEST_ASSERTION(present[0] && specs[0].order == 0 && specs[1].order == 0 && specs[0].type == BASIS_LEGENDRE &&
                        specs[1].type == BASIS_LEGENDRE,
                    "Unexpected scalar boundary test specs.");
 
-    TEST_ASSERTION(constraint_boundary_test_specs(3, 2, 1, 2, element_bases, orientations, BASIS_INVALID, 2, specs,
-                                                  present) == CONSTRAINT_SUCCESS,
-                   "Could not derive one-form boundary test specs.");
+    constraint_boundary_test_specs(3, 2, 1, 2, element_bases, orientations, BASIS_INVALID, specs, present);
     TEST_ASSERTION(present[0] && specs[0].order == 2 && specs[1].order == 0 && specs[0].type == BASIS_LEGENDRE &&
                        specs[1].type == BASIS_LEGENDRE,
                    "Inactive axes must reduce the order by two.");
     TEST_ASSERTION(present[1] && specs[2].order == 0 && specs[3].order == 2,
                    "Unexpected second one-form boundary component.");
 
-    TEST_ASSERTION(constraint_boundary_test_specs(3, 2, 2, 2, element_bases, orientations, BASIS_LAGRANGE_GAUSS, 1,
-                                                  specs, present) == CONSTRAINT_SUCCESS,
-                   "Could not derive overridden two-form boundary test specs.");
+    constraint_boundary_test_specs(3, 2, 2, 2, element_bases, orientations, BASIS_LAGRANGE_GAUSS, specs, present);
     TEST_ASSERTION(present[0] && specs[0].order == 2 && specs[1].order == 2 && specs[0].type == BASIS_LAGRANGE_GAUSS &&
                        specs[1].type == BASIS_LAGRANGE_GAUSS,
                    "The basis family override was not applied.");
@@ -631,47 +1016,10 @@ static void test_boundary_test_specs(void)
     const basis_spec_t low_element[] = {basis_spec(2), basis_spec(1), basis_spec(1)};
     const basis_spec_t *const low_bases[] = {low_element};
     const int8_t low_orientation[] = {1, 2, 3};
-    TEST_ASSERTION(constraint_boundary_test_specs(3, 2, 1, 1, low_bases, low_orientation, BASIS_INVALID, 2, specs,
-                                                  present) == CONSTRAINT_SUCCESS,
-                   "Could not derive low-order boundary test specs.");
+    constraint_boundary_test_specs(3, 2, 1, 1, low_bases, low_orientation, BASIS_INVALID, specs, present);
     TEST_ASSERTION(!present[0] && specs[0].order == 1 && specs[1].order == 0,
                    "Absent components must clamp negative orders to zero.");
     TEST_ASSERTION(!present[1], "Both one-form components cannot survive order-one elements.");
-
-    // Validation failures.
-    TEST_ASSERTION(constraint_boundary_test_specs(3, 2, 1, 2, element_bases, orientations, BASIS_INVALID, 1, specs,
-                                                  present) == CONSTRAINT_INSUFFICIENT_STORAGE,
-                   "Undersized output storage was accepted.");
-    TEST_ASSERTION(constraint_boundary_test_specs(3, 3, 0, 2, element_bases, orientations, BASIS_INVALID, 1, specs,
-                                                  present) == CONSTRAINT_INVALID_DIMENSION,
-                   "A boundary of full element dimension was accepted.");
-    TEST_ASSERTION(constraint_boundary_test_specs(3, 2, 3, 2, element_bases, orientations, BASIS_INVALID, 1, specs,
-                                                  present) == CONSTRAINT_INVALID_ORDER,
-                   "A form degree above the boundary dimension was accepted.");
-    TEST_ASSERTION(constraint_boundary_test_specs(3, 2, 1, 0, element_bases, orientations, BASIS_INVALID, 1, specs,
-                                                  present) == CONSTRAINT_INVALID_ARGUMENT,
-                   "An empty element list was accepted.");
-    TEST_ASSERTION(constraint_boundary_test_specs(3, 2, 1, 2, NULL, orientations, BASIS_INVALID, 1, specs, present) ==
-                       CONSTRAINT_INVALID_ARGUMENT,
-                   "Missing element bases were accepted.");
-    const int8_t duplicate_orientation[] = {1, 2, 2, -2, 3, 1};
-    TEST_ASSERTION(constraint_boundary_test_specs(3, 2, 1, 2, element_bases, duplicate_orientation, BASIS_INVALID, 1,
-                                                  specs, present) == CONSTRAINT_INVALID_ARGUMENT,
-                   "A duplicated orientation axis was accepted.");
-    const int8_t reversed_prefix[] = {3, 1, 2, 4, -2, 3, 1, 2};
-    const basis_spec_t element_2[] = {basis_spec(2), basis_spec(2), basis_spec(2), basis_spec(2)};
-    const basis_spec_t *const four_bases[] = {element_2, element_2};
-    TEST_ASSERTION(constraint_boundary_test_specs(4, 2, 1, 2, four_bases, reversed_prefix, BASIS_INVALID, 2, specs,
-                                                  present) == CONSTRAINT_INVALID_ARGUMENT,
-                   "A non-increasing fixed-axis prefix was accepted.");
-    const basis_spec_t invalid_type[] = {basis_spec(2), basis_spec(2), {BASIS_INVALID, 2}};
-    const basis_spec_t *const invalid_bases[] = {invalid_type};
-    TEST_ASSERTION(constraint_boundary_test_specs(3, 2, 1, 1, invalid_bases, low_orientation, BASIS_INVALID, 2, specs,
-                                                  present) == CONSTRAINT_INVALID_ORDER,
-                   "An invalid basis family was accepted.");
-    TEST_ASSERTION(constraint_boundary_test_specs(3, 2, 1, 1, low_bases, low_orientation, (basis_set_type_t)99, 2,
-                                                  specs, present) == CONSTRAINT_INVALID_ORDER,
-                   "An invalid basis family override was accepted.");
 }
 
 int main(void)
@@ -679,15 +1027,13 @@ int main(void)
     test_component_layout();
     test_scalar_component();
     test_zero_order_scalar_constraints();
-    test_row_representation();
     test_reference_sizing();
     test_reference_endpoint_assembly();
     test_reference_edge_assembly();
     test_reference_one_form_component();
     test_physical_scalar_measure();
     test_physical_batch_scalar();
-    test_physical_precomputed_scalar();
-    test_physical_single_side();
+    test_physical_side_against_reference();
     test_physical_general_boundary_dimensions();
     test_physical_one_form_pullback();
     test_physical_two_form_face_components();

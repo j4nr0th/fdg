@@ -1,8 +1,8 @@
 #include "incidence.h"
 #include "../basis/basis_lagrange.h"
+#include "../kforms/kform_types.h"
 #include "../polynomials/lagrange.h"
 #include "basis_objects.h"
-#include "covector_basis.h"
 #include "cutl/iterators/combination_iterator.h"
 #include "function_space_objects.h"
 #include "kform_objects.h"
@@ -759,9 +759,9 @@ PyDoc_STRVAR(incidence_operator_docstring,
 
 static void incidence_matrix_fill_block(const unsigned ndim, const basis_spec_t basis[static ndim],
                                         const unsigned order, const uint8_t components[static order],
-                                        const unsigned derivative_dim, const unsigned offset_row,
-                                        const unsigned offset_col, const size_t row_pitch, const int flip_sign,
-                                        double *restrict out_array, double *work)
+                                        const unsigned derivative_dim, const size_t offset_row, const size_t offset_col,
+                                        const size_t row_pitch, const int flip_sign, double *restrict out_array,
+                                        double *work)
 {
     size_t pre_stride = 1, post_stride = 1;
     unsigned idim, i_component;
@@ -934,15 +934,14 @@ static PyObject *compute_kform_incidence_matrix(PyObject *mod, PyObject *const *
     }
 
     // Allocate the memory needed
-    combination_iterator_t *iter_component_in, *iter_component_out;
+    combination_iterator_t *iter_component_in;
     uint8_t *basis_components;
-    unsigned *out_component_offsets, *in_component_offsets;
+    size_t *out_component_offsets, *in_component_offsets;
     double *work_buffer;
     void *const mem = cutl_alloc_group(
         &PYTHON_ALLOCATOR,
         (const cutl_alloc_info_t[]){
             {.size = combination_iterator_required_memory(order), .p_ptr = (void **)&iter_component_in},
-            {.size = combination_iterator_required_memory(order + 1), .p_ptr = (void **)&iter_component_out},
             {.size = sizeof(*basis_components) * (order + 1), .p_ptr = (void **)&basis_components},
             {.size = sizeof(*out_component_offsets) * (combination_total_count(n, order + 1) + 1),
              .p_ptr = (void **)&out_component_offsets},
@@ -957,25 +956,12 @@ static PyObject *compute_kform_incidence_matrix(PyObject *mod, PyObject *const *
         return NULL;
 
     // Compute the number of input and output degrees of freedom
-    size_t in_dofs = 0, idx_in = 0;
-    in_component_offsets[0] = 0;
-    combination_iterator_init(iter_component_in, n, order);
-    for (const uint8_t *p_basis_components = combination_iterator_current(iter_component_in);
-         !combination_iterator_is_done(iter_component_in); combination_iterator_next(iter_component_in), ++idx_in)
-    {
-        in_dofs += kform_basis_get_num_dofs(n, fn_space->specs, order, p_basis_components);
-        in_component_offsets[idx_in + 1] = in_dofs;
-    }
-    size_t out_dofs = 0, idx_out = 0;
-    out_component_offsets[0] = 0;
-    combination_iterator_init(iter_component_out, n, order + 1);
-    for (const uint8_t *p_basis_components = combination_iterator_current(iter_component_out);
-         !combination_iterator_is_done(iter_component_out); combination_iterator_next(iter_component_out), ++idx_out)
-    {
-        out_dofs += kform_basis_get_num_dofs(n, fn_space->specs, order + 1, p_basis_components);
-        // Use this chance to initialize the offsets
-        out_component_offsets[idx_out + 1] = out_dofs;
-    }
+    const kform_spec_t kform_in = {.ndim = n, .order = order, .basis = fn_space->specs};
+    const kform_spec_t kform_out = {.ndim = n, .order = order + 1, .basis = fn_space->specs};
+    kform_spec_component_offsets(&kform_in, combination_total_count(n, order) + 1, in_component_offsets);
+    kform_spec_component_offsets(&kform_out, combination_total_count(n, order + 1) + 1, out_component_offsets);
+    const size_t in_dofs = in_component_offsets[combination_total_count(n, order)];
+    const size_t out_dofs = out_component_offsets[combination_total_count(n, order + 1)];
 
     // Create output matrix
     const npy_intp out_dims[2] = {(npy_intp)out_dofs, (npy_intp)in_dofs};
@@ -992,7 +978,7 @@ static PyObject *compute_kform_incidence_matrix(PyObject *mod, PyObject *const *
 
     // Loop over input k-form components
     size_t idx_comp_in = 0;
-    combination_iterator_reset(iter_component_in);
+    combination_iterator_init(iter_component_in, n, order);
     for (const uint8_t *const components_in = combination_iterator_current(iter_component_in);
          !combination_iterator_is_done(iter_component_in); combination_iterator_next(iter_component_in), ++idx_comp_in)
     {
@@ -1135,7 +1121,7 @@ static PyObject *incidence_kform_operator(PyObject *mod, PyObject *const *args, 
     }
 
     // Allocate the memory needed for all work buffers and iterators
-    combination_iterator_t *iter_component_low, *iter_component_high;
+    combination_iterator_t *iter_component_low;
     uint8_t *basis_components;
     size_t *high_k_component_offsets;
     double *work_buffer;
@@ -1143,7 +1129,6 @@ static PyObject *incidence_kform_operator(PyObject *mod, PyObject *const *args, 
         &PYTHON_ALLOCATOR,
         (const cutl_alloc_info_t[]){
             {.size = combination_iterator_required_memory(order), .p_ptr = (void **)&iter_component_low},
-            {.size = combination_iterator_required_memory(order + 1), .p_ptr = (void **)&iter_component_high},
             {.size = sizeof(*basis_components) * (order + 1), .p_ptr = (void **)&basis_components},
             {.size = sizeof(*high_k_component_offsets) * (n_components_high + 1),
              .p_ptr = (void **)&high_k_component_offsets},
@@ -1155,19 +1140,8 @@ static PyObject *incidence_kform_operator(PyObject *mod, PyObject *const *args, 
         return NULL;
 
     // Compute output offsets
-    size_t idx_high = 0;
-    high_k_component_offsets[0] = 0;
-    combination_iterator_init(iter_component_high, n, order + 1);
-    for (const uint8_t *p_basis_components = combination_iterator_current(iter_component_high);
-         !combination_iterator_is_done(iter_component_high); combination_iterator_next(iter_component_high), ++idx_high)
-    {
-        // Use this chance to initialize the offsets
-        high_k_component_offsets[idx_high + 1] =
-            high_k_component_offsets[idx_high] +
-            kform_basis_get_num_dofs(n, fn_space->specs, order + 1, p_basis_components);
-    }
-    ASSERT(idx_high == n_components_high,
-           "I miscounted the components somehow (idx_out = %zu, n_components_out = %zu).", idx_high, n_components_high);
+    const kform_spec_t kform_high = {.ndim = n, .order = order + 1, .basis = fn_space->specs};
+    kform_spec_component_offsets(&kform_high, n_components_high + 1, high_k_component_offsets);
 
     size_t in_dofs, out_dofs;
     determine_hlio_order(high_k_component_offsets[n_components_high], low_k_component_offsets[n_components_low],

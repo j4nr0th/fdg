@@ -1,5 +1,7 @@
 #include "element_data.h"
 
+#include "../kforms/kform_types.h"
+
 #include <string.h>
 
 struct element_data_t
@@ -106,8 +108,7 @@ void element_data_free(element_data_t *data, const cutl_allocator_t *allocator)
     allocator->deallocate(allocator->state, data);
 }
 
-static fdg_result_t element_data_option_value_count_impl(const element_data_option_t *option,
-                                                         const cutl_allocator_t *allocator, size_t *out_count)
+static fdg_result_t element_data_option_value_count_impl(const element_data_option_t *option, size_t *out_count)
 {
     size_t count = 1;
     switch (option->kind)
@@ -117,18 +118,12 @@ static fdg_result_t element_data_option_value_count_impl(const element_data_opti
             count *= option->basis_specs[i].order + 1;
         break;
     case ELEMENT_DATA_KIND_KFORM: {
-        count = 0;
-        combination_iterator_t *const iter =
-            allocator->allocate(allocator->state, combination_iterator_required_memory(option->kform.order));
-        if (!iter)
-            return FDG_ERROR_FAILED_ALLOCATION;
-        combination_iterator_init(iter, option->ndim, option->kform.order);
-        for (const uint8_t *const components = combination_iterator_current(iter); !combination_iterator_is_done(iter);
-             combination_iterator_next(iter))
-        {
-            count += kform_basis_get_num_dofs(option->ndim, option->basis_specs, option->kform.order, components);
-        }
-        allocator->deallocate(allocator->state, iter);
+        const kform_spec_t kform = {
+            .ndim = option->ndim,
+            .order = option->kform.order,
+            .basis = option->basis_specs,
+        };
+        count = kform_spec_total_dofs(&kform);
         break;
     }
     case ELEMENT_DATA_KIND_GEOMETRY:
@@ -186,7 +181,7 @@ fdg_result_t element_data_add_option(element_data_t *data, const element_data_op
 
     element_data_option_t copy = *option;
     copy.value_count = 0;
-    const fdg_result_t res = element_data_option_value_count_impl(&copy, data->allocator, &copy.value_count);
+    const fdg_result_t res = element_data_option_value_count_impl(&copy, &copy.value_count);
     if (res != FDG_SUCCESS)
         return res;
 

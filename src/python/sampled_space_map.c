@@ -448,9 +448,7 @@ static PyArrayObject *sampled_space_map_basis_transform(const sampled_space_map_
         return map->transformations[order - 1];
     }
 
-    size_t total_points = 1;
-    for (unsigned d = 0; d < n_dims; ++d)
-        total_points *= map->orders[d] + 1;
+    const size_t total_points = integration_orders_total_points(n_dims, map->orders);
 
     const npy_intp out_dims[3] = {
         combination_total_count(n_dims, order),
@@ -599,9 +597,7 @@ sampled_space_map_object *sampled_space_map_create(PyTypeObject *type, space_map
     if (!this)
         return NULL;
 
-    size_t total_points = 1;
-    for (unsigned d = 0; d < ndim_in; ++d)
-        total_points *= orders[d] + 1;
+    const size_t total_points = integration_orders_total_points(ndim_in, orders);
 
     this->ndim = ndim_in;
     this->coords = ndim_out;

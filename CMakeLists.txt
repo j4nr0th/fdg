@@ -47,6 +47,11 @@ set(CONSTRAINT_SOURCE_FILES
         src/constraints/constraints.c
         src/constraints/constraints.h
 )
+set(KFORM_SOURCE_FILES
+        src/kforms/kform_values.c
+        src/kforms/kform_values.h
+        src/kforms/kform_types.h
+)
 set(DATA_SOURCE_FILES
         src/data/element_data.c
         src/data/element_data.h
@@ -107,6 +112,7 @@ add_library(fdg STATIC
         ${BASIS_SOURCE_FILES}
         ${COMMON_SOURCE_FILES}
         ${CONSTRAINT_SOURCE_FILES}
+        ${KFORM_SOURCE_FILES}
         ${DATA_SOURCE_FILES}
         ${INTEGRATION_SOURCE_FILES}
         ${OPERATIONS_SOURCE_FILES}
