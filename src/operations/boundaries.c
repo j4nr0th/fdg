@@ -312,3 +312,125 @@ void iterate_over_contraction(unsigned ndim, const basis_spec_t basis[static ndi
         }
     }
 }
+size_t boundary_dof_iterator_data_size(const unsigned bdim)
+{
+    return sizeof(boundary_dof_iterator_t) +
+           (size_t)bdim * (2 * sizeof(ptrdiff_t) + 3 * sizeof(unsigned) + sizeof(int8_t));
+}
+
+void boundary_dof_iterator_init(boundary_dof_iterator_t *iter, const unsigned ndim,
+                                const basis_spec_t basis[static ndim], const unsigned bdim,
+                                const int8_t orientation[static ndim])
+{
+    CUTL_ASSERT(ndim >= 1, "Element dimension must be positive.");
+    CUTL_ASSERT(ndim <= UINT8_MAX, "Element dimension exceeds the supported maximum.");
+    CUTL_ASSERT(bdim <= ndim, "Boundary dimension exceeds the element dimension.");
+
+    // The iterator only keeps references to its initialization data, which must stay valid
+    // and unchanged while the iterator is in use.
+    iter->ndim = ndim;
+    iter->n_free = bdim;
+    iter->basis = basis;
+    iter->orientation = orientation;
+    iter->total = 1;
+    iter->visited = 0;
+    iter->flat_index = 0;
+
+    ptrdiff_t *const step = boundary_dof_iterator_step(iter);
+    ptrdiff_t *const wrap = boundary_dof_iterator_wrap(iter);
+    unsigned *const start = boundary_dof_iterator_start(iter);
+    unsigned *const end = boundary_dof_iterator_end(iter);
+    unsigned *const offset = boundary_dof_iterator_offset(iter);
+    int8_t *const direction = boundary_dof_iterator_direction(iter);
+
+    // Strides of the element tensor of degrees of freedom, last axis fastest.
+    size_t strides[UINT8_MAX];
+    size_t stride = 1;
+    for (unsigned axis = ndim; axis-- > 0;)
+    {
+        strides[axis] = stride;
+        stride *= basis[axis].order + 1;
+    }
+
+    unsigned slot = 0, previous_axis = 0;
+    for (unsigned entry = 0; entry < ndim; ++entry)
+    {
+        // Decode the axis; the sign selects the endpoint of a fixed normal axis and the
+        // iteration direction of a varying axis.
+        const int8_t axis_code = orientation[entry];
+        const unsigned axis = (unsigned)(axis_code < 0 ? -axis_code : axis_code) - 1;
+        CUTL_ASSERT(axis < ndim, "Orientation references an axis outside the element.");
+        const size_t size = basis[axis].order + 1;
+
+        if (entry < ndim - bdim)
+        {
+            // Fixed normal axis: the boundary degrees of freedom sit at one endpoint.
+            iter->flat_index += (axis_code > 0 ? size - 1 : 0) * strides[axis];
+        }
+        else
+        {
+            CUTL_ASSERT(slot == 0 || axis > previous_axis,
+                        "The varying axes of the orientation must be in ascending order.");
+            previous_axis = axis;
+            direction[slot] = axis_code > 0 ? 1 : -1;
+            start[slot] = axis_code > 0 ? 0 : (unsigned)(size - 1);
+            end[slot] = axis_code > 0 ? (unsigned)(size - 1) : 0;
+            offset[slot] = start[slot];
+            step[slot] = (ptrdiff_t)direction[slot] * (ptrdiff_t)strides[axis];
+            wrap[slot] = ((ptrdiff_t)start[slot] - (ptrdiff_t)end[slot]) * (ptrdiff_t)strides[axis];
+            iter->flat_index += (size_t)offset[slot] * strides[axis];
+            iter->total *= size;
+            ++slot;
+        }
+    }
+}
+
+int boundary_dof_iterator_next(boundary_dof_iterator_t *iter)
+{
+    if (iter->visited + 1 >= iter->total)
+    {
+        // The current degree of freedom is the last one; the state stays untouched, so the
+        // call can be repeated.
+        return 0;
+    }
+
+    const ptrdiff_t *const step = boundary_dof_iterator_step(iter);
+    const ptrdiff_t *const wrap = boundary_dof_iterator_wrap(iter);
+    const unsigned *const start = boundary_dof_iterator_start(iter);
+    const unsigned *const end = boundary_dof_iterator_end(iter);
+    unsigned *const offset = boundary_dof_iterator_offset(iter);
+    const int8_t *const direction = boundary_dof_iterator_direction(iter);
+
+    // Odometer over the varying axes, the last axis fastest.
+    unsigned slot = iter->n_free;
+    for (;;)
+    {
+        CUTL_ASSERT(slot > 0, "Iterator advanced past its last degree of freedom.");
+        --slot;
+        if (offset[slot] != end[slot])
+        {
+            offset[slot] += direction[slot];
+            iter->flat_index += step[slot];
+            break;
+        }
+        // Wrap this axis back to its start and carry into the next one.
+        iter->flat_index += wrap[slot];
+        offset[slot] = start[slot];
+    }
+    ++iter->visited;
+    return 1;
+}
+
+size_t boundary_dof_indices(const unsigned ndim, const basis_spec_t basis[static ndim], const unsigned bdim,
+                            const int8_t orientation[static ndim], uint8_t work[restrict],
+                            size_t boundary_indices[restrict])
+{
+    boundary_dof_iterator_t *const iter = (boundary_dof_iterator_t *)work;
+    boundary_dof_iterator_init(iter, ndim, basis, bdim, orientation);
+    for (size_t index = 0; index < iter->total; ++index)
+    {
+        boundary_indices[index] = boundary_dof_iterator_index(iter);
+        boundary_dof_iterator_next(iter);
+    }
+    return iter->total;
+}
