@@ -77,11 +77,12 @@ set(INTEGRATION_HEADER_FILES
 
 set(OPERATIONS_SOURCE_FILES
         src/operations/matrices.c
-        src/operations/matrices.h
+        src/operations/boundaries.c
 )
 
 set(OPERATIONS_HEADER_FILES
         src/operations/matrices.h
+        src/operations/boundaries.h
 )
 
 set(TOPOLOGY_SOURCE_FILES

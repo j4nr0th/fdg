@@ -783,6 +783,7 @@ dof_object *dof_at_boundary_impl(const interplib_module_state_t *state, const do
                                  const double value)
 {
     const basis_spec_t *const basis = dofs->basis_specs + idim;
+    // TODO: this should be a parameter to the function, not hardcoded.
     basis_set_registry_t *const basis_registry = ((basis_registry_object *)state->registry_basis)->registry;
     const basis_endpoint_set_t *endpoint_set = NULL;
     const int use_endpoint = value == -1.0 || value == +1.0;

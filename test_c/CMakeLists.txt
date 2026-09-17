@@ -72,6 +72,11 @@ add_executable(test_boundary_scaling operations/test_boundary_scaling.c)
 target_link_libraries(test_boundary_scaling PRIVATE test_common)
 add_test(NAME boundary_scaling COMMAND test_boundary_scaling)
 
+## Boundary dof values
+add_executable(test_boundary_dof_values operations/test_boundary_dof_values.c)
+target_link_libraries(test_boundary_dof_values PRIVATE test_common)
+add_test(NAME boundary_dof_values COMMAND test_boundary_dof_values)
+
 ## Topological
 add_library(test_topo_common STATIC topology/topo_common.c)
 target_link_libraries(test_topo_common PUBLIC test_common)

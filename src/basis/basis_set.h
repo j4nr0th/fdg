@@ -67,6 +67,19 @@ typedef struct
     double _data[];                      // Values of the basis_sets and their derivatives at integration nodes
 } basis_set_t;
 /**
+ * @brief Extract the boundary basis given its orientation.
+ *
+ * @param ndim Number of dimensions for the element.
+ * @param element_basis Basis for the element.
+ * @param orientation Canonical orientation of the boundary.
+ * @param bdim Dimension of the boundary.
+ * @param boundary_basis Output basis for the boundary.
+ */
+void basis_set_to_boundary(unsigned ndim, const basis_set_t element_basis[static ndim],
+                           const int8_t orientation[static ndim], unsigned bdim,
+                           basis_set_t boundary_basis[static restrict bdim]);
+
+/**
  * @brief Cached values of a 1D basis at the interval endpoints.
  *
  * The data is laid out as the values at `-1` followed by the values at
@@ -459,6 +472,7 @@ typedef struct
     alignas(max_align_t) unsigned char data[];
 } outer_product_pair_iterator_t;
 
+// TODO: move these static inline functions to the source file instead.
 static inline unsigned outer_product_pair_iterator_ndim(const outer_product_pair_iterator_t *iter)
 {
     return iter->ndim;
@@ -514,7 +528,6 @@ static inline unsigned *outer_product_pair_iterator_basis_indices_right(const ou
     return (unsigned *)(iter->data + (iter->ndim - 1) * sizeof(double)) + 2 * iter->ndim;
 }
 
-// TODO: move these bigger functions to the source file instead.
 static inline size_t outer_product_pair_iterator_data_size(unsigned ndim)
 {
     // base size
