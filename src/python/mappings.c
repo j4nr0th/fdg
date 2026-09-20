@@ -2,8 +2,8 @@
 #include "kform_transform.h"
 
 #include "../integration/integration_rules.h"
-#include "../operations/boundaries.h"
 #include "../operations/map_transforms.h"
+#include "../polynomials/lagrange.h"
 #include "basis_objects.h"
 #include "degrees_of_freedom.h"
 #include "integration_objects.h"
@@ -12,19 +12,15 @@
 
 /**
  * Allocate a coordinate map on the given integration space without computing its values;
- * the value blocks are filled afterwards, either from the degrees of freedom or by
- * extracting them from another map.
+ * the value blocks are filled afterwards by the caller.
  */
-static coordinate_map_object *coordinate_map_object_alloc(PyTypeObject *type, dof_object *dofs,
-                                                          const integration_space_object *integration_space,
-                                                          const integration_registry_object *integration_registry,
-                                                          const basis_registry_object *basis_registry)
+static coordinate_map_object *coordinate_map_object_alloc(PyTypeObject *type, const unsigned ndim,
+                                                          const integration_spec_t *specs)
 {
-    const unsigned ndim = Py_SIZE(integration_space);
     size_t n_vals = 1;
     for (unsigned idim = 0; idim < ndim; ++idim)
     {
-        n_vals *= integration_space->specs[idim].order + 1;
+        n_vals *= specs[idim].order + 1;
     }
     coordinate_map_object *const self =
         (coordinate_map_object *)type->tp_alloc(type, (Py_ssize_t)(n_vals * (ndim + 1)));
@@ -33,12 +29,6 @@ static coordinate_map_object *coordinate_map_object_alloc(PyTypeObject *type, do
         return NULL;
     }
     self->ndim = ndim;
-    self->dofs = (PyObject *)dofs;
-    self->integration_registry = (PyObject *)integration_registry;
-    self->basis_registry = (PyObject *)basis_registry;
-    Py_INCREF(self->dofs);
-    Py_INCREF(self->integration_registry);
-    Py_INCREF(self->basis_registry);
     self->int_specs = PyMem_Malloc(ndim * sizeof(*self->int_specs));
     if (!self->int_specs)
     {
@@ -47,18 +37,22 @@ static coordinate_map_object *coordinate_map_object_alloc(PyTypeObject *type, do
     }
     for (unsigned idim = 0; idim < ndim; ++idim)
     {
-        self->int_specs[idim] = integration_space->specs[idim];
+        self->int_specs[idim] = specs[idim];
     }
     return self;
 }
 
-coordinate_map_object *coordinate_map_object_create(PyTypeObject *type, dof_object *dofs,
-                                                    const integration_space_object *integration_space,
-                                                    const integration_registry_object *integration_registry,
-                                                    const basis_registry_object *basis_registry)
+/**
+ * Construct a coordinate map that evaluates the given degrees of freedom on
+ * the given integration space, including all derivatives.
+ */
+static coordinate_map_object *coordinate_map_object_create(PyTypeObject *type, dof_object *dofs,
+                                                           const integration_space_object *integration_space,
+                                                           const integration_registry_object *integration_registry,
+                                                           const basis_registry_object *basis_registry)
 {
     coordinate_map_object *const self =
-        coordinate_map_object_alloc(type, dofs, integration_space, integration_registry, basis_registry);
+        coordinate_map_object_alloc(type, (unsigned)Py_SIZE(integration_space), integration_space->specs);
     if (!self)
     {
         return NULL;
@@ -126,12 +120,6 @@ static PyObject *coordinate_map_new(PyTypeObject *type, PyObject *args, PyObject
 static void coordinate_map_dealloc(coordinate_map_object *self)
 {
     PyObject_GC_UnTrack(self);
-    Py_XDECREF(self->dofs);
-    self->dofs = NULL;
-    Py_XDECREF(self->integration_registry);
-    self->integration_registry = NULL;
-    Py_XDECREF(self->basis_registry);
-    self->basis_registry = NULL;
     PyMem_Free(self->int_specs);
     self->int_specs = NULL;
     PyTypeObject *const type = Py_TYPE(self);
@@ -142,9 +130,6 @@ static void coordinate_map_dealloc(coordinate_map_object *self)
 static int coordinate_map_traverse(coordinate_map_object *self, visitproc visit, void *arg)
 {
     Py_VISIT(Py_TYPE(self));
-    Py_VISIT(self->dofs);
-    Py_VISIT(self->integration_registry);
-    Py_VISIT(self->basis_registry);
     return 0;
 }
 
@@ -763,10 +748,11 @@ PyArrayObject *compute_basis_transform_impl(const space_map_object *map, const P
     if (!res)
         return NULL;
 
-    // TODO: check we can actually release the GIL here.
+    // The transform only touches raw memory buffers, so it runs without the GIL; the
+    // system allocator backs the iterator scratch because pymalloc requires the GIL.
     int status;
     Py_BEGIN_ALLOW_THREADS;
-    status = compute_basis_transform_from_inverse(&PYTHON_ALLOCATOR, n_dims, n_maps, (unsigned)order, map->inverse_maps,
+    status = compute_basis_transform_from_inverse(&SYSTEM_ALLOCATOR, n_dims, n_maps, (unsigned)order, map->inverse_maps,
                                                   map->determinant, total_points, PyArray_DATA(res));
     Py_END_ALLOW_THREADS;
     if (status < 0)
@@ -827,47 +813,302 @@ PyDoc_STRVAR(space_map_boundary_docstring, "boundary(idim: int, end: bool = Fals
                                            "Extract a space map restricted to a reference-space boundary.\n"
                                            "The lower boundary is at -1 and the upper boundary is at +1.\n");
 
-space_map_object *space_map_boundary_oriented_impl(const interplib_module_state_t *state, const space_map_object *map,
-                                                   const unsigned bdim, const int8_t *orientation)
+/** Operator applied along one axis of an integration-point value tensor. */
+typedef struct
+{
+    unsigned element_axis; // Element axis the operator acts on.
+    unsigned axis;         // Element axis with earlier contracted axes removed.
+    unsigned face_axis;    // Face axis, for resampling operators.
+    unsigned out_nodes;    // Node count after the operator; contracted axes have one.
+    bool contract;         // Fixed axis: the axis is removed after the operator.
+    bool slice;            // Contracted Gauss-Lobatto axis: copy the plane of slice_index.
+    unsigned slice_index;  // Picked node for slice operators.
+    double plane;          // Evaluation plane for dense contractions.
+    const double *weights; // Dense operator; entry (k, j) at weights[k + j*out_nodes] is the
+                           // value of the j-th element node polynomial at the k-th output node.
+} boundary_axis_operator_t;
+
+/**
+ * Apply one boundary axis operator to a last-axis-fastest tensor.
+ *
+ * @param op Operator to apply.
+ * @param ndim Tensor dimension before the operator.
+ * @param dims Node counts of the tensor axes before the operator.
+ * @param in Input tensor.
+ * @param out Output tensor sized for the tensor after the operator, written
+ *            in full. Must not alias @p in.
+ */
+static void boundary_axis_apply(const boundary_axis_operator_t *op, const unsigned ndim,
+                                const unsigned dims[static ndim], const double *restrict in, double *restrict out)
+{
+    size_t outer = 1, inner = 1;
+    for (unsigned i = 0; i < op->axis; ++i)
+    {
+        outer *= dims[i];
+    }
+    for (unsigned i = op->axis + 1; i < ndim; ++i)
+    {
+        inner *= dims[i];
+    }
+    const unsigned in_nodes = dims[op->axis];
+
+    if (op->slice)
+    {
+        for (size_t o = 0; o < outer; ++o)
+        {
+            memcpy(out + o * inner, in + (o * in_nodes + op->slice_index) * inner, inner * sizeof(*out));
+        }
+        return;
+    }
+
+    // Dense interpolation along the axis, accumulating over the input nodes.
+    memset(out, 0, outer * op->out_nodes * inner * sizeof(*out));
+    for (size_t o = 0; o < outer; ++o)
+    {
+        double *restrict out_block = out + o * op->out_nodes * inner;
+        for (unsigned k = 0; k < op->out_nodes; ++k)
+        {
+            double *restrict out_line = out_block + k * inner;
+            for (unsigned j = 0; j < in_nodes; ++j)
+            {
+                const double weight = op->weights[k + (size_t)j * op->out_nodes];
+                const double *restrict in_line = in + (o * in_nodes + j) * inner;
+#pragma omp simd
+                for (size_t i = 0; i < inner; ++i)
+                {
+                    out_line[i] += weight * in_line[i];
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Restrict a space map to a boundary in a single values-level pass.
+ *
+ * Every value block (values and gradients along surviving axes) of each
+ * coordinate map is sampled by contracting the fixed axes with the
+ * interpolant at their planes and resampling the surviving axes onto the
+ * face grid. Exact whenever the integration order is at least the dof order
+ * along every axis.
+ *
+ * @param state Interpreter module state.
+ * @param map Space map to restrict.
+ * @param bdim Number of dimensions of the boundary, `1 <= bdim <= map->ndim`.
+ * @param orientation Full element-dimension orientation of the boundary; the
+ *                    first @p bdim entries are the signed fixed axes.
+ * @param provided_face_space Optional face integration space replacing the
+ *                            default element space without the fixed axes.
+ * @return The restricted space map, or NULL with a Python exception set.
+ */
+static space_map_object *space_map_boundary_grid_impl(const interplib_module_state_t *state,
+                                                      const space_map_object *map, const unsigned bdim,
+                                                      const int8_t *orientation,
+                                                      const integration_space_object *provided_face_space)
 {
     const unsigned ndim = map->ndim;
+    const unsigned face_ndim = ndim - bdim;
+    const Py_ssize_t n_coordinates = Py_SIZE(map);
     CUTL_ASSERT(1 <= bdim && bdim <= ndim, "Boundary dimension out of range.");
+    CUTL_ASSERT(!provided_face_space || Py_SIZE(provided_face_space) == (Py_ssize_t)face_ndim,
+                "Face space dimension mismatch.");
 
     // The default face integration space is the element space with the fixed normal axes
     // removed, so the face grid coincides with the element grid on the surviving axes.
     bool is_fixed[UINT8_MAX] = {false};
-    for (unsigned entry = 0; entry < ndim - bdim; ++entry)
+    for (unsigned entry = 0; entry < bdim; ++entry)
     {
         const int8_t axis_code = orientation[entry];
         is_fixed[(unsigned)(axis_code < 0 ? -axis_code : axis_code) - 1] = true;
     }
-    integration_space_object *const face_space =
-        (integration_space_object *)state->integration_space_type->tp_alloc(state->integration_space_type, ndim - bdim);
-    if (!face_space)
+    const integration_spec_t *face_specs;
+    integration_spec_t derived_specs[UINT8_MAX];
+    if (provided_face_space)
     {
-        return NULL;
+        face_specs = provided_face_space->specs;
     }
+    else
     {
         unsigned face_dim = 0;
         for (unsigned axis = 0; axis < ndim; ++axis)
         {
             if (!is_fixed[axis])
             {
-                face_space->specs[face_dim++] = map->int_specs[axis];
+                derived_specs[face_dim++] = map->int_specs[axis];
             }
         }
-        CUTL_ASSERT(face_dim == ndim - bdim, "Face space dimension mismatch.");
+        CUTL_ASSERT(face_dim == face_ndim, "Face space dimension mismatch.");
+        face_specs = derived_specs;
     }
 
-    const Py_ssize_t n_coordinates = Py_SIZE(map);
-    coordinate_map_object **const coordinates = PyMem_Malloc(sizeof(*coordinates) * (size_t)n_coordinates);
-    const size_t element_points = integration_specs_total_points(ndim, map->int_specs);
-    const size_t face_points = integration_specs_total_points(ndim - bdim, face_space->specs);
-    double *const work =
-        PyMem_Malloc(boundary_integration_point_values_work_size(ndim, map->int_specs, 1) * sizeof(*work));
+    // Face axis index of every surviving element axis.
+    unsigned face_axis_of[UINT8_MAX];
+    {
+        unsigned face_axis = 0;
+        for (unsigned axis = 0; axis < ndim; ++axis)
+        {
+            if (!is_fixed[axis])
+            {
+                face_axis_of[axis] = face_axis++;
+            }
+        }
+    }
+
+    // Contract the fixed axes first, then resample the surviving axes onto the face grid.
+    boundary_axis_operator_t operators[UINT8_MAX];
+    unsigned n_operators = 0;
+    size_t weights_count = 0;
+    for (unsigned entry = 0; entry < bdim; ++entry)
+    {
+        const int8_t axis_code = orientation[entry];
+        const unsigned axis = (unsigned)(axis_code < 0 ? -axis_code : axis_code) - 1;
+        const integration_spec_t *const axis_spec = &map->int_specs[axis];
+        boundary_axis_operator_t *const op = &operators[n_operators++];
+        *op = (boundary_axis_operator_t){
+            .element_axis = axis,
+            .axis = axis,
+            .out_nodes = 1,
+            .contract = true,
+            .plane = axis_code > 0 ? 1.0 : -1.0,
+        };
+        if (axis_spec->type == INTEGRATION_RULE_TYPE_GAUSS_LOBATTO)
+        {
+            // The endpoints are nodes, so evaluating at the plane picks the endpoint slice.
+            op->slice = true;
+            op->slice_index = axis_code > 0 ? axis_spec->order : 0;
+        }
+        else
+        {
+            weights_count += axis_spec->order + 1;
+        }
+    }
+    for (unsigned axis = 0; axis < ndim; ++axis)
+    {
+        if (is_fixed[axis])
+        {
+            continue;
+        }
+        const unsigned face_axis = face_axis_of[axis];
+        if (map->int_specs[axis].order == face_specs[face_axis].order &&
+            map->int_specs[axis].type == face_specs[face_axis].type)
+        {
+            continue;
+        }
+        boundary_axis_operator_t *const op = &operators[n_operators++];
+        *op = (boundary_axis_operator_t){
+            .element_axis = axis,
+            .axis = axis,
+            .face_axis = face_axis,
+            .out_nodes = face_specs[face_axis].order + 1,
+        };
+        weights_count += (size_t)op->out_nodes * (map->int_specs[axis].order + 1);
+    }
+    // Contracted axes shift the index of every operator after them.
+    for (unsigned i = 0; i < n_operators; ++i)
+    {
+        unsigned seen = 0;
+        for (unsigned axis = 0; axis < operators[i].element_axis; ++axis)
+        {
+            seen += is_fixed[axis];
+        }
+        operators[i].axis -= seen;
+    }
+
+    // The dense operators are built from the element and face integration rule nodes.
+    bool needs_element_nodes = false, needs_face_nodes = false;
+    for (unsigned i = 0; i < n_operators; ++i)
+    {
+        if (!operators[i].slice)
+        {
+            needs_element_nodes = true;
+            if (!operators[i].contract)
+            {
+                needs_face_nodes = true;
+            }
+        }
+    }
+    integration_registry_object *const registry = (integration_registry_object *)state->registry_integration;
+    const integration_rule_t **element_rules = NULL;
+    const integration_rule_t **face_rules = NULL;
     space_map_object *result = NULL;
+    coordinate_map_object **coordinates = NULL;
+    double *weights_block = NULL;
+    double *scratch = NULL;
     Py_ssize_t n_created = 0;
-    if (!coordinates || !work)
+    if (needs_element_nodes)
+    {
+        element_rules = python_integration_rules_get(ndim, map->int_specs, registry->registry);
+        if (!element_rules)
+        {
+            goto fail;
+        }
+    }
+    if (needs_face_nodes)
+    {
+        face_rules = python_integration_rules_get(face_ndim, face_specs, registry->registry);
+        if (!face_rules)
+        {
+            goto fail;
+        }
+    }
+    if (weights_count)
+    {
+        weights_block = PyMem_Malloc(weights_count * sizeof(*weights_block));
+        if (!weights_block)
+        {
+            PyErr_NoMemory();
+            goto fail;
+        }
+    }
+    double *weights_cursor = weights_block;
+    double weights_work[UINT8_MAX];
+    for (unsigned i = 0; i < n_operators; ++i)
+    {
+        boundary_axis_operator_t *const op = &operators[i];
+        if (op->slice)
+        {
+            continue;
+        }
+        const unsigned in_nodes = map->int_specs[op->element_axis].order + 1;
+        double *const op_weights = weights_cursor;
+        weights_cursor += (size_t)op->out_nodes * in_nodes;
+        op->weights = op_weights;
+        if (op->contract)
+        {
+            lagrange_polynomial_values_transposed(1, &op->plane, in_nodes,
+                                                  integration_rule_nodes_const(element_rules[op->element_axis]),
+                                                  op_weights, weights_work);
+        }
+        else
+        {
+            lagrange_polynomial_values_transposed(
+                op->out_nodes, integration_rule_nodes_const(face_rules[op->face_axis]), in_nodes,
+                integration_rule_nodes_const(element_rules[op->element_axis]), op_weights, weights_work);
+        }
+    }
+
+    const size_t element_points = integration_specs_total_points(ndim, map->int_specs);
+    const size_t face_points = integration_specs_total_points(face_ndim, face_specs);
+    // Intermediates alternate between two scratch buffers. They shrink with every
+    // contraction and may grow with every resampling, so every stage is measured.
+    size_t scratch_size;
+    {
+        size_t running = element_points;
+        scratch_size = running;
+        for (unsigned i = 0; i < n_operators; ++i)
+        {
+            const boundary_axis_operator_t *const op = &operators[i];
+            running = running / (map->int_specs[op->element_axis].order + 1);
+            if (!op->contract)
+            {
+                running = running * op->out_nodes;
+            }
+            scratch_size = scratch_size > running ? scratch_size : running;
+        }
+    }
+    scratch = PyMem_Malloc(2 * scratch_size * sizeof(*scratch));
+    coordinates = PyMem_Malloc(sizeof(*coordinates) * (size_t)n_coordinates);
+    if (!scratch || !coordinates)
     {
         goto fail;
     }
@@ -875,13 +1116,10 @@ space_map_object *space_map_boundary_oriented_impl(const interplib_module_state_
     for (Py_ssize_t icoordinate = 0; icoordinate < n_coordinates; ++icoordinate)
     {
         const coordinate_map_object *const source = map->maps[icoordinate];
-        // The stored degrees of freedom are the element map's, held only for their lifetime:
-        // a restricted map is defined by its sampled values, which the boundary extraction
-        // writes block by block, values first and then the gradients along the free axes.
+        // A restricted map is defined by its sampled values: the boundary pass writes
+        // every value block, values first and then the gradients along the free axes.
         coordinate_map_object *const face =
-            coordinate_map_object_alloc(state->coordinate_mapping_type, (dof_object *)source->dofs, face_space,
-                                        (const integration_registry_object *)source->integration_registry,
-                                        (const basis_registry_object *)source->basis_registry);
+            coordinate_map_object_alloc(state->coordinate_mapping_type, face_ndim, face_specs);
         if (!face)
         {
             goto fail;
@@ -889,106 +1127,91 @@ space_map_object *space_map_boundary_oriented_impl(const interplib_module_state_
         coordinates[icoordinate] = face;
         n_created = icoordinate + 1;
 
-        boundary_integration_point_values(ndim, map->int_specs, source->values, work, bdim, orientation, 1,
-                                          face->values);
-        unsigned fixed_seen = 0;
-        for (unsigned block = 1; block <= ndim; ++block)
+        unsigned face_block = 0;
+        for (unsigned block = 0; block <= ndim; ++block)
         {
-            const unsigned axis = block - 1;
-            if (is_fixed[axis])
+            if (block > 0 && is_fixed[block - 1])
             {
-                ++fixed_seen;
                 continue;
             }
-            boundary_integration_point_values(ndim, map->int_specs, source->values + (size_t)block * element_points,
-                                              work, bdim, orientation, 1,
-                                              face->values + (size_t)(block - fixed_seen) * face_points);
+            const double *in = source->values + (size_t)block * element_points;
+            double *const dst = face->values + (size_t)face_block * face_points;
+            ++face_block;
+
+            unsigned cur_dims[UINT8_MAX];
+            unsigned cur_ndim = ndim;
+            for (unsigned axis = 0; axis < ndim; ++axis)
+            {
+                cur_dims[axis] = map->int_specs[axis].order + 1;
+            }
+            for (unsigned i = 0; i < n_operators; ++i)
+            {
+                const boundary_axis_operator_t *const op = &operators[i];
+                double *const out = (i + 1 == n_operators) ? dst : scratch + (size_t)(i & 1) * scratch_size;
+                boundary_axis_apply(op, cur_ndim, cur_dims, in, out);
+                if (op->contract)
+                {
+                    for (unsigned axis = op->axis; axis + 1 < cur_ndim; ++axis)
+                    {
+                        cur_dims[axis] = cur_dims[axis + 1];
+                    }
+                    --cur_ndim;
+                }
+                else
+                {
+                    cur_dims[op->axis] = op->out_nodes;
+                }
+                in = out;
+            }
         }
     }
 
     result = space_map_object_create(state->space_mapping_type, (unsigned)n_coordinates, coordinates);
 
 fail:
-    PyMem_Free(work);
+    if (face_rules)
+    {
+        python_integration_rules_release(face_ndim, face_rules, registry->registry);
+    }
+    if (element_rules)
+    {
+        python_integration_rules_release(ndim, element_rules, registry->registry);
+    }
+    PyMem_Free(weights_block);
+    PyMem_Free(scratch);
     for (Py_ssize_t icoordinate = 0; icoordinate < n_created; ++icoordinate)
     {
         Py_DECREF(coordinates[icoordinate]);
     }
     PyMem_Free(coordinates);
-    Py_DECREF(face_space);
     return result;
+}
+
+space_map_object *space_map_boundary_oriented_impl(const interplib_module_state_t *state, const space_map_object *map,
+                                                   const unsigned bdim, const int8_t *orientation)
+{
+    return space_map_boundary_grid_impl(state, map, bdim, orientation, NULL);
 }
 
 space_map_object *space_map_boundary_impl(const interplib_module_state_t *state, const space_map_object *map,
                                           const unsigned idim, const int end,
                                           integration_space_object *provided_face_space)
 {
-    if (provided_face_space == NULL)
+    // The restricted map follows from sampling the element grid: the fixed axis is
+    // evaluated at the plane and the surviving axes are resampled onto the face grid.
+    const unsigned ndim = map->ndim;
+    int8_t orientation[UINT8_MAX];
+    orientation[0] = (int8_t)((idim + 1) * (end ? 1 : -1));
+    unsigned slot = 1;
+    for (unsigned axis = 0; axis < ndim; ++axis)
     {
-        // Without a caller-provided face grid the restricted map follows from the
-        // integration-point boundary extraction alone.
-        const unsigned ndim = map->ndim;
-        int8_t orientation[UINT8_MAX];
-        orientation[0] = (int8_t)((idim + 1) * (end ? 1 : -1));
-        unsigned slot = 1;
-        for (unsigned axis = 0; axis < ndim; ++axis)
+        if (axis != idim)
         {
-            if (axis != idim)
-            {
-                orientation[slot] = (int8_t)(axis + 1);
-                ++slot;
-            }
+            orientation[slot] = (int8_t)(axis + 1);
+            ++slot;
         }
-        return space_map_boundary_oriented_impl(state, map, 1, orientation);
     }
-
-    // A caller-provided face grid may differ from the element grid, so the degrees of
-    // freedom are restricted symbolically and reconstructed onto it.
-    integration_space_object *const face_space = provided_face_space;
-    Py_INCREF(face_space);
-
-    const Py_ssize_t n_coordinates = Py_SIZE(map);
-    coordinate_map_object **const coordinates = PyMem_Malloc(sizeof(*coordinates) * (size_t)n_coordinates);
-    if (!coordinates)
-    {
-        Py_DECREF(face_space);
-        return NULL;
-    }
-    Py_ssize_t n_created = 0;
-    for (Py_ssize_t icoordinate = 0; icoordinate < n_coordinates; ++icoordinate)
-    {
-        const coordinate_map_object *const source_map = map->maps[icoordinate];
-        dof_object *const projected =
-            dof_at_boundary_impl(state, (const dof_object *)source_map->dofs, idim, end ? 1.0 : -1.0);
-        if (!projected)
-        {
-            break;
-        }
-        coordinate_map_object *const coordinate =
-            coordinate_map_object_create(state->coordinate_mapping_type, projected, face_space,
-                                         (const integration_registry_object *)source_map->integration_registry,
-                                         (const basis_registry_object *)source_map->basis_registry);
-        Py_DECREF(projected);
-        if (!coordinate)
-        {
-            break;
-        }
-        coordinates[icoordinate] = coordinate;
-        n_created = icoordinate + 1;
-    }
-
-    space_map_object *result = NULL;
-    if (n_created == n_coordinates)
-    {
-        result = space_map_object_create(state->space_mapping_type, (unsigned)n_coordinates, coordinates);
-    }
-    for (Py_ssize_t icoordinate = 0; icoordinate < n_created; ++icoordinate)
-    {
-        Py_DECREF(coordinates[icoordinate]);
-    }
-    PyMem_Free(coordinates);
-    Py_DECREF(face_space);
-    return result;
+    return space_map_boundary_grid_impl(state, map, 1, orientation, provided_face_space);
 }
 
 static PyObject *space_map_boundary(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,

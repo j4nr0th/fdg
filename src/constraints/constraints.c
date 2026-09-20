@@ -176,6 +176,107 @@ static size_t side_entries_per_test_component(const constraint_element_side_t *c
     return kform_spec_component_dof_count(&element_spec, element_component);
 }
 
+void boundary_common_space(unsigned ndim, unsigned nelem, unsigned bdim, const int8_t *orientation[static ndim],
+                           const basis_spec_t *element_basis[static ndim],
+                           const integration_spec_t *element_integration[static ndim],
+                           basis_spec_t boundary_basis[bdim], integration_spec_t boundary_integration[bdim])
+{
+    // Assert preconditions for boundary common space.
+    CUTL_ASSERT(bdim != 0, "0-D boundary common space is trivial, so do not use this.");
+    CUTL_ASSERT(nelem > 1, "At least two elements are required for boundary common space.");
+    CUTL_ASSERT(ndim > 1, "Space must be at least 2D.");
+    CUTL_ASSERT(bdim < ndim, "Boundary dimension must be less than element space dimension.");
+    // For the first element, we just transform the element basis and integration rules to the boundary space.
+    integration_rules_to_boundary(ndim, element_integration[0], orientation[0], bdim, boundary_integration);
+    basis_spec_to_boundary(ndim, element_basis[0], orientation[0], bdim, boundary_basis);
+    // For future elements, we update the particular dimension, if the boundary order is lower or integration rule is
+    // more accurate.
+    for (unsigned ie = 1; ie < nelem; ++ie)
+    {
+        const basis_spec_t *elem_basis = element_basis[ie];
+        const integration_spec_t *elem_integration = element_integration[ie];
+        const int8_t *elem_varying = orientation[ie] + (ndim - bdim);
+        for (unsigned idim = 0; idim < bdim; ++idim)
+        {
+            const int8_t signed_axis = elem_varying[idim];
+            const unsigned i_axis = signed_axis < 0 ? -signed_axis - 1 : signed_axis - 1;
+            if (boundary_basis[idim].order > elem_basis[i_axis].order)
+            {
+                boundary_basis[idim] = elem_basis[i_axis];
+            }
+            if (integration_spec_accuracy(boundary_integration + idim) <
+                integration_spec_accuracy(elem_integration + i_axis))
+            {
+                boundary_integration[idim] = elem_integration[i_axis];
+            }
+        }
+    }
+
+    // Finally, force the basis set to use Legendre basis
+    for (unsigned idim = 0; idim < bdim; ++idim)
+    {
+        boundary_basis[idim].type = BASIS_LEGENDRE;
+    }
+}
+
+void constrain_kform_components(unsigned ndim, const int8_t orientation[static ndim],
+                                const basis_set_t *element_basis[static ndim], unsigned bdim,
+                                const basis_set_t *boundary_basis[static bdim],
+                                const integration_rule_t boundary_integration[static bdim], unsigned k,
+                                combination_iterator_t *iter)
+{
+    // TODO: factor these VLAs out as user-supplied work arrays.
+    const basis_set_t *current_basis[bdim];
+    uint8_t element_axes[bdim];
+
+    // Loop over local k-form components
+    combination_iterator_init(iter, bdim, k);
+    for (const uint8_t *comb = combination_iterator_current(iter); !combination_iterator_is_done(iter);
+         combination_iterator_next(iter))
+    {
+        // Translate the boundary component basis into the element's basis
+        bool sign = true;
+        for (unsigned i = 0; i < bdim; ++i)
+        {
+            const int8_t signed_axis = comb[i];
+            if (signed_axis < 0)
+            {
+                sign = !sign;
+                element_axes[i] = -signed_axis - 1;
+            }
+            else
+            {
+                element_axes[i] = signed_axis - 1;
+            }
+        }
+        // Bubble sort the axes and correct sign (TODO: factor, I think we re-use this other places as well)
+        for (unsigned i = 0; i < bdim - 1; ++i)
+        {
+            for (unsigned j = 0; j < bdim - i - 1; ++j)
+            {
+                if (element_axes[j] > element_axes[j + 1])
+                {
+                    uint8_t temp = element_axes[j];
+                    element_axes[j] = element_axes[j + 1];
+                    element_axes[j + 1] = temp;
+                    sign = !sign;
+                }
+            }
+        }
+
+        // Get the component index
+        const size_t element_component = combination_get_index(bdim, k, element_axes);
+        (void)element_component;
+        // Get the element's boundary space
+        basis_set_to_boundary(ndim, element_basis, orientation, bdim, current_basis);
+        // TODO: compute the boundary mass matrix based on these parameters + boundary transform.
+        //
+        // (ndim, k, boundary_basis, boundary_integration, current_basis, element_axes)
+        (void)boundary_basis;
+        (void)boundary_integration;
+    }
+}
+
 void constraint_reference_layout(const kform_spec_t *const test_spec, const constraint_element_side_t sides[static 2],
                                  size_t *const out_row_count, size_t *const out_entry_count)
 {

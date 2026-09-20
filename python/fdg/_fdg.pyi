@@ -1010,13 +1010,16 @@ class MeshGeometry:
 
     def __new__(cls) -> Self: ...
     @classmethod
-    def from_elements(cls, space_maps: Sequence[SpaceMap], /) -> MeshGeometry:
-        """Create a new collection from a sequence of space maps.
+    def from_elements(
+        cls, elements: Sequence[tuple[SpaceMap, *tuple[DegreesOfFreedom, ...]]], /
+    ) -> MeshGeometry:
+        """Create a new collection from space maps with their geometry degrees of freedom.
 
         Parameters
         ----------
-        space_maps : Sequence[SpaceMap]
-            Geometry of every element, in element order.
+        elements : Sequence[tuple[SpaceMap, DegreesOfFreedom, ...]]
+            Geometry of every element: its space map and one geometry degree of
+            freedom per coordinate, in element order.
 
         Returns
         -------
@@ -1052,14 +1055,16 @@ class MeshGeometry:
             element order.
         """
         ...
-    def add_element(self, space_map: SpaceMap, /) -> None:
+    def add_element(self, space_map: SpaceMap, *dofs: DegreesOfFreedom) -> None:
         """Add the geometry of one element to the collection.
 
         Parameters
         ----------
         space_map : SpaceMap
-            Space map of the element. All coordinate maps of the space map
-            must share one function space.
+            Space map of the element.
+        *dofs : DegreesOfFreedom
+            Geometry degrees of freedom, one per coordinate of the space map.
+            All of them must share one function space.
         """
         ...
     def space_map(self, element_id: int, /) -> SpaceMap:

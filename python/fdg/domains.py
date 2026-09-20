@@ -187,7 +187,7 @@ class HypercubeDomain:
 
         Parameters
         ----------
-        space : IntegratinoSpace
+        space : IntegrationSpace
             Integration space to base the space map on.
 
         integration_registry : IntegrationRegistry, optional

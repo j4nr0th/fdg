@@ -42,6 +42,34 @@ typedef struct
     unsigned order;               // Order of the integration rule
 } integration_spec_t;
 
+static inline unsigned integration_spec_accuracy(const integration_spec_t *spec)
+{
+    switch (spec->type)
+    {
+    case INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE:
+        return 2 * spec->order + 1;
+    case INTEGRATION_RULE_TYPE_GAUSS_LOBATTO:
+        return 2 * spec->order - 1;
+    default:
+        return 0;
+    }
+}
+
+/**
+ * @brief Extract the boundary integration rule given its orientation.
+ *
+ * @todo Maybe move this to the operations/boundaries.h file.
+ *
+ * @param ndim Number of dimensions for the element.
+ * @param element_rule Integration rule for the element.
+ * @param orientation Canonical orientation of the boundary.
+ * @param bdim Dimension of the boundary.
+ * @param boundary_rule Output integration rule for the boundary.
+ */
+void integration_rules_to_boundary(unsigned ndim, const integration_spec_t element_rule[static ndim],
+                                   const int8_t orientation[static ndim], unsigned bdim,
+                                   integration_spec_t boundary_rule[static restrict bdim]);
+
 /**
  * @brief Precomputed 1D quadrature rule: nodes and weights.
  *

@@ -43,6 +43,33 @@ typedef struct
 } constraint_element_side_t;
 
 /**
+ * @brief Determine the common boundary space for a set of elements.
+ *
+ * Based on information about the boundary in all the elements it is contained in
+ * a common basis and integration spaces are determined. These specify the basis
+ * orders such that all the solutions can be fully resolved. The integration rules
+ * are instead of the highest accuracy, to allow integration without any precision
+ * loss compared to all elements.
+ * For the sake of consistency, the resulting boundary space is always set to use
+ * Legendre basis for all dimensions. This is for the reason, that when constraints
+ * are assembled with C1 continuous space maps, the resulting constraints are
+ * very sparse.
+ *
+ * @param ndim Dimensionality of the elements' space.
+ * @param nelem Number of elements the boundary is contained in.
+ * @param bdim Dimensionality of the boundary (face) space.
+ * @param orientation Array of signed one-based axis mappings for each element.
+ * @param element_basis Array of element-axis basis specifications for each element.
+ * @param element_integration Array of element-axis integration rules for each element.
+ * @param boundary_basis Output array of boundary-axis basis specifications.
+ * @param boundary_integration Output array of boundary-axis integration rules.
+ */
+void boundary_common_space(unsigned ndim, unsigned nelem, unsigned bdim, const int8_t *orientation[static ndim],
+                           const basis_spec_t *element_basis[static ndim],
+                           const integration_spec_t *element_integration[static ndim],
+                           basis_spec_t boundary_basis[bdim], integration_spec_t boundary_integration[bdim]);
+
+/**
  * @brief Sampled tangential pullback of a physical k-form on a face.
  *
  * `values` holds `element_component_count * physical_component_count *

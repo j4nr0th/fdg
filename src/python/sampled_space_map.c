@@ -461,7 +461,7 @@ static PyArrayObject *sampled_space_map_basis_transform(const sampled_space_map_
 
     int status;
     Py_BEGIN_ALLOW_THREADS;
-    status = compute_basis_transform_from_inverse(&PYTHON_ALLOCATOR, n_dims, n_maps, (unsigned)order, map->inverse_maps,
+    status = compute_basis_transform_from_inverse(&SYSTEM_ALLOCATOR, n_dims, n_maps, (unsigned)order, map->inverse_maps,
                                                   map->determinant, total_points, PyArray_DATA(res));
     Py_END_ALLOW_THREADS;
     if (status < 0)

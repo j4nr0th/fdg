@@ -464,3 +464,19 @@ const char *integration_rule_type_to_str(const integration_rule_type_t type)
         return "unknown";
     }
 }
+
+void integration_rules_to_boundary(unsigned ndim, const integration_spec_t element_rule[static ndim],
+                                   const int8_t orientation[static ndim], unsigned bdim,
+                                   integration_spec_t boundary_rule[static restrict bdim])
+{
+    CUTL_ASSERT(ndim > 0 && bdim > 0 && bdim < ndim, "Invalid boundary dimension.");
+    // Canonical orientation array has first (ndim - bdim) entries corresponding to the normal directions of the
+    // boundary.
+    const int8_t *varying_axes = orientation + (ndim - bdim);
+    for (unsigned idim = 0; idim < bdim; ++idim)
+    {
+        const int8_t canonical_axes = varying_axes[idim];
+        const unsigned idx = canonical_axes < 0 ? -canonical_axes - 1 : canonical_axes - 1;
+        boundary_rule[idim] = element_rule[idx];
+    }
+}

@@ -11,11 +11,6 @@ typedef struct
     PyObject_VAR_HEAD;
     unsigned ndim;
     integration_spec_t *int_specs;
-    // TODO: This is dirty. Clean it up!
-    PyObject *dofs;
-    PyObject *integration_registry;
-    PyObject *basis_registry;
-    //
     double values[];
 } coordinate_map_object;
 
@@ -27,25 +22,6 @@ const double *coordinate_map_values(const coordinate_map_object *map);
 
 FDG_INTERNAL
 const double *coordinate_map_gradient(const coordinate_map_object *map, unsigned dim);
-
-/**
- * Construct a coordinate map that evaluates the given degrees of freedom on
- * the given integration space, including all derivatives.
- *
- * @param type Coordinate map type to allocate (the registered
- *             #coordinate_map_object type or a subtype).
- * @param dofs Degrees of freedom describing the map. A reference is stored.
- * @param integration_space Integration space the DoFs are evaluated on; only
- *                          the specs are used.
- * @param integration_registry Registry used to fetch integration rules.
- * @param basis_registry Registry used to fetch basis sets.
- * @return The new coordinate map, or NULL with a Python exception set.
- */
-FDG_INTERNAL
-coordinate_map_object *coordinate_map_object_create(PyTypeObject *type, dof_object *dofs,
-                                                    const integration_space_object *integration_space,
-                                                    const integration_registry_object *integration_registry,
-                                                    const basis_registry_object *basis_registry);
 
 typedef struct
 {
@@ -79,9 +55,10 @@ space_map_object *space_map_object_create(PyTypeObject *subtype, unsigned n_maps
 /**
  * Restrict a space map to a reference-space boundary `x[idim] == end ? +1 : -1`.
  *
- * Without a provided face space the restriction is a values-level boundary
- * extraction on the element integration grid; with one, the degrees of
- * freedom are restricted symbolically and reconstructed onto it.
+ * The restriction is a values-level pass over the integration-point values of
+ * the coordinate maps: the fixed axis is evaluated at the plane and the
+ * surviving axes are resampled onto the face grid. Exact whenever the
+ * integration order is at least the dof order along every axis.
  *
  * @param state Interpreter module state.
  * @param map Space map to restrict; must have `map->ndim >= 1` and
@@ -100,12 +77,12 @@ space_map_object *space_map_boundary_impl(const interplib_module_state_t *state,
  * Restrict a space map to the boundary given by a full orientation array in a
  * single values-level pass.
  *
- * The first `map->ndim - bdim` entries of @p orientation are the fixed normal
+ * The first @p bdim entries of @p orientation are the fixed normal
  * axes of the boundary (signed one-based, negative for the start of the axis),
  * the remaining entries the surviving axes in ascending order. The face
  * integration space is the element space with the fixed axes removed, so the
- * face values follow from boundary_integration_point_values on every value
- * block (values and gradients) of the coordinate maps.
+ * face values follow by evaluating the fixed-axis interpolant at the plane on
+ * every value block (values and gradients) of the coordinate maps.
  *
  * @param state Interpreter module state.
  * @param map Space map to restrict.

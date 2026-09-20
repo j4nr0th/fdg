@@ -21,6 +21,8 @@ double compute_inverse_transform(const matrix_t jacobian, const matrix_t q_matri
     double det = 1;
     for (unsigned i = 0; i < cols; ++i)
     {
+        CUTL_ASSERT(i * cols + i < rows * cols, "Determinant reads outside the Jacobian (%u x %u, index %u).", rows,
+                    cols, i * cols + i);
         det *= jacobian.values[i * cols + i];
     }
 
@@ -29,6 +31,10 @@ double compute_inverse_transform(const matrix_t jacobian, const matrix_t q_matri
     {
         for (unsigned icol = 0; icol < rows; ++icol)
         {
+            CUTL_ASSERT(irow * rows + icol < q_matrix.rows * q_matrix.cols,
+                        "Q copy reads outside the Q matrix (index %u).", irow * rows + icol);
+            CUTL_ASSERT(irow * rows + icol < out_matrix.rows * out_matrix.cols,
+                        "Q copy writes outside the output (index %u).", irow * rows + icol);
             out_matrix.values[irow * rows + icol] = q_matrix.values[irow * rows + icol];
         }
     }
@@ -61,6 +67,8 @@ int compute_basis_transform_from_inverse(const cutl_allocator_t *allocator, unsi
     }
     else // (order != 1 && order != n_maps)
     {
+        CUTL_ASSERT(order <= n_dims, "Transformation order %u exceeds the %u input dimensions.", order, n_dims);
+        CUTL_ASSERT(order <= n_maps, "Transformation order %u exceeds the %u output maps.", order, n_maps);
         permutation_iterator_t *iter_out_perm;
         combination_iterator_t *iter_out_comb;
         combination_iterator_t *iter_in_comb;
@@ -75,6 +83,8 @@ int compute_basis_transform_from_inverse(const cutl_allocator_t *allocator, unsi
         if (!mem)
             return -1;
 
+        const size_t out_total =
+            (size_t)combination_total_count(n_dims, order) * (size_t)combination_total_count(n_maps, order) * n_pts;
         size_t idx_in = 0;
         // Iterate over bases in the inputs space
         combination_iterator_init(iter_in_comb, n_dims, order);
@@ -107,8 +117,14 @@ int compute_basis_transform_from_inverse(const cutl_allocator_t *allocator, unsi
                         // Loop over the derivative terms and compute their product
                         for (unsigned idim = 0; idim < order; ++idim)
                         {
+                            CUTL_ASSERT(idim < order && current_perm[idim] < order,
+                                        "Permutation index outside the combination (index %u).", current_perm[idim]);
                             const unsigned idx_coord = current_out[current_perm[idim]];
                             const unsigned idx_dim = current_in[idim];
+                            CUTL_ASSERT(idx_coord < n_maps, "Output coordinate index %u outside the %u maps.",
+                                        idx_coord, n_maps);
+                            CUTL_ASSERT(idx_dim < n_dims, "Input dimension index %u outside the %u dimensions.",
+                                        idx_dim, n_dims);
                             const double contribution =
                                 inverse_maps[idx_pt * ((size_t)n_dims * n_maps) + (size_t)idx_dim * n_maps + idx_coord];
                             basis_contribution *= contribution;
@@ -126,7 +142,11 @@ int compute_basis_transform_from_inverse(const cutl_allocator_t *allocator, unsi
 
                         permutation_iterator_next(iter_out_perm);
                     }
-                    out[(idx_in * combination_total_count(n_maps, order) + idx_out) * n_pts + idx_pt] = val;
+                    const size_t out_index =
+                        (idx_in * combination_total_count(n_maps, order) + idx_out) * n_pts + idx_pt;
+                    CUTL_ASSERT(out_index < out_total, "Transform writes outside the output (index %zu of %zu).",
+                                out_index, out_total);
+                    out[out_index] = val;
                 }
 
                 idx_out += 1;

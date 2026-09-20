@@ -57,21 +57,33 @@ GEOM_BASIS = FunctionSpace(
 INTEGRATION = IntegrationSpace(IntegrationSpecs(3), IntegrationSpecs(3))
 
 
-def _affine_map(element_id: int, integration: IntegrationSpace) -> SpaceMap:
-    """Affine map of a 2x2-grid element onto its physical unit square."""
+def _affine_dofs(element_id: int) -> tuple[DegreesOfFreedom, DegreesOfFreedom]:
+    """Geometry degrees of freedom of the affine map of one 2x2-grid element."""
     corner = int(CORNERS_2X2[element_id * 4])
     ix, iy = corner % 3, corner // 3
     xi, eta = np.meshgrid(
         np.linspace(-1.0, 1.0, 2), np.linspace(-1.0, 1.0, 2), indexing="ij"
     )
-    return SpaceMap(
-        CoordinateMap(
-            DegreesOfFreedom(GEOM_BASIS, (0.5 * xi + ix - 0.5).ravel()), integration
-        ),
-        CoordinateMap(
-            DegreesOfFreedom(GEOM_BASIS, (0.5 * eta + iy - 0.5).ravel()), integration
-        ),
+    return (
+        DegreesOfFreedom(GEOM_BASIS, (0.5 * xi + ix - 0.5).ravel()),
+        DegreesOfFreedom(GEOM_BASIS, (0.5 * eta + iy - 0.5).ravel()),
     )
+
+
+def _affine_map(element_id: int, integration: IntegrationSpace) -> SpaceMap:
+    """Affine map of a 2x2-grid element onto its physical unit square."""
+    x_dofs, y_dofs = _affine_dofs(element_id)
+    return SpaceMap(
+        CoordinateMap(x_dofs, integration),
+        CoordinateMap(y_dofs, integration),
+    )
+
+
+def _add_affine_element(
+    store: MeshGeometry, element_id: int, integration: IntegrationSpace
+) -> None:
+    """Add the affine map of one element with its degrees of freedom."""
+    store.add_element(_affine_map(element_id, integration), *_affine_dofs(element_id))
 
 
 @pytest.fixture
@@ -110,10 +122,10 @@ def test_from_mesh_points_matches_manual_maps(geometry: MeshGeometry) -> None:
 def test_option_dedup() -> None:
     """Identical geometry specifications collapse into one option."""
     store = MeshGeometry()
-    store.add_element(_affine_map(0, INTEGRATION))
-    store.add_element(_affine_map(1, INTEGRATION))
+    _add_affine_element(store, 0, INTEGRATION)
+    _add_affine_element(store, 1, INTEGRATION)
     other_integration = IntegrationSpace(IntegrationSpecs(4), IntegrationSpecs(4))
-    store.add_element(_affine_map(2, other_integration))
+    _add_affine_element(store, 2, other_integration)
 
     assert store.option_count == 2
     assert store.element_count == 3
@@ -133,8 +145,8 @@ def test_option_dedup() -> None:
 def test_views_and_freeze() -> None:
     """Array views expose the storage and freeze the collection."""
     store = MeshGeometry()
-    store.add_element(_affine_map(0, INTEGRATION))
-    store.add_element(_affine_map(1, INTEGRATION))
+    _add_affine_element(store, 0, INTEGRATION)
+    _add_affine_element(store, 1, INTEGRATION)
 
     values = store.values
     offsets = store.offsets
@@ -154,7 +166,7 @@ def test_views_and_freeze() -> None:
     )
 
     with pytest.raises(ValueError):
-        store.add_element(_affine_map(2, INTEGRATION))
+        _add_affine_element(store, 2, INTEGRATION)
 
     # Overwriting existing values stays allowed after freezing.
     store.set_element_values(1, np.full(8, 7.0))
@@ -170,6 +182,8 @@ def test_errors(mesh: Mesh) -> None:
         empty.option(0)
     with pytest.raises(TypeError):
         empty.add_element("not a space map")  # type: ignore[arg-type]
+    with pytest.raises(ValueError):
+        empty.add_element(_affine_map(0, INTEGRATION))
 
     with pytest.raises(ValueError):
         MeshGeometry.from_mesh_points(mesh, POINTS_2X2[:, 0], INTEGRATION)
@@ -180,28 +194,27 @@ def test_errors(mesh: Mesh) -> None:
         MeshGeometry.from_mesh_points(mesh, POINTS_2X2, one_d_integration)
 
     store = MeshGeometry()
-    store.add_element(_affine_map(0, INTEGRATION))
+    _add_affine_element(store, 0, INTEGRATION)
     with pytest.raises(IndexError):
         store.set_element_values(1, np.zeros(8))
     with pytest.raises(ValueError):
         store.set_element_values(0, np.zeros(7))
 
     # Geometry with mismatched per-coordinate function spaces is rejected.
-    mixed = SpaceMap(
-        CoordinateMap(DegreesOfFreedom(GEOM_BASIS, [0.0, 1.0, 0.0, 1.0]), INTEGRATION),
-        CoordinateMap(
-            DegreesOfFreedom(
-                FunctionSpace(
-                    BasisSpecs(BasisType.LAGRANGE_UNIFORM, 2),
-                    BasisSpecs(BasisType.LAGRANGE_UNIFORM, 2),
-                ),
-                np.zeros(9),
-            ),
-            INTEGRATION,
+    x_dofs = DegreesOfFreedom(GEOM_BASIS, [0.0, 1.0, 0.0, 1.0])
+    y_dofs = DegreesOfFreedom(
+        FunctionSpace(
+            BasisSpecs(BasisType.LAGRANGE_UNIFORM, 2),
+            BasisSpecs(BasisType.LAGRANGE_UNIFORM, 2),
         ),
+        np.zeros(9),
+    )
+    mixed = SpaceMap(
+        CoordinateMap(x_dofs, INTEGRATION),
+        CoordinateMap(y_dofs, INTEGRATION),
     )
     with pytest.raises(ValueError):
-        MeshGeometry.from_elements([mixed])
+        MeshGeometry.from_elements([(mixed, x_dofs, y_dofs)])
 
 
 def test_geometry_maps_feed_boundary_constraints(

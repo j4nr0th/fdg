@@ -50,6 +50,10 @@ typedef struct
     unsigned order;        // Polynomial order of the basis; the basis has order + 1 functions.
 } basis_spec_t;
 
+void basis_spec_to_boundary(unsigned ndim, const basis_spec_t element_basis[static ndim],
+                            const int8_t orientation[static ndim], unsigned bdim,
+                            basis_spec_t boundary_basis[static restrict bdim]);
+
 /**
  * @brief Precomputed values and derivatives of a 1D basis at integration nodes.
  *
@@ -69,15 +73,17 @@ typedef struct
 /**
  * @brief Extract the boundary basis given its orientation.
  *
+ * @todo Maybe move this to the operations/boundaries.h file.
+ *
  * @param ndim Number of dimensions for the element.
  * @param element_basis Basis for the element.
  * @param orientation Canonical orientation of the boundary.
  * @param bdim Dimension of the boundary.
  * @param boundary_basis Output basis for the boundary.
  */
-void basis_set_to_boundary(unsigned ndim, const basis_set_t element_basis[static ndim],
+void basis_set_to_boundary(unsigned ndim, const basis_set_t *element_basis[static ndim],
                            const int8_t orientation[static ndim], unsigned bdim,
-                           basis_set_t boundary_basis[static restrict bdim]);
+                           const basis_set_t *boundary_basis[static restrict bdim]);
 
 /**
  * @brief Cached values of a 1D basis at the interval endpoints.

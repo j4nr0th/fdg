@@ -106,30 +106,32 @@ static int mesh_geometry_grow_option_objects(mesh_geometry_object *this, const u
     return 0;
 }
 
-PyDoc_STRVAR(mesh_geometry_add_element_docstring, "add_element(space_map, /) -> None\n"
+PyDoc_STRVAR(mesh_geometry_add_element_docstring, "add_element(space_map, *dofs) -> None\n"
                                                   "\n"
                                                   "Add the geometry of one element to the collection.\n"
                                                   "\n"
                                                   "Parameters\n"
                                                   "----------\n"
                                                   "space_map : SpaceMap\n"
-                                                  "    Space map of the element. All coordinate maps of the space map\n"
-                                                  "    must share one function space.\n");
+                                                  "    Space map of the element.\n"
+                                                  "*dofs : DegreesOfFreedom\n"
+                                                  "    Geometry degrees of freedom, one per coordinate of the\n"
+                                                  "    space map. All of them must share one function space.\n");
 
-static int mesh_geometry_fill_values(const space_map_object *map, double *out)
+static int mesh_geometry_fill_values(const space_map_object *map, dof_object *const *dofs, double *out)
 {
     size_t offset = 0;
     for (Py_ssize_t icoordinate = 0; icoordinate < Py_SIZE(map); ++icoordinate)
     {
-        const dof_object *const dofs = (dof_object *)map->maps[icoordinate]->dofs;
-        memcpy(out + offset, dofs->values, (size_t)Py_SIZE(dofs) * sizeof(*out));
-        offset += Py_SIZE(dofs);
+        const dof_object *const coordinate_dofs = dofs[icoordinate];
+        memcpy(out + offset, coordinate_dofs->values, (size_t)Py_SIZE(coordinate_dofs) * sizeof(*out));
+        offset += Py_SIZE(coordinate_dofs);
     }
     return 0;
 }
 
 static int mesh_geometry_add_element_impl(mesh_geometry_object *this, const interplib_module_state_t *state,
-                                          PyObject *obj)
+                                          PyObject *obj, PyObject *const *dof_args, const Py_ssize_t n_dofs)
 {
     if (this->frozen)
     {
@@ -145,11 +147,33 @@ static int mesh_geometry_add_element_impl(mesh_geometry_object *this, const inte
     }
     const space_map_object *const map = (space_map_object *)obj;
 
-    // All coordinates must share one function space.
-    const dof_object *const first = (dof_object *)map->maps[0]->dofs;
-    for (Py_ssize_t icoordinate = 1; icoordinate < Py_SIZE(map); ++icoordinate)
+    if (n_dofs != Py_SIZE(map))
     {
-        const dof_object *const dofs = (dof_object *)map->maps[icoordinate]->dofs;
+        PyErr_Format(PyExc_ValueError, "Expected %zd degrees of freedom, one per coordinate, but got %zd.",
+                     Py_SIZE(map), n_dofs);
+        return -1;
+    }
+    for (Py_ssize_t icoordinate = 0; icoordinate < n_dofs; ++icoordinate)
+    {
+        if (!PyObject_TypeCheck(dof_args[icoordinate], state->degrees_of_freedom_type))
+        {
+            PyErr_Format(PyExc_TypeError, "Expected a %s, got %s.", state->degrees_of_freedom_type->tp_name,
+                         Py_TYPE(dof_args[icoordinate])->tp_name);
+            return -1;
+        }
+        if (((const dof_object *)dof_args[icoordinate])->n_dims != map->ndim)
+        {
+            PyErr_Format(PyExc_ValueError, "Expected degrees of freedom with %u dimensions, got %u.", map->ndim,
+                         ((const dof_object *)dof_args[icoordinate])->n_dims);
+            return -1;
+        }
+    }
+
+    // All coordinates must share one function space.
+    const dof_object *const first = (dof_object *)dof_args[0];
+    for (Py_ssize_t icoordinate = 1; icoordinate < n_dofs; ++icoordinate)
+    {
+        const dof_object *const dofs = (dof_object *)dof_args[icoordinate];
         if (dofs->n_dims != first->n_dims ||
             memcmp(dofs->basis_specs, first->basis_specs, first->n_dims * sizeof(*first->basis_specs)) != 0)
         {
@@ -177,7 +201,7 @@ static int mesh_geometry_add_element_impl(mesh_geometry_object *this, const inte
         PyErr_NoMemory();
         return -1;
     }
-    mesh_geometry_fill_values(map, values);
+    mesh_geometry_fill_values(map, (dof_object *const *)dof_args, values);
     const fdg_result_t add_res = element_geometry_add_element(this->data, index, values);
     PyMem_Free(values);
     if (add_res != FDG_SUCCESS)
@@ -196,23 +220,31 @@ static PyObject *mesh_geometry_add_element_method(PyObject *self, PyObject *cons
     mesh_geometry_object *this;
     if (mesh_geometry_ensure_state(self, &state, &this) < 0)
         return NULL;
-    PyObject *obj;
-    if (parse_arguments_check((cpyutl_argument_t[]){{.type = CPYARG_TYPE_PYTHON, .p_val = &obj}, {}}, args, nargs,
-                              kwnames) < 0)
+    if (kwnames && PyTuple_GET_SIZE(kwnames))
+    {
+        PyErr_SetString(PyExc_TypeError, "add_element takes no keyword arguments.");
         return NULL;
-    if (mesh_geometry_add_element_impl(this, state, obj) < 0)
+    }
+    if (nargs < 1)
+    {
+        PyErr_SetString(PyExc_TypeError, "add_element requires a space map and its degrees of freedom.");
+        return NULL;
+    }
+    if (mesh_geometry_add_element_impl(this, state, args[0], args + 1, nargs - 1) < 0)
         return NULL;
     Py_RETURN_NONE;
 }
 
-PyDoc_STRVAR(mesh_geometry_from_elements_docstring, "from_elements(space_maps, /) -> MeshGeometry\n"
+PyDoc_STRVAR(mesh_geometry_from_elements_docstring, "from_elements(elements, /) -> MeshGeometry\n"
                                                     "\n"
-                                                    "Create a new collection from a sequence of space maps.\n"
+                                                    "Create a new collection from space maps with their geometry\n"
+                                                    "degrees of freedom.\n"
                                                     "\n"
                                                     "Parameters\n"
                                                     "----------\n"
-                                                    "space_maps : Sequence[SpaceMap]\n"
-                                                    "    Geometry of every element, in element order.\n"
+                                                    "elements : Sequence[tuple[SpaceMap, DegreesOfFreedom, ...]]\n"
+                                                    "    Geometry of every element: its space map and one geometry\n"
+                                                    "    degree of freedom per coordinate, in element order.\n"
                                                     "\n"
                                                     "Returns\n"
                                                     "-------\n"
@@ -233,7 +265,7 @@ static PyObject *mesh_geometry_from_elements(PyObject *cls, PyObject *const *arg
     PyObject *const self = PyObject_CallFunctionObjArgs(cls, NULL);
     if (!self)
         return NULL;
-    PyObject *const seq = PySequence_Fast(elements_object, "space_maps must be a sequence of SpaceMap objects.");
+    PyObject *const seq = PySequence_Fast(elements_object, "elements must be a sequence of (space_map, *dofs) tuples.");
     if (!seq)
     {
         Py_DECREF(self);
@@ -241,7 +273,30 @@ static PyObject *mesh_geometry_from_elements(PyObject *cls, PyObject *const *arg
     }
     for (Py_ssize_t i = 0; i < PySequence_Fast_GET_SIZE(seq); ++i)
     {
-        if (mesh_geometry_add_element_impl((mesh_geometry_object *)self, state, PySequence_Fast_GET_ITEM(seq, i)) < 0)
+        PyObject *const element = PySequence_Fast_GET_ITEM(seq, i);
+        if (!PyTuple_Check(element) || PyTuple_GET_SIZE(element) < 1)
+        {
+            PyErr_SetString(PyExc_TypeError, "Expected a (space_map, *dofs) tuple for every element.");
+            Py_DECREF(seq);
+            Py_DECREF(self);
+            return NULL;
+        }
+        const Py_ssize_t n_dofs = PyTuple_GET_SIZE(element) - 1;
+        PyObject **const dof_args = PyMem_Malloc(sizeof(*dof_args) * (size_t)n_dofs);
+        if (!dof_args)
+        {
+            Py_DECREF(seq);
+            Py_DECREF(self);
+            return PyErr_NoMemory();
+        }
+        for (Py_ssize_t j = 0; j < n_dofs; ++j)
+        {
+            dof_args[j] = PyTuple_GET_ITEM(element, j + 1);
+        }
+        const int status = mesh_geometry_add_element_impl((mesh_geometry_object *)self, state,
+                                                          PyTuple_GET_ITEM(element, 0), dof_args, n_dofs);
+        PyMem_Free(dof_args);
+        if (status < 0)
         {
             Py_DECREF(seq);
             Py_DECREF(self);
@@ -473,8 +528,7 @@ static PyObject *mesh_geometry_space_map_method(PyObject *self, PyObject *const 
         memcpy(dofs->values, values + (size_t)icoordinate * dofs_per_coordinate,
                dofs_per_coordinate * sizeof(*dofs->values));
         PyObject *const coordinate =
-            PyObject_CallFunction((PyObject *)state->coordinate_mapping_type, "OOOO", dofs, integration_space,
-                                  state->registry_integration, state->registry_basis);
+            PyObject_CallFunction((PyObject *)state->coordinate_mapping_type, "OO", dofs, integration_space);
         Py_DECREF(dofs);
         if (!coordinate)
         {

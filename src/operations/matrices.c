@@ -43,6 +43,7 @@ fdg_result_t matrix_qr_decompose(const matrix_t *const ar, const matrix_t *const
     {
         for (unsigned col = 0; col < cols && col < row; ++col)
         {
+            ASSERT(row < rows && col < cols, "Givens rotation indexes outside the matrix (row %u, col %u).", row, col);
             double givens_c = r[col * cols + col];
             double givens_s = -r[row * cols + col];
             const double givens_mag = hypot(givens_c, givens_s);

@@ -50,9 +50,25 @@ struct basis_set_registry_t
     basis_endpoint_set_t **endpoint_sets;
 };
 
-void basis_set_to_boundary(unsigned ndim, const basis_set_t element_basis[static ndim],
+void basis_spec_to_boundary(unsigned ndim, const basis_spec_t element_basis[static ndim],
+                            const int8_t orientation[static ndim], unsigned bdim,
+                            basis_spec_t boundary_basis[static restrict bdim])
+{
+    CUTL_ASSERT(ndim > 0 && bdim > 0 && bdim < ndim, "Invalid boundary dimension.");
+    // Canoncial orientation array has first (ndim - bdim) entries corresponding to the normal directions of the
+    // boundary.
+    const int8_t *varying_axes = orientation + (ndim - bdim);
+    for (unsigned idim = 0; idim < bdim; ++idim)
+    {
+        const int8_t canonical_axes = varying_axes[idim];
+        const unsigned idx = canonical_axes < 0 ? -canonical_axes - 1 : canonical_axes - 1;
+        boundary_basis[idim] = element_basis[idx];
+    }
+}
+
+void basis_set_to_boundary(unsigned ndim, const basis_set_t *element_basis[static ndim],
                            const int8_t orientation[static ndim], unsigned bdim,
-                           basis_set_t boundary_basis[static restrict bdim])
+                           const basis_set_t *boundary_basis[static restrict bdim])
 {
     CUTL_ASSERT(ndim > 0 && bdim > 0 && bdim < ndim, "Invalid boundary dimension.");
     // Canoncial orientation array has first (ndim - bdim) entries corresponding to the normal directions of the
