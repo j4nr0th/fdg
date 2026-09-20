@@ -783,21 +783,16 @@ static int mesh_continuity_append_local_row(mesh_continuity_builder_t *const bui
 }
 
 /** Appends one reference-space constraint row, routing entries by element side. */
-static int mesh_continuity_append_two_sided_row(mesh_continuity_builder_t *const builder,
-                                                const kform_spec_object *const test_spec, const unsigned component,
-                                                const size_t local_row, const uint64_t element_id_1,
-                                                const uint64_t element_id_2, PyObject *const result)
+static int mesh_continuity_append_two_sided_arrays(mesh_continuity_builder_t *const builder,
+                                                   const kform_spec_object *const test_spec, const unsigned component,
+                                                   const size_t local_row, const uint64_t element_id_1,
+                                                   const uint64_t element_id_2, PyArrayObject *const *const arrays)
 {
-    if (!PyTuple_Check(result) || PyTuple_GET_SIZE(result) != 5)
-    {
-        PyErr_SetString(PyExc_RuntimeError, "The reference continuity assembler returned an invalid result.");
-        return -1;
-    }
-    PyArrayObject *const row_offsets = (PyArrayObject *)PyTuple_GET_ITEM(result, 0);
-    PyArrayObject *const sides = (PyArrayObject *)PyTuple_GET_ITEM(result, 1);
-    PyArrayObject *const components = (PyArrayObject *)PyTuple_GET_ITEM(result, 2);
-    PyArrayObject *const local_dofs = (PyArrayObject *)PyTuple_GET_ITEM(result, 3);
-    PyArrayObject *const coefficients = (PyArrayObject *)PyTuple_GET_ITEM(result, 4);
+    PyArrayObject *const row_offsets = arrays[0];
+    PyArrayObject *const sides = arrays[1];
+    PyArrayObject *const components = arrays[2];
+    PyArrayObject *const local_dofs = arrays[3];
+    PyArrayObject *const coefficients = arrays[4];
     if (!PyArray_Check(row_offsets) || !PyArray_Check(sides) || !PyArray_Check(components) ||
         !PyArray_Check(local_dofs) || !PyArray_Check(coefficients) || PyArray_NDIM(row_offsets) != 1 ||
         PyArray_NDIM(sides) != 1 || PyArray_NDIM(components) != 1 || PyArray_NDIM(local_dofs) != 1 ||
@@ -847,6 +842,100 @@ static int mesh_continuity_append_two_sided_row(mesh_continuity_builder_t *const
     return 0;
 }
 
+/** One cached reference constraint result, keyed by the pair's identity. */
+typedef struct
+{
+    const kform_spec_object *test_spec;
+    const kform_spec_object *element_spec_1;
+    const kform_spec_object *element_spec_2;
+    int8_t *orientations; // 2 * ndim copied entries, side 1 first.
+    PyArrayObject *arrays[5];
+} mesh_continuity_reference_cache_entry_t;
+
+typedef struct
+{
+    mesh_continuity_reference_cache_entry_t *entries;
+    size_t count;
+    size_t capacity;
+} mesh_continuity_reference_cache_t;
+
+static void mesh_continuity_reference_cache_release(mesh_continuity_reference_cache_t *const cache)
+{
+    for (size_t entry = 0; entry < cache->count; ++entry)
+    {
+        PyMem_Free(cache->entries[entry].orientations);
+        for (unsigned index = 0; index < 5; ++index)
+            Py_XDECREF(cache->entries[entry].arrays[index]);
+    }
+    PyMem_Free(cache->entries);
+    *cache = (mesh_continuity_reference_cache_t){};
+}
+
+static PyArrayObject **mesh_continuity_reference_cache_lookup(mesh_continuity_reference_cache_t *const cache,
+                                                              const kform_spec_object *const test_spec,
+                                                              const kform_spec_object *const element_spec_1,
+                                                              const int8_t *const orientation_1,
+                                                              const kform_spec_object *const element_spec_2,
+                                                              const int8_t *const orientation_2, const unsigned ndim)
+{
+    for (size_t entry = 0; entry < cache->count; ++entry)
+    {
+        mesh_continuity_reference_cache_entry_t *const candidate = cache->entries + entry;
+        if (candidate->test_spec != test_spec || candidate->element_spec_1 != element_spec_1 ||
+            candidate->element_spec_2 != element_spec_2)
+            continue;
+        if (memcmp(candidate->orientations, orientation_1, sizeof(*orientation_1) * ndim) != 0 ||
+            memcmp(candidate->orientations + ndim, orientation_2, sizeof(*orientation_1) * ndim) != 0)
+            continue;
+        return candidate->arrays;
+    }
+    return NULL;
+}
+
+static PyArrayObject **mesh_continuity_reference_cache_store(mesh_continuity_reference_cache_t *const cache,
+                                                             const kform_spec_object *const test_spec,
+                                                             const kform_spec_object *const element_spec_1,
+                                                             const int8_t *const orientation_1,
+                                                             const kform_spec_object *const element_spec_2,
+                                                             const int8_t *const orientation_2, const unsigned ndim,
+                                                             PyObject *const result)
+{
+    if (!PyTuple_Check(result) || PyTuple_GET_SIZE(result) != 5)
+        return NULL;
+    mesh_continuity_reference_cache_entry_t entry = {.test_spec = test_spec,
+                                                     .element_spec_1 = element_spec_1,
+                                                     .element_spec_2 = element_spec_2,
+                                                     .orientations =
+                                                         PyMem_Malloc(sizeof(*entry.orientations) * 2 * ndim),
+                                                     .arrays = {NULL, NULL, NULL, NULL, NULL}};
+    if (!entry.orientations)
+        return NULL;
+    memcpy(entry.orientations, orientation_1, sizeof(*entry.orientations) * ndim);
+    memcpy(entry.orientations + ndim, orientation_2, sizeof(*entry.orientations) * ndim);
+    for (unsigned index = 0; index < 5; ++index)
+    {
+        PyObject *const object = PyTuple_GET_ITEM(result, index);
+        if (!PyArray_Check(object))
+        {
+            PyMem_Free(entry.orientations);
+            return NULL;
+        }
+        entry.arrays[index] = (PyArrayObject *)object;
+        Py_INCREF(object);
+    }
+    if (mesh_continuity_builder_grow((void **)&cache->entries, &cache->capacity, cache->count + 1,
+                                     sizeof(*cache->entries)) < 0)
+    {
+        PyMem_Free(entry.orientations);
+        for (unsigned index = 0; index < 5; ++index)
+            Py_XDECREF(entry.arrays[index]);
+        return NULL;
+    }
+    cache->entries[cache->count] = entry;
+    ++cache->count;
+    return cache->entries[cache->count - 1].arrays;
+}
+
 typedef struct
 {
     const interplib_module_state_t *state;
@@ -860,6 +949,7 @@ typedef struct
     int c1_continuous;
     int failed;
     mesh_continuity_builder_t builder;
+    mesh_continuity_reference_cache_t reference_cache;
 } mesh_continuity_context_t;
 
 static void mesh_continuity_context_release(mesh_continuity_context_t *const context)
@@ -871,6 +961,7 @@ static void mesh_continuity_context_release(mesh_continuity_context_t *const con
     PyMem_Free(context->element_specs);
     PyMem_Free(context->element_maps);
     mesh_continuity_builder_release(&context->builder);
+    mesh_continuity_reference_cache_release(&context->reference_cache);
     *context = (mesh_continuity_context_t){};
 }
 
@@ -895,27 +986,43 @@ static void mesh_continuity_pair_callback(const topo_mesh_t *const mesh, const u
         kform_spec_object *const test_spec = (kform_spec_object *)test_object;
         if (context->c1_continuous)
         {
-            PyObject *const result = compute_kform_reference_constraints_impl(
-                context->state, test_spec, context->element_specs[element_id_1], orientation_1,
-                context->element_specs[element_id_2], orientation_2);
-            if (!result)
+            // Pairs repeat across a mesh: identical spec objects with
+            // identical orientations produce identical rows, so the assembled
+            // result (dense or reduced to links) is computed once and reused.
+            PyArrayObject **cached = mesh_continuity_reference_cache_lookup(
+                &context->reference_cache, test_spec, context->element_specs[element_id_1], orientation_1,
+                context->element_specs[element_id_2], orientation_2, context->ndim);
+            if (!cached)
             {
-                context->failed = 1;
-                return;
-            }
-            const size_t rows = test_spec->component_offsets[component + 1] - test_spec->component_offsets[component];
-            for (size_t row = 0; row < rows; ++row)
-            {
-                if (mesh_continuity_append_two_sided_row(&context->builder, test_spec, (unsigned)component, row,
-                                                         element_id_1, element_id_2, result) < 0 ||
-                    mesh_continuity_builder_finish_row(&context->builder) < 0)
+                PyObject *const result = compute_kform_reference_constraints_impl(
+                    context->state, test_spec, context->element_specs[element_id_1], orientation_1,
+                    context->element_specs[element_id_2], orientation_2);
+                if (!result)
                 {
-                    Py_DECREF(result);
+                    context->failed = 1;
+                    return;
+                }
+                cached = mesh_continuity_reference_cache_store(
+                    &context->reference_cache, test_spec, context->element_specs[element_id_1], orientation_1,
+                    context->element_specs[element_id_2], orientation_2, context->ndim, result);
+                Py_DECREF(result);
+                if (!cached)
+                {
                     context->failed = 1;
                     return;
                 }
             }
-            Py_DECREF(result);
+            const size_t rows = test_spec->component_offsets[component + 1] - test_spec->component_offsets[component];
+            for (size_t row = 0; row < rows; ++row)
+            {
+                if (mesh_continuity_append_two_sided_arrays(&context->builder, test_spec, (unsigned)component, row,
+                                                            element_id_1, element_id_2, cached) < 0 ||
+                    mesh_continuity_builder_finish_row(&context->builder) < 0)
+                {
+                    context->failed = 1;
+                    return;
+                }
+            }
             continue;
         }
         PyObject *const first_result =

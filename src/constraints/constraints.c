@@ -11,9 +11,10 @@
 
 #include "constraints.h"
 
-#include "../common/common_defines.h"
-#include "cutl/iterators/combination_iterator.h"
 #include <limits.h>
+#include <math.h>
+
+#include "cutl/iterators/combination_iterator.h"
 
 /**
  * @brief Test whether a component contains one active covector axis.
@@ -106,11 +107,56 @@ static double trace_pullback_dot(const constraint_trace_pullback_t *const pullba
 }
 
 /**
- * @brief Combined point weight of one side: quadrature times optional measure.
+ * @brief Accumulate one test × element trace inner-product block.
+ *
+ * Computes `out[i * row_stride + column + j] += factor(point) *
+ * test_values[point * test_dofs + i] * element_values[point * element_dofs + j]`
+ * for every quadrature point, where the point factor is the quadrature weight
+ * times the optional surface measure times @p factor and, when a pullback is
+ * given, the physical dot product of the two pullback samples. The block is
+ * zero-initialized first, so disjoint column ranges accumulate independently.
+ *
+ * Preconditions: the test and element component blocks hold `test_dofs *
+ * point_count` and `element_dofs * point_count` entries point-major; the
+ * column range `[column, column + element_dofs)` of every written row
+ * belongs to this block alone.
  */
-static inline double side_point_weight(const constraint_assembly_inputs_t *const inputs, const size_t point)
+static void trace_component_block(const size_t point_count, const size_t test_dofs, const size_t element_dofs,
+                                  const double *restrict test_values, const double *restrict element_values,
+                                  const double *restrict point_weights, const double *restrict surface_weights,
+                                  const double factor, const constraint_trace_pullback_t *restrict pullback,
+                                  const unsigned first_component, const unsigned second_component, const size_t column,
+                                  const size_t row_stride, double *restrict out)
 {
-    return inputs->point_weights[point] * (inputs->surface_weights ? inputs->surface_weights[point] : 1.0);
+    for (size_t i = 0; i < test_dofs; ++i)
+    {
+        double *restrict out_row = out + i * row_stride + column;
+        for (size_t j = 0; j < element_dofs; ++j)
+        {
+            out_row[j] = 0.0;
+        }
+    }
+    const unsigned physical_component_count = pullback ? pullback->physical_component_count : 1;
+    for (size_t point = 0; point < point_count; ++point)
+    {
+        double point_factor = point_weights[point] * (surface_weights ? surface_weights[point] : 1.0) * factor;
+        if (pullback)
+        {
+            point_factor *= trace_pullback_dot(pullback, first_component, second_component, physical_component_count,
+                                               point_count, point);
+        }
+        const double *restrict test_point = test_values + point * test_dofs;
+        const double *restrict element_point = element_values + point * element_dofs;
+        for (size_t i = 0; i < test_dofs; ++i)
+        {
+            const double scaled = point_factor * test_point[i];
+            double *restrict out_row = out + i * row_stride + column;
+            for (size_t j = 0; j < element_dofs; ++j)
+            {
+                out_row[j] += scaled * element_point[j];
+            }
+        }
+    }
 }
 
 /**
@@ -258,48 +304,288 @@ void constraint_reference_assemble(const kform_spec_t *const test_spec,
     size_t row = 0;
     size_t entry = 0;
     out_row_offsets[0] = 0;
-    // This nested order is the packed-row contract: component-major, then
-    // component-local DoF order, with one offset written after each row.
+    // The packed-row contract is unchanged: component-major rows, side-ordered
+    // entry blocks, one offset per row. Each component's coefficients form one
+    // dense test-dofs × row-entries block, accumulated side block by side
+    // block; the row entries never mix between components.
     for (unsigned test_component = 0; test_component < component_count; ++test_component)
     {
         uint8_t test_axes[UINT8_MAX];
         kform_component_axes(test_spec, test_component, test_axes);
         const size_t test_dof_count =
             test_table->component_offsets[test_component + 1] - test_table->component_offsets[test_component];
-        const size_t test_block_start = test_table->component_offsets[test_component];
+        const size_t test_block_start = test_table->component_offsets[test_component] * point_count;
+        unsigned element_components[2] = {0, 0};
+        int orientation_signs[2] = {1, 1};
+        size_t side_entries[2] = {0, 0};
+        size_t row_entries = 0;
+        for (unsigned side_index = 0; side_index < 2; ++side_index)
+        {
+            const constraint_element_side_t *const side = sides + side_index;
+            mapped_component(side, face_dim, order, test_axes, element_components + side_index,
+                             orientation_signs + side_index);
+            const kform_spec_t element_spec = {.ndim = side->ndim, .order = order, .basis = side->basis_specs};
+            side_entries[side_index] = kform_spec_component_dof_count(&element_spec, element_components[side_index]);
+            row_entries += side_entries[side_index];
+        }
+        for (unsigned side_index = 0; side_index < 2; ++side_index)
+        {
+            const kform_values_table_t *const element_table = element_tables[side_index];
+            const size_t element_block_start =
+                element_table->component_offsets[element_components[side_index]] * point_count;
+            const double side_sign = side_index == 0 ? 1.0 : -1.0;
+            trace_component_block(point_count, test_dof_count, side_entries[side_index],
+                                  test_table->values + test_block_start, element_table->values + element_block_start,
+                                  point_weights, NULL, side_sign * (double)orientation_signs[side_index], NULL, 0, 0,
+                                  side_index == 0 ? 0 : side_entries[0], row_entries, out_coefficients + entry);
+        }
+        for (size_t test_dof = 0; test_dof < test_dof_count; ++test_dof)
+        {
+            out_row_offsets[row + test_dof + 1] = entry + (test_dof + 1) * row_entries;
+            size_t entry_index = entry + test_dof * row_entries;
+            for (unsigned side_index = 0; side_index < 2; ++side_index)
+            {
+                for (size_t element_dof = 0; element_dof < side_entries[side_index]; ++element_dof, ++entry_index)
+                {
+                    out_sides[entry_index] = (uint8_t)side_index;
+                    out_components[entry_index] = (uint32_t)element_components[side_index];
+                    out_local_dofs[entry_index] = element_dof;
+                }
+            }
+        }
+        row += test_dof_count;
+        entry += test_dof_count * row_entries;
+    }
+}
+
+bool constraint_reference_links_eligible(const kform_spec_t *const test_spec,
+                                         const constraint_element_side_t sides[const static 2])
+{
+    const unsigned face_dim = test_spec->ndim;
+    const unsigned fixed_count = sides[0].ndim - face_dim;
+    // Free slots: both sides must map to the same family and order, and the
+    // test order must match so each component's Gram block is square. A slot
+    // whose orientation sign differs between the sides is mirrored, which
+    // flips its node index; only Lagrange families on symmetric node sets
+    // turn that flip into a pure DoF permutation.
+    for (unsigned face_axis = 0; face_axis < face_dim; ++face_axis)
+    {
+        const int8_t mapping_0 = sides[0].orientation[fixed_count + face_axis];
+        const int8_t mapping_1 = sides[1].orientation[fixed_count + face_axis];
+        const basis_spec_t *const spec_0 = &sides[0].basis_specs[(mapping_0 < 0 ? -mapping_0 : mapping_0) - 1];
+        const basis_spec_t *const spec_1 = &sides[1].basis_specs[(mapping_1 < 0 ? -mapping_1 : mapping_1) - 1];
+        if (spec_0->type != spec_1->type || spec_0->order != spec_1->order ||
+            test_spec->basis[face_axis].order != spec_0->order)
+        {
+            return false;
+        }
+        const bool mirrored = (mapping_0 < 0) != (mapping_1 < 0);
+        if (mirrored)
+        {
+            const basis_set_type_t test_type = test_spec->basis[face_axis].type;
+            const bool test_nodal = test_type == BASIS_LAGRANGE_GAUSS || test_type == BASIS_LAGRANGE_GAUSS_LOBATTO ||
+                                    test_type == BASIS_LAGRANGE_UNIFORM || test_type == BASIS_LAGRANGE_CHEBYSHEV_GAUSS;
+            const bool element_nodal =
+                spec_0->type == BASIS_LAGRANGE_GAUSS || spec_0->type == BASIS_LAGRANGE_GAUSS_LOBATTO ||
+                spec_0->type == BASIS_LAGRANGE_UNIFORM || spec_0->type == BASIS_LAGRANGE_CHEBYSHEV_GAUSS;
+            if (!test_nodal || !element_nodal)
+                return false;
+        }
+    }
+    // Fixed slots: a single DoF may carry the endpoint value on both sides.
+    for (unsigned fixed_axis = 0; fixed_axis < fixed_count; ++fixed_axis)
+    {
+        const int8_t mapping_0 = sides[0].orientation[fixed_axis];
+        const int8_t mapping_1 = sides[1].orientation[fixed_axis];
+        const basis_set_type_t type_0 = sides[0].basis_specs[(mapping_0 < 0 ? -mapping_0 : mapping_0) - 1].type;
+        const basis_set_type_t type_1 = sides[1].basis_specs[(mapping_1 < 0 ? -mapping_1 : mapping_1) - 1].type;
+        const bool supported_0 = type_0 == BASIS_LAGRANGE_GAUSS_LOBATTO || type_0 == BASIS_BERNSTEIN;
+        const bool supported_1 = type_1 == BASIS_LAGRANGE_GAUSS_LOBATTO || type_1 == BASIS_BERNSTEIN;
+        if (!supported_0 || !supported_1)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+void constraint_reference_links_layout(const kform_spec_t *const test_spec,
+                                       const constraint_element_side_t sides[const static 2],
+                                       size_t *const out_row_count, size_t *const out_entry_count)
+{
+    (void)sides;
+    const size_t row_count = kform_spec_total_dofs(test_spec);
+    *out_row_count = row_count;
+    *out_entry_count = 2 * row_count;
+}
+
+void constraint_reference_links_reduce(const kform_spec_t *const test_spec,
+                                       const constraint_element_side_t sides[const static 2],
+                                       const size_t dense_row_count, const uint8_t dense_sides[const static 1],
+                                       const uint32_t dense_components[const static 1],
+                                       const size_t dense_local_dofs[const static 1],
+                                       const double dense_coefficients[const static 1],
+                                       const size_t dense_row_offsets[const static 1], uint8_t out_sides[],
+                                       uint32_t out_components[], size_t out_local_dofs[], double out_coefficients[],
+                                       size_t out_row_offsets[])
+{
+    const unsigned face_dim = test_spec->ndim;
+    const unsigned order = test_spec->order;
+    const size_t component_count = kform_spec_component_count(test_spec);
+    const unsigned fixed_count = sides[0].ndim - face_dim;
+    size_t test_offsets[UINT8_MAX + 1];
+    kform_spec_component_offsets(test_spec, component_count + 1, test_offsets);
+
+    size_t row = 0;
+    size_t entry = 0;
+    out_row_offsets[0] = 0;
+    for (unsigned test_component = 0; test_component < component_count; ++test_component)
+    {
+        uint8_t test_axes[UINT8_MAX];
+        kform_component_axes(test_spec, test_component, test_axes);
+        // Per side, the element DoF counts and strides of THIS component:
+        // active mapped axes carry the lowered count, every other axis the
+        // full count.
+        size_t counts[2][UINT8_MAX];
+        size_t side_strides[2][UINT8_MAX];
+        for (unsigned side_index = 0; side_index < 2; ++side_index)
+        {
+            const constraint_element_side_t *const side = sides + side_index;
+            for (unsigned axis = 0; axis < side->ndim; ++axis)
+                counts[side_index][axis] = side->basis_specs[axis].order + 1u;
+            for (unsigned pos = 0; pos < order; ++pos)
+            {
+                const int8_t mapping = side->orientation[fixed_count + test_axes[pos]];
+                const unsigned element_axis = (unsigned)(mapping < 0 ? -mapping : mapping) - 1;
+                counts[side_index][element_axis] = side->basis_specs[element_axis].order;
+            }
+            size_t stride = 1;
+            for (unsigned stride_axis = side->ndim; stride_axis-- > 0;)
+            {
+                side_strides[side_index][stride_axis] = stride;
+                stride *= counts[side_index][stride_axis];
+            }
+        }
+        unsigned element_components[2] = {0, 0};
+        int orientation_signs[2] = {1, 1};
+        for (unsigned side_index = 0; side_index < 2; ++side_index)
+        {
+            mapped_component(sides + side_index, face_dim, order, test_axes, &element_components[side_index],
+                             &orientation_signs[side_index]);
+        }
+        const size_t test_dof_count = test_offsets[test_component + 1] - test_offsets[test_component];
         for (size_t test_dof = 0; test_dof < test_dof_count; ++test_dof, ++row)
         {
+            ASSERT(row < dense_row_count, "Dense rows do not cover the test space.");
+            // Decode the canonical digits along every face axis: axis 0 is
+            // the slowest digit, the last axis the fastest. Active covector
+            // axes carry one fewer DoF than inactive axes.
+            uint8_t digits[UINT8_MAX];
+            size_t remainder = test_dof;
+            for (unsigned axis = face_dim; axis-- > 0;)
+            {
+                const unsigned axis_order = test_spec->basis[axis].order;
+                const unsigned axis_dofs = axis_order + (component_has_axis(order, test_axes, axis) ? 0u : 1u);
+                digits[axis] = (uint8_t)(remainder % axis_dofs);
+                remainder /= axis_dofs;
+            }
+            // The element DoF carrying the canonical trace function on each
+            // side: the table mirror flags and the mapped-component signs
+            // already canonicalize every side, so the digits carry over
+            // verbatim, and the normal digits sit at the endpoint-supported
+            // DoF.
+            size_t labels[2] = {0, 0};
             for (unsigned side_index = 0; side_index < 2; ++side_index)
             {
                 const constraint_element_side_t *const side = sides + side_index;
-                const kform_values_table_t *const element_table = element_tables[side_index];
-                unsigned element_component;
-                int orientation_sign;
-                mapped_component(side, face_dim, order, test_axes, &element_component, &orientation_sign);
-                const kform_spec_t element_spec = {.ndim = side->ndim, .order = order, .basis = side->basis_specs};
-                const size_t element_dof_count = kform_spec_component_dof_count(&element_spec, element_component);
-                const size_t element_block_start = element_table->component_offsets[element_component] * point_count;
-                const size_t element_block_dofs = element_table->component_offsets[element_component + 1] -
-                                                  element_table->component_offsets[element_component];
-                const double side_sign = side_index == 0 ? 1.0 : -1.0;
-                for (size_t element_dof = 0; element_dof < element_dof_count; ++element_dof)
+                for (unsigned axis = 0; axis < face_dim; ++axis)
                 {
-                    double coefficient = 0.0;
-                    for (size_t point = 0; point < point_count; ++point)
-                    {
-                        const double test_value =
-                            test_table->values[test_block_start * point_count + point * test_dof_count + test_dof];
-                        const double element_value =
-                            element_table->values[element_block_start + point * element_block_dofs + element_dof];
-                        coefficient += point_weights[point] * test_value * element_value;
-                    }
-                    out_sides[entry] = (uint8_t)side_index;
-                    out_components[entry] = (uint32_t)element_component;
-                    out_local_dofs[entry] = element_dof;
-                    out_coefficients[entry] = side_sign * (double)orientation_sign * coefficient;
-                    ++entry;
+                    const int8_t mapping = side->orientation[fixed_count + axis];
+                    const unsigned element_axis = (unsigned)(mapping < 0 ? -mapping : mapping) - 1;
+                    const unsigned axis_count = counts[side_index][element_axis];
+                    const unsigned digit =
+                        mapping < 0 ? axis_count - 1u - (unsigned)digits[axis] : (unsigned)digits[axis];
+                    labels[side_index] += digit * side_strides[side_index][element_axis];
+                }
+                for (unsigned fixed_axis = 0; fixed_axis < fixed_count; ++fixed_axis)
+                {
+                    const int8_t mapping = side->orientation[fixed_axis];
+                    const unsigned element_axis = (unsigned)(mapping < 0 ? -mapping : mapping) - 1;
+                    const unsigned support = mapping < 0 ? 0u : side->basis_specs[element_axis].order;
+                    labels[side_index] += support * side_strides[side_index][element_axis];
                 }
             }
+            // The ratio of the dense moment rows is read at the LARGEST
+            // side-0 entry: individual matched columns can vanish structurally
+            // (parity of the paired basis functions), so they must never
+            // define it. Its canonical digits are recovered from the element-0
+            // layout and re-encoded in the element-1 frame to locate the
+            // matched side-1 column.
+            double largest = 0.0;
+            double largest_magnitude = 0.0;
+            size_t largest_dof = 0;
+            for (size_t dense_entry = dense_row_offsets[row]; dense_entry < dense_row_offsets[row + 1]; ++dense_entry)
+            {
+                if (dense_sides[dense_entry] != 0)
+                    continue;
+                const double magnitude = fabs(dense_coefficients[dense_entry]);
+                if (magnitude > largest_magnitude)
+                {
+                    largest_magnitude = magnitude;
+                    largest = dense_coefficients[dense_entry];
+                    largest_dof = dense_local_dofs[dense_entry];
+                }
+            }
+            size_t canonical_digits[UINT8_MAX];
+            remainder = largest_dof;
+            for (unsigned axis = face_dim; axis-- > 0;)
+            {
+                const int8_t mapping = sides[0].orientation[fixed_count + axis];
+                const unsigned source_axis = (unsigned)(mapping < 0 ? -mapping : mapping) - 1;
+                const unsigned count = counts[0][source_axis];
+                const unsigned digit = (unsigned)(remainder % count);
+                canonical_digits[axis] = mapping < 0 ? count - 1u - digit : digit;
+                remainder /= count;
+            }
+            size_t partner = 0;
+            for (unsigned axis = 0; axis < face_dim; ++axis)
+            {
+                const int8_t mapping = sides[1].orientation[fixed_count + axis];
+                const unsigned other_axis = (unsigned)(mapping < 0 ? -mapping : mapping) - 1;
+                const unsigned count = counts[1][other_axis];
+                const unsigned digit = mapping < 0 ? count - 1u - canonical_digits[axis] : canonical_digits[axis];
+                partner += digit * side_strides[1][other_axis];
+            }
+            for (unsigned fixed_axis = 0; fixed_axis < fixed_count; ++fixed_axis)
+            {
+                const int8_t mapping = sides[1].orientation[fixed_axis];
+                const unsigned element_axis = (unsigned)(mapping < 0 ? -mapping : mapping) - 1;
+                const unsigned support = mapping < 0 ? 0u : sides[1].basis_specs[element_axis].order;
+                partner += support * side_strides[1][element_axis];
+            }
+            double row_ratio = 0.0;
+            size_t seen = 0;
+            for (size_t dense_entry = dense_row_offsets[row]; dense_entry < dense_row_offsets[row + 1]; ++dense_entry)
+            {
+                if (dense_sides[dense_entry] != 1 || dense_components[dense_entry] != element_components[1] ||
+                    dense_local_dofs[dense_entry] != partner)
+                {
+                    continue;
+                }
+                row_ratio = dense_coefficients[dense_entry] / largest;
+                ++seen;
+            }
+            ASSERT(seen == 1, "A dense trace row is missing a matched element DoF.");
+            out_sides[entry] = 0;
+            out_components[entry] = (uint32_t)element_components[0];
+            out_local_dofs[entry] = labels[0];
+            out_coefficients[entry] = 1.0;
+            ++entry;
+            out_sides[entry] = 1;
+            out_components[entry] = (uint32_t)element_components[1];
+            out_local_dofs[entry] = labels[1];
+            out_coefficients[entry] = row_ratio;
+            ++entry;
             out_row_offsets[row + 1] = entry;
         }
     }
@@ -316,19 +602,25 @@ static void physical_assemble_impl(const kform_spec_t *const test_spec, const co
     const unsigned face_component_count = combination_total_count((uint8_t)face_dim, (uint8_t)order);
     const kform_values_table_t *const test_table = inputs[0].test_table;
     const size_t point_count = test_table->point_count;
-    unsigned test_element_components[2] = {0, 0};
-    int test_orientation_signs[2] = {1, 1};
 
     size_t row = 0;
     size_t entry = 0;
     out_row_offsets[0] = 0;
+    // The packed-row contract is unchanged. Every mapped face component can
+    // couple through the physical pullback, so each row's block spans all
+    // face components of every side; the pullback factors depend only on the
+    // component pair and the point, never on the DoF indices.
     for (unsigned test_component = 0; test_component < component_count; ++test_component)
     {
         uint8_t test_axes[UINT8_MAX];
         kform_component_axes(test_spec, test_component, test_axes);
         const size_t test_dof_count =
             test_table->component_offsets[test_component + 1] - test_table->component_offsets[test_component];
-        const size_t test_block_start = test_table->component_offsets[test_component];
+        const size_t test_block_start = test_table->component_offsets[test_component] * point_count;
+        unsigned test_element_components[2] = {0, 0};
+        int test_orientation_signs[2] = {1, 1};
+        size_t side_entries[2] = {0, 0};
+        size_t row_entries = 0;
         for (unsigned side_index = 0; side_index < side_count; ++side_index)
         {
             if (order != 0)
@@ -336,65 +628,76 @@ static void physical_assemble_impl(const kform_spec_t *const test_spec, const co
                 mapped_component(sides + side_index, face_dim, order, test_axes, &test_element_components[side_index],
                                  &test_orientation_signs[side_index]);
             }
-        }
-        for (size_t test_dof = 0; test_dof < test_dof_count; ++test_dof, ++row)
-        {
-            // Every mapped face component can couple through the physical
-            // pullback, so physical assembly visits all component blocks of
-            // every side before the row closes.
-            for (unsigned side_index = 0; side_index < side_count; ++side_index)
+            for (unsigned face_component = 0; face_component < face_component_count; ++face_component)
             {
-                const constraint_element_side_t *const side = sides + side_index;
-                const constraint_assembly_inputs_t *const input = inputs + side_index;
-                const kform_values_table_t *const element_table = input->element_table;
-                const constraint_trace_pullback_t *const pullback = input->pullback;
-                const unsigned test_element_component = test_element_components[side_index];
-                const int test_orientation_sign = test_orientation_signs[side_index];
-                const double side_sign = side_index == 0 ? 1.0 : -1.0;
-                for (unsigned face_component = 0; face_component < face_component_count; ++face_component)
+                uint8_t face_axes[UINT8_MAX];
+                kform_component_axes(test_spec, face_component, face_axes);
+                side_entries[side_index] +=
+                    side_entries_per_test_component(sides + side_index, face_dim, order, face_axes);
+            }
+            row_entries += side_entries[side_index];
+        }
+        for (unsigned side_index = 0; side_index < side_count; ++side_index)
+        {
+            const constraint_element_side_t *const side = sides + side_index;
+            const constraint_assembly_inputs_t *const input = inputs + side_index;
+            const kform_values_table_t *const element_table = input->element_table;
+            const constraint_trace_pullback_t *const pullback = order != 0 ? input->pullback : NULL;
+            const double side_sign = side_index == 0 ? 1.0 : -1.0;
+            const double side_factor = side_sign * (double)test_orientation_signs[side_index];
+            size_t column = side_index == 0 ? 0 : side_entries[0];
+            for (unsigned face_component = 0; face_component < face_component_count; ++face_component)
+            {
+                uint8_t face_axes[UINT8_MAX];
+                kform_component_axes(test_spec, face_component, face_axes);
+                unsigned element_component;
+                int orientation_sign;
+                mapped_component(side, face_dim, order, face_axes, &element_component, &orientation_sign);
+                const kform_spec_t element_spec = {.ndim = side->ndim, .order = order, .basis = side->basis_specs};
+                const size_t element_dof_count = kform_spec_component_dof_count(&element_spec, element_component);
+                const size_t element_block_start = element_table->component_offsets[element_component] * point_count;
+                trace_component_block(
+                    point_count, test_dof_count, element_dof_count, test_table->values + test_block_start,
+                    element_table->values + element_block_start, input->point_weights, input->surface_weights,
+                    side_factor * (double)orientation_sign, pullback, test_element_components[side_index],
+                    element_component, column, row_entries, out_coefficients + entry);
+                column += element_dof_count;
+            }
+        }
+        for (unsigned side_index = 0; side_index < side_count; ++side_index)
+        {
+            const constraint_element_side_t *const side = sides + side_index;
+            size_t column = side_index == 0 ? 0 : side_entries[0];
+            for (unsigned face_component = 0; face_component < face_component_count; ++face_component)
+            {
+                uint8_t face_axes[UINT8_MAX];
+                kform_component_axes(test_spec, face_component, face_axes);
+                unsigned element_component;
+                int orientation_sign;
+                mapped_component(side, face_dim, order, face_axes, &element_component, &orientation_sign);
+                (void)orientation_sign;
+                const kform_spec_t element_spec = {.ndim = side->ndim, .order = order, .basis = side->basis_specs};
+                const size_t element_dof_count = kform_spec_component_dof_count(&element_spec, element_component);
+                for (size_t test_dof = 0; test_dof < test_dof_count; ++test_dof)
                 {
-                    uint8_t face_axes[UINT8_MAX];
-                    kform_component_axes(test_spec, face_component, face_axes);
-                    unsigned element_component;
-                    int orientation_sign;
-                    mapped_component(side, face_dim, order, face_axes, &element_component, &orientation_sign);
-                    const kform_spec_t element_spec = {.ndim = side->ndim, .order = order, .basis = side->basis_specs};
-                    const size_t element_dof_count = kform_spec_component_dof_count(&element_spec, element_component);
-                    const size_t element_block_start =
-                        element_table->component_offsets[element_component] * point_count;
-                    const size_t element_block_dofs = element_table->component_offsets[element_component + 1] -
-                                                      element_table->component_offsets[element_component];
-                    for (size_t element_dof = 0; element_dof < element_dof_count; ++element_dof)
+                    size_t entry_index = entry + test_dof * row_entries + column;
+                    for (size_t element_dof = 0; element_dof < element_dof_count; ++element_dof, ++entry_index)
                     {
-                        double coefficient = 0.0;
-                        for (size_t point = 0; point < point_count; ++point)
-                        {
-                            double pullback_factor = 1.0;
-                            if (order != 0)
-                            {
-                                pullback_factor =
-                                    trace_pullback_dot(pullback, test_element_component, element_component,
-                                                       pullback->physical_component_count, point_count, point);
-                            }
-                            const double test_value =
-                                test_table->values[test_block_start * point_count + point * test_dof_count + test_dof];
-                            const double element_value =
-                                element_table->values[element_block_start + point * element_block_dofs + element_dof];
-                            coefficient +=
-                                side_point_weight(input, point) * pullback_factor * test_value * element_value;
-                        }
                         if (out_sides)
-                            out_sides[entry] = (uint8_t)side_index;
-                        out_components[entry] = (uint32_t)element_component;
-                        out_local_dofs[entry] = element_dof;
-                        out_coefficients[entry] =
-                            side_sign * (double)test_orientation_sign * (double)orientation_sign * coefficient;
-                        ++entry;
+                            out_sides[entry_index] = (uint8_t)side_index;
+                        out_components[entry_index] = (uint32_t)element_component;
+                        out_local_dofs[entry_index] = element_dof;
                     }
                 }
+                column += element_dof_count;
             }
-            out_row_offsets[row + 1] = entry;
         }
+        for (size_t test_dof = 0; test_dof < test_dof_count; ++test_dof)
+        {
+            out_row_offsets[row + test_dof + 1] = entry + (test_dof + 1) * row_entries;
+        }
+        row += test_dof_count;
+        entry += test_dof_count * row_entries;
     }
 }
 
@@ -494,16 +797,17 @@ void constraint_physical_side_load(const kform_spec_t *const test_spec, const co
         }
         const unsigned datum_component = combination_get_index(side->ndim, order + 1, datum_axes);
         const double sign = side_sign * (double)orientation_sign * (exponent_below_fixed % 2 == 0 ? 1.0 : -1.0);
-        for (size_t element_dof = 0; element_dof < element_dof_count; ++element_dof)
+        for (size_t point = 0; point < point_count; ++point)
         {
-            double coefficient = 0.0;
-            for (size_t point = 0; point < point_count; ++point)
+            const double weighted_datum = point_weights[point] * (surface_weights ? surface_weights[point] : 1.0) *
+                                          datum_values[datum_component * point_count + point] * sign;
+            const double *restrict element_point =
+                element_table->values + element_block_start + point * element_block_dofs;
+            double *restrict out_values = values + element_start;
+            for (size_t element_dof = 0; element_dof < element_dof_count; ++element_dof)
             {
-                const double weight_total = point_weights[point] * (surface_weights ? surface_weights[point] : 1.0);
-                coefficient += weight_total * datum_values[datum_component * point_count + point] *
-                               element_table->values[element_block_start + point * element_block_dofs + element_dof];
+                out_values[element_dof] += weighted_datum * element_point[element_dof];
             }
-            values[element_start + element_dof] += sign * coefficient;
         }
     }
 }
@@ -584,6 +888,26 @@ void constraint_trace_pullback_build(const constraint_trace_pullback_build_t *co
     const constraint_element_side_t side = {
         .ndim = request->element_dim, .basis_specs = NULL, .orientation = request->orientation};
     const kform_spec_t face_spec = {.ndim = request->face_dim, .order = request->order, .basis = NULL};
+    // The canonical to source point map is component independent: derive the
+    // loop-invariant per-axis decode data once, then decode every point with
+    // one divide-modulo pair per axis.
+    const unsigned fixed_count = request->element_dim - request->face_dim;
+    unsigned axis_source_slots[UINT8_MAX];
+    unsigned axis_orders[UINT8_MAX];
+    size_t axis_source_strides[UINT8_MAX];
+    size_t axis_canonical_strides[UINT8_MAX];
+    int axis_mirrored[UINT8_MAX];
+    for (unsigned face_axis = 0; face_axis < request->face_dim; ++face_axis)
+    {
+        const int8_t mapping = request->orientation[fixed_count + face_axis];
+        const unsigned element_axis = (unsigned)(mapping < 0 ? -mapping : mapping) - 1;
+        axis_source_slots[face_axis] =
+            constraint_face_source_axis(request->element_dim, request->face_dim, request->orientation, element_axis);
+        axis_mirrored[face_axis] = mapping < 0;
+        axis_orders[face_axis] = request->canonical_specs[face_axis].order;
+        axis_source_strides[face_axis] = request->source_strides[axis_source_slots[face_axis]];
+        axis_canonical_strides[face_axis] = request->canonical_strides[face_axis];
+    }
     for (unsigned face_component = 0; face_component < face_component_count; ++face_component)
     {
         uint8_t face_axes[UINT8_MAX];
@@ -594,9 +918,14 @@ void constraint_trace_pullback_build(const constraint_trace_pullback_build_t *co
         (void)orientation_sign;
         for (size_t canonical_point = 0; canonical_point < point_count; ++canonical_point)
         {
-            const size_t source_point = constraint_face_point_to_source(
-                request->element_dim, request->face_dim, request->orientation, request->source_specs,
-                request->canonical_specs, request->canonical_strides, request->source_strides, canonical_point);
+            size_t source_point = 0;
+            for (unsigned face_axis = 0; face_axis < request->face_dim; ++face_axis)
+            {
+                const size_t digit =
+                    (canonical_point / axis_canonical_strides[face_axis]) % ((size_t)axis_orders[face_axis] + 1);
+                source_point += (axis_mirrored[face_axis] ? (size_t)axis_orders[face_axis] - digit : digit) *
+                                axis_source_strides[face_axis];
+            }
             for (unsigned physical_component = 0; physical_component < physical_component_count; ++physical_component)
             {
                 const size_t source_index = ((size_t)face_component * physical_component_count + physical_component) *

@@ -192,6 +192,49 @@ void constraint_reference_assemble(const kform_spec_t *test_spec, const constrai
                                    size_t out_row_offsets[]);
 
 /**
+ * @brief Test whether a two-sided reference trace reduces to single DoF links.
+ *
+ * The link form replaces the assembled moment rows with one equality link per
+ * test DoF and side. It is exact when both sides sample the same trace space:
+ * along every canonical face axis the two sides must map to the same basis
+ * family and order, matching the test order, and every fixed normal axis must
+ * carry a basis with a single DoF supported at each endpoint (Gauss-Lobatto
+ * Lagrange or Bernstein). Under these conditions each component's exact trace
+ * Gram block is square and invertible and the two sides' blocks agree up to a
+ * node permutation, so the dense rows and the links span the same row space.
+ */
+bool constraint_reference_links_eligible(const kform_spec_t *test_spec,
+                                         const constraint_element_side_t sides[static 2]);
+
+/**
+ * @brief Compute the packed size of a two-sided reference link constraint.
+ *
+ * Rows match @ref constraint_reference_layout; every row holds exactly one
+ * entry per side.
+ */
+void constraint_reference_links_layout(const kform_spec_t *test_spec, const constraint_element_side_t sides[static 2],
+                                       size_t *out_row_count, size_t *out_entry_count);
+
+/**
+ * @brief Reduce assembled dense trace rows to single-DoF links.
+ *
+ * Requires @ref constraint_reference_links_eligible and the dense rows of
+ * @ref constraint_reference_assemble. Every row is replaced by one equality
+ * per side linking the endpoint-supported, canonicalized element DoFs that
+ * carry the row's test DoF; the coefficient ratio is read from the dense row
+ * itself, so orientation signs need no re-derivation. Same packed-row
+ * contract, with exactly one entry per side per row.
+ */
+void constraint_reference_links_reduce(const kform_spec_t *test_spec, const constraint_element_side_t sides[static 2],
+                                       size_t dense_row_count, const uint8_t dense_sides[static 1],
+                                       const uint32_t dense_components[static 1],
+                                       const size_t dense_local_dofs[static 1],
+                                       const double dense_coefficients[static 1],
+                                       const size_t dense_row_offsets[static 1], uint8_t out_sides[],
+                                       uint32_t out_components[], size_t out_local_dofs[], double out_coefficients[],
+                                       size_t out_row_offsets[]);
+
+/**
  * @brief Compute the packed size of one side of a physical trace matrix.
  *
  * @param test_spec Face test-space specification with `order <= ndim`.

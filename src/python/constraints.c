@@ -100,28 +100,16 @@ static int make_boundary_face_setup(const interplib_module_state_t *state, const
                                     boundary_face_setup_t *setup)
 {
     *setup = (boundary_face_setup_t){};
-    // Restrict the volume map to the face by removing the fixed axes one by
-    // one; the orientation prefix gives each removed axis and its side.
+    // Restrict the volume map to the face in one values-level pass: the orientation
+    // prefix holds the fixed normal axes, the tail the surviving face axes.
     const unsigned fixed_count = element_dim - face_dim;
-    space_map_object *current = (space_map_object *)element_map;
-    int owns_current = 0;
-    for (unsigned fixed_index = fixed_count; fixed_index > 0; --fixed_index)
+    space_map_object *const face = space_map_boundary_oriented_impl(state, element_map, fixed_count, orientation);
+    if (!face)
     {
-        const int8_t fixed_orientation = orientation[fixed_index - 1];
-        const unsigned source_axis = (unsigned)(fixed_orientation < 0 ? -fixed_orientation : fixed_orientation) - 1;
-        space_map_object *const next =
-            space_map_boundary_impl(state, current, source_axis, fixed_orientation > 0, NULL);
-        if (owns_current)
-            Py_DECREF(current);
-        if (!next)
-        {
-            goto fail;
-        }
-        current = next;
-        owns_current = 1;
+        goto fail;
     }
-    setup->face_object = (PyObject *)current;
-    setup->face_map = current;
+    setup->face_object = (PyObject *)face;
+    setup->face_map = face;
 
     const integration_spec_t *const face_specs = setup->face_map->int_specs;
     // The canonical specs determine the tensor point count, which sizes the
@@ -743,6 +731,29 @@ fail:
     return NULL;
 }
 
+/** Packs the five reference constraint arrays into the returned tuple. */
+static PyObject *reference_result_tuple(PyArrayObject *const row_array, PyArrayObject *const side_array,
+                                        PyArrayObject *const component_array, PyArrayObject *const dof_array,
+                                        PyArrayObject *const coefficient_array)
+{
+    PyObject *result = PyTuple_New(5);
+    if (!result)
+    {
+        Py_DECREF(row_array);
+        Py_DECREF(side_array);
+        Py_DECREF(component_array);
+        Py_DECREF(dof_array);
+        Py_DECREF(coefficient_array);
+        return NULL;
+    }
+    PyTuple_SET_ITEM(result, 0, (PyObject *)row_array);
+    PyTuple_SET_ITEM(result, 1, (PyObject *)side_array);
+    PyTuple_SET_ITEM(result, 2, (PyObject *)component_array);
+    PyTuple_SET_ITEM(result, 3, (PyObject *)dof_array);
+    PyTuple_SET_ITEM(result, 4, (PyObject *)coefficient_array);
+    return result;
+}
+
 PyObject *compute_kform_reference_constraints_impl(const interplib_module_state_t *state, kform_spec_object *test_spec,
                                                    kform_spec_object *element_spec_1, const int8_t *orientation_1,
                                                    kform_spec_object *element_spec_2, const int8_t *orientation_2)
@@ -770,6 +781,12 @@ PyObject *compute_kform_reference_constraints_impl(const interplib_module_state_
         goto fail;
     }
 
+    const kform_spec_t test_descriptor = {.ndim = face_dim, .order = order, .basis = test_spec->function_space->specs};
+    const constraint_element_side_t sides[2] = {
+        {.ndim = element_dim_1, .basis_specs = element_spec_1->function_space->specs, .orientation = orientation_1},
+        {.ndim = element_dim_2, .basis_specs = element_spec_2->function_space->specs, .orientation = orientation_2},
+    };
+
     // Per face axis, a Gauss-Legendre rule chosen exact for the pairing
     // integrand: the trace factors reach the test order plus the larger
     // element order on the mapped axis, with one spare degree for the
@@ -778,11 +795,6 @@ PyObject *compute_kform_reference_constraints_impl(const interplib_module_state_
     rule_specs = PyMem_Malloc(slot_count * sizeof(*rule_specs));
     if (!rule_specs)
         goto fail;
-    const kform_spec_t test_descriptor = {.ndim = face_dim, .order = order, .basis = test_spec->function_space->specs};
-    const constraint_element_side_t sides[2] = {
-        {.ndim = element_dim_1, .basis_specs = element_spec_1->function_space->specs, .orientation = orientation_1},
-        {.ndim = element_dim_2, .basis_specs = element_spec_2->function_space->specs, .orientation = orientation_2},
-    };
     constraint_reference_rule_specs(&test_descriptor, sides, rule_specs);
     const size_t point_count = integration_specs_total_points(face_dim, rule_specs);
     point_weights = PyMem_Malloc(point_count * sizeof(*point_weights));
@@ -846,6 +858,44 @@ PyObject *compute_kform_reference_constraints_impl(const interplib_module_state_
                                   (size_t *)PyArray_DATA(dof_array), (double *)PyArray_DATA(coefficient_array),
                                   (size_t *)PyArray_DATA(row_array));
 
+    // Matching trace spaces reduce the exact moment rows to per-DoF links:
+    // same packed contract, one entry per side per row, signs read from the
+    // dense row itself.
+    PyArrayObject *link_row_array = NULL;
+    PyArrayObject *link_side_array = NULL;
+    PyArrayObject *link_component_array = NULL;
+    PyArrayObject *link_dof_array = NULL;
+    PyArrayObject *link_coefficient_array = NULL;
+    if (constraint_reference_links_eligible(&test_descriptor, sides))
+    {
+        size_t link_rows;
+        size_t link_entries;
+        constraint_reference_links_layout(&test_descriptor, sides, &link_rows, &link_entries);
+        const npy_intp link_row_dims[1] = {(npy_intp)(link_rows + 1)};
+        const npy_intp link_entry_dims[1] = {(npy_intp)link_entries};
+        link_row_array = (PyArrayObject *)PyArray_SimpleNew(1, link_row_dims, NPY_UINTP);
+        link_side_array = (PyArrayObject *)PyArray_SimpleNew(1, link_entry_dims, NPY_UINT8);
+        link_component_array = (PyArrayObject *)PyArray_SimpleNew(1, link_entry_dims, NPY_UINT32);
+        link_dof_array = (PyArrayObject *)PyArray_SimpleNew(1, link_entry_dims, NPY_UINTP);
+        link_coefficient_array = (PyArrayObject *)PyArray_SimpleNew(1, link_entry_dims, NPY_DOUBLE);
+        if (!link_row_array || !link_side_array || !link_component_array || !link_dof_array || !link_coefficient_array)
+            goto fail;
+        constraint_reference_links_reduce(
+            &test_descriptor, sides, row_count, (uint8_t *)PyArray_DATA(side_array),
+            (uint32_t *)PyArray_DATA(component_array), (size_t *)PyArray_DATA(dof_array),
+            (double *)PyArray_DATA(coefficient_array), (size_t *)PyArray_DATA(row_array),
+            (uint8_t *)PyArray_DATA(link_side_array), (uint32_t *)PyArray_DATA(link_component_array),
+            (size_t *)PyArray_DATA(link_dof_array), (double *)PyArray_DATA(link_coefficient_array),
+            (size_t *)PyArray_DATA(link_row_array));
+        Py_DECREF(row_array);
+        Py_DECREF(side_array);
+        Py_DECREF(component_array);
+        Py_DECREF(dof_array);
+        Py_DECREF(coefficient_array);
+        return reference_result_tuple(link_row_array, link_side_array, link_component_array, link_dof_array,
+                                      link_coefficient_array);
+    }
+
     PyMem_Free(point_weights);
     if (rules)
         python_integration_rules_release(face_dim, rules,
@@ -854,24 +904,7 @@ PyObject *compute_kform_reference_constraints_impl(const interplib_module_state_
     release_trace_basis_table(&test_table);
     release_trace_basis_table(&element_table_1);
     release_trace_basis_table(&element_table_2);
-    {
-        PyObject *result = PyTuple_New(5);
-        if (!result)
-        {
-            Py_DECREF(row_array);
-            Py_DECREF(side_array);
-            Py_DECREF(component_array);
-            Py_DECREF(dof_array);
-            Py_DECREF(coefficient_array);
-            return NULL;
-        }
-        PyTuple_SET_ITEM(result, 0, row_array);
-        PyTuple_SET_ITEM(result, 1, side_array);
-        PyTuple_SET_ITEM(result, 2, component_array);
-        PyTuple_SET_ITEM(result, 3, dof_array);
-        PyTuple_SET_ITEM(result, 4, coefficient_array);
-        return result;
-    }
+    return reference_result_tuple(row_array, side_array, component_array, dof_array, coefficient_array);
 
 fail:
     Py_XDECREF(row_array);
@@ -879,6 +912,11 @@ fail:
     Py_XDECREF(component_array);
     Py_XDECREF(dof_array);
     Py_XDECREF(coefficient_array);
+    Py_XDECREF(link_row_array);
+    Py_XDECREF(link_side_array);
+    Py_XDECREF(link_component_array);
+    Py_XDECREF(link_dof_array);
+    Py_XDECREF(link_coefficient_array);
     PyMem_Free(point_weights);
     if (rules)
         python_integration_rules_release(face_dim, rules,

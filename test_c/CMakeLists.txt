@@ -87,6 +87,11 @@ add_executable(test_boundary_dof_indices operations/test_boundary_dof_indices.c)
 target_link_libraries(test_boundary_dof_indices PRIVATE test_common)
 add_test(NAME boundary_dof_indices COMMAND test_boundary_dof_indices)
 
+## Dof transforms
+add_executable(test_dof_transforms operations/test_dof_transforms.c)
+target_link_libraries(test_dof_transforms PRIVATE test_common)
+add_test(NAME dof_transforms COMMAND test_dof_transforms)
+
 ## Topological
 add_library(test_topo_common STATIC topology/topo_common.c)
 target_link_libraries(test_topo_common PUBLIC test_common)

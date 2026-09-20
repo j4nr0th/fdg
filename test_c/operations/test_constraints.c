@@ -1,8 +1,9 @@
 #include "../../src/constraints/constraints.h"
 #include "../common/common.h"
 
-#include <limits.h>
+#include <math.h>
 #include <stdlib.h>
+#include <string.h>
 
 static void *test_allocate(void *ctx, size_t size)
 {
@@ -1022,6 +1023,342 @@ static void test_boundary_test_specs(void)
     TEST_ASSERTION(!present[1], "Both one-form components cannot survive order-one elements.");
 }
 
+static unsigned test_matrix_rank(double *values, const size_t rows, const size_t cols)
+{
+    size_t rank = 0;
+    for (size_t col = 0; col < cols && rank < rows; ++col)
+    {
+        size_t pivot = rank;
+        for (size_t row = rank + 1; row < rows; ++row)
+        {
+            if (fabs(values[row * cols + col]) > fabs(values[pivot * cols + col]))
+                pivot = row;
+        }
+        if (fabs(values[pivot * cols + col]) < 1e-10)
+            continue;
+        if (pivot != rank)
+        {
+            for (size_t swap_col = 0; swap_col < cols; ++swap_col)
+            {
+                const double tmp = values[rank * cols + swap_col];
+                values[rank * cols + swap_col] = values[pivot * cols + swap_col];
+                values[pivot * cols + swap_col] = tmp;
+            }
+        }
+        for (size_t row = rank + 1; row < rows; ++row)
+        {
+            const double factor = values[row * cols + col] / values[rank * cols + col];
+            for (size_t eliminate = col; eliminate < cols; ++eliminate)
+                values[row * cols + eliminate] -= factor * values[rank * cols + eliminate];
+        }
+        ++rank;
+    }
+    return (unsigned)rank;
+}
+
+/**
+ * @brief Shared equivalence proof for one link-eligible scenario.
+ *
+ * Assembles the dense moment rows and the single-DoF link rows for the same
+ * pair, then verifies both constrain the element DoFs identically: the link
+ * rows have full row rank, the dense rows have the same rank, and the dense
+ * rows vanish on every random assignment satisfying the links.
+ */
+static void test_links_equivalence_scenario(const kform_spec_t *const test_spec,
+                                            const constraint_element_side_t *const sides, test_prng_t *prng)
+{
+    TEST_ASSERTION(constraint_reference_links_eligible(test_spec, sides), "Scenario must be link eligible.");
+    basis_set_registry_t *registry;
+    TEST_ASSERTION(basis_set_registry_create(&registry, 1, &SYSTEM_TEST_ALLOCATOR) == FDG_SUCCESS,
+                   "Could not create the basis registry.");
+    const unsigned face_dim = test_spec->ndim;
+
+    // Dense rows on the driver's exact rule choice.
+    integration_spec_t rule_specs[UINT8_MAX];
+    constraint_reference_rule_specs(test_spec, sides, rule_specs);
+    integration_rule_t *quadrature_storage[UINT8_MAX];
+    const integration_rule_t *rules[UINT8_MAX];
+    size_t strides[UINT8_MAX];
+    for (unsigned axis = 0; axis < face_dim; ++axis)
+    {
+        TEST_ASSERTION(integration_rule_for_order(&quadrature_storage[axis], rule_specs[axis].type,
+                                                  rule_specs[axis].order, &SYSTEM_TEST_ALLOCATOR) == FDG_SUCCESS,
+                       "Could not create the quadrature rule.");
+        rules[axis] = quadrature_storage[axis];
+    }
+    integration_spec_point_strides(face_dim, rule_specs, strides);
+    const size_t point_count = integration_specs_total_points(face_dim, rule_specs);
+    double *const point_weights = malloc(sizeof(*point_weights) * (point_count > 0 ? point_count : 1));
+    TEST_ASSERTION(point_weights != NULL, "Could not allocate point weights.");
+    integration_rule_tensor_weights(face_dim, rules, point_weights);
+
+    test_table_t test_table;
+    test_table_t element_tables_raw[2];
+    const kform_values_table_t *element_tables[2];
+    TEST_ASSERTION(test_table_build(registry, sides[0].ndim, face_dim, test_spec->order, test_spec->basis,
+                                    sides[0].orientation, rule_specs, rules, strides, 0, point_count, &test_table) == 0,
+                   "Could not build the test table.");
+    for (unsigned side = 0; side < 2; ++side)
+    {
+        TEST_ASSERTION(test_table_build(registry, sides[0].ndim, face_dim, test_spec->order, sides[side].basis_specs,
+                                        sides[side].orientation, rule_specs, rules, strides, 1, point_count,
+                                        &element_tables_raw[side]) == 0,
+                       "Could not build an element table.");
+        element_tables[side] = &element_tables_raw[side].descriptor;
+    }
+
+    size_t dense_rows;
+    size_t dense_entries;
+    constraint_reference_layout(test_spec, sides, &dense_rows, &dense_entries);
+    uint8_t *const dense_sides = malloc(sizeof(*dense_sides) * dense_entries);
+    uint32_t *const dense_components = malloc(sizeof(*dense_components) * dense_entries);
+    size_t *const dense_local_dofs = malloc(sizeof(*dense_local_dofs) * dense_entries);
+    double *const dense_coefficients = malloc(sizeof(*dense_coefficients) * dense_entries);
+    size_t *const dense_row_offsets = malloc(sizeof(*dense_row_offsets) * (dense_rows + 1));
+    TEST_ASSERTION(dense_sides && dense_components && dense_local_dofs && dense_coefficients && dense_row_offsets,
+                   "Could not allocate the dense rows.");
+    constraint_reference_assemble(test_spec, sides, point_weights, &test_table.descriptor, element_tables, dense_sides,
+                                  dense_components, dense_local_dofs, dense_coefficients, dense_row_offsets);
+    size_t link_rows;
+    size_t link_entries;
+    constraint_reference_links_layout(test_spec, sides, &link_rows, &link_entries);
+    TEST_ASSERTION(link_rows == dense_rows && link_entries == 2 * link_rows,
+                   "Unexpected link layout: %zu rows, %zu entries.", link_rows, link_entries);
+    uint8_t *const link_sides = malloc(sizeof(*link_sides) * link_entries);
+    uint32_t *const link_components = malloc(sizeof(*link_components) * link_entries);
+    size_t *const link_local_dofs = malloc(sizeof(*link_local_dofs) * link_entries);
+    double *const link_coefficients = malloc(sizeof(*link_coefficients) * link_entries);
+    size_t *const link_row_offsets = malloc(sizeof(*link_row_offsets) * (link_rows + 1));
+    TEST_ASSERTION(link_sides && link_components && link_local_dofs && link_coefficients && link_row_offsets,
+                   "Could not allocate the link rows.");
+    constraint_reference_links_reduce(test_spec, sides, dense_rows, dense_sides, dense_components, dense_local_dofs,
+                                      dense_coefficients, dense_row_offsets, link_sides, link_components,
+                                      link_local_dofs, link_coefficients, link_row_offsets);
+    for (size_t row = 0; row < link_rows; ++row)
+    {
+        TEST_ASSERTION(link_row_offsets[row + 1] - link_row_offsets[row] == 2,
+                       "Every link row holds one entry per side.");
+        TEST_ASSERTION(link_sides[link_row_offsets[row]] == 0 && link_sides[link_row_offsets[row] + 1] == 1,
+                       "Link entries must be side ordered.");
+        TEST_NUMBERS_CLOSE(fabs(link_coefficients[link_row_offsets[row]]), 1.0, 1e-12, 0.0);
+        TEST_NUMBERS_CLOSE(fabs(link_coefficients[link_row_offsets[row] + 1]), 1.0, 1e-12, 0.0);
+    }
+
+    // Element-frame DoF indexing for both sides.
+    size_t total_dofs[2];
+    size_t *offsets[2];
+    for (unsigned side = 0; side < 2; ++side)
+    {
+        const kform_spec_t element_spec = {
+            .ndim = sides[side].ndim, .order = test_spec->order, .basis = sides[side].basis_specs};
+        total_dofs[side] = kform_spec_total_dofs(&element_spec);
+        offsets[side] = malloc(sizeof(**offsets) * 64);
+        TEST_ASSERTION(offsets[side] != NULL, "Could not allocate component offsets.");
+        kform_spec_component_offsets(&element_spec, 64, offsets[side]);
+    }
+
+    // Both constraint systems as matrices over the concatenated element DoFs.
+    const size_t columns = total_dofs[0] + total_dofs[1];
+    double *const dense_matrix = calloc(dense_rows * columns, sizeof(*dense_matrix));
+    double *const link_matrix = calloc(link_rows * columns, sizeof(*link_matrix));
+    TEST_ASSERTION(dense_matrix != NULL && link_matrix != NULL, "Could not allocate constraint matrices.");
+    for (size_t row = 0; row < dense_rows; ++row)
+    {
+        for (size_t entry = dense_row_offsets[row]; entry < dense_row_offsets[row + 1]; ++entry)
+        {
+            const unsigned side = dense_sides[entry];
+            const size_t column =
+                (size_t)offsets[side][dense_components[entry]] + dense_local_dofs[entry] + side * total_dofs[0];
+            dense_matrix[row * columns + column] = dense_coefficients[entry];
+        }
+    }
+    for (size_t row = 0; row < link_rows; ++row)
+    {
+        for (size_t entry = link_row_offsets[row]; entry < link_row_offsets[row + 1]; ++entry)
+        {
+            const unsigned side = link_sides[entry];
+            link_matrix[row * columns + (size_t)offsets[side][link_components[entry]] + link_local_dofs[entry]] +=
+                link_coefficients[entry];
+        }
+    }
+    double *const scratch = malloc(sizeof(*scratch) * dense_rows * columns);
+    TEST_ASSERTION(scratch != NULL, "Could not allocate rank scratch.");
+    const unsigned link_rank = test_matrix_rank(link_matrix, link_rows, columns);
+    TEST_ASSERTION(link_rank == link_rows, "The link rows must have full row rank: %u of %zu.", link_rank, link_rows);
+    memcpy(scratch, dense_matrix, sizeof(*scratch) * dense_rows * columns);
+    const unsigned dense_rank = test_matrix_rank(scratch, dense_rows, columns);
+    TEST_ASSERTION(dense_rank == dense_rows, "The dense rows must have full row rank: %u of %zu.", dense_rank,
+                   dense_rows);
+
+    // Element DoFs satisfying the links satisfy the dense rows too.
+    double *const element_values[2] = {malloc(sizeof(**element_values) * total_dofs[0]),
+                                       malloc(sizeof(**element_values) * total_dofs[1])};
+    TEST_ASSERTION(element_values[0] != NULL && element_values[1] != NULL, "Could not allocate element values.");
+    for (unsigned iteration = 0; iteration < 8; ++iteration)
+    {
+        for (size_t dof = 0; dof < total_dofs[0]; ++dof)
+            element_values[0][dof] = test_prng_next_double(prng) - 0.5;
+        for (size_t dof = 0; dof < total_dofs[1]; ++dof)
+            element_values[1][dof] = test_prng_next_double(prng) - 0.5;
+        for (size_t row = 0; row < link_rows; ++row)
+        {
+            const size_t first =
+                (size_t)offsets[0][link_components[link_row_offsets[row]]] + link_local_dofs[link_row_offsets[row]];
+            const size_t second = (size_t)offsets[1][link_components[link_row_offsets[row] + 1]] +
+                                  link_local_dofs[link_row_offsets[row] + 1];
+            // Satisfy the link: coefficient-weighted values cancel.
+            const double ratio =
+                -link_coefficients[link_row_offsets[row]] / link_coefficients[link_row_offsets[row] + 1];
+            element_values[1][second] = ratio * element_values[0][first];
+        }
+        for (size_t row = 0; row < dense_rows; ++row)
+        {
+            double residual = 0.0;
+            double scale = 0.0;
+            for (size_t column = 0; column < columns; ++column)
+            {
+                const double value =
+                    dense_matrix[row * columns + column] *
+                    (column < total_dofs[0] ? element_values[0][column] : element_values[1][column - total_dofs[0]]);
+                residual += value;
+                scale += fabs(value);
+            }
+            TEST_NUMBERS_CLOSE(residual, 0.0, 1e-9 * (scale > 1.0 ? scale : 1.0), 0.0);
+        }
+    }
+
+    free(element_values[0]);
+    free(element_values[1]);
+    free(scratch);
+    free(dense_matrix);
+    free(link_matrix);
+    free(offsets[0]);
+    free(offsets[1]);
+    free(link_row_offsets);
+    free(link_coefficients);
+    free(link_local_dofs);
+    free(link_components);
+    free(link_sides);
+    free(dense_row_offsets);
+    free(dense_coefficients);
+    free(dense_local_dofs);
+    free(dense_components);
+    free(dense_sides);
+    test_table_free(&test_table);
+    test_table_free(&element_tables_raw[0]);
+    test_table_free(&element_tables_raw[1]);
+    for (unsigned axis = 0; axis < face_dim; ++axis)
+        cutl_dealloc(&SYSTEM_TEST_ALLOCATOR, quadrature_storage[axis]);
+    free(point_weights);
+    basis_set_registry_destroy(registry);
+}
+
+static void test_reference_links_eligibility(void)
+{
+    const basis_spec_t test_basis[] = {basis_spec(2)};
+    const basis_spec_t lobatto_gauss[] = {(basis_spec_t){.type = BASIS_LAGRANGE_GAUSS_LOBATTO, .order = 3},
+                                          (basis_spec_t){.type = BASIS_LAGRANGE_GAUSS, .order = 2}};
+    const basis_spec_t gauss_lobatto[] = {(basis_spec_t){.type = BASIS_LAGRANGE_GAUSS, .order = 2},
+                                          (basis_spec_t){.type = BASIS_LAGRANGE_GAUSS_LOBATTO, .order = 3}};
+    const basis_spec_t bernstein_lobatto[] = {(basis_spec_t){.type = BASIS_LAGRANGE_GAUSS, .order = 2},
+                                              (basis_spec_t){.type = BASIS_BERNSTEIN, .order = 3}};
+    const basis_spec_t uniform_free[] = {(basis_spec_t){.type = BASIS_LAGRANGE_GAUSS_LOBATTO, .order = 3},
+                                         (basis_spec_t){.type = BASIS_LAGRANGE_UNIFORM, .order = 2}};
+    const basis_spec_t order_mismatch[] = {(basis_spec_t){.type = BASIS_LAGRANGE_GAUSS_LOBATTO, .order = 3},
+                                           (basis_spec_t){.type = BASIS_LAGRANGE_GAUSS, .order = 3}};
+    const basis_spec_t legendre_normal[] = {basis_spec(3), (basis_spec_t){.type = BASIS_LAGRANGE_GAUSS, .order = 2}};
+    const int8_t same_normal[] = {1, 2};
+    const int8_t flipped_normal[] = {-2, 1};
+    const kform_spec_t test_spec = {.ndim = 1, .order = 0, .basis = test_basis};
+    const constraint_element_side_t matching[] = {
+        {.ndim = 2, .basis_specs = lobatto_gauss, .orientation = same_normal},
+        {.ndim = 2, .basis_specs = gauss_lobatto, .orientation = flipped_normal}};
+    TEST_ASSERTION(constraint_reference_links_eligible(&test_spec, matching),
+                   "Matching Gauss free axes with endpoint-cardinal normals are eligible.");
+    const constraint_element_side_t mixed_normals[] = {
+        {.ndim = 2, .basis_specs = lobatto_gauss, .orientation = same_normal},
+        {.ndim = 2, .basis_specs = bernstein_lobatto, .orientation = flipped_normal}};
+    TEST_ASSERTION(constraint_reference_links_eligible(&test_spec, mixed_normals),
+                   "Lobatto and Bernstein normals may be mixed.");
+    const constraint_element_side_t uniform_side[] = {
+        {.ndim = 2, .basis_specs = lobatto_gauss, .orientation = same_normal},
+        {.ndim = 2, .basis_specs = uniform_free, .orientation = flipped_normal}};
+    TEST_ASSERTION(!constraint_reference_links_eligible(&test_spec, uniform_side),
+                   "Mismatching free-axis families are not eligible.");
+    const constraint_element_side_t order_side[] = {
+        {.ndim = 2, .basis_specs = lobatto_gauss, .orientation = same_normal},
+        {.ndim = 2, .basis_specs = order_mismatch, .orientation = flipped_normal}};
+    TEST_ASSERTION(!constraint_reference_links_eligible(&test_spec, order_side),
+                   "Mismatching free-axis orders are not eligible.");
+    const constraint_element_side_t legendre_side[] = {
+        {.ndim = 2, .basis_specs = legendre_normal, .orientation = same_normal},
+        {.ndim = 2, .basis_specs = gauss_lobatto, .orientation = flipped_normal}};
+    TEST_ASSERTION(!constraint_reference_links_eligible(&test_spec, legendre_side),
+                   "Legendre normals support every DoF at the endpoint.");
+    const basis_spec_t test_order_basis[] = {basis_spec(3)};
+    const kform_spec_t other_test_spec = {.ndim = 1, .order = 0, .basis = test_order_basis};
+    TEST_ASSERTION(!constraint_reference_links_eligible(&other_test_spec, matching),
+                   "The test order must match the free-axis order.");
+    const basis_spec_t legendre_test_basis[] = {basis_spec(2)};
+    const kform_spec_t legendre_test_spec = {.ndim = 1, .order = 0, .basis = legendre_test_basis};
+    const basis_spec_t gauss_pair[] = {(basis_spec_t){.type = BASIS_LAGRANGE_GAUSS, .order = 2},
+                                       (basis_spec_t){.type = BASIS_LAGRANGE_GAUSS_LOBATTO, .order = 3}};
+    const int8_t mirrored_free[] = {-2, -1};
+    const constraint_element_side_t mirrored_pair[] = {
+        {.ndim = 2, .basis_specs = lobatto_gauss, .orientation = same_normal},
+        {.ndim = 2, .basis_specs = gauss_pair, .orientation = mirrored_free}};
+    TEST_ASSERTION(!constraint_reference_links_eligible(&legendre_test_spec, mirrored_pair),
+                   "A mirrored free slot requires a nodal test family.");
+    const basis_spec_t gauss_test_basis[] = {{BASIS_LAGRANGE_GAUSS, 2}};
+    const kform_spec_t gauss_test_spec = {.ndim = 1, .order = 0, .basis = gauss_test_basis};
+    TEST_ASSERTION(constraint_reference_links_eligible(&gauss_test_spec, mirrored_pair),
+                   "A mirrored free slot with a nodal test family is eligible.");
+}
+
+static void test_reference_links_scalar(void)
+{
+    test_prng_t prng;
+    test_prng_seed(&prng, 20260917u);
+    // A quadratic Gauss trace over mismatched cubic endpoint-cardinal
+    // normals, seen through permuted element frames.
+    const basis_spec_t test_basis[] = {basis_spec(2)};
+    const basis_spec_t element_basis_1[] = {(basis_spec_t){.type = BASIS_LAGRANGE_GAUSS_LOBATTO, .order = 3},
+                                            (basis_spec_t){.type = BASIS_LAGRANGE_GAUSS, .order = 2}};
+    const basis_spec_t element_basis_2[] = {(basis_spec_t){.type = BASIS_LAGRANGE_GAUSS, .order = 2},
+                                            (basis_spec_t){.type = BASIS_BERNSTEIN, .order = 3}};
+    const int8_t orientation_1[] = {1, 2};
+    const int8_t orientation_2[] = {-2, 1};
+    const kform_spec_t test_spec = {.ndim = 1, .order = 0, .basis = test_basis};
+    const constraint_element_side_t sides[] = {
+        {.ndim = 2, .basis_specs = element_basis_1, .orientation = orientation_1},
+        {.ndim = 2, .basis_specs = element_basis_2, .orientation = orientation_2},
+    };
+    test_links_equivalence_scenario(&test_spec, sides, &prng);
+}
+
+static void test_reference_links_one_form(void)
+{
+    test_prng_t prng;
+    test_prng_seed(&prng, 987654321u);
+    // A one-form trace on a quadrilateral face of a hexahedron: two free
+    // axes, permuted and mirrored orientations on both sides.
+    const basis_spec_t test_basis[] = {{BASIS_LAGRANGE_GAUSS, 2}, {BASIS_LAGRANGE_GAUSS, 2}};
+    const basis_spec_t element_basis_1[] = {(basis_spec_t){.type = BASIS_LAGRANGE_GAUSS_LOBATTO, .order = 2},
+                                            (basis_spec_t){.type = BASIS_LAGRANGE_GAUSS, .order = 2},
+                                            (basis_spec_t){.type = BASIS_LAGRANGE_GAUSS, .order = 2}};
+    const basis_spec_t element_basis_2[] = {(basis_spec_t){.type = BASIS_LAGRANGE_GAUSS, .order = 2},
+                                            (basis_spec_t){.type = BASIS_LAGRANGE_GAUSS, .order = 2},
+                                            (basis_spec_t){.type = BASIS_LAGRANGE_GAUSS_LOBATTO, .order = 2}};
+    const int8_t orientation_1[] = {1, 2, 3};
+    const int8_t orientation_2[] = {-3, -1, -2};
+    const kform_spec_t test_spec = {.ndim = 2, .order = 1, .basis = test_basis};
+    const constraint_element_side_t sides[] = {
+        {.ndim = 3, .basis_specs = element_basis_1, .orientation = orientation_1},
+        {.ndim = 3, .basis_specs = element_basis_2, .orientation = orientation_2},
+    };
+    test_links_equivalence_scenario(&test_spec, sides, &prng);
+}
+
 int main(void)
 {
     test_component_layout();
@@ -1035,7 +1372,10 @@ int main(void)
     test_physical_batch_scalar();
     test_physical_side_against_reference();
     test_physical_general_boundary_dimensions();
-    test_physical_one_form_pullback();
+    test_boundary_test_specs();
+    test_reference_links_eligibility();
+    test_reference_links_scalar();
+    test_reference_links_one_form();
     test_physical_two_form_face_components();
     test_boundary_test_specs();
 }

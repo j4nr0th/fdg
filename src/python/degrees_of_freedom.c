@@ -1,9 +1,7 @@
 #include "degrees_of_freedom.h"
 
-#include "../basis/basis_lagrange.h"
-#include "../polynomials/bernstein.h"
-#include "../polynomials/lagrange.h"
-#include "../polynomials/legendre.h"
+#include "../operations/boundaries.h"
+#include "../operations/dof_transforms.h"
 #include "basis_objects.h"
 #include "function_space_objects.h"
 #include "incidence.h"
@@ -782,105 +780,64 @@ PyDoc_STRVAR(dof_at_boundary_docstring, "plane_projection(idim: int, x: float) -
 dof_object *dof_at_boundary_impl(const interplib_module_state_t *state, const dof_object *dofs, const unsigned idim,
                                  const double value)
 {
-    const basis_spec_t *const basis = dofs->basis_specs + idim;
-    // TODO: this should be a parameter to the function, not hardcoded.
-    basis_set_registry_t *const basis_registry = ((basis_registry_object *)state->registry_basis)->registry;
-    const basis_endpoint_set_t *endpoint_set = NULL;
-    const int use_endpoint = value == -1.0 || value == +1.0;
-    if (use_endpoint)
+    const unsigned ndim = dofs->n_dims;
+    // The projected axis is the single fixed normal axis of the orientation; the surviving
+    // axes follow in ascending order. A negative fixed entry denotes the start of the axis.
+    int8_t orientation[UINT8_MAX];
+    orientation[0] = (int8_t)((idim + 1) * (value < 0.0 ? -1 : 1));
+    unsigned slot = 1;
+    for (unsigned axis = 0; axis < ndim; ++axis)
     {
-        const fdg_result_t res = basis_set_registry_get_basis_endpoints(basis_registry, &endpoint_set, *basis);
-        if (res != FDG_SUCCESS)
+        if (axis != idim)
         {
-            PyErr_Format(PyExc_RuntimeError, "Failed to retrieve endpoint basis values: %s (%s).", fdg_error_str(res),
-                         fdg_error_msg(res));
-            return NULL;
+            orientation[slot] = (int8_t)(axis + 1);
+            ++slot;
         }
     }
 
-    double *basis_values;
-    basis_spec_t *out_specs;
-    void *mem = NULL;
-    if (use_endpoint)
+    // The boundary degrees of freedom keep the surviving axes in their element order.
+    basis_spec_t out_specs[UINT8_MAX];
+    for (unsigned axis = 0; axis < idim; ++axis)
     {
-        const unsigned out_dim = dofs->n_dims - 1;
-        out_specs = PyMem_Malloc((out_dim ? out_dim : 1) * sizeof(*out_specs));
-        if (!out_specs)
-        {
-            (void)basis_set_registry_release_basis_endpoints(basis_registry, endpoint_set);
-            return NULL;
-        }
-        basis_values = (double *)basis_endpoint_values(endpoint_set, value > 0.0);
+        out_specs[axis] = dofs->basis_specs[axis];
     }
-    else
+    for (unsigned axis = idim + 1; axis < ndim; ++axis)
     {
-        double *roots;
-        mem =
-            cutl_alloc_group(&PYTHON_ALLOCATOR,
-                             (const cutl_alloc_info_t[]){
-                                 {.size = sizeof(*basis_values) * (basis->order + 1), .p_ptr = (void **)&basis_values},
-                                 {.size = sizeof(*roots) * (basis->order + 1), .p_ptr = (void **)&roots},
-                                 {.size = sizeof(*out_specs) * (dofs->n_dims - 1), .p_ptr = (void **)&out_specs},
-                                 {},
-                             });
-        if (!mem)
-            return NULL;
-
-        basis_compute_at_point_prepare(basis->type, basis->order, roots);
-        basis_compute_at_point_values(basis->type, basis->order, 1, &value, basis_values, roots);
+        out_specs[axis - 1] = dofs->basis_specs[axis];
     }
 
-    size_t pre_stride = 1, post_stride = 1;
-    for (unsigned i = 0; i < idim; ++i)
-    {
-        const unsigned cnt = dofs->basis_specs[i].order + 1;
-        pre_stride *= cnt;
-        out_specs[i] = dofs->basis_specs[i];
-    }
-    for (unsigned i = idim + 1; i < dofs->n_dims; ++i)
-    {
-        const unsigned cnt = dofs->basis_specs[i].order + 1;
-        post_stride *= cnt;
-        out_specs[i - 1] = dofs->basis_specs[i];
-    }
-
-    dof_object *const new_dofs = dof_object_create(state->degrees_of_freedom_type, dofs->n_dims - 1, out_specs);
+    dof_object *const new_dofs = dof_object_create(state->degrees_of_freedom_type, ndim - 1, out_specs);
     if (!new_dofs)
     {
-        if (use_endpoint)
-        {
-            PyMem_Free(out_specs);
-            (void)basis_set_registry_release_basis_endpoints(basis_registry, endpoint_set);
-        }
-        else
-        {
-            cutl_dealloc(&PYTHON_ALLOCATOR, mem);
-        }
         return NULL;
     }
 
-    double *restrict const out_dofs = new_dofs->values;
-    const double *restrict const in_dofs = dofs->values;
-    const unsigned n_dofs = basis->order + 1;
-    for (size_t i_pre = 0; i_pre < pre_stride; ++i_pre)
+    if (value == -1.0 || value == 1.0)
     {
-        for (size_t i_post = 0; i_post < post_stride; ++i_post)
+        // Endpoint traces are dof selections or endpoint evaluations, shared with the
+        // boundary operations.
+        double *const work = PyMem_Malloc(boundary_dof_values_work_size(ndim, dofs->basis_specs) * sizeof(*work));
+        if (!work)
         {
-            double v = 0.0;
-            for (unsigned i = 0; i < n_dofs; ++i)
-                v += in_dofs[i_pre * n_dofs * post_stride + i * post_stride + i_post] * basis_values[i];
-            out_dofs[i_pre * post_stride + i_post] = v;
+            Py_DECREF(new_dofs);
+            PyErr_NoMemory();
+            return NULL;
         }
-    }
-
-    if (use_endpoint)
-    {
-        PyMem_Free(out_specs);
-        (void)basis_set_registry_release_basis_endpoints(basis_registry, endpoint_set);
+        boundary_dof_values(ndim, dofs->basis_specs, dofs->values, work, ndim - 1, orientation, new_dofs->values);
+        PyMem_Free(work);
     }
     else
     {
-        cutl_dealloc(&PYTHON_ALLOCATOR, mem);
+        // Interior planes evaluate every basis function of the axis at the plane value.
+        double *const work = PyMem_Malloc(dof_plane_values_work_size(ndim, dofs->basis_specs, idim) * sizeof(*work));
+        if (!work)
+        {
+            Py_DECREF(new_dofs);
+            PyErr_NoMemory();
+            return NULL;
+        }
+        dof_plane_values(ndim, dofs->basis_specs, dofs->values, work, idim, value, new_dofs->values);
+        PyMem_Free(work);
     }
     return new_dofs;
 }
@@ -965,64 +922,7 @@ PyObject *dof_reverse_orientation(PyObject *self, PyTypeObject *defining_class, 
     if (!new_dofs)
         return NULL;
 
-    // Get the basis specs for the dimension we are reversing
-    const basis_spec_t *const basis = this->basis_specs + idim;
-
-    // Compute pre- and post-strides
-    size_t pre_stride = 1, post_stride = 1;
-    for (unsigned i = 0; i < idim; ++i)
-    {
-        const unsigned cnt = this->basis_specs[i].order + 1;
-        pre_stride *= cnt;
-    }
-    for (unsigned i = idim + 1; i < this->n_dims; ++i)
-    {
-        const unsigned cnt = this->basis_specs[i].order + 1;
-        post_stride *= cnt;
-    }
-    const unsigned n_dofs = basis->order + 1;
-
-    // Loop over the unaffected dimensions
-    for (size_t i_pre = 0; i_pre < pre_stride; ++i_pre)
-    {
-        for (size_t i_post = 0; i_post < post_stride; ++i_post)
-        {
-            // Check what we do based on the basis type (and pray compiler moves this switch out of the loop)
-            switch (basis->type)
-            {
-            case BASIS_BERNSTEIN:
-            case BASIS_LAGRANGE_CHEBYSHEV_GAUSS:
-            case BASIS_LAGRANGE_UNIFORM:
-            case BASIS_LAGRANGE_GAUSS:
-            case BASIS_LAGRANGE_GAUSS_LOBATTO:
-                // Reverse basis along the dimension
-                for (unsigned i = 0; i < n_dofs; ++i)
-                {
-                    new_dofs->values[i_pre * n_dofs * post_stride + i * post_stride + i_post] =
-                        this->values[i_pre * n_dofs * post_stride + (n_dofs - i - 1) * post_stride + i_post];
-                }
-                break;
-
-            case BASIS_LEGENDRE:
-                // Negate every other coefficient along the dimension
-                for (unsigned i = 0; i < n_dofs; i += 2)
-                {
-                    new_dofs->values[i_pre * n_dofs * post_stride + i * post_stride + i_post] =
-                        this->values[i_pre * n_dofs * post_stride + i * post_stride + i_post];
-                }
-                for (unsigned i = 1; i < n_dofs; i += 2)
-                {
-                    new_dofs->values[i_pre * n_dofs * post_stride + i * post_stride + i_post] =
-                        -this->values[i_pre * n_dofs * post_stride + i * post_stride + i_post];
-                }
-                break;
-            default:
-                ASSERT(0, "Invalid basis type enum value %u", (unsigned)basis->type);
-                break;
-            }
-        }
-    }
-
+    dof_reverse_orientation_values(this->n_dims, this->basis_specs, this->values, (unsigned)idim, new_dofs->values);
     // Done
     return (PyObject *)new_dofs;
 }

@@ -78,11 +78,15 @@ set(INTEGRATION_HEADER_FILES
 set(OPERATIONS_SOURCE_FILES
         src/operations/matrices.c
         src/operations/boundaries.c
+        src/operations/dof_transforms.c
+        src/operations/map_transforms.c
 )
 
 set(OPERATIONS_HEADER_FILES
         src/operations/matrices.h
         src/operations/boundaries.h
+        src/operations/dof_transforms.h
+        src/operations/map_transforms.h
 )
 
 set(TOPOLOGY_SOURCE_FILES

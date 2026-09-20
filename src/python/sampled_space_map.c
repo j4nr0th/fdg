@@ -4,7 +4,7 @@
 
 #include "sampled_space_map.h"
 #include "../integration/integration_rules.h"
-#include "../operations/matrices.h"
+#include "../operations/map_transforms.h"
 #include "../polynomials/lagrange.h"
 #include "integration_objects.h"
 #include "kform_transform.h"
@@ -459,9 +459,17 @@ static PyArrayObject *sampled_space_map_basis_transform(const sampled_space_map_
     if (!res)
         return NULL;
 
-    if (compute_basis_transform_from_inverse(n_dims, n_maps, (unsigned)order, map->inverse_maps, map->determinant,
-                                             total_points, PyArray_DATA(res)) < 0)
+    int status;
+    Py_BEGIN_ALLOW_THREADS;
+    status = compute_basis_transform_from_inverse(&PYTHON_ALLOCATOR, n_dims, n_maps, (unsigned)order, map->inverse_maps,
+                                                  map->determinant, total_points, PyArray_DATA(res));
+    Py_END_ALLOW_THREADS;
+    if (status < 0)
     {
+        if (!PyErr_Occurred())
+        {
+            PyErr_NoMemory();
+        }
         Py_DECREF(res);
         return NULL;
     }
@@ -626,14 +634,12 @@ sampled_space_map_object *sampled_space_map_create(PyTypeObject *type, space_map
     // Store one interpolation matrix per input dimension. The matrix layout is
     // input-node-major, with the sampled-node index varying fastest.
     size_t transformation_size = 0;
-    size_t nodes_in = 1;
     unsigned max_out_order = 0;
     for (unsigned d = 0; d < ndim_in; ++d)
     {
         const size_t n_out = (size_t)orders[d] + 1;
         const size_t n_int = (size_t)map->int_specs[d].order + 1;
         transformation_size += n_out * n_int;
-        nodes_in *= n_int;
         if (orders[d] > max_out_order)
             max_out_order = orders[d];
     }
@@ -681,15 +687,13 @@ sampled_space_map_object *sampled_space_map_create(PyTypeObject *type, space_map
     }
     python_integration_rules_release(ndim_in, rules, registry);
 
-    const size_t trans_size = (size_t)ndim_in * ndim_out;
-    matrix_t jacobian_mat = {.rows = ndim_out, .cols = ndim_in, .values = NULL};
-    matrix_t q_mat = {.rows = ndim_out, .cols = ndim_out, .values = NULL};
+    double *jacobian = NULL;
+    double *q_mat = NULL;
     void *const work_ptr = cutl_alloc_group(
-        &SYSTEM_ALLOCATOR, (const cutl_alloc_info_t[]){
-                               {.size = sizeof(double) * ndim_in * ndim_out, .p_ptr = (void **)&jacobian_mat.values},
-                               {.size = sizeof(double) * ndim_out * ndim_out, .p_ptr = (void **)&q_mat.values},
-                               {},
-                           });
+        &SYSTEM_ALLOCATOR,
+        (const cutl_alloc_info_t[]){{.size = sizeof(double) * ndim_in * ndim_out, .p_ptr = (void **)&jacobian},
+                                    {.size = sizeof(double) * ndim_out * ndim_out, .p_ptr = (void **)&q_mat},
+                                    {}});
     if (!work_ptr)
     {
         PyMem_Free(axis_transformations);
@@ -697,48 +701,51 @@ sampled_space_map_object *sampled_space_map_create(PyTypeObject *type, space_map
         return NULL;
     }
 
-    // Interpolate positions and forward transformation matrices together. This
-    // avoids allocating the dense tensor-product interpolation matrix.
-    for (size_t i_out = 0; i_out < total_points; ++i_out)
+    // Interpolate positions and forward transformation matrices together and invert per
+    // point; the pointer tables adapt the coordinate map objects to the pure kernel.
+    const double **const coordinate_values = PyMem_Malloc(sizeof(*coordinate_values) * ndim_out);
+    const double **const coordinate_gradients =
+        PyMem_Malloc(sizeof(*coordinate_gradients) * (size_t)ndim_out * ndim_in);
+    const double **const axis_matrices = PyMem_Malloc(sizeof(*axis_matrices) * ndim_in);
+    unsigned *const internal_orders = PyMem_Malloc(sizeof(*internal_orders) * ndim_in);
+    if (!coordinate_values || !coordinate_gradients || !axis_matrices || !internal_orders)
     {
-        for (unsigned idim_out = 0; idim_out < ndim_out; ++idim_out)
-        {
-            this->positions[ndim_out * i_out + idim_out] = 0.0;
-            for (unsigned idim_in = 0; idim_in < ndim_in; ++idim_in)
-                jacobian_mat.values[idim_out * ndim_in + idim_in] = 0.0;
-        }
-
-        for (size_t i_in = 0; i_in < nodes_in; ++i_in)
-        {
-            double weight = 1.0;
-            size_t output_stride = total_points;
-            size_t input_stride = nodes_in;
-            size_t matrix_offset = 0;
-            for (unsigned d = 0; d < ndim_in; ++d)
-            {
-                const unsigned n_out = orders[d] + 1;
-                const unsigned n_int = map->int_specs[d].order + 1;
-                output_stride /= n_out;
-                input_stride /= n_int;
-                const unsigned idx_out = (i_out / output_stride) % n_out;
-                const unsigned idx_in = (i_in / input_stride) % n_int;
-                weight *= axis_transformations[matrix_offset + (size_t)idx_in * n_out + idx_out];
-                matrix_offset += (size_t)n_out * n_int;
-            }
-
-            for (unsigned idim_out = 0; idim_out < ndim_out; ++idim_out)
-            {
-                const coordinate_map_object *const coordinate = map->maps[idim_out];
-                this->positions[ndim_out * i_out + idim_out] += weight * coordinate->values[i_in];
-                for (unsigned idim_in = 0; idim_in < ndim_in; ++idim_in)
-                    jacobian_mat.values[idim_out * ndim_in + idim_in] +=
-                        weight * coordinate_map_gradient(coordinate, idim_in)[i_in];
-            }
-        }
-
-        const matrix_t out_mat = {.rows = ndim_in, .cols = ndim_out, .values = this->inverse_maps + i_out * trans_size};
-        this->determinant[i_out] = compute_inverse_transform(jacobian_mat, q_mat, out_mat);
+        PyMem_Free(coordinate_values);
+        PyMem_Free(coordinate_gradients);
+        PyMem_Free(axis_matrices);
+        PyMem_Free(internal_orders);
+        cutl_dealloc(&SYSTEM_ALLOCATOR, work_ptr);
+        PyMem_Free(axis_transformations);
+        Py_DECREF(this);
+        return NULL;
     }
+    size_t matrix_offset = 0;
+    for (unsigned d = 0; d < ndim_in; ++d)
+    {
+        axis_matrices[d] = axis_transformations + matrix_offset;
+        matrix_offset += (size_t)(orders[d] + 1) * (map->int_specs[d].order + 1);
+        internal_orders[d] = map->int_specs[d].order;
+    }
+    for (unsigned icoordinate = 0; icoordinate < ndim_out; ++icoordinate)
+    {
+        coordinate_values[icoordinate] = map->maps[icoordinate]->values;
+        for (unsigned idim = 0; idim < ndim_in; ++idim)
+        {
+            coordinate_gradients[(size_t)icoordinate * ndim_in + idim] =
+                coordinate_map_gradient(map->maps[icoordinate], idim);
+        }
+    }
+
+    Py_BEGIN_ALLOW_THREADS;
+    interpolate_sampled_map(ndim_in, ndim_out, orders, internal_orders, axis_matrices, coordinate_values,
+                            coordinate_gradients, total_points, this->positions, this->determinant, this->inverse_maps,
+                            jacobian, q_mat);
+    Py_END_ALLOW_THREADS;
+
+    PyMem_Free(internal_orders);
+    PyMem_Free(axis_matrices);
+    PyMem_Free(coordinate_gradients);
+    PyMem_Free(coordinate_values);
 
     cutl_dealloc(&SYSTEM_ALLOCATOR, work_ptr);
     PyMem_Free(axis_transformations);

@@ -2,30 +2,36 @@
 #include "kform_transform.h"
 
 #include "../integration/integration_rules.h"
+#include "../operations/boundaries.h"
+#include "../operations/map_transforms.h"
 #include "basis_objects.h"
-#include "cutl/iterators/combination_iterator.h"
-#include "cutl/iterators/permutation_iterator.h"
 #include "degrees_of_freedom.h"
 #include "integration_objects.h"
 
-coordinate_map_object *coordinate_map_object_create(PyTypeObject *type, dof_object *dofs,
-                                                    const integration_space_object *integration_space,
-                                                    const integration_registry_object *integration_registry,
-                                                    const basis_registry_object *basis_registry)
+#include <stdbool.h>
+
+/**
+ * Allocate a coordinate map on the given integration space without computing its values;
+ * the value blocks are filled afterwards, either from the degrees of freedom or by
+ * extracting them from another map.
+ */
+static coordinate_map_object *coordinate_map_object_alloc(PyTypeObject *type, dof_object *dofs,
+                                                          const integration_space_object *integration_space,
+                                                          const integration_registry_object *integration_registry,
+                                                          const basis_registry_object *basis_registry)
 {
-    // Create the reconstruction state
-    reconstruction_state_t recon_state;
     const unsigned ndim = Py_SIZE(integration_space);
-    if (dof_reconstruction_state_init(dofs, ndim, integration_space->specs, integration_registry, basis_registry,
-                                      &recon_state) < 0)
-        return NULL;
-    const Py_ssize_t n_vals = (Py_ssize_t)multidim_iterator_total_size(recon_state.iter_int);
-    coordinate_map_object *const self = (coordinate_map_object *)type->tp_alloc(type, n_vals * (ndim + 1));
+    size_t n_vals = 1;
+    for (unsigned idim = 0; idim < ndim; ++idim)
+    {
+        n_vals *= integration_space->specs[idim].order + 1;
+    }
+    coordinate_map_object *const self =
+        (coordinate_map_object *)type->tp_alloc(type, (Py_ssize_t)(n_vals * (ndim + 1)));
     if (!self)
     {
         return NULL;
     }
-    // Copy integration specs first
     self->ndim = ndim;
     self->dofs = (PyObject *)dofs;
     self->integration_registry = (PyObject *)integration_registry;
@@ -43,28 +49,50 @@ coordinate_map_object *coordinate_map_object_create(PyTypeObject *type, dof_obje
     {
         self->int_specs[idim] = integration_space->specs[idim];
     }
+    return self;
+}
+
+coordinate_map_object *coordinate_map_object_create(PyTypeObject *type, dof_object *dofs,
+                                                    const integration_space_object *integration_space,
+                                                    const integration_registry_object *integration_registry,
+                                                    const basis_registry_object *basis_registry)
+{
+    coordinate_map_object *const self =
+        coordinate_map_object_alloc(type, dofs, integration_space, integration_registry, basis_registry);
+    if (!self)
+    {
+        return NULL;
+    }
 
     // Call the reconstruct function on the DoFs
+    reconstruction_state_t recon_state;
+    if (dof_reconstruction_state_init(dofs, self->ndim, integration_space->specs, integration_registry, basis_registry,
+                                      &recon_state) < 0)
+    {
+        Py_DECREF(self);
+        return NULL;
+    }
+    const Py_ssize_t n_vals = (Py_ssize_t)multidim_iterator_total_size(recon_state.iter_int);
     const unsigned ndofs = Py_SIZE(dofs);
     const double *const restrict pdofs = dofs->values;
-    compute_integration_point_values(ndim, recon_state.iter_int, recon_state.iter_basis, recon_state.basis_sets, n_vals,
-                                     self->values + 0 * n_vals, ndofs, pdofs);
+    compute_integration_point_values(self->ndim, recon_state.iter_int, recon_state.iter_basis, recon_state.basis_sets,
+                                     n_vals, self->values + 0 * n_vals, ndofs, pdofs);
 
-    int *const derivative_array = PyMem_Malloc(sizeof(int) * ndim);
+    int *const derivative_array = PyMem_Malloc(sizeof(int) * self->ndim);
     if (!derivative_array)
     {
         Py_DECREF(self);
         return NULL;
     }
-    for (unsigned i = 0; i < ndim; ++i)
+    for (unsigned i = 0; i < self->ndim; ++i)
     {
         derivative_array[i] = 0;
     }
-    for (unsigned i = 0; i < ndim; ++i)
+    for (unsigned i = 0; i < self->ndim; ++i)
     {
         derivative_array[i] = 1; // Set the current dimension to use derivative
         // Compute with the specified derivatives
-        compute_integration_point_values_derivatives(ndim, recon_state.iter_int, recon_state.iter_basis,
+        compute_integration_point_values_derivatives(self->ndim, recon_state.iter_int, recon_state.iter_basis,
                                                      recon_state.basis_sets, derivative_array, n_vals,
                                                      self->values + (i + 1) * n_vals, ndofs, pdofs);
         derivative_array[i] = 0; // Reset the current dimension
@@ -330,75 +358,6 @@ static void space_map_object_dealloc(PyObject *self)
     Py_DECREF(type);
 }
 
-double compute_inverse_transform(const matrix_t jacobian, const matrix_t q_matrix, const matrix_t out_matrix)
-{
-    const unsigned rows = jacobian.rows;
-    const unsigned cols = jacobian.cols;
-
-    CPYUTL_ASSERT(q_matrix.rows == rows && q_matrix.cols == rows, "Q matrix dimensions do not match Jacobian.");
-    CPYUTL_ASSERT(out_matrix.rows == cols && out_matrix.cols == rows,
-                  "Output matrix dimensions do not match Jacobian.");
-
-    // Decompose Jacobian into QR decomposition
-    fdg_result_t res = matrix_qr_decompose(&jacobian, &q_matrix);
-    (void)res;
-    CPYUTL_ASSERT(res == FDG_SUCCESS, "QR decomposition failed.");
-    // Compute the determinant from the diagonal of the matrix
-    double det = 1;
-    for (unsigned i = 0; i < cols; ++i)
-    {
-        det *= jacobian.values[i * cols + i];
-    }
-
-    // Copy the top part of q into out
-    for (unsigned irow = 0; irow < cols; ++irow)
-    {
-        for (unsigned icol = 0; icol < rows; ++icol)
-        {
-            out_matrix.values[irow * rows + icol] = q_matrix.values[irow * rows + icol];
-        }
-    }
-
-    // Use decomposition to compute "inverse". This is done simply by applying inverse of the
-    // upper triangular (rows x rows) part of the jacobian to the matrix q_mat.
-    res = matrix_back_substitute(&jacobian, &out_matrix);
-    CPYUTL_ASSERT(res == FDG_SUCCESS, "Back substitution failed.");
-    (void)res;
-    return det;
-}
-
-static void calculate_determinants_and_inverse_maps(
-    const unsigned n_dim, const unsigned n_maps, const coordinate_map_object *maps[static n_maps],
-    const size_t total_points, double determinant[restrict const total_points], const size_t jacobian_size,
-    double inverse_maps[restrict const total_points * jacobian_size], double jacobian[restrict const jacobian_size],
-    double q_mat[restrict const n_maps * n_maps])
-
-{
-    // Now we iterate over all the points
-    for (size_t i_pt = 0; i_pt < total_points; ++i_pt)
-    {
-        // Fill in the Jacobian
-        const unsigned rows = n_maps;
-        const unsigned cols = n_dim;
-        for (unsigned idim = 0; idim < rows; ++idim)
-        {
-            for (unsigned jdim = 0; jdim < cols; ++jdim)
-            {
-                // The block at (coordinate * n_dim + dimension) contains the derivative of the
-                // coordinate with respect to the reference dimension at every point.
-                jacobian[idim * cols + jdim] = coordinate_map_gradient(maps[idim], jdim)[i_pt];
-            }
-        }
-
-        double *const p_inv_map = inverse_maps + i_pt * jacobian_size;
-        const matrix_t jacobian_mat = (matrix_t){.rows = rows, .cols = cols, .values = jacobian};
-        const matrix_t q_matrix = (matrix_t){.rows = rows, .cols = rows, .values = q_mat};
-        const matrix_t out_mat = (matrix_t){.rows = cols, .cols = rows, .values = p_inv_map};
-
-        determinant[i_pt] = compute_inverse_transform(jacobian_mat, q_matrix, out_mat);
-    }
-}
-
 space_map_object *space_map_object_create(PyTypeObject *subtype, const unsigned n_maps,
                                           coordinate_map_object *const *maps)
 {
@@ -527,10 +486,31 @@ space_map_object *space_map_object_create(PyTypeObject *subtype, const unsigned 
         return NULL;
     }
 
-    calculate_determinants_and_inverse_maps(this->ndim, n_maps, (const coordinate_map_object **)this->maps,
-                                            total_points, determinant, jacobian_size, inverse_maps, jacobian, q_mat);
+    // The gradient pointer table adapts the coordinate maps to the pure kernel.
+    const double **const gradients = PyMem_Malloc(sizeof(*gradients) * jacobian_size);
+    if (!gradients)
+    {
+        PyMem_RawFree(q_mat);
+        PyMem_RawFree(jacobian);
+        PyMem_Free(determinant);
+        Py_DECREF(this);
+        return NULL;
+    }
+    for (unsigned icoordinate = 0; icoordinate < n_maps; ++icoordinate)
+    {
+        for (unsigned idim = 0; idim < this->ndim; ++idim)
+        {
+            gradients[(size_t)icoordinate * this->ndim + idim] = coordinate_map_gradient(this->maps[icoordinate], idim);
+        }
+    }
+
+    Py_BEGIN_ALLOW_THREADS;
+    compute_space_map_determinants(this->ndim, n_maps, gradients, total_points, determinant, inverse_maps, jacobian,
+                                   q_mat);
+    Py_END_ALLOW_THREADS;
 
     // Free work arrays
+    PyMem_Free(gradients);
     PyMem_RawFree(q_mat);
     PyMem_RawFree(jacobian);
 
@@ -783,122 +763,24 @@ PyArrayObject *compute_basis_transform_impl(const space_map_object *map, const P
     if (!res)
         return NULL;
 
-    if (compute_basis_transform_from_inverse(n_dims, n_maps, (unsigned)order, map->inverse_maps, map->determinant,
-                                             total_points, PyArray_DATA(res)) < 0)
+    // TODO: check we can actually release the GIL here.
+    int status;
+    Py_BEGIN_ALLOW_THREADS;
+    status = compute_basis_transform_from_inverse(&PYTHON_ALLOCATOR, n_dims, n_maps, (unsigned)order, map->inverse_maps,
+                                                  map->determinant, total_points, PyArray_DATA(res));
+    Py_END_ALLOW_THREADS;
+    if (status < 0)
     {
+        if (!PyErr_Occurred())
+        {
+            PyErr_NoMemory();
+        }
         Py_DECREF(res);
         return NULL;
     }
     map->transformations[order - 1] = res;
     Py_INCREF(res);
     return res;
-}
-
-int compute_basis_transform_from_inverse(const unsigned n_dims, const unsigned n_maps, const unsigned order,
-                                         const double *inverse_maps, const double *determinant, const size_t n_pts,
-                                         double *out)
-{
-    if (order == 1)
-    {
-        // Special case: transformation is just the space map
-        Py_BEGIN_ALLOW_THREADS;
-        for (size_t i_in = 0; i_in < n_dims; ++i_in)
-            for (size_t i_out = 0; i_out < n_maps; ++i_out)
-                for (size_t i_pt = 0; i_pt < n_pts; ++i_pt)
-                    out[(i_in * n_maps + i_out) * n_pts + i_pt] =
-                        inverse_maps[i_pt * (n_dims * n_maps) + i_in * n_maps + i_out];
-        Py_END_ALLOW_THREADS;
-    }
-    else if (order == n_maps)
-    {
-        Py_BEGIN_ALLOW_THREADS;
-        for (size_t i_pt = 0; i_pt < n_pts; ++i_pt)
-            out[i_pt] = 1 / determinant[i_pt];
-        Py_END_ALLOW_THREADS;
-    }
-    else // (order != 1 && order != n_maps)
-    {
-        permutation_iterator_t *iter_out_perm;
-        combination_iterator_t *iter_out_comb;
-        combination_iterator_t *iter_in_comb;
-        void *const mem = cutl_alloc_group(
-            &PYTHON_ALLOCATOR,
-            (const cutl_alloc_info_t[]){
-                {.size = permutation_iterator_required_memory(order, order), .p_ptr = (void **)&iter_out_perm},
-                {.size = combination_iterator_required_memory(order), .p_ptr = (void **)&iter_out_comb},
-                {.size = combination_iterator_required_memory(order), .p_ptr = (void **)&iter_in_comb},
-                {},
-            });
-        if (!mem)
-            return -1;
-
-        Py_BEGIN_ALLOW_THREADS;
-        size_t idx_in = 0;
-        // Iterate over bases in the inputs space
-        combination_iterator_init(iter_in_comb, n_dims, order);
-        while (!combination_iterator_is_done(iter_in_comb))
-        {
-            // Indices of current input dimensions
-            const uint8_t *const current_in = combination_iterator_current(iter_in_comb);
-            // Iterate over bases in the output space.
-            size_t idx_out = 0;
-            combination_iterator_init(iter_out_comb, n_maps, order);
-            while (!combination_iterator_is_done(iter_out_comb))
-            {
-                // Indices of current output dimensions.
-                const uint8_t *const current_out = combination_iterator_current(iter_out_comb);
-
-                // Loop over points
-                for (size_t idx_pt = 0; idx_pt < n_pts; ++idx_pt)
-                {
-                    // Total transformation coefficient, which we will accumulate for each possible basis.
-                    double val = 0.0;
-
-                    // Loop over all permutations of the current basis indices.
-                    permutation_iterator_init(iter_out_perm, order, order);
-                    while (!permutation_iterator_is_done(iter_out_perm))
-                    {
-                        // Indices for the current permutation
-                        const uint8_t *const current_perm = permutation_iterator_current(iter_out_perm);
-                        double basis_contribution = 1.0;
-
-                        // Loop over the derivative terms and compute their product
-                        for (unsigned idim = 0; idim < order; ++idim)
-                        {
-                            const unsigned idx_coord = current_out[current_perm[idim]];
-                            const unsigned idx_dim = current_in[idim];
-                            const double contribution =
-                                inverse_maps[idx_pt * (n_dims * n_maps) + idx_dim * n_maps + idx_coord];
-                            basis_contribution *= contribution;
-                        }
-
-                        // Check if we flip the sign (meaning subtract) for this contribution.
-                        if (permutation_iterator_current_sign(iter_out_perm))
-                        {
-                            val -= basis_contribution;
-                        }
-                        else
-                        {
-                            val += basis_contribution;
-                        }
-
-                        permutation_iterator_next(iter_out_perm);
-                    }
-                    out[(idx_in * combination_total_count(n_maps, order) + idx_out) * n_pts + idx_pt] = val;
-                }
-
-                idx_out += 1;
-                combination_iterator_next(iter_out_comb);
-            }
-
-            idx_in += 1;
-            combination_iterator_next(iter_in_comb);
-        }
-
-        Py_END_ALLOW_THREADS;
-        cutl_dealloc(&PYTHON_ALLOCATOR, mem);
-    }
-    return 0;
 }
 
 static PyObject *space_map_basis_transform(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
@@ -945,28 +827,125 @@ PyDoc_STRVAR(space_map_boundary_docstring, "boundary(idim: int, end: bool = Fals
                                            "Extract a space map restricted to a reference-space boundary.\n"
                                            "The lower boundary is at -1 and the upper boundary is at +1.\n");
 
+space_map_object *space_map_boundary_oriented_impl(const interplib_module_state_t *state, const space_map_object *map,
+                                                   const unsigned bdim, const int8_t *orientation)
+{
+    const unsigned ndim = map->ndim;
+    CUTL_ASSERT(1 <= bdim && bdim <= ndim, "Boundary dimension out of range.");
+
+    // The default face integration space is the element space with the fixed normal axes
+    // removed, so the face grid coincides with the element grid on the surviving axes.
+    bool is_fixed[UINT8_MAX] = {false};
+    for (unsigned entry = 0; entry < ndim - bdim; ++entry)
+    {
+        const int8_t axis_code = orientation[entry];
+        is_fixed[(unsigned)(axis_code < 0 ? -axis_code : axis_code) - 1] = true;
+    }
+    integration_space_object *const face_space =
+        (integration_space_object *)state->integration_space_type->tp_alloc(state->integration_space_type, ndim - bdim);
+    if (!face_space)
+    {
+        return NULL;
+    }
+    {
+        unsigned face_dim = 0;
+        for (unsigned axis = 0; axis < ndim; ++axis)
+        {
+            if (!is_fixed[axis])
+            {
+                face_space->specs[face_dim++] = map->int_specs[axis];
+            }
+        }
+        CUTL_ASSERT(face_dim == ndim - bdim, "Face space dimension mismatch.");
+    }
+
+    const Py_ssize_t n_coordinates = Py_SIZE(map);
+    coordinate_map_object **const coordinates = PyMem_Malloc(sizeof(*coordinates) * (size_t)n_coordinates);
+    const size_t element_points = integration_specs_total_points(ndim, map->int_specs);
+    const size_t face_points = integration_specs_total_points(ndim - bdim, face_space->specs);
+    double *const work =
+        PyMem_Malloc(boundary_integration_point_values_work_size(ndim, map->int_specs, 1) * sizeof(*work));
+    space_map_object *result = NULL;
+    Py_ssize_t n_created = 0;
+    if (!coordinates || !work)
+    {
+        goto fail;
+    }
+
+    for (Py_ssize_t icoordinate = 0; icoordinate < n_coordinates; ++icoordinate)
+    {
+        const coordinate_map_object *const source = map->maps[icoordinate];
+        // The stored degrees of freedom are the element map's, held only for their lifetime:
+        // a restricted map is defined by its sampled values, which the boundary extraction
+        // writes block by block, values first and then the gradients along the free axes.
+        coordinate_map_object *const face =
+            coordinate_map_object_alloc(state->coordinate_mapping_type, (dof_object *)source->dofs, face_space,
+                                        (const integration_registry_object *)source->integration_registry,
+                                        (const basis_registry_object *)source->basis_registry);
+        if (!face)
+        {
+            goto fail;
+        }
+        coordinates[icoordinate] = face;
+        n_created = icoordinate + 1;
+
+        boundary_integration_point_values(ndim, map->int_specs, source->values, work, bdim, orientation, 1,
+                                          face->values);
+        unsigned fixed_seen = 0;
+        for (unsigned block = 1; block <= ndim; ++block)
+        {
+            const unsigned axis = block - 1;
+            if (is_fixed[axis])
+            {
+                ++fixed_seen;
+                continue;
+            }
+            boundary_integration_point_values(ndim, map->int_specs, source->values + (size_t)block * element_points,
+                                              work, bdim, orientation, 1,
+                                              face->values + (size_t)(block - fixed_seen) * face_points);
+        }
+    }
+
+    result = space_map_object_create(state->space_mapping_type, (unsigned)n_coordinates, coordinates);
+
+fail:
+    PyMem_Free(work);
+    for (Py_ssize_t icoordinate = 0; icoordinate < n_created; ++icoordinate)
+    {
+        Py_DECREF(coordinates[icoordinate]);
+    }
+    PyMem_Free(coordinates);
+    Py_DECREF(face_space);
+    return result;
+}
+
 space_map_object *space_map_boundary_impl(const interplib_module_state_t *state, const space_map_object *map,
                                           const unsigned idim, const int end,
                                           integration_space_object *provided_face_space)
 {
-    integration_space_object *face_space;
-    if (provided_face_space)
+    if (provided_face_space == NULL)
     {
-        face_space = provided_face_space;
-        Py_INCREF(face_space);
-    }
-    else
-    {
-        face_space = (integration_space_object *)state->integration_space_type->tp_alloc(state->integration_space_type,
-                                                                                         map->ndim - 1);
-        if (!face_space)
-            return NULL;
-        for (unsigned source_dim = 0, face_dim = 0; source_dim < map->ndim; ++source_dim)
+        // Without a caller-provided face grid the restricted map follows from the
+        // integration-point boundary extraction alone.
+        const unsigned ndim = map->ndim;
+        int8_t orientation[UINT8_MAX];
+        orientation[0] = (int8_t)((idim + 1) * (end ? 1 : -1));
+        unsigned slot = 1;
+        for (unsigned axis = 0; axis < ndim; ++axis)
         {
-            if (source_dim != idim)
-                face_space->specs[face_dim++] = map->int_specs[source_dim];
+            if (axis != idim)
+            {
+                orientation[slot] = (int8_t)(axis + 1);
+                ++slot;
+            }
         }
+        return space_map_boundary_oriented_impl(state, map, 1, orientation);
     }
+
+    // A caller-provided face grid may differ from the element grid, so the degrees of
+    // freedom are restricted symbolically and reconstructed onto it.
+    integration_space_object *const face_space = provided_face_space;
+    Py_INCREF(face_space);
 
     const Py_ssize_t n_coordinates = Py_SIZE(map);
     coordinate_map_object **const coordinates = PyMem_Malloc(sizeof(*coordinates) * (size_t)n_coordinates);

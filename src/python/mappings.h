@@ -79,6 +79,10 @@ space_map_object *space_map_object_create(PyTypeObject *subtype, unsigned n_maps
 /**
  * Restrict a space map to a reference-space boundary `x[idim] == end ? +1 : -1`.
  *
+ * Without a provided face space the restriction is a values-level boundary
+ * extraction on the element integration grid; with one, the degrees of
+ * freedom are restricted symbolically and reconstructed onto it.
+ *
  * @param state Interpreter module state.
  * @param map Space map to restrict; must have `map->ndim >= 1` and
  *            `idim < map->ndim`.
@@ -91,6 +95,27 @@ space_map_object *space_map_object_create(PyTypeObject *subtype, unsigned n_maps
 FDG_INTERNAL
 space_map_object *space_map_boundary_impl(const interplib_module_state_t *state, const space_map_object *map,
                                           unsigned idim, int end, integration_space_object *provided_face_space);
+
+/**
+ * Restrict a space map to the boundary given by a full orientation array in a
+ * single values-level pass.
+ *
+ * The first `map->ndim - bdim` entries of @p orientation are the fixed normal
+ * axes of the boundary (signed one-based, negative for the start of the axis),
+ * the remaining entries the surviving axes in ascending order. The face
+ * integration space is the element space with the fixed axes removed, so the
+ * face values follow from boundary_integration_point_values on every value
+ * block (values and gradients) of the coordinate maps.
+ *
+ * @param state Interpreter module state.
+ * @param map Space map to restrict.
+ * @param bdim Number of dimensions of the boundary, `1 <= bdim <= map->ndim`.
+ * @param orientation Full element-dimension orientation of the boundary.
+ * @return The restricted space map, or NULL with a Python exception set.
+ */
+FDG_INTERNAL
+space_map_object *space_map_boundary_oriented_impl(const interplib_module_state_t *state, const space_map_object *map,
+                                                   unsigned bdim, const int8_t *orientation);
 
 /**
  * Retrieves the pointer to the start of the inverse mapping data at a specific
@@ -143,44 +168,5 @@ extern PyMethodDef transformation_functions[];
 
 FDG_INTERNAL
 PyArrayObject *compute_basis_transform_impl(const space_map_object *map, const Py_ssize_t order);
-
-/**
- * Compute the inverse transformation from the Jacobian matrix.
- *
- * Inverts the jacobian matrix using QR decomposition and computes the determinant.
- * The inverse transformation is stored in the output matrix.
- *
- * @param jacobian The Jacobian matrix to invert. Overwritten during the QR decomposition. Must have dimensions (rows,
- * cols).
- * @param q_matrix The Q matrix from the QR decomposition of the Jacobian. Must have dimensions (rows, rows).
- * @param out_matrix The output matrix to store the inverse transformation. Must have dimensions (cols, rows).
- * @returns The determinant of the Jacobian matrix.
- */
-FDG_INTERNAL
-double compute_inverse_transform(const matrix_t jacobian, const matrix_t q_matrix, const matrix_t out_matrix);
-
-/**
- * Compute the transformation factors for k-form basis from the inverse maps.
- *
- * The inverse maps must be stored point-major, with n_dims * n_maps row-major entries
- * per point (rows corresponding to the reference dimensions and columns to the physical
- * dimensions).
- *
- * @param n_dims Number of dimensions of the reference space.
- * @param n_maps Number of coordinates (physical dimensions).
- * @param order Order of the k-form basis.
- * @param inverse_maps Point-major array of the inverse map entries.
- * @param determinant Array of n_pts determinants.
- * @param n_pts Number of points.
- * @param out Output array of combination_total_count(n_dims, order) *
- *            combination_total_count(n_maps, order) * n_pts values, ordered with the
- *            input component index as the slowest and the point index as the fastest.
- *
- * @return 0 on success, -1 on allocation failure (with a Python exception set).
- */
-FDG_INTERNAL
-int compute_basis_transform_from_inverse(const unsigned n_dims, const unsigned n_maps, const unsigned order,
-                                         const double *inverse_maps, const double *determinant, const size_t n_pts,
-                                         double *out);
 
 #endif // FDG_MAPPINGS_H
