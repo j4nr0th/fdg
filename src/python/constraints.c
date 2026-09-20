@@ -1182,6 +1182,616 @@ load_fail:
     return NULL;
 }
 
+/**
+ * @brief Parse one element's signed orientation record.
+ *
+ * Accepts a sequence of `ndim` non-zero integers in `[-ndim, ndim]`.
+ */
+static int parse_orientation_sequence(PyObject *object, const unsigned ndim, int8_t *const out)
+{
+    PyObject *const sequence = PySequence_Fast(object, "Orientations must be a sequence of integer axis mappings.");
+    if (!sequence)
+        return -1;
+    if (PySequence_Fast_GET_SIZE(sequence) != (Py_ssize_t)ndim)
+    {
+        PyErr_Format(PyExc_ValueError, "Orientation records must contain %u entries.", ndim);
+        Py_DECREF(sequence);
+        return -1;
+    }
+    for (unsigned axis = 0; axis < ndim; ++axis)
+    {
+        const long value = PyLong_AsLong(PySequence_Fast_GET_ITEM(sequence, (Py_ssize_t)axis));
+        if (value == -1 && PyErr_Occurred())
+        {
+            Py_DECREF(sequence);
+            return -1;
+        }
+        if (value == 0 || value < -(long)ndim || value > (long)ndim)
+        {
+            PyErr_SetString(PyExc_ValueError, "Orientation is not a signed one-based permutation.");
+            Py_DECREF(sequence);
+            return -1;
+        }
+        out[axis] = (int8_t)value;
+    }
+    Py_DECREF(sequence);
+    return 0;
+}
+
+static PyObject *compute_kform_boundary_mass_matrices(PyObject *module, PyObject *const *args, const Py_ssize_t nargs,
+                                                      const PyObject *kwnames)
+{
+    const interplib_module_state_t *state = PyModule_GetState(module);
+    if (!state)
+        return NULL;
+    PyObject *specs_object;
+    PyObject *orientations_object;
+    PyObject *integrations_object;
+    PyObject *axis_skip_object = Py_None;
+    Py_ssize_t boundary_dim = -1;
+    int c1_continuous = 0;
+    int packed = 0;
+    if (parse_arguments_check(
+            (cpyutl_argument_t[]){
+                {.type = CPYARG_TYPE_PYTHON, .p_val = &specs_object},
+                {.type = CPYARG_TYPE_PYTHON, .p_val = &orientations_object},
+                {.type = CPYARG_TYPE_PYTHON, .p_val = &integrations_object},
+                {.type = CPYARG_TYPE_PYTHON,
+                 .p_val = &axis_skip_object,
+                 .kwname = "axis_skip",
+                 .optional = 1,
+                 .kw_only = 1},
+                {.type = CPYARG_TYPE_SSIZE,
+                 .p_val = &boundary_dim,
+                 .kwname = "boundary_dimension",
+                 .optional = 1,
+                 .kw_only = 1},
+                {.type = CPYARG_TYPE_BOOL,
+                 .p_val = &c1_continuous,
+                 .kwname = "c1_continuous",
+                 .optional = 1,
+                 .kw_only = 1},
+                {.type = CPYARG_TYPE_BOOL, .p_val = &packed, .kwname = "packed", .optional = 1, .kw_only = 1},
+                {}},
+            args, nargs, kwnames) < 0)
+        return NULL;
+
+    PyObject *const specs_seq = PySequence_Fast(specs_object, "element_specs must be a sequence of KFormSpecs.");
+    PyObject *const orientations_seq =
+        PySequence_Fast(orientations_object, "orientations must be a sequence of orientation records.");
+    PyObject *const integrations_seq =
+        PySequence_Fast(integrations_object, "element_integrations must be a sequence of IntegrationSpaces.");
+    if (!specs_seq || !orientations_seq || !integrations_seq)
+    {
+        Py_XDECREF(specs_seq);
+        Py_XDECREF(orientations_seq);
+        Py_XDECREF(integrations_seq);
+        return NULL;
+    }
+    const Py_ssize_t nelem_ssize = PySequence_Fast_GET_SIZE(specs_seq);
+    if (nelem_ssize < 2 || PySequence_Fast_GET_SIZE(orientations_seq) != nelem_ssize ||
+        PySequence_Fast_GET_SIZE(integrations_seq) != nelem_ssize)
+    {
+        PyErr_SetString(PyExc_ValueError,
+                        "element_specs, orientations, and element_integrations must be equal-length sequences of at "
+                        "least two elements.");
+        Py_DECREF(specs_seq);
+        Py_DECREF(orientations_seq);
+        Py_DECREF(integrations_seq);
+        return NULL;
+    }
+    kform_spec_object *const first_spec = (kform_spec_object *)PySequence_Fast_GET_ITEM(specs_seq, 0);
+    const unsigned ndim = (unsigned)Py_SIZE(first_spec->function_space);
+    const unsigned order = first_spec->order;
+    const unsigned bdim = boundary_dim >= 0 ? (unsigned)boundary_dim : ndim - 1u;
+    if (bdim == 0 || bdim >= ndim)
+    {
+        PyErr_Format(PyExc_ValueError, "Boundary dimension %u is not in [1, %u).", bdim, ndim);
+        Py_DECREF(specs_seq);
+        Py_DECREF(orientations_seq);
+        Py_DECREF(integrations_seq);
+        return NULL;
+    }
+    const size_t nelem = (size_t)nelem_ssize;
+    // Live from the prepare call onwards; declared before any failure jump so
+    // the cleanup path never reads an uninitialized flag.
+    int plan_live = 0;
+
+    // Plan and work arrays. Every buffer is allocated (or NULL) up front so
+    // the single cleanup label can release them on any failure path; the plan
+    // itself is live from the prepare call onwards.
+    const size_t axis_items = nelem * ndim;
+    const size_t component_count = combination_total_count((uint8_t)bdim, (uint8_t)order);
+    const size_t order_storage = order == 0 ? 1u : order;
+    const size_t iterator_memory = combination_iterator_required_memory((uint8_t)order);
+    int8_t *orientations = PyMem_Malloc(nelem * ndim * sizeof(*orientations));
+    boundary_element_space_t *views = PyMem_Malloc(nelem * sizeof(*views));
+    uint8_t *axis_skip = NULL;
+    size_t *item_rows = PyMem_Malloc(nelem * sizeof(*item_rows));
+    size_t *item_cols = PyMem_Malloc(nelem * sizeof(*item_cols));
+    size_t *item_offsets = PyMem_Malloc((nelem + 1) * sizeof(*item_offsets));
+    basis_spec_t *out_basis = PyMem_Malloc(bdim * sizeof(*out_basis));
+    integration_spec_t *out_integration = PyMem_Malloc(bdim * sizeof(*out_integration));
+    const integration_rule_t **plan_rules = PyMem_Malloc(bdim * sizeof(*plan_rules));
+    const basis_set_t **plan_boundary_sets = PyMem_Malloc(bdim * sizeof(*plan_boundary_sets));
+    const basis_set_t **plan_boundary_sets_lower = PyMem_Malloc(bdim * sizeof(*plan_boundary_sets_lower));
+    basis_spec_t *plan_boundary_lower_specs = PyMem_Malloc(bdim * sizeof(*plan_boundary_lower_specs));
+    const basis_set_t **plan_element_sets = PyMem_Malloc(axis_items * sizeof(*plan_element_sets));
+    const basis_set_t **plan_element_sets_lower = PyMem_Malloc(axis_items * sizeof(*plan_element_sets_lower));
+    const basis_endpoint_set_t **plan_element_endpoints = PyMem_Malloc(axis_items * sizeof(*plan_element_endpoints));
+    const basis_endpoint_set_t **plan_element_endpoints_lower =
+        PyMem_Malloc(axis_items * sizeof(*plan_element_endpoints_lower));
+    basis_spec_t *plan_element_lower_specs = PyMem_Malloc(axis_items * sizeof(*plan_element_lower_specs));
+    constrain_elements_on_boundary_work_t work = {0};
+    work.axis_fixed = PyMem_Malloc(ndim * sizeof(*work.axis_fixed));
+    work.axis_slot = PyMem_Malloc(ndim * sizeof(*work.axis_slot));
+    work.element_rules = PyMem_Malloc(ndim * sizeof(*work.element_rules));
+    work.mass.point_strides = PyMem_Malloc(bdim * sizeof(*work.mass.point_strides));
+    work.mass.row_offsets = PyMem_Malloc((component_count + 1) * sizeof(*work.mass.row_offsets));
+    work.mass.col_offsets = PyMem_Malloc((component_count + 1) * sizeof(*work.mass.col_offsets));
+    work.mass.element_components = PyMem_Malloc(component_count * sizeof(*work.mass.element_components));
+    work.mass.element_signs = PyMem_Malloc(component_count * sizeof(*work.mass.element_signs));
+    work.mass.axes = PyMem_Malloc(ndim * sizeof(*work.mass.axes));
+    work.mass.counts = PyMem_Malloc(bdim * sizeof(*work.mass.counts));
+    work.mass.offsets = PyMem_Malloc(bdim * sizeof(*work.mass.offsets));
+    work.mass.axis_sets = PyMem_Malloc(bdim * sizeof(*work.mass.axis_sets));
+    work.mass.digits = PyMem_Malloc(bdim * sizeof(*work.mass.digits));
+    work.mass.axis_tables = PyMem_Malloc(bdim * sizeof(*work.mass.axis_tables));
+    work.mass.mapped_axes = PyMem_Malloc(order_storage * sizeof(*work.mass.mapped_axes));
+    work.mass.components = PyMem_Malloc(iterator_memory);
+    work.mass.blocks = PyMem_Malloc(iterator_memory);
+    if (!orientations || !views || !item_rows || !item_cols || !item_offsets || !out_basis || !out_integration ||
+        !plan_rules || !plan_boundary_sets || !plan_boundary_sets_lower || !plan_boundary_lower_specs ||
+        !plan_element_sets || !plan_element_sets_lower || !plan_element_endpoints || !plan_element_endpoints_lower ||
+        !plan_element_lower_specs || !work.axis_fixed || !work.axis_slot || !work.element_rules ||
+        !work.mass.point_strides || !work.mass.row_offsets || !work.mass.col_offsets || !work.mass.element_components ||
+        !work.mass.element_signs || !work.mass.axes || !work.mass.counts || !work.mass.offsets ||
+        !work.mass.axis_sets || !work.mass.digits || !work.mass.axis_tables || !work.mass.mapped_axes ||
+        !work.mass.components || !work.mass.blocks)
+    {
+        PyErr_NoMemory();
+        goto fail_memory;
+    }
+    for (size_t element = 0; element < nelem; ++element)
+    {
+        kform_spec_object *const spec = (kform_spec_object *)PySequence_Fast_GET_ITEM(specs_seq, (Py_ssize_t)element);
+        PyObject *const integration = PySequence_Fast_GET_ITEM(integrations_seq, (Py_ssize_t)element);
+        if (!PyObject_TypeCheck(spec, state->kform_specs_type) || (unsigned)Py_SIZE(spec->function_space) != ndim ||
+            spec->order != order)
+        {
+            PyErr_SetString(PyExc_ValueError, "All element specs must share one dimension and k-form order.");
+            goto fail_memory;
+        }
+        if (!PyObject_TypeCheck(integration, state->integration_space_type) || (unsigned)Py_SIZE(integration) != ndim)
+        {
+            PyErr_SetString(PyExc_ValueError, "Element integrations must be IntegrationSpaces of the mesh dimension.");
+            goto fail_memory;
+        }
+        if (parse_orientation_sequence(PySequence_Fast_GET_ITEM(orientations_seq, (Py_ssize_t)element), ndim,
+                                       orientations + element * ndim) < 0)
+        {
+            goto fail_memory;
+        }
+        views[element] = (boundary_element_space_t){.order = order,
+                                                    .orientation = orientations + element * ndim,
+                                                    .basis = spec->function_space->specs,
+                                                    .integration = ((integration_space_object *)integration)->specs};
+    }
+
+    if (axis_skip_object != Py_None)
+    {
+        PyObject *const skip_seq = PySequence_Fast(axis_skip_object, "axis_skip must be a sequence of integers.");
+        if (!skip_seq)
+            goto fail_memory;
+        if (PySequence_Fast_GET_SIZE(skip_seq) != (Py_ssize_t)bdim)
+        {
+            PyErr_Format(PyExc_ValueError, "axis_skip must contain %u entries.", bdim);
+            Py_DECREF(skip_seq);
+            goto fail_memory;
+        }
+        axis_skip = PyMem_Malloc(bdim * sizeof(*axis_skip));
+        if (!axis_skip)
+        {
+            Py_DECREF(skip_seq);
+            PyErr_NoMemory();
+            goto fail_memory;
+        }
+        for (unsigned axis = 0; axis < bdim; ++axis)
+        {
+            const long value = PyLong_AsLong(PySequence_Fast_GET_ITEM(skip_seq, (Py_ssize_t)axis));
+            if (value == -1 && PyErr_Occurred())
+            {
+                Py_DECREF(skip_seq);
+                goto fail_memory;
+            }
+            axis_skip[axis] = (uint8_t)value;
+        }
+        Py_DECREF(skip_seq);
+    }
+
+    constrain_elements_on_boundary_request_t request = {
+        .ndim = ndim,
+        .bdim = bdim,
+        .nforms = 1,
+        .nelem = (unsigned)nelem,
+        .elements = views,
+        .axis_skip = axis_skip,
+        .c1_continuous = c1_continuous != 0,
+        .surface_weights = NULL,
+        .test_pullbacks = NULL,
+        .element_pullbacks = NULL,
+        .basis_registry = ((basis_registry_object *)state->registry_basis)->registry,
+        .integration_registry = ((integration_registry_object *)state->registry_integration)->registry};
+    constrain_elements_on_boundary_plan_t plan;
+    plan.rules = plan_rules;
+    plan.boundary_sets = plan_boundary_sets;
+    plan.boundary_sets_lower = plan_boundary_sets_lower;
+    plan.boundary_lower_specs = plan_boundary_lower_specs;
+    plan.element_sets = plan_element_sets;
+    plan.element_sets_lower = plan_element_sets_lower;
+    plan.element_endpoints = plan_element_endpoints;
+    plan.element_endpoints_lower = plan_element_endpoints_lower;
+    plan.element_lower_specs = plan_element_lower_specs;
+    plan.item_rows = item_rows;
+    plan.item_cols = item_cols;
+    plan.item_offsets = item_offsets;
+    fdg_result_t res;
+    Py_BEGIN_ALLOW_THREADS;
+    res = constrain_elements_on_boundary_prepare(&request, &work, out_basis, out_integration, &plan);
+    Py_END_ALLOW_THREADS;
+    // The prepare call NULL-fills the plan's reference slots before any
+    // registry fetch, so the plan is releasable from here on.
+    plan_live = 1;
+    if (res != FDG_SUCCESS)
+    {
+        PyErr_Format(PyExc_RuntimeError, "Could not prepare boundary constraint batch: %s (%s)", fdg_error_str(res),
+                     fdg_error_msg(res));
+        goto fail_memory;
+    }
+
+    PyArrayObject *const arena =
+        (PyArrayObject *)PyArray_SimpleNew(1, &(npy_intp){(npy_intp)plan.total_values}, NPY_DOUBLE);
+    if (!arena)
+        goto fail_memory;
+
+    // Value tables sized after prepare: their sizes depend on the merged
+    // common rules.
+    size_t weights_size;
+    size_t row_values_size;
+    size_t col_values_size;
+    constrain_elements_on_boundary_work_size(&request, &plan, &weights_size, &row_values_size, &col_values_size);
+    work.weights = PyMem_Malloc(weights_size * sizeof(*work.weights));
+    work.mass.row_values = PyMem_Malloc(row_values_size * sizeof(*work.mass.row_values));
+    work.mass.col_values = PyMem_Malloc(col_values_size * sizeof(*work.mass.col_values));
+    work.mass.point_factors = PyMem_Malloc(weights_size * sizeof(*work.mass.point_factors));
+    if (!work.weights || !work.mass.row_values || !work.mass.col_values || !work.mass.point_factors)
+    {
+        PyErr_NoMemory();
+        goto fail_memory;
+    }
+
+    Py_BEGIN_ALLOW_THREADS;
+    constrain_elements_on_boundary_assemble(&request, &plan, &work, (double *)PyArray_DATA(arena));
+    Py_END_ALLOW_THREADS;
+
+    // Common boundary space as Python objects.
+    function_space_object *const common_space =
+        function_space_object_create(state->function_space_type, bdim, out_basis);
+    PyObject *const common_specs = common_space ? PyObject_CallFunction((PyObject *)state->kform_specs_type, "nO",
+                                                                        (Py_ssize_t)order, (PyObject *)common_space)
+                                                : NULL;
+    Py_XDECREF(common_space);
+    integration_space_object *const common_integration =
+        (integration_space_object *)state->integration_space_type->tp_alloc(state->integration_space_type,
+                                                                            (Py_ssize_t)bdim);
+    if (!common_integration || !common_specs)
+    {
+        Py_XDECREF(common_specs);
+        Py_XDECREF((PyObject *)common_integration);
+        Py_DECREF(arena);
+        goto fail_memory;
+    }
+    memcpy(common_integration->specs, out_integration, bdim * sizeof(*out_integration));
+
+    PyObject *const matrices = PyTuple_New((Py_ssize_t)nelem);
+    PyObject *const packed_rows = packed ? PyTuple_New((Py_ssize_t)nelem) : NULL;
+    if (!matrices || (packed && !packed_rows))
+    {
+        Py_XDECREF(packed_rows);
+        Py_DECREF(matrices);
+        Py_DECREF(common_specs);
+        Py_DECREF((PyObject *)common_integration);
+        Py_DECREF(arena);
+        goto fail_memory;
+    }
+    for (size_t element = 0; element < nelem; ++element)
+    {
+        const npy_intp dims[2] = {(npy_intp)item_rows[element], (npy_intp)item_cols[element]};
+        PyArrayObject *const matrix = (PyArrayObject *)PyArray_SimpleNew(2, dims, NPY_DOUBLE);
+        if (!matrix || (packed && !packed_rows))
+        {
+            Py_XDECREF(matrix);
+            Py_DECREF(matrices);
+            Py_XDECREF(packed_rows);
+            Py_DECREF(common_specs);
+            Py_DECREF((PyObject *)common_integration);
+            Py_DECREF(arena);
+            goto fail_memory;
+        }
+        memcpy(PyArray_DATA(matrix), (double *)PyArray_DATA(arena) + item_offsets[element],
+               (size_t)(PyArray_DIM(matrix, 0) * PyArray_DIM(matrix, 1)) * sizeof(double));
+        PyTuple_SET_ITEM(matrices, (Py_ssize_t)element, (PyObject *)matrix);
+        if (packed)
+        {
+            const kform_spec_t element_spec = {.ndim = ndim, .order = order, .basis = views[element].basis};
+            const constraint_boundary_mass_spec_t spec = {.ndim = ndim,
+                                                          .bdim = bdim,
+                                                          .order = order,
+                                                          .element_spec = &element_spec,
+                                                          .boundary_basis = out_basis,
+                                                          .boundary_integration = out_integration,
+                                                          .orientation = views[element].orientation,
+                                                          .axis_skip = axis_skip};
+            size_t rows;
+            size_t cols;
+            size_t entries;
+            constraint_boundary_mass_layout(&spec, &work.mass, false, &rows, &cols, &entries);
+            const npy_intp entry_dims[1] = {(npy_intp)entries};
+            const npy_intp row_dims[1] = {(npy_intp)(rows + 1)};
+            PyArrayObject *const side_array = (PyArrayObject *)PyArray_SimpleNew(1, entry_dims, NPY_UINT8);
+            PyArrayObject *const component_array = (PyArrayObject *)PyArray_SimpleNew(1, entry_dims, NPY_UINT32);
+            PyArrayObject *const dof_array = (PyArrayObject *)PyArray_SimpleNew(1, entry_dims, NPY_UINTP);
+            PyArrayObject *const coefficient_array = (PyArrayObject *)PyArray_SimpleNew(1, entry_dims, NPY_DOUBLE);
+            PyArrayObject *const row_array = (PyArrayObject *)PyArray_SimpleNew(1, row_dims, NPY_UINTP);
+            if (!side_array || !component_array || !dof_array || !coefficient_array || !row_array)
+            {
+                Py_XDECREF(side_array);
+                Py_XDECREF(component_array);
+                Py_XDECREF(dof_array);
+                Py_XDECREF(coefficient_array);
+                Py_XDECREF(row_array);
+                Py_DECREF(matrices);
+                Py_DECREF(packed_rows);
+                Py_DECREF(common_specs);
+                Py_DECREF((PyObject *)common_integration);
+                Py_DECREF(arena);
+                goto fail_memory;
+            }
+            constraint_boundary_mass_pack(&spec, &work.mass, false, (const double *)PyArray_DATA(matrix), (size_t)cols,
+                                          1.0, (uint8_t)element, (uint8_t *)PyArray_DATA(side_array),
+                                          (uint32_t *)PyArray_DATA(component_array), (size_t *)PyArray_DATA(dof_array),
+                                          (double *)PyArray_DATA(coefficient_array), (size_t *)PyArray_DATA(row_array));
+            PyObject *const item =
+                PyTuple_Pack(5, row_array, side_array, component_array, dof_array, coefficient_array);
+            Py_DECREF(row_array);
+            Py_DECREF(side_array);
+            Py_DECREF(component_array);
+            Py_DECREF(dof_array);
+            Py_DECREF(coefficient_array);
+            if (!item)
+            {
+                Py_DECREF(matrices);
+                Py_DECREF(packed_rows);
+                Py_DECREF(common_specs);
+                Py_DECREF((PyObject *)common_integration);
+                Py_DECREF(arena);
+                goto fail_memory;
+            }
+            PyTuple_SET_ITEM(packed_rows, (Py_ssize_t)element, item);
+        }
+    }
+
+    PyMem_Free(out_integration);
+    PyMem_Free(out_basis);
+    PyMem_Free(item_offsets);
+    PyMem_Free(item_cols);
+    PyMem_Free(item_rows);
+    PyMem_Free(axis_skip);
+    PyMem_Free(views);
+    PyMem_Free(orientations);
+    Py_DECREF(specs_seq);
+    Py_DECREF(orientations_seq);
+    Py_DECREF(integrations_seq);
+    Py_DECREF(arena);
+    PyObject *const result =
+        PyTuple_Pack(4, common_specs, common_integration, matrices, packed ? packed_rows : Py_None);
+    Py_DECREF(common_specs);
+    Py_DECREF((PyObject *)common_integration);
+    Py_DECREF(matrices);
+    Py_XDECREF(packed_rows);
+    Py_BEGIN_ALLOW_THREADS;
+    constrain_elements_on_boundary_plan_release(&plan);
+    Py_END_ALLOW_THREADS;
+    return result;
+
+fail_memory:
+    if (plan_live)
+    {
+        Py_BEGIN_ALLOW_THREADS;
+        constrain_elements_on_boundary_plan_release(&plan);
+        Py_END_ALLOW_THREADS;
+    }
+    PyMem_Free(work.mass.point_factors);
+    PyMem_Free(work.mass.col_values);
+    PyMem_Free(work.mass.row_values);
+    PyMem_Free(work.weights);
+    PyMem_Free(work.mass.blocks);
+    PyMem_Free(work.mass.components);
+    PyMem_Free(work.mass.mapped_axes);
+    PyMem_Free(work.mass.axis_tables);
+    PyMem_Free(work.mass.digits);
+    PyMem_Free(work.mass.axis_sets);
+    PyMem_Free(work.mass.offsets);
+    PyMem_Free(work.mass.counts);
+    PyMem_Free(work.mass.axes);
+    PyMem_Free(work.mass.element_signs);
+    PyMem_Free(work.mass.element_components);
+    PyMem_Free(work.mass.col_offsets);
+    PyMem_Free(work.mass.row_offsets);
+    PyMem_Free(work.mass.point_strides);
+    PyMem_Free(work.element_rules);
+    PyMem_Free(work.axis_slot);
+    PyMem_Free(work.axis_fixed);
+    PyMem_Free(plan_element_lower_specs);
+    PyMem_Free(plan_element_endpoints_lower);
+    PyMem_Free(plan_element_endpoints);
+    PyMem_Free(plan_element_sets_lower);
+    PyMem_Free(plan_element_sets);
+    PyMem_Free(plan_boundary_lower_specs);
+    PyMem_Free(plan_boundary_sets_lower);
+    PyMem_Free(plan_boundary_sets);
+    PyMem_Free(plan_rules);
+    PyMem_Free(out_integration);
+    PyMem_Free(out_basis);
+    PyMem_Free(item_offsets);
+    PyMem_Free(item_cols);
+    PyMem_Free(item_rows);
+    PyMem_Free(axis_skip);
+    PyMem_Free(views);
+    PyMem_Free(orientations);
+    Py_DECREF(specs_seq);
+    Py_DECREF(orientations_seq);
+    Py_DECREF(integrations_seq);
+    return NULL;
+}
+
+static PyObject *compute_boundary_space_map_factors(PyObject *module, PyObject *const *args, const Py_ssize_t nargs,
+                                                    const PyObject *kwnames)
+{
+    const interplib_module_state_t *state = PyModule_GetState(module);
+    if (!state)
+        return NULL;
+    PyObject *map_object;
+    PyObject *orientation_object;
+    PyObject *common_object;
+    if (parse_arguments_check(
+            (cpyutl_argument_t[]){
+                {.type = CPYARG_TYPE_PYTHON, .p_val = &map_object, .type_check = state->space_mapping_type},
+                {.type = CPYARG_TYPE_PYTHON, .p_val = &orientation_object},
+                {.type = CPYARG_TYPE_PYTHON, .p_val = &common_object, .type_check = state->integration_space_type},
+                {}},
+            args, nargs, kwnames) < 0)
+        return NULL;
+
+    space_map_object *const map = (space_map_object *)map_object;
+    integration_space_object *const common = (integration_space_object *)common_object;
+    const unsigned coords = (unsigned)Py_SIZE(map);
+    const unsigned ndim = map->ndim;
+    const unsigned bdim = (unsigned)Py_SIZE(common);
+    const unsigned fixed_count = ndim - bdim;
+    if (bdim == 0 || bdim >= ndim)
+    {
+        PyErr_Format(PyExc_ValueError, "Boundary dimension %zu is not in [1, %u).", Py_SIZE(common), ndim);
+        return NULL;
+    }
+    int8_t *const orientation = PyMem_Malloc(ndim * sizeof(*orientation));
+    if (!orientation)
+        return PyErr_NoMemory();
+    if (parse_orientation_sequence(orientation_object, ndim, orientation) < 0)
+    {
+        PyMem_Free(orientation);
+        return NULL;
+    }
+
+    space_map_object *const face_map = space_map_boundary_oriented_impl(state, map, fixed_count, orientation);
+    PyMem_Free(orientation);
+    if (!face_map)
+        return NULL;
+    if ((unsigned)face_map->ndim != bdim)
+    {
+        PyErr_SetString(PyExc_ValueError, "The restricted face map disagrees with the boundary dimension.");
+        Py_DECREF((PyObject *)face_map);
+        return NULL;
+    }
+
+    integration_rule_registry_t *const registry =
+        ((integration_registry_object *)state->registry_integration)->registry;
+    const integration_rule_t **const source_rules = python_integration_rules_get(bdim, face_map->int_specs, registry);
+    const integration_rule_t **const target_rules = python_integration_rules_get(bdim, common->specs, registry);
+    if (!source_rules || !target_rules)
+    {
+        if (source_rules)
+            python_integration_rules_release(bdim, source_rules, registry);
+        if (target_rules)
+            python_integration_rules_release(bdim, target_rules, registry);
+        Py_DECREF((PyObject *)face_map);
+        return NULL;
+    }
+
+    const npy_intp point_count = (npy_intp)integration_specs_total_points(bdim, common->specs);
+    PyArrayObject *const determinant = (PyArrayObject *)PyArray_SimpleNew(1, &point_count, NPY_DOUBLE);
+    const npy_intp inverse_dims[3] = {point_count, (npy_intp)bdim, (npy_intp)coords};
+    PyArrayObject *const inverse_maps = (PyArrayObject *)PyArray_SimpleNew(3, inverse_dims, NPY_DOUBLE);
+    size_t axis_matrices_size;
+    size_t positions_size;
+    size_t jacobian_size;
+    size_t q_size;
+    boundary_space_map_resample_work_size(bdim, coords, source_rules, target_rules, &axis_matrices_size,
+                                          &positions_size, &jacobian_size, &q_size);
+    double *const axis_matrices = PyMem_Malloc(axis_matrices_size * sizeof(*axis_matrices));
+    double *const positions = PyMem_Malloc(positions_size * sizeof(*positions));
+    double *const jacobian = PyMem_Malloc(jacobian_size * sizeof(*jacobian));
+    double *const q = PyMem_Malloc(q_size * sizeof(*q));
+    const double **const coordinate_values = PyMem_Malloc(coords * sizeof(*coordinate_values));
+    const double **const coordinate_gradients = PyMem_Malloc((size_t)coords * bdim * sizeof(*coordinate_gradients));
+    if (!determinant || !inverse_maps || !axis_matrices || !positions || !jacobian || !q || !coordinate_values ||
+        !coordinate_gradients)
+    {
+        PyMem_Free(coordinate_gradients);
+        PyMem_Free(coordinate_values);
+        PyMem_Free(q);
+        PyMem_Free(jacobian);
+        PyMem_Free(positions);
+        PyMem_Free(axis_matrices);
+        Py_XDECREF(determinant);
+        Py_XDECREF(inverse_maps);
+        python_integration_rules_release(bdim, source_rules, registry);
+        python_integration_rules_release(bdim, target_rules, registry);
+        Py_DECREF((PyObject *)face_map);
+        return PyErr_NoMemory();
+    }
+    for (unsigned coordinate = 0; coordinate < coords; ++coordinate)
+    {
+        coordinate_values[coordinate] = coordinate_map_values(face_map->maps[coordinate]);
+        for (unsigned axis = 0; axis < bdim; ++axis)
+        {
+            coordinate_gradients[(size_t)coordinate * bdim + axis] =
+                coordinate_map_gradient(face_map->maps[coordinate], axis);
+        }
+    }
+
+    const boundary_space_map_resample_request_t request = {.bdim = bdim,
+                                                           .coords = coords,
+                                                           .source_rules = source_rules,
+                                                           .target_rules = target_rules,
+                                                           .coordinate_values = coordinate_values,
+                                                           .coordinate_gradients = coordinate_gradients,
+                                                           .out_determinant = (double *)PyArray_DATA(determinant),
+                                                           .out_inverse_maps = (double *)PyArray_DATA(inverse_maps),
+                                                           .axis_matrices = axis_matrices,
+                                                           .positions = positions,
+                                                           .jacobian = jacobian,
+                                                           .q = q};
+    Py_BEGIN_ALLOW_THREADS;
+    boundary_space_map_resample(&request);
+    Py_END_ALLOW_THREADS;
+
+    PyMem_Free(coordinate_gradients);
+    PyMem_Free(coordinate_values);
+    PyMem_Free(q);
+    PyMem_Free(jacobian);
+    PyMem_Free(positions);
+    PyMem_Free(axis_matrices);
+    python_integration_rules_release(bdim, source_rules, registry);
+    python_integration_rules_release(bdim, target_rules, registry);
+    Py_DECREF((PyObject *)face_map);
+
+    PyObject *const result = PyTuple_Pack(2, determinant, inverse_maps);
+    Py_DECREF(determinant);
+    Py_DECREF(inverse_maps);
+    return result;
+}
+
 PyMethodDef constraint_methods[] = {
     {
         .ml_name = "packed_kform_constraints_to_csr",
@@ -1211,6 +1821,27 @@ PyMethodDef constraint_methods[] = {
                   "canonical face points); a bare callable is accepted when k equals the element dimension. "
                   "With surface_measure=True the data is integrated with the mapped face Jacobian (physical "
                   "surface measure); otherwise the metric-free chain integral is assembled.",
+    },
+    {
+        .ml_name = "compute_kform_boundary_mass_matrices",
+        .ml_meth = (void *)compute_kform_boundary_mass_matrices,
+        .ml_flags = METH_FASTCALL | METH_KEYWORDS,
+        .ml_doc = "compute_kform_boundary_mass_matrices(element_specs, orientations, element_integrations, "
+                  "axis_skip=None, *, boundary_dimension=None, c1_continuous=False, packed=False) -> tuple\n"
+                  "Assemble every incident element's mass matrix against the common boundary space of one shared "
+                  "object. Returns (common KFormSpecs, common IntegrationSpace, per-element dense matrices, "
+                  "per-element packed COO tuples or None). Rows are the common Legendre k-form test space with "
+                  "axis_skip[axis] lowest functions removed on inactive axes; columns are the mapped element trace "
+                  "DoFs. Coefficients carry the orientation signs but no side signs.",
+    },
+    {
+        .ml_name = "compute_boundary_space_map_factors",
+        .ml_meth = (void *)compute_boundary_space_map_factors,
+        .ml_flags = METH_FASTCALL | METH_KEYWORDS,
+        .ml_doc = "compute_boundary_space_map_factors(space_map, orientation, common_integration) -> tuple\n"
+                  "Interpolate a face-restricted space map onto the common boundary integration grid. Returns "
+                  "(determinant, inverse_maps) sampled at the common boundary points, where the determinant is the "
+                  "surface measure of the face immersion and inverse_maps has shape (points, boundary_dim, coords).",
     },
     {},
 };

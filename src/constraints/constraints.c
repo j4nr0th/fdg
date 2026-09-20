@@ -5,8 +5,10 @@
  * Assembly uses one canonical face coordinate system. Element-side
  * orientations map that system to signed, one-based element axes; the helper
  * functions below keep the mapping and its alternating k-form sign in one
- * place. Routines are `void`: documented preconditions are guarded by debug
- * asserts only, and storage is sized with the `*_layout` functions.
+ * place. Routines trust documented preconditions guarded by debug asserts
+ * only, storage is sized with the `*_layout`/`*_work_size` functions, and
+ * registry-backed routines report allocation failures through
+ * `fdg_result_t`.
  */
 
 #include "constraints.h"
@@ -14,7 +16,11 @@
 #include <limits.h>
 #include <math.h>
 
-#include "cutl/iterators/combination_iterator.h"
+#include <cutl/allocators.h>
+#include <cutl/iterators/combination_iterator.h>
+
+#include "../operations/map_transforms.h"
+#include "../polynomials/lagrange.h"
 
 /**
  * @brief Test whether a component contains one active covector axis.
@@ -34,24 +40,20 @@ static bool component_has_axis(const unsigned order, const uint8_t axes[const st
 }
 
 /**
- * @brief Map a face component's axes into an element component.
+ * @brief Map a face component's axes into element axes and a sign.
  *
  * The side orientation contributes one sign for every reversed mapped axis.
- * Sorting the mapped axes into canonical element order contributes the
- * permutation parity. Together these signs are the pullback sign of the
- * covector component, while `out_component` is its combination index.
+ * The mapped axes are sorted into canonical element order, and each sorting
+ * swap flips the alternating covector sign by one permutation transposition.
  *
  * Preconditions: `side->orientation` is a signed one-based permutation whose
  * fixed-axis prefix increases in absolute value; `order <= boundary_dim <=
  * side->ndim`; `test_axes` are the sorted covector axes of a valid component.
  */
-static void mapped_component(const constraint_element_side_t *const side, const unsigned boundary_dim,
-                             const unsigned order, const uint8_t test_axes[const static order == 0 ? 1 : order],
-                             unsigned *const out_component, int *const out_sign)
+static void mapped_axes_and_sign(const constraint_element_side_t *const side, const unsigned boundary_dim,
+                                 const unsigned order, const uint8_t test_axes[const static order == 0 ? 1 : order],
+                                 uint8_t mapped_axes[const static order == 0 ? 1 : order], int *const out_sign)
 {
-    // Fixed-size scratch bounded by the form order; order zero still gets one
-    // harmless placeholder.
-    uint8_t mapped_axes[UINT8_MAX];
     const unsigned fixed_count = side->ndim - boundary_dim;
     int sign = 1;
     // Collect the mapped axes from the side's orientation and get the initial sign
@@ -78,10 +80,32 @@ static void mapped_component(const constraint_element_side_t *const side, const 
             }
         }
     }
+    *out_sign = sign;
+}
+
+/**
+ * @brief Map a face component's axes into an element component.
+ *
+ * The side orientation contributes one sign for every reversed mapped axis.
+ * Sorting the mapped axes into canonical element order contributes the
+ * permutation parity. Together these signs are the pullback sign of the
+ * covector component, while `out_component` is its combination index.
+ *
+ * Preconditions: `side->orientation` is a signed one-based permutation whose
+ * fixed-axis prefix increases in absolute value; `order <= boundary_dim <=
+ * side->ndim`; `test_axes` are the sorted covector axes of a valid component.
+ */
+static void mapped_component(const constraint_element_side_t *const side, const unsigned boundary_dim,
+                             const unsigned order, const uint8_t test_axes[const static order == 0 ? 1 : order],
+                             unsigned *const out_component, int *const out_sign)
+{
+    // Fixed-size scratch bounded by the form order; order zero still gets one
+    // harmless placeholder.
+    uint8_t mapped_axes[UINT8_MAX];
+    mapped_axes_and_sign(side, boundary_dim, order, test_axes, mapped_axes, out_sign);
 
     // Get the component index based on the element's mapped axes
     *out_component = combination_get_index(side->ndim, order, mapped_axes);
-    *out_sign = sign;
 }
 
 /**
@@ -176,104 +200,858 @@ static size_t side_entries_per_test_component(const constraint_element_side_t *c
     return kform_spec_component_dof_count(&element_spec, element_component);
 }
 
-void boundary_common_space(unsigned ndim, unsigned nelem, unsigned bdim, const int8_t *orientation[static ndim],
-                           const basis_spec_t *element_basis[static ndim],
-                           const integration_spec_t *element_integration[static ndim],
-                           basis_spec_t boundary_basis[bdim], integration_spec_t boundary_integration[bdim])
+/**
+ * @brief Merge the per-element boundary views into one common boundary space.
+ *
+ * The first element seeds the canonical boundary basis and integration rules;
+ * every other element then lowers a basis axis to its own order when smaller
+ * and raises an integration axis to its own rule when more accurate.
+ */
+static void boundary_common_space_merge(unsigned ndim, unsigned bdim, unsigned nelem,
+                                        const boundary_element_space_t elements[static nelem],
+                                        basis_spec_t out_basis[static bdim],
+                                        integration_spec_t out_integration[static bdim])
 {
-    // Assert preconditions for boundary common space.
-    CUTL_ASSERT(bdim != 0, "0-D boundary common space is trivial, so do not use this.");
-    CUTL_ASSERT(nelem > 1, "At least two elements are required for boundary common space.");
-    CUTL_ASSERT(ndim > 1, "Space must be at least 2D.");
-    CUTL_ASSERT(bdim < ndim, "Boundary dimension must be less than element space dimension.");
-    // For the first element, we just transform the element basis and integration rules to the boundary space.
-    integration_rules_to_boundary(ndim, element_integration[0], orientation[0], bdim, boundary_integration);
-    basis_spec_to_boundary(ndim, element_basis[0], orientation[0], bdim, boundary_basis);
-    // For future elements, we update the particular dimension, if the boundary order is lower or integration rule is
-    // more accurate.
+    const boundary_element_space_t *const first = elements;
+    integration_rules_to_boundary(ndim, first->integration, first->orientation, bdim, out_integration);
+    for (unsigned idim = 0; idim < bdim; ++idim)
+    {
+        const int8_t signed_axis = first->orientation[ndim - bdim + idim];
+        const unsigned i_axis = signed_axis < 0 ? -signed_axis - 1 : signed_axis - 1;
+        out_basis[idim] = first->basis[i_axis];
+    }
+
     for (unsigned ie = 1; ie < nelem; ++ie)
     {
-        const basis_spec_t *elem_basis = element_basis[ie];
-        const integration_spec_t *elem_integration = element_integration[ie];
-        const int8_t *elem_varying = orientation[ie] + (ndim - bdim);
+        const boundary_element_space_t *const element = elements + ie;
+        const int8_t *const elem_varying = element->orientation + (ndim - bdim);
         for (unsigned idim = 0; idim < bdim; ++idim)
         {
             const int8_t signed_axis = elem_varying[idim];
             const unsigned i_axis = signed_axis < 0 ? -signed_axis - 1 : signed_axis - 1;
-            if (boundary_basis[idim].order > elem_basis[i_axis].order)
+            if (out_basis[idim].order > element->basis[i_axis].order)
             {
-                boundary_basis[idim] = elem_basis[i_axis];
+                out_basis[idim] = element->basis[i_axis];
             }
-            if (integration_spec_accuracy(boundary_integration + idim) <
-                integration_spec_accuracy(elem_integration + i_axis))
+            if (integration_spec_accuracy(out_integration + idim) <
+                integration_spec_accuracy(element->integration + i_axis))
             {
-                boundary_integration[idim] = elem_integration[i_axis];
+                out_integration[idim] = element->integration[i_axis];
             }
         }
-    }
-
-    // Finally, force the basis set to use Legendre basis
-    for (unsigned idim = 0; idim < bdim; ++idim)
-    {
-        boundary_basis[idim].type = BASIS_LEGENDRE;
     }
 }
 
-void constrain_kform_components(unsigned ndim, const int8_t orientation[static ndim],
-                                const basis_set_t *element_basis[static ndim], unsigned bdim,
-                                const basis_set_t *boundary_basis[static bdim],
-                                const integration_rule_t boundary_integration[static bdim], unsigned k,
-                                combination_iterator_t *iter)
+void boundary_common_space(const boundary_common_space_request_t *const request, basis_spec_t *out_basis,
+                           integration_spec_t *out_integration)
 {
-    // TODO: factor these VLAs out as user-supplied work arrays.
-    const basis_set_t *current_basis[bdim];
-    uint8_t element_axes[bdim];
+    // Assert preconditions for boundary common space.
+    CUTL_ASSERT(request->bdim != 0, "0-D boundary common space is trivial, so do not use this.");
+    CUTL_ASSERT(request->nelem > 1, "At least two elements are required for boundary common space.");
+    CUTL_ASSERT(request->ndim > 1, "Space must be at least 2D.");
+    CUTL_ASSERT(request->bdim < request->ndim, "Boundary dimension must be less than element space dimension.");
 
-    // Loop over local k-form components
-    combination_iterator_init(iter, bdim, k);
-    for (const uint8_t *comb = combination_iterator_current(iter); !combination_iterator_is_done(iter);
-         combination_iterator_next(iter))
+    boundary_common_space_merge(request->ndim, request->bdim, request->nelem, request->elements, out_basis,
+                                out_integration);
+    // Finally, force the basis set to use Legendre basis
+    for (unsigned idim = 0; idim < request->bdim; ++idim)
     {
-        // Translate the boundary component basis into the element's basis
-        bool sign = true;
-        for (unsigned i = 0; i < bdim; ++i)
+        out_basis[idim].type = BASIS_LEGENDRE;
+    }
+}
+
+/**
+ * @brief Per-axis test function counts of one boundary component's row block.
+ *
+ * Active covector axes read the order-1 basis (`order` functions); inactive
+ * axes read the full basis with the first `axis_skip[axis]` functions
+ * removed. The offsets carry the matching start index into each axis's
+ * function table. `counts` and `offsets` are caller-provided `[bdim]` arrays.
+ */
+static void boundary_mass_row_axis_counts(const constraint_boundary_mass_spec_t *const spec,
+                                          const uint8_t component_axes[const static spec->order == 0 ? 1 : spec->order],
+                                          unsigned counts[spec->bdim], unsigned offsets[spec->bdim])
+{
+    for (unsigned axis = 0; axis < spec->bdim; ++axis)
+    {
+        const bool active = component_has_axis(spec->order, component_axes, axis);
+        const unsigned full_count = spec->boundary_basis[axis].order + 1u;
+        const unsigned skip = !active && spec->axis_skip != NULL ? spec->axis_skip[axis] : 0u;
+        // An active axis of order zero yields zero test functions, so the
+        // whole component's row block drops out.
+        if (active)
         {
-            const int8_t signed_axis = comb[i];
-            if (signed_axis < 0)
+            counts[axis] = spec->boundary_basis[axis].order;
+            offsets[axis] = 0;
+        }
+        else
+        {
+            counts[axis] = full_count > skip ? full_count - skip : 0u;
+            offsets[axis] = skip;
+        }
+    }
+}
+
+/**
+ * @brief Count one boundary component's test DoFs from its per-axis counts.
+ */
+static size_t boundary_mass_row_dofs(const constraint_boundary_mass_spec_t *const spec,
+                                     const unsigned counts[static spec->bdim])
+{
+    size_t dof_count = 1;
+    for (unsigned axis = 0; axis < spec->bdim; ++axis)
+    {
+        dof_count *= counts[axis];
+    }
+    return dof_count;
+}
+
+/**
+ * @brief Sample one boundary component's test functions at the common points.
+ *
+ * The values are laid out point-major with axis 0 the slowest DoF digit, and
+ * the skipped functions shift each axis's read window by its offset. The
+ * work buffers carry the point strides and the per-axis scratch; the point
+ * strides must be filled before the first call.
+ */
+static void boundary_mass_row_values(const constraint_boundary_mass_spec_t *const spec,
+                                     const basis_set_t *const *basis_sets, const basis_set_t *const *basis_sets_lower,
+                                     const uint8_t component_axes[const static spec->order == 0 ? 1 : spec->order],
+                                     const size_t point_count, constraint_boundary_mass_work_t *work)
+{
+    boundary_mass_row_axis_counts(spec, component_axes, work->counts, work->offsets);
+    const unsigned bdim = spec->bdim;
+
+    size_t dof_count = 1;
+    for (unsigned axis = 0; axis < bdim; ++axis)
+    {
+        const bool active = component_has_axis(spec->order, component_axes, axis);
+        work->axis_sets[axis] = active ? basis_sets_lower[axis] : basis_sets[axis];
+        dof_count *= work->counts[axis];
+        work->digits[axis] = 0;
+    }
+    for (size_t dof = 0; dof < dof_count; ++dof)
+    {
+        for (unsigned axis = 0; axis < bdim; ++axis)
+        {
+            work->axis_tables[axis] =
+                basis_set_basis_values(work->axis_sets[axis], work->offsets[axis] + work->digits[axis]);
+        }
+        double *const out_column = work->row_values + dof;
+        for (size_t point = 0; point < point_count; ++point)
+        {
+            double value = 1.0;
+            for (unsigned axis = 0; axis < bdim; ++axis)
             {
-                sign = !sign;
-                element_axes[i] = -signed_axis - 1;
+                const size_t node =
+                    (point / work->point_strides[axis]) % ((size_t)spec->boundary_integration[axis].order + 1);
+                value *= work->axis_tables[axis][node];
+            }
+            out_column[point * dof_count] = value;
+        }
+        for (unsigned axis = bdim; axis-- > 0;)
+        {
+            if (++work->digits[axis] < work->counts[axis])
+                break;
+            work->digits[axis] = 0;
+        }
+    }
+}
+
+/**
+ * @brief Build the trace value sources of the element's axes.
+ *
+ * Free axes read the element basis sets evaluated at the mapped common rules,
+ * mirrored when the orientation reverses the axis; fixed normal axes read
+ * their endpoint values at the signed end.
+ */
+static void boundary_mass_axis_descriptors(const constraint_boundary_mass_spec_t *const spec,
+                                           const constraint_boundary_mass_request_t *const request,
+                                           constraint_boundary_mass_work_t *work)
+{
+    kform_trace_axis_t *const axes = work->axes;
+    const unsigned fixed_count = spec->ndim - spec->bdim;
+    for (unsigned axis = 0; axis < spec->ndim; ++axis)
+    {
+        axes[axis] = (kform_trace_axis_t){};
+    }
+    for (unsigned face_axis = 0; face_axis < spec->bdim; ++face_axis)
+    {
+        const int8_t mapping = spec->orientation[fixed_count + face_axis];
+        const unsigned element_axis = (unsigned)(mapping < 0 ? -mapping : mapping) - 1;
+        axes[element_axis] = (kform_trace_axis_t){
+            .nodes = request->element_basis_sets[element_axis],
+            .nodes_lower =
+                request->element_basis_sets_lower != NULL ? request->element_basis_sets_lower[element_axis] : NULL,
+            .rule_size = spec->boundary_integration[face_axis].order + 1u,
+            .stride_slot = face_axis,
+            .mirror = mapping < 0,
+        };
+    }
+    for (unsigned fixed_axis = 0; fixed_axis < fixed_count; ++fixed_axis)
+    {
+        const int8_t mapping = spec->orientation[fixed_axis];
+        const unsigned element_axis = (unsigned)(mapping < 0 ? -mapping : mapping) - 1;
+        axes[element_axis] = (kform_trace_axis_t){
+            .endpoint = request->element_endpoints != NULL ? request->element_endpoints[element_axis] : NULL,
+            .endpoint_lower =
+                request->element_endpoints_lower != NULL ? request->element_endpoints_lower[element_axis] : NULL,
+            .end = mapping < 0 ? 0u : 1u,
+        };
+    }
+}
+
+/**
+ * @brief Compute the dense shape of one element's boundary mass matrix.
+ *
+ * One combination-iterator pass over the common boundary components fills the
+ * mapped component table and both offset tables: row offsets are per-component
+ * starts with the total row count at `work->row_offsets[component_count]`;
+ * column offsets are the mapped component block starts with the total column
+ * count at `work->col_offsets[component_count]`.
+ */
+static void boundary_mass_shape(const constraint_boundary_mass_spec_t *const spec,
+                                constraint_boundary_mass_work_t *work, size_t *const out_rows, size_t *const out_cols)
+{
+    const constraint_element_side_t side = {
+        .ndim = spec->ndim, .basis_specs = spec->element_spec->basis, .orientation = spec->orientation};
+    const unsigned order = spec->order;
+    if (order > spec->bdim)
+    {
+        // A k-form of order past the boundary dimension has no trace
+        // components at all.
+        work->row_offsets[0] = 0;
+        work->col_offsets[0] = 0;
+        *out_rows = 0;
+        *out_cols = 0;
+        return;
+    }
+    combination_iterator_init(work->components, (uint8_t)spec->bdim, (uint8_t)order);
+    size_t rows = 0;
+    size_t cols = 0;
+    for (size_t component = 0; !combination_iterator_is_done(work->components);
+         combination_iterator_next(work->components), ++component)
+    {
+        const uint8_t *const component_axes = combination_iterator_current(work->components);
+        boundary_mass_row_axis_counts(spec, component_axes, work->counts, work->offsets);
+        work->row_offsets[component] = rows;
+        rows += boundary_mass_row_dofs(spec, work->counts);
+        mapped_axes_and_sign(&side, spec->bdim, order, component_axes, work->mapped_axes,
+                             work->element_signs + component);
+        work->element_components[component] = combination_get_index(spec->ndim, order, work->mapped_axes);
+        work->col_offsets[component] = cols;
+        cols += kform_spec_component_dof_count(spec->element_spec, work->element_components[component]);
+    }
+    work->row_offsets[(size_t)combination_iterator_total_count(work->components)] = rows;
+    work->col_offsets[(size_t)combination_iterator_total_count(work->components)] = cols;
+    *out_rows = rows;
+    *out_cols = cols;
+}
+
+void constraint_boundary_mass_layout(const constraint_boundary_mass_spec_t *const spec,
+                                     constraint_boundary_mass_work_t *work, const bool physical,
+                                     size_t *const out_row_count, size_t *const out_col_count,
+                                     size_t *const out_entry_count)
+{
+    const kform_spec_t boundary_spec = {.ndim = spec->bdim, .order = spec->order, .basis = spec->boundary_basis};
+    const size_t component_count = kform_spec_component_count(&boundary_spec);
+    size_t rows;
+    size_t cols;
+    boundary_mass_shape(spec, work, &rows, &cols);
+
+    size_t entries = 0;
+    for (unsigned component = 0; component < component_count; ++component)
+    {
+        const size_t row_dofs = work->row_offsets[component + 1] - work->row_offsets[component];
+        if (!physical)
+        {
+            entries += row_dofs * (work->col_offsets[component + 1] - work->col_offsets[component]);
+            continue;
+        }
+        for (unsigned other = 0; other < component_count; ++other)
+        {
+            entries += row_dofs * (work->col_offsets[other + 1] - work->col_offsets[other]);
+        }
+    }
+    *out_row_count = rows;
+    *out_col_count = cols;
+    *out_entry_count = entries;
+}
+
+void constraint_boundary_mass_work_size(const constraint_boundary_mass_spec_t *const spec,
+                                        constraint_boundary_mass_work_sizes_t *const out_sizes)
+{
+    const size_t point_count = integration_specs_total_points(spec->bdim, spec->boundary_integration);
+    const constraint_element_side_t side = {
+        .ndim = spec->ndim, .basis_specs = spec->element_spec->basis, .orientation = spec->orientation};
+
+    // The sizing pass needs one iterator plus per-axis and mapped-axis
+    // scratch; all bounded by `bdim` and `order`.
+    combination_iterator_t *iter;
+    unsigned *counts;
+    unsigned *offsets;
+    uint8_t *mapped_axes;
+    void *const mem = cutl_alloc_group(
+        &CUTL_STD_ALLOCATOR, (const cutl_alloc_info_t[]){
+                                 {combination_iterator_required_memory((uint8_t)spec->order), (void **)&iter},
+                                 {sizeof(*counts) * spec->bdim, (void **)&counts},
+                                 {sizeof(*offsets) * spec->bdim, (void **)&offsets},
+                                 {(spec->order == 0 ? 1u : spec->order) * sizeof(*mapped_axes), (void **)&mapped_axes},
+                                 {}});
+    if (mem == NULL)
+    {
+        // A failed sizing pass reports zero buffers; the caller cannot
+        // assemble without them anyway.
+        *out_sizes = (constraint_boundary_mass_work_sizes_t){};
+        return;
+    }
+
+    if (spec->order > spec->bdim)
+    {
+        cutl_dealloc(&CUTL_STD_ALLOCATOR, mem);
+        *out_sizes = (constraint_boundary_mass_work_sizes_t){.point_factors = point_count};
+        return;
+    }
+    combination_iterator_init(iter, (uint8_t)spec->bdim, (uint8_t)spec->order);
+    size_t max_row_dofs = 0;
+    size_t max_col_dofs = 0;
+    int sign;
+    for (; !combination_iterator_is_done(iter); combination_iterator_next(iter))
+    {
+        const uint8_t *const component_axes = combination_iterator_current(iter);
+        boundary_mass_row_axis_counts(spec, component_axes, counts, offsets);
+        const size_t row_dofs = boundary_mass_row_dofs(spec, counts);
+        mapped_axes_and_sign(&side, spec->bdim, spec->order, component_axes, mapped_axes, &sign);
+        const unsigned element_component = combination_get_index(spec->ndim, spec->order, mapped_axes);
+        const size_t col_dofs = kform_spec_component_dof_count(spec->element_spec, element_component);
+        max_row_dofs = max_row_dofs > row_dofs ? max_row_dofs : row_dofs;
+        max_col_dofs = max_col_dofs > col_dofs ? max_col_dofs : col_dofs;
+    }
+    cutl_dealloc(&CUTL_STD_ALLOCATOR, mem);
+
+    *out_sizes = (constraint_boundary_mass_work_sizes_t){
+        .row_values = max_row_dofs * point_count,
+        .col_values = max_col_dofs * point_count,
+        .point_factors = point_count,
+        .component_count = combination_total_count((uint8_t)spec->bdim, (uint8_t)spec->order)};
+}
+
+/**
+ * @brief Physical dot product of one test and one element pullback component.
+ */
+static double boundary_mass_pullback_dot(const constraint_trace_pullback_t *const test_pullback,
+                                         const unsigned test_component,
+                                         const constraint_trace_pullback_t *const element_pullback,
+                                         const unsigned element_component, const size_t point_count, const size_t point)
+{
+    CUTL_ASSERT(test_pullback->physical_component_count == element_pullback->physical_component_count,
+                "Pullbacks disagree on the physical component count.");
+    const double *const test_values =
+        test_pullback->values +
+        ((size_t)test_component * test_pullback->physical_component_count * point_count + point);
+    const double *const element_values =
+        element_pullback->values +
+        ((size_t)element_component * element_pullback->physical_component_count * point_count + point);
+    double result = 0.0;
+    for (unsigned physical_component = 0; physical_component < test_pullback->physical_component_count;
+         ++physical_component)
+    {
+        result += test_values[(size_t)physical_component * point_count] *
+                  element_values[(size_t)physical_component * point_count];
+    }
+    return result;
+}
+
+void constraint_boundary_mass_assemble(const constraint_boundary_mass_request_t *const request)
+{
+    const constraint_boundary_mass_spec_t *const spec = request->spec;
+    constraint_boundary_mass_work_t *const work = request->work;
+    const unsigned order = spec->order;
+    const size_t component_count = combination_total_count((uint8_t)spec->bdim, (uint8_t)order);
+    CUTL_ASSERT((request->test_pullback == NULL) == (request->element_pullback == NULL),
+                "Physical pullbacks must be given for both test and element sides.");
+
+    const size_t point_count = integration_specs_total_points(spec->bdim, spec->boundary_integration);
+    integration_spec_point_strides(spec->bdim, spec->boundary_integration, work->point_strides);
+
+    size_t rows;
+    size_t cols;
+    boundary_mass_shape(spec, work, &rows, &cols);
+    for (size_t value = 0; value < rows * cols; ++value)
+    {
+        request->out_matrix[value] = 0.0;
+    }
+    if (order > spec->bdim)
+    {
+        return;
+    }
+
+    boundary_mass_axis_descriptors(spec, request, work);
+
+    const bool physical = request->test_pullback != NULL;
+    const constraint_element_side_t side = {
+        .ndim = spec->ndim, .basis_specs = spec->element_spec->basis, .orientation = spec->orientation};
+    combination_iterator_reset(work->components);
+    for (size_t component = 0; !combination_iterator_is_done(work->components);
+         combination_iterator_next(work->components), ++component)
+    {
+        const uint8_t *const component_axes = combination_iterator_current(work->components);
+        const size_t row_dofs = work->row_offsets[component + 1] - work->row_offsets[component];
+        if (row_dofs == 0)
+            continue;
+        boundary_mass_row_values(spec, request->boundary_basis_sets, request->boundary_basis_sets_lower, component_axes,
+                                 point_count, work);
+
+        const unsigned first_block = physical ? 0 : (unsigned)component;
+        const unsigned block_end = physical ? (unsigned)component_count : (unsigned)component + 1u;
+        for (unsigned block = first_block; block < block_end; ++block)
+        {
+            const size_t col_dofs = work->col_offsets[block + 1] - work->col_offsets[block];
+            if (col_dofs == 0)
+                continue;
+            // The element axes of the block's mapped component: reference
+            // pairing maps the row component itself, physical pairing walks
+            // every mapped component through the same orientation.
+            int block_orientation_sign;
+            if (physical)
+            {
+                combination_iterator_set_to_index(work->blocks, block);
+                mapped_axes_and_sign(&side, spec->bdim, order, combination_iterator_current(work->blocks),
+                                     work->mapped_axes, &block_orientation_sign);
             }
             else
             {
-                element_axes[i] = signed_axis - 1;
+                mapped_axes_and_sign(&side, spec->bdim, order, component_axes, work->mapped_axes,
+                                     &block_orientation_sign);
             }
-        }
-        // Bubble sort the axes and correct sign (TODO: factor, I think we re-use this other places as well)
-        for (unsigned i = 0; i < bdim - 1; ++i)
-        {
-            for (unsigned j = 0; j < bdim - i - 1; ++j)
+            kform_component_basis_values(spec->ndim, spec->element_spec->basis, order, work->mapped_axes, work->axes,
+                                         work->point_strides, point_count, work->col_values);
+
+            // The orientation sign of the block's element component carries the
+            // covector permutation; reference pairing is component-diagonal, so
+            // there it equals the row component's own sign.
+            const double block_sign = (double)work->element_signs[block] * request->factor;
+            for (size_t point = 0; point < point_count; ++point)
             {
-                if (element_axes[j] > element_axes[j + 1])
+                double point_factor = block_sign * request->point_weights[point];
+                if (request->surface_weights != NULL)
                 {
-                    uint8_t temp = element_axes[j];
-                    element_axes[j] = element_axes[j + 1];
-                    element_axes[j + 1] = temp;
-                    sign = !sign;
+                    point_factor *= request->surface_weights[point];
                 }
+                if (physical)
+                {
+                    point_factor *= boundary_mass_pullback_dot(request->test_pullback, (unsigned)component,
+                                                               request->element_pullback,
+                                                               work->element_components[block], point_count, point);
+                }
+                work->point_factors[point] = point_factor;
+            }
+            kform_inner_product_block(point_count, row_dofs, col_dofs, work->row_values, work->col_values,
+                                      work->point_factors, work->row_offsets[component], work->col_offsets[block], cols,
+                                      request->out_matrix);
+        }
+    }
+}
+
+void constraint_boundary_mass_pack(const constraint_boundary_mass_spec_t *const spec,
+                                   constraint_boundary_mass_work_t *work, const bool physical,
+                                   const double *const matrix, const size_t row_stride, const double factor,
+                                   const uint8_t side, uint8_t out_sides[], uint32_t out_components[],
+                                   size_t out_local_dofs[], double out_coefficients[], size_t out_row_offsets[])
+{
+    const size_t component_count = combination_total_count((uint8_t)spec->bdim, (uint8_t)spec->order);
+
+    size_t rows;
+    size_t cols;
+    boundary_mass_shape(spec, work, &rows, &cols);
+    (void)cols;
+
+    size_t row = 0;
+    size_t entry = 0;
+    out_row_offsets[0] = 0;
+    for (size_t component = 0; component < component_count; ++component)
+    {
+        const size_t row_dofs = work->row_offsets[component + 1] - work->row_offsets[component];
+        if (row_dofs == 0)
+            continue;
+        const unsigned first_block = physical ? 0 : (unsigned)component;
+        const unsigned block_end = physical ? (unsigned)component_count : (unsigned)component + 1u;
+        for (size_t test_dof = 0; test_dof < row_dofs; ++test_dof)
+        {
+            for (unsigned block = first_block; block < block_end; ++block)
+            {
+                const size_t col_dofs = work->col_offsets[block + 1] - work->col_offsets[block];
+                for (size_t element_dof = 0; element_dof < col_dofs; ++element_dof, ++entry)
+                {
+                    out_sides[entry] = side;
+                    out_components[entry] = work->element_components[block];
+                    out_local_dofs[entry] = element_dof;
+                    out_coefficients[entry] = factor * matrix[(work->row_offsets[component] + test_dof) * row_stride +
+                                                              work->col_offsets[block] + element_dof];
+                }
+            }
+            out_row_offsets[row + test_dof + 1] = entry;
+        }
+        row += row_dofs;
+    }
+}
+
+fdg_result_t constrain_elements_on_boundary_prepare(const constrain_elements_on_boundary_request_t *const request,
+                                                    constrain_elements_on_boundary_work_t *work,
+                                                    basis_spec_t *out_basis, integration_spec_t *out_integration,
+                                                    constrain_elements_on_boundary_plan_t *const plan)
+{
+    const unsigned bdim = request->bdim;
+    const unsigned ndim = request->ndim;
+    const unsigned nelem = request->nelem;
+    // Assert preconditions shared with the common space merge.
+    CUTL_ASSERT(bdim != 0, "0-D boundary common space is trivial, so do not use this.");
+    CUTL_ASSERT(request->nforms > 0, "At least one k-form is required.");
+    CUTL_ASSERT(nelem > 1, "At least two elements are required for boundary common space.");
+    CUTL_ASSERT(ndim > 1, "Space must be at least 2D.");
+    CUTL_ASSERT(bdim < ndim, "Boundary dimension must be less than element space dimension.");
+
+    plan->ndim = ndim;
+    plan->bdim = bdim;
+    plan->nforms = request->nforms;
+    plan->nelem = nelem;
+    plan->integration_registry = request->integration_registry;
+    plan->basis_registry = request->basis_registry;
+    plan->boundary_basis = out_basis;
+    plan->boundary_integration = out_integration;
+    plan->total_values = 0;
+    // NULL-fill every reference slot so a failed prepare still releases
+    // cleanly.
+    for (size_t reference = 0; reference < (size_t)request->nforms * bdim; ++reference)
+    {
+        plan->rules[reference] = NULL;
+        plan->boundary_sets[reference] = NULL;
+        plan->boundary_sets_lower[reference] = NULL;
+    }
+    const size_t item_count = (size_t)request->nforms * nelem;
+    for (size_t item = 0; item < item_count; ++item)
+    {
+        for (unsigned axis = 0; axis < ndim; ++axis)
+        {
+            plan->element_sets[item * ndim + axis] = NULL;
+            plan->element_sets_lower[item * ndim + axis] = NULL;
+            plan->element_endpoints[item * ndim + axis] = NULL;
+            plan->element_endpoints_lower[item * ndim + axis] = NULL;
+        }
+    }
+
+    for (unsigned iform = 0; iform < request->nforms; ++iform)
+    {
+        const boundary_element_space_t *const views = request->elements + (size_t)iform * nelem;
+        for (unsigned ie = 1; ie < nelem; ++ie)
+        {
+            CUTL_ASSERT(views[ie].order == views[0].order, "All elements must trace the same k-form order.");
+        }
+        basis_spec_t *const form_basis = out_basis + (size_t)iform * bdim;
+        integration_spec_t *const form_integration = out_integration + (size_t)iform * bdim;
+        boundary_common_space_merge(ndim, bdim, nelem, views, form_basis, form_integration);
+        for (unsigned idim = 0; idim < bdim; ++idim)
+        {
+            form_basis[idim].type = BASIS_LEGENDRE;
+        }
+
+        const unsigned order = views[0].order;
+        basis_spec_t *const form_lower = plan->boundary_lower_specs + (size_t)iform * bdim;
+        for (unsigned idim = 0; idim < bdim; ++idim)
+        {
+            // Order-zero axes cannot lose another degree; no component reads
+            // their lower table because the matching components have no rows.
+            form_lower[idim] = (basis_spec_t){.type = BASIS_LEGENDRE,
+                                              .order = form_basis[idim].order > 0 ? form_basis[idim].order - 1u : 0u};
+        }
+
+        const size_t form = (size_t)iform * bdim;
+        fdg_result_t res = integration_rule_registry_get_rules(request->integration_registry, bdim, form_integration,
+                                                               plan->rules + form);
+        if (res != FDG_SUCCESS)
+        {
+            return res;
+        }
+        res = basis_set_registry_get_basis_sets(request->basis_registry, bdim, plan->boundary_sets + form,
+                                                plan->rules + form, form_basis);
+        if (res != FDG_SUCCESS)
+        {
+            return res;
+        }
+        if (order > 0)
+        {
+            res = basis_set_registry_get_basis_sets(request->basis_registry, bdim, plan->boundary_sets_lower + form,
+                                                    plan->rules + form, form_lower);
+            if (res != FDG_SUCCESS)
+            {
+                return res;
             }
         }
 
-        // Get the component index
-        const size_t element_component = combination_get_index(bdim, k, element_axes);
-        (void)element_component;
-        // Get the element's boundary space
-        basis_set_to_boundary(ndim, element_basis, orientation, bdim, current_basis);
-        // TODO: compute the boundary mass matrix based on these parameters + boundary transform.
-        //
-        // (ndim, k, boundary_basis, boundary_integration, current_basis, element_axes)
-        (void)boundary_basis;
-        (void)boundary_integration;
+        for (unsigned ie = 0; ie < nelem; ++ie)
+        {
+            const boundary_element_space_t *const element = views + ie;
+            const size_t item = (size_t)iform * nelem + ie;
+            // Classify every element axis as fixed normal axis or free axis,
+            // recording the canonical face slot of free axes.
+            for (unsigned axis = 0; axis < ndim; ++axis)
+            {
+                work->axis_fixed[axis] = false;
+                work->axis_slot[axis] = 0;
+            }
+            for (unsigned face_axis = 0; face_axis < bdim; ++face_axis)
+            {
+                const int8_t mapping = element->orientation[ndim - bdim + face_axis];
+                work->axis_slot[(unsigned)(mapping < 0 ? -mapping : mapping) - 1] = face_axis;
+            }
+            for (unsigned fixed_axis = 0; fixed_axis < ndim - bdim; ++fixed_axis)
+            {
+                const int8_t mapping = element->orientation[fixed_axis];
+                work->axis_fixed[(unsigned)(mapping < 0 ? -mapping : mapping) - 1] = true;
+            }
+            for (unsigned axis = 0; axis < ndim; ++axis)
+            {
+                work->element_rules[axis] = plan->rules[form + (work->axis_fixed[axis] ? 0 : work->axis_slot[axis])];
+            }
+            basis_spec_t *const item_lower = plan->element_lower_specs + item * ndim;
+            for (unsigned axis = 0; axis < ndim; ++axis)
+            {
+                item_lower[axis] =
+                    (basis_spec_t){.type = element->basis[axis].type,
+                                   .order = element->basis[axis].order > 0 ? element->basis[axis].order - 1u : 0u};
+            }
+            res = basis_set_registry_get_basis_sets(request->basis_registry, ndim, plan->element_sets + item * ndim,
+                                                    work->element_rules, element->basis);
+            if (res != FDG_SUCCESS)
+            {
+                return res;
+            }
+            if (order > 0)
+            {
+                res = basis_set_registry_get_basis_sets(request->basis_registry, ndim,
+                                                        plan->element_sets_lower + item * ndim, work->element_rules,
+                                                        item_lower);
+                if (res != FDG_SUCCESS)
+                {
+                    return res;
+                }
+            }
+            for (unsigned axis = 0; axis < ndim; ++axis)
+            {
+                if (!work->axis_fixed[axis])
+                    continue;
+                res = basis_set_registry_get_basis_endpoints(
+                    request->basis_registry, plan->element_endpoints + item * ndim + axis, element->basis[axis]);
+                if (res != FDG_SUCCESS)
+                {
+                    return res;
+                }
+                if (order > 0 && element->basis[axis].order > 0)
+                {
+                    res = basis_set_registry_get_basis_endpoints(
+                        request->basis_registry, plan->element_endpoints_lower + item * ndim + axis, item_lower[axis]);
+                    if (res != FDG_SUCCESS)
+                    {
+                        return res;
+                    }
+                }
+            }
+
+            const kform_spec_t element_spec = {.ndim = ndim, .order = order, .basis = element->basis};
+            const constraint_boundary_mass_spec_t spec = {
+                .ndim = ndim,
+                .bdim = bdim,
+                .order = order,
+                .element_spec = &element_spec,
+                .boundary_basis = form_basis,
+                .boundary_integration = form_integration,
+                .orientation = element->orientation,
+                .axis_skip = request->axis_skip != NULL ? request->axis_skip + (size_t)iform * bdim : NULL};
+            const bool physical =
+                !request->c1_continuous && request->test_pullbacks != NULL && request->test_pullbacks[item] != NULL;
+            size_t rows;
+            size_t cols;
+            size_t entries;
+            constraint_boundary_mass_layout(&spec, &work->mass, physical, &rows, &cols, &entries);
+            plan->item_rows[item] = rows;
+            plan->item_cols[item] = cols;
+            plan->item_offsets[item] = plan->total_values;
+            plan->total_values += rows * cols;
+        }
+    }
+    plan->item_offsets[item_count] = plan->total_values;
+    return FDG_SUCCESS;
+}
+
+void constrain_elements_on_boundary_work_size(const constrain_elements_on_boundary_request_t *const request,
+                                              const constrain_elements_on_boundary_plan_t *const plan,
+                                              size_t *const out_weights, size_t *const out_row_values,
+                                              size_t *const out_col_values)
+{
+    size_t max_weights = 0;
+    size_t max_row_values = 0;
+    size_t max_col_values = 0;
+    for (unsigned iform = 0; iform < request->nforms; ++iform)
+    {
+        const boundary_element_space_t *const views = request->elements + (size_t)iform * request->nelem;
+        const unsigned order = views[0].order;
+        const basis_spec_t *const form_basis = plan->boundary_basis + (size_t)iform * request->bdim;
+        const integration_spec_t *const form_integration = plan->boundary_integration + (size_t)iform * request->bdim;
+        const uint8_t *const form_skip =
+            request->axis_skip != NULL ? request->axis_skip + (size_t)iform * request->bdim : NULL;
+        const size_t point_count = integration_specs_total_points(request->bdim, form_integration);
+        max_weights = max_weights > point_count ? max_weights : point_count;
+        for (unsigned ie = 0; ie < request->nelem; ++ie)
+        {
+            const kform_spec_t element_spec = {.ndim = request->ndim, .order = order, .basis = views[ie].basis};
+            const constraint_boundary_mass_spec_t spec = {.ndim = request->ndim,
+                                                          .bdim = request->bdim,
+                                                          .order = order,
+                                                          .element_spec = &element_spec,
+                                                          .boundary_basis = form_basis,
+                                                          .boundary_integration = form_integration,
+                                                          .orientation = views[ie].orientation,
+                                                          .axis_skip = form_skip};
+            constraint_boundary_mass_work_sizes_t sizes;
+            constraint_boundary_mass_work_size(&spec, &sizes);
+            max_row_values = max_row_values > sizes.row_values ? max_row_values : sizes.row_values;
+            max_col_values = max_col_values > sizes.col_values ? max_col_values : sizes.col_values;
+        }
+    }
+    *out_weights = max_weights;
+    *out_row_values = max_row_values;
+    *out_col_values = max_col_values;
+}
+
+void constrain_elements_on_boundary_assemble(const constrain_elements_on_boundary_request_t *const request,
+                                             const constrain_elements_on_boundary_plan_t *const plan,
+                                             constrain_elements_on_boundary_work_t *work, double *const out_values)
+{
+    const unsigned bdim = plan->bdim;
+    const unsigned ndim = plan->ndim;
+    for (unsigned iform = 0; iform < plan->nforms; ++iform)
+    {
+        const boundary_element_space_t *const views = request->elements + (size_t)iform * plan->nelem;
+        const unsigned order = views[0].order;
+        const size_t form = (size_t)iform * bdim;
+        const basis_spec_t *const form_basis = plan->boundary_basis + form;
+        const integration_spec_t *const form_integration = plan->boundary_integration + form;
+        integration_rule_tensor_weights(bdim, plan->rules + form, work->weights);
+
+        for (unsigned ie = 0; ie < plan->nelem; ++ie)
+        {
+            const boundary_element_space_t *const element = views + ie;
+            const size_t item = (size_t)iform * plan->nelem + ie;
+            // Classify every element axis as fixed normal axis or free axis,
+            // recording the canonical face slot of free axes.
+            for (unsigned axis = 0; axis < ndim; ++axis)
+            {
+                work->axis_fixed[axis] = false;
+                work->axis_slot[axis] = 0;
+            }
+            for (unsigned face_axis = 0; face_axis < bdim; ++face_axis)
+            {
+                const int8_t mapping = element->orientation[ndim - bdim + face_axis];
+                work->axis_slot[(unsigned)(mapping < 0 ? -mapping : mapping) - 1] = face_axis;
+            }
+            for (unsigned fixed_axis = 0; fixed_axis < ndim - bdim; ++fixed_axis)
+            {
+                const int8_t mapping = element->orientation[fixed_axis];
+                work->axis_fixed[(unsigned)(mapping < 0 ? -mapping : mapping) - 1] = true;
+            }
+            for (unsigned axis = 0; axis < ndim; ++axis)
+            {
+                work->element_rules[axis] = plan->rules[form + (work->axis_fixed[axis] ? 0 : work->axis_slot[axis])];
+            }
+
+            const kform_spec_t element_spec = {.ndim = ndim, .order = order, .basis = element->basis};
+            const constraint_boundary_mass_spec_t spec = {
+                .ndim = ndim,
+                .bdim = bdim,
+                .order = order,
+                .element_spec = &element_spec,
+                .boundary_basis = form_basis,
+                .boundary_integration = form_integration,
+                .orientation = element->orientation,
+                .axis_skip = request->axis_skip != NULL ? request->axis_skip + (size_t)iform * bdim : NULL};
+            const constraint_boundary_mass_request_t mass_request = {
+                .spec = &spec,
+                .boundary_basis_sets = plan->boundary_sets + form,
+                .boundary_basis_sets_lower = order > 0 ? plan->boundary_sets_lower + form : NULL,
+                .element_basis_sets = plan->element_sets + item * ndim,
+                .element_basis_sets_lower = order > 0 ? plan->element_sets_lower + item * ndim : NULL,
+                .element_endpoints = plan->element_endpoints + item * ndim,
+                .element_endpoints_lower = order > 0 ? plan->element_endpoints_lower + item * ndim : NULL,
+                .point_weights = work->weights,
+                .surface_weights = request->surface_weights != NULL ? request->surface_weights[item] : NULL,
+                .test_pullback =
+                    !request->c1_continuous && request->test_pullbacks != NULL ? request->test_pullbacks[item] : NULL,
+                .element_pullback = !request->c1_continuous && request->element_pullbacks != NULL
+                                        ? request->element_pullbacks[item]
+                                        : NULL,
+                .factor = 1.0,
+                .work = &work->mass,
+                .out_matrix = out_values + plan->item_offsets[item],
+            };
+            constraint_boundary_mass_assemble(&mass_request);
+        }
+    }
+}
+
+void constrain_elements_on_boundary_plan_release(constrain_elements_on_boundary_plan_t *const plan)
+{
+    const unsigned bdim = plan->bdim;
+    const unsigned ndim = plan->ndim;
+    for (unsigned iform = 0; iform < plan->nforms; ++iform)
+    {
+        const size_t form = (size_t)iform * bdim;
+        for (unsigned idim = 0; idim < bdim; ++idim)
+        {
+            if (plan->rules[form + idim] != NULL)
+            {
+                integration_rule_registry_release_rule(plan->integration_registry, plan->rules[form + idim]);
+                plan->rules[form + idim] = NULL;
+            }
+            if (plan->boundary_sets[form + idim] != NULL)
+            {
+                basis_set_registry_release_basis_set(plan->basis_registry, plan->boundary_sets[form + idim]);
+                plan->boundary_sets[form + idim] = NULL;
+            }
+            if (plan->boundary_sets_lower[form + idim] != NULL)
+            {
+                basis_set_registry_release_basis_set(plan->basis_registry, plan->boundary_sets_lower[form + idim]);
+                plan->boundary_sets_lower[form + idim] = NULL;
+            }
+        }
+    }
+    for (size_t item = 0; item < (size_t)plan->nforms * plan->nelem; ++item)
+    {
+        for (unsigned axis = 0; axis < ndim; ++axis)
+        {
+            if (plan->element_endpoints_lower[item * ndim + axis] != NULL)
+            {
+                basis_set_registry_release_basis_endpoints(plan->basis_registry,
+                                                           plan->element_endpoints_lower[item * ndim + axis]);
+                plan->element_endpoints_lower[item * ndim + axis] = NULL;
+            }
+            if (plan->element_endpoints[item * ndim + axis] != NULL)
+            {
+                basis_set_registry_release_basis_endpoints(plan->basis_registry,
+                                                           plan->element_endpoints[item * ndim + axis]);
+                plan->element_endpoints[item * ndim + axis] = NULL;
+            }
+            if (plan->element_sets_lower[item * ndim + axis] != NULL)
+            {
+                basis_set_registry_release_basis_set(plan->basis_registry,
+                                                     plan->element_sets_lower[item * ndim + axis]);
+                plan->element_sets_lower[item * ndim + axis] = NULL;
+            }
+            if (plan->element_sets[item * ndim + axis] != NULL)
+            {
+                basis_set_registry_release_basis_set(plan->basis_registry, plan->element_sets[item * ndim + axis]);
+                plan->element_sets[item * ndim + axis] = NULL;
+            }
+        }
     }
 }
 
@@ -1126,4 +1904,56 @@ void constraint_boundary_test_specs(const unsigned ndim, const unsigned boundary
         }
         out_present[component] = present;
     }
+}
+
+void boundary_space_map_resample_work_size(const unsigned bdim, const unsigned coords,
+                                           const integration_rule_t *const *source_rules,
+                                           const integration_rule_t *const *target_rules,
+                                           size_t *const out_axis_matrices, size_t *const out_positions,
+                                           size_t *const out_jacobian, size_t *const out_q)
+{
+    size_t matrices = 0;
+    size_t points = 1;
+    for (unsigned axis = 0; axis < bdim; ++axis)
+    {
+        matrices += (size_t)(target_rules[axis]->spec.order + 1) * (source_rules[axis]->spec.order + 1);
+        points *= (size_t)target_rules[axis]->spec.order + 1;
+    }
+    *out_axis_matrices = matrices;
+    *out_positions = points * coords;
+    *out_jacobian = (size_t)bdim * coords;
+    *out_q = (size_t)coords * coords;
+}
+
+void boundary_space_map_resample(const boundary_space_map_resample_request_t *const request)
+{
+    const unsigned bdim = request->bdim;
+    const unsigned coords = request->coords;
+    unsigned target_orders[UINT8_MAX];
+    unsigned source_orders[UINT8_MAX];
+    const double *axis_matrices[UINT8_MAX];
+    integration_spec_t target_specs[UINT8_MAX];
+
+    size_t offset = 0;
+    for (unsigned axis = 0; axis < bdim; ++axis)
+    {
+        const unsigned n_out = request->target_rules[axis]->spec.order + 1u;
+        const unsigned n_in = request->source_rules[axis]->spec.order + 1u;
+        // Interpolation matrix from the source nodes to the target nodes:
+        // entry (in, out) holds the target-node value of the source node's
+        // Lagrange polynomial.
+        lagrange_polynomial_values_transposed_2(n_out, integration_rule_nodes_const(request->target_rules[axis]), n_in,
+                                                integration_rule_nodes_const(request->source_rules[axis]),
+                                                request->axis_matrices + offset);
+        axis_matrices[axis] = request->axis_matrices + offset;
+        offset += (size_t)n_out * n_in;
+        target_orders[axis] = n_out - 1u;
+        source_orders[axis] = n_in - 1u;
+        target_specs[axis] = request->target_rules[axis]->spec;
+    }
+
+    interpolate_sampled_map(bdim, coords, target_orders, source_orders, axis_matrices, request->coordinate_values,
+                            request->coordinate_gradients, integration_specs_total_points(bdim, target_specs),
+                            request->positions, request->out_determinant, request->out_inverse_maps, request->jacobian,
+                            request->q);
 }
