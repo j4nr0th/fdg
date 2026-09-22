@@ -782,160 +782,6 @@ static int mesh_continuity_append_local_row(mesh_continuity_builder_t *const bui
     return 0;
 }
 
-/** Appends one reference-space constraint row, routing entries by element side. */
-static int mesh_continuity_append_two_sided_arrays(mesh_continuity_builder_t *const builder,
-                                                   const kform_spec_object *const test_spec, const unsigned component,
-                                                   const size_t local_row, const uint64_t element_id_1,
-                                                   const uint64_t element_id_2, PyArrayObject *const *const arrays)
-{
-    PyArrayObject *const row_offsets = arrays[0];
-    PyArrayObject *const sides = arrays[1];
-    PyArrayObject *const components = arrays[2];
-    PyArrayObject *const local_dofs = arrays[3];
-    PyArrayObject *const coefficients = arrays[4];
-    if (!PyArray_Check(row_offsets) || !PyArray_Check(sides) || !PyArray_Check(components) ||
-        !PyArray_Check(local_dofs) || !PyArray_Check(coefficients) || PyArray_NDIM(row_offsets) != 1 ||
-        PyArray_NDIM(sides) != 1 || PyArray_NDIM(components) != 1 || PyArray_NDIM(local_dofs) != 1 ||
-        PyArray_NDIM(coefficients) != 1 || PyArray_TYPE(row_offsets) != NPY_UINTP || PyArray_TYPE(sides) != NPY_UINT8 ||
-        PyArray_TYPE(components) != NPY_UINT32 || PyArray_TYPE(local_dofs) != NPY_UINTP ||
-        PyArray_TYPE(coefficients) != NPY_DOUBLE)
-    {
-        PyErr_SetString(PyExc_RuntimeError, "The reference continuity assembler returned invalid arrays.");
-        return -1;
-    }
-
-    const unsigned test_component_count =
-        combination_total_count((uint8_t)Py_SIZE(test_spec->function_space), (uint8_t)test_spec->order);
-    const size_t row_start = test_spec->component_offsets[component];
-    const size_t row_end = test_spec->component_offsets[component + 1];
-    if (local_row >= row_end - row_start ||
-        (size_t)PyArray_SIZE(row_offsets) != (size_t)test_spec->component_offsets[test_component_count] + 1 ||
-        (size_t)PyArray_SIZE(sides) != (size_t)PyArray_SIZE(components) ||
-        (size_t)PyArray_SIZE(sides) != (size_t)PyArray_SIZE(local_dofs) ||
-        (size_t)PyArray_SIZE(sides) != (size_t)PyArray_SIZE(coefficients))
-    {
-        PyErr_SetString(PyExc_RuntimeError, "The reference continuity assembler returned inconsistent dimensions.");
-        return -1;
-    }
-
-    const npy_uintp *const local_offsets = PyArray_DATA(row_offsets);
-    const npy_uint8 *const local_sides = PyArray_DATA(sides);
-    const npy_uint32 *const local_components = PyArray_DATA(components);
-    const npy_uintp *const local_indices = PyArray_DATA(local_dofs);
-    const npy_double *const local_coefficients = PyArray_DATA(coefficients);
-    const size_t row = row_start + local_row;
-    const size_t entry_count = (size_t)PyArray_SIZE(sides);
-    const size_t start = (size_t)local_offsets[row];
-    const size_t end = (size_t)local_offsets[row + 1];
-    if (start > end || end > entry_count)
-    {
-        PyErr_SetString(PyExc_RuntimeError, "The reference continuity assembler returned invalid row offsets.");
-        return -1;
-    }
-    for (size_t entry = start; entry < end; ++entry)
-    {
-        const uint64_t element_id = local_sides[entry] != 0 ? element_id_2 : element_id_1;
-        if (mesh_continuity_builder_append_row(builder, element_id, local_components[entry],
-                                               (size_t)local_indices[entry], local_coefficients[entry]) < 0)
-            return -1;
-    }
-    return 0;
-}
-
-/** One cached reference constraint result, keyed by the pair's identity. */
-typedef struct
-{
-    const kform_spec_object *test_spec;
-    const kform_spec_object *element_spec_1;
-    const kform_spec_object *element_spec_2;
-    int8_t *orientations; // 2 * ndim copied entries, side 1 first.
-    PyArrayObject *arrays[5];
-} mesh_continuity_reference_cache_entry_t;
-
-typedef struct
-{
-    mesh_continuity_reference_cache_entry_t *entries;
-    size_t count;
-    size_t capacity;
-} mesh_continuity_reference_cache_t;
-
-static void mesh_continuity_reference_cache_release(mesh_continuity_reference_cache_t *const cache)
-{
-    for (size_t entry = 0; entry < cache->count; ++entry)
-    {
-        PyMem_Free(cache->entries[entry].orientations);
-        for (unsigned index = 0; index < 5; ++index)
-            Py_XDECREF(cache->entries[entry].arrays[index]);
-    }
-    PyMem_Free(cache->entries);
-    *cache = (mesh_continuity_reference_cache_t){};
-}
-
-static PyArrayObject **mesh_continuity_reference_cache_lookup(mesh_continuity_reference_cache_t *const cache,
-                                                              const kform_spec_object *const test_spec,
-                                                              const kform_spec_object *const element_spec_1,
-                                                              const int8_t *const orientation_1,
-                                                              const kform_spec_object *const element_spec_2,
-                                                              const int8_t *const orientation_2, const unsigned ndim)
-{
-    for (size_t entry = 0; entry < cache->count; ++entry)
-    {
-        mesh_continuity_reference_cache_entry_t *const candidate = cache->entries + entry;
-        if (candidate->test_spec != test_spec || candidate->element_spec_1 != element_spec_1 ||
-            candidate->element_spec_2 != element_spec_2)
-            continue;
-        if (memcmp(candidate->orientations, orientation_1, sizeof(*orientation_1) * ndim) != 0 ||
-            memcmp(candidate->orientations + ndim, orientation_2, sizeof(*orientation_1) * ndim) != 0)
-            continue;
-        return candidate->arrays;
-    }
-    return NULL;
-}
-
-static PyArrayObject **mesh_continuity_reference_cache_store(mesh_continuity_reference_cache_t *const cache,
-                                                             const kform_spec_object *const test_spec,
-                                                             const kform_spec_object *const element_spec_1,
-                                                             const int8_t *const orientation_1,
-                                                             const kform_spec_object *const element_spec_2,
-                                                             const int8_t *const orientation_2, const unsigned ndim,
-                                                             PyObject *const result)
-{
-    if (!PyTuple_Check(result) || PyTuple_GET_SIZE(result) != 5)
-        return NULL;
-    mesh_continuity_reference_cache_entry_t entry = {.test_spec = test_spec,
-                                                     .element_spec_1 = element_spec_1,
-                                                     .element_spec_2 = element_spec_2,
-                                                     .orientations =
-                                                         PyMem_Malloc(sizeof(*entry.orientations) * 2 * ndim),
-                                                     .arrays = {NULL, NULL, NULL, NULL, NULL}};
-    if (!entry.orientations)
-        return NULL;
-    memcpy(entry.orientations, orientation_1, sizeof(*entry.orientations) * ndim);
-    memcpy(entry.orientations + ndim, orientation_2, sizeof(*entry.orientations) * ndim);
-    for (unsigned index = 0; index < 5; ++index)
-    {
-        PyObject *const object = PyTuple_GET_ITEM(result, index);
-        if (!PyArray_Check(object))
-        {
-            PyMem_Free(entry.orientations);
-            return NULL;
-        }
-        entry.arrays[index] = (PyArrayObject *)object;
-        Py_INCREF(object);
-    }
-    if (mesh_continuity_builder_grow((void **)&cache->entries, &cache->capacity, cache->count + 1,
-                                     sizeof(*cache->entries)) < 0)
-    {
-        PyMem_Free(entry.orientations);
-        for (unsigned index = 0; index < 5; ++index)
-            Py_XDECREF(entry.arrays[index]);
-        return NULL;
-    }
-    cache->entries[cache->count] = entry;
-    ++cache->count;
-    return cache->entries[cache->count - 1].arrays;
-}
-
 typedef struct
 {
     const interplib_module_state_t *state;
@@ -943,124 +789,622 @@ typedef struct
     unsigned order;
     kform_spec_object **element_specs;
     space_map_object **element_maps;
-    size_t *test_dimension_offsets;
-    PyObject **test_object_specs;
-    size_t test_object_count;
     int c1_continuous;
     int failed;
     mesh_continuity_builder_t builder;
-    mesh_continuity_reference_cache_t reference_cache;
 } mesh_continuity_context_t;
 
 static void mesh_continuity_context_release(mesh_continuity_context_t *const context)
 {
-    for (size_t i = 0; i < context->test_object_count; ++i)
-        Py_XDECREF(context->test_object_specs[i]);
-    PyMem_Free(context->test_object_specs);
-    PyMem_Free(context->test_dimension_offsets);
     PyMem_Free(context->element_specs);
     PyMem_Free(context->element_maps);
     mesh_continuity_builder_release(&context->builder);
-    mesh_continuity_reference_cache_release(&context->reference_cache);
     *context = (mesh_continuity_context_t){};
 }
 
-static void mesh_continuity_pair_callback(const topo_mesh_t *const mesh, const unsigned mdim, const uint64_t object_id,
-                                          const uint64_t element_id_1, const int8_t *const orientation_1,
-                                          const uint64_t element_id_2, const int8_t *const orientation_2,
-                                          void *const user_data)
+/** Per-element physical factors sampled at the element's own face grid. */
+typedef struct
+{
+    boundary_face_setup_t setup;
+    PyArrayObject *transform;
+    double *pullback_values;
+    double *surface_weights;
+    constraint_trace_pullback_t pullback;
+} mesh_continuity_face_factors_t;
+
+/**
+ * @brief Assemble one shared object's constraint rows on the table engine.
+ *
+ * The incident elements are linked to the lowest-ID anchor element through
+ * star rows: one row per non-anchor element and common test DoF carries
+ * that element's trace moments with a -1 side and the anchor's with a +1
+ * side. The common Legendre boundary space takes the lowest per-axis order
+ * among the incident elements (an element boundary cannot be constrained
+ * to a higher-order boundary solution), with order-1 test tables on active
+ * covector axes and the full tables minus the two lowest functions on
+ * inactive axes, so only the object's own block is constrained. Mapped
+ * meshes sample each face's surface measure and k-form pullback at the
+ * element's own face grid, which the merge reproduces exactly when all
+ * faces share one geometry sampling order.
+ */
+static int mesh_continuity_assemble_object(mesh_continuity_context_t *const context, const unsigned bdim,
+                                           const uint64_t element_count, const uint64_t *const element_ids,
+                                           const int8_t *const element_orientations)
+{
+    const interplib_module_state_t *const state = context->state;
+    const unsigned ndim = context->ndim;
+    const unsigned order = context->order;
+    const int physical = !context->c1_continuous;
+    const unsigned nelem = (unsigned)element_count;
+    const int8_t **orientations = NULL;
+    kform_spec_object **element_specs = NULL;
+    double *side_signs = NULL;
+
+    mesh_continuity_face_factors_t *factors = NULL;
+    PyArrayObject **transforms = NULL;
+    double **pullback_values = NULL;
+    double **element_pullback_values = NULL;
+    double **surface_weights = NULL;
+    constraint_trace_pullback_t *pullbacks = NULL;
+    constraint_trace_pullback_t *element_pullbacks = NULL;
+    integration_spec_t *element_integrations = NULL;
+    boundary_element_space_t *views = NULL;
+    constrain_elements_on_boundary_plan_t plan;
+    constrain_elements_on_boundary_work_t work = {0};
+    const double **surface_rows = NULL;
+    const constraint_trace_pullback_t **test_pullback_pointers = NULL;
+    const constraint_trace_pullback_t **element_pullback_pointers = NULL;
+    uint8_t **pack_sides = NULL;
+    uint32_t **pack_components = NULL;
+    size_t **pack_dofs = NULL;
+    double **pack_coefficients = NULL;
+    size_t **pack_offsets = NULL;
+    double *arena = NULL;
+    int plan_live = 0;
+    int failed = 1;
+
+    ASSERT(bdim < ndim, "Shared-object dimension must stay below the element dimension.");
+    if (order > bdim)
+    {
+        // A form of order past the object dimension has no trace components
+        // and yields no rows.
+        return 0;
+    }
+    // TODO: just use something like cutl_alloc_group or something. Let's not have this mess here
+    CUTL_ASSERT(nelem > 1 && nelem <= UINT8_MAX, "Shared objects need two or more incident elements.");
+    orientations = PyMem_Malloc(nelem * sizeof(*orientations));
+    element_specs = PyMem_Malloc(nelem * sizeof(*element_specs));
+    side_signs = PyMem_Malloc(nelem * sizeof(*side_signs));
+    factors = PyMem_Calloc(nelem, sizeof(*factors));
+    transforms = PyMem_Calloc(nelem, sizeof(*transforms));
+    pullback_values = PyMem_Calloc(nelem, sizeof(*pullback_values));
+    element_pullback_values = PyMem_Calloc(nelem, sizeof(*element_pullback_values));
+    surface_weights = PyMem_Calloc(nelem, sizeof(*surface_weights));
+    pullbacks = PyMem_Calloc(nelem, sizeof(*pullbacks));
+    element_pullbacks = PyMem_Calloc(nelem, sizeof(*element_pullbacks));
+    views = PyMem_Malloc(nelem * sizeof(*views));
+    surface_rows = PyMem_Malloc(nelem * sizeof(*surface_rows));
+    test_pullback_pointers = PyMem_Malloc(nelem * sizeof(*test_pullback_pointers));
+    element_pullback_pointers = PyMem_Malloc(nelem * sizeof(*element_pullback_pointers));
+    pack_sides = PyMem_Calloc(nelem, sizeof(*pack_sides));
+    pack_components = PyMem_Calloc(nelem, sizeof(*pack_components));
+    pack_dofs = PyMem_Calloc(nelem, sizeof(*pack_dofs));
+    pack_coefficients = PyMem_Calloc(nelem, sizeof(*pack_coefficients));
+    pack_offsets = PyMem_Calloc(nelem, sizeof(*pack_offsets));
+    if (!orientations || !element_specs || !side_signs || !factors || !transforms || !pullback_values ||
+        !element_pullback_values || !surface_weights || !pullbacks || !element_pullbacks || !views || !surface_rows ||
+        !test_pullback_pointers || !element_pullback_pointers || !pack_sides || !pack_components || !pack_dofs ||
+        !pack_coefficients || !pack_offsets)
+    {
+        PyErr_NoMemory();
+        goto out;
+    }
+    for (unsigned e = 0; e < nelem; ++e)
+    {
+        orientations[e] = element_orientations + (size_t)e * ndim;
+        element_specs[e] = context->element_specs[element_ids[e]];
+        side_signs[e] = e == 0 ? 1.0 : -1.0;
+    }
+
+    if (bdim == 0)
+    {
+        // Point objects: scalar continuity degenerates to pairing the
+        // elements' corner value functionals. The endpoint sets hold the
+        // reference basis values at the interval ends, and the orientation
+        // record selects the shared vertex's corner per element. No
+        // geometry enters: reference-space corner coupling matches the
+        // historical row semantics. Star rows link every non-anchor
+        // element to the anchor.
+        // TODO: should be a parameter, not the global default.
+        basis_set_registry_t *const basis_registry = ((basis_registry_object *)state->registry_basis)->registry;
+        const basis_endpoint_set_t **endpoints = PyMem_Malloc((size_t)nelem * ndim * sizeof(*endpoints));
+        if (!endpoints)
+        {
+            PyErr_NoMemory();
+            goto out;
+        }
+        for (unsigned e = 0; e < nelem; ++e)
+        {
+            for (unsigned axis = 0; axis < ndim; ++axis)
+            {
+                const int8_t mapping = orientations[e][axis];
+                ASSERT(mapping != 0, "Orientation records must be one-based and nonzero.");
+                if (basis_set_registry_get_basis_endpoints(basis_registry, &endpoints[e * ndim + axis],
+                                                           element_specs[e]->function_space->specs[axis]) !=
+                    FDG_SUCCESS)
+                {
+                    PyErr_SetString(PyExc_RuntimeError, "Could not fetch basis endpoint values.");
+                    goto out;
+                }
+            }
+        }
+        for (unsigned side = 1; side < nelem; ++side)
+        {
+            const unsigned sides[2] = {0, side};
+            for (unsigned s = 0; s < 2; ++s)
+            {
+                const unsigned e = sides[s];
+                unsigned digits[UINT8_MAX];
+                size_t dof_count = 1;
+                for (unsigned axis = 0; axis < ndim; ++axis)
+                {
+                    digits[axis] = 0;
+                    dof_count *= (size_t)element_specs[e]->function_space->specs[axis].order + 1u;
+                }
+                for (size_t dof = 0; dof < dof_count; ++dof)
+                {
+                    double coefficient = side_signs[e];
+                    for (unsigned axis = 0; axis < ndim; ++axis)
+                    {
+                        const unsigned end = orientations[e][axis] < 0 ? 0u : 1u;
+                        coefficient *= basis_endpoint_values(endpoints[e * ndim + axis], end)[digits[axis]];
+                    }
+                    if (mesh_continuity_builder_append_row(&context->builder, element_ids[e], 0, dof, coefficient) < 0)
+                        goto out;
+                    for (unsigned axis = ndim; axis-- > 0;)
+                    {
+                        if (++digits[axis] < (unsigned)element_specs[e]->function_space->specs[axis].order + 1u)
+                            break;
+                        digits[axis] = 0;
+                    }
+                }
+            }
+            if (mesh_continuity_builder_finish_row(&context->builder) < 0)
+                goto out;
+        }
+        for (unsigned e = 0; e < nelem; ++e)
+        {
+            for (unsigned axis = 0; axis < ndim; ++axis)
+            {
+                basis_set_registry_release_basis_endpoints(basis_registry, endpoints[e * ndim + axis]);
+            }
+        }
+        PyMem_Free(endpoints);
+        return 0;
+    }
+    const size_t component_count = combination_total_count((uint8_t)bdim, (uint8_t)order);
+    const size_t order_storage = order == 0 ? 1u : order;
+    const size_t axis_items = (size_t)nelem * ndim;
+
+    // TODO: same as before, group memory allocations together
+    element_integrations = PyMem_Malloc(axis_items * sizeof(*element_integrations));
+    uint8_t *const axis_skip = PyMem_Malloc(bdim * sizeof(*axis_skip));
+    basis_spec_t *const out_basis = PyMem_Malloc(bdim * sizeof(*out_basis));
+    integration_spec_t *const out_integration = PyMem_Malloc(bdim * sizeof(*out_integration));
+    work.axis_fixed = PyMem_Malloc(ndim * sizeof(*work.axis_fixed));
+    work.axis_slot = PyMem_Malloc(ndim * sizeof(*work.axis_slot));
+    work.element_rules = PyMem_Malloc(ndim * sizeof(*work.element_rules));
+    work.mass.point_strides = PyMem_Malloc(bdim * sizeof(*work.mass.point_strides));
+    work.mass.row_offsets = PyMem_Malloc((component_count + 1) * sizeof(*work.mass.row_offsets));
+    work.mass.col_offsets = PyMem_Malloc((component_count + 1) * sizeof(*work.mass.col_offsets));
+    work.mass.element_components = PyMem_Malloc(component_count * sizeof(*work.mass.element_components));
+    work.mass.element_signs = PyMem_Malloc(component_count * sizeof(*work.mass.element_signs));
+    work.mass.axes = PyMem_Malloc(ndim * sizeof(*work.mass.axes));
+    work.mass.counts = PyMem_Malloc(bdim * sizeof(*work.mass.counts));
+    work.mass.offsets = PyMem_Malloc(bdim * sizeof(*work.mass.offsets));
+    work.mass.axis_sets = PyMem_Malloc(bdim * sizeof(*work.mass.axis_sets));
+    work.mass.digits = PyMem_Malloc(bdim * sizeof(*work.mass.digits));
+    work.mass.axis_tables = PyMem_Malloc(bdim * sizeof(*work.mass.axis_tables));
+    work.mass.mapped_axes = PyMem_Malloc(order_storage * sizeof(*work.mass.mapped_axes));
+    work.mass.components = PyMem_Malloc(combination_iterator_required_memory((uint8_t)order));
+    work.mass.blocks = PyMem_Malloc(combination_iterator_required_memory((uint8_t)order));
+    plan.rules = PyMem_Malloc(bdim * sizeof(*plan.rules));
+    plan.boundary_sets = PyMem_Malloc(bdim * sizeof(*plan.boundary_sets));
+    plan.boundary_sets_lower = PyMem_Malloc(bdim * sizeof(*plan.boundary_sets_lower));
+    plan.boundary_lower_specs = PyMem_Malloc(bdim * sizeof(*plan.boundary_lower_specs));
+    plan.element_sets = PyMem_Malloc(axis_items * sizeof(*plan.element_sets));
+    plan.element_sets_lower = PyMem_Malloc(axis_items * sizeof(*plan.element_sets_lower));
+    plan.element_endpoints = PyMem_Malloc(axis_items * sizeof(*plan.element_endpoints));
+    plan.element_endpoints_lower = PyMem_Malloc(axis_items * sizeof(*plan.element_endpoints_lower));
+    plan.element_lower_specs = PyMem_Malloc(axis_items * sizeof(*plan.element_lower_specs));
+    plan.item_rows = PyMem_Malloc(nelem * sizeof(*plan.item_rows));
+    plan.item_cols = PyMem_Malloc(nelem * sizeof(*plan.item_cols));
+    plan.item_offsets = PyMem_Malloc((nelem + 1u) * sizeof(*plan.item_offsets));
+    if (!element_integrations || !axis_skip || !out_basis || !out_integration || !work.axis_fixed || !work.axis_slot ||
+        !work.element_rules || !work.mass.point_strides || !work.mass.row_offsets || !work.mass.col_offsets ||
+        !work.mass.element_components || !work.mass.element_signs || !work.mass.axes || !work.mass.counts ||
+        !work.mass.offsets || !work.mass.axis_sets || !work.mass.digits || !work.mass.axis_tables ||
+        !work.mass.mapped_axes || !work.mass.components || !work.mass.blocks || !plan.rules || !plan.boundary_sets ||
+        !plan.boundary_sets_lower || !plan.boundary_lower_specs || !plan.element_sets || !plan.element_sets_lower ||
+        !plan.element_endpoints || !plan.element_endpoints_lower || !plan.element_lower_specs || !plan.item_rows ||
+        !plan.item_cols || !plan.item_offsets)
+    {
+        PyErr_NoMemory();
+        goto out;
+    }
+    // Own-block windows: inactive axes drop their two lowest test
+    // functions, the endpoint functionals owned by the lower-dimensional
+    // subobjects whose constraints already tie them. An order-one axis
+    // therefore empties and the component's row block drops out — at the
+    // lowest order only objects with an active axis of their exact form
+    // order keep rows. Active axes ignore the skip and read the
+    // order-minus-one basis.
+    for (unsigned slot = 0; slot < bdim; ++slot)
+    {
+        axis_skip[slot] = 2;
+    }
+
+    // Per-element views: mapped meshes integrate at each face's own grid,
+    // C1 meshes at a reference rule exact for the traced products.
+    for (unsigned e = 0; e < nelem; ++e)
+    {
+        if (physical)
+        {
+            if (make_boundary_face_setup(state, context->element_maps[element_ids[e]], orientations[e], ndim, bdim,
+                                         &factors[e].setup) < 0)
+                goto out;
+            const integration_spec_t *const canonical_specs = factors[e].setup.canonical_specs;
+            for (unsigned slot = 0; slot < bdim; ++slot)
+            {
+                const int8_t mapping = orientations[e][ndim - bdim + slot];
+                const unsigned element_axis = (unsigned)(mapping < 0 ? -mapping : mapping) - 1;
+                element_integrations[e * ndim + element_axis] = canonical_specs[slot];
+            }
+            for (unsigned fixed_axis = 0; fixed_axis < ndim - bdim; ++fixed_axis)
+            {
+                const int8_t mapping = orientations[e][fixed_axis];
+                const unsigned element_axis = (unsigned)(mapping < 0 ? -mapping : mapping) - 1;
+                element_integrations[e * ndim + element_axis] = canonical_specs[0];
+            }
+        }
+        else
+        {
+            // The C1 reference rule must resolve the traced test products:
+            // row test functions reach the merged basis degree and element
+            // traces the element degree, so order the rule one above the
+            // largest involved basis order. Tying it to the form order
+            // under-integrates: a form order 1 rule vanishes the degree-2
+            // Legendre test functions at its nodes and emits quadrature null
+            // rows.
+            unsigned slot_orders[UINT8_MAX];
+            for (unsigned slot = 0; slot < bdim; ++slot)
+            {
+                unsigned max_order = order;
+                for (unsigned other = 0; other < nelem; ++other)
+                {
+                    const int8_t mapping = orientations[other][ndim - bdim + slot];
+                    ASSERT(mapping != 0, "Orientation records must be one-based and nonzero.");
+                    const unsigned element_axis = (unsigned)(mapping < 0 ? -mapping : mapping) - 1;
+                    ASSERT(element_axis < ndim, "Face slot maps outside the element axes.");
+                    const unsigned axis_order = element_specs[other]->function_space->specs[element_axis].order;
+                    max_order = max_order > axis_order ? max_order : axis_order;
+                }
+                slot_orders[slot] = max_order + 1u;
+            }
+            for (unsigned slot = 0; slot < bdim; ++slot)
+            {
+                const int8_t mapping = orientations[e][ndim - bdim + slot];
+                const unsigned element_axis = (unsigned)(mapping < 0 ? -mapping : mapping) - 1;
+                ASSERT(element_axis < ndim, "Face slot maps outside the element axes.");
+                element_integrations[e * ndim + element_axis] =
+                    (integration_spec_t){.type = INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE, .order = slot_orders[slot]};
+            }
+            for (unsigned fixed_axis = 0; fixed_axis < ndim - bdim; ++fixed_axis)
+            {
+                const int8_t mapping = orientations[e][fixed_axis];
+                const unsigned element_axis = (unsigned)(mapping < 0 ? -mapping : mapping) - 1;
+                ASSERT(element_axis < ndim, "Fixed axis maps outside the element axes.");
+                // Fixed normal axes read endpoint values; the rule order is
+                // irrelevant, so keep the first face slot's order.
+                element_integrations[e * ndim + element_axis] =
+                    (integration_spec_t){.type = INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE, .order = slot_orders[0]};
+            }
+        }
+        views[e] = (boundary_element_space_t){.order = order,
+                                              .orientation = orientations[e],
+                                              .basis = element_specs[e]->function_space->specs,
+                                              .integration = element_integrations + e * ndim};
+    }
+
+    constrain_elements_on_boundary_request_t request = {
+        .ndim = ndim,
+        .bdim = bdim,
+        .nforms = 1,
+        .nelem = nelem,
+        .elements = views,
+        .axis_skip = axis_skip,
+        .c1_continuous = context->c1_continuous,
+        .surface_weights = NULL,
+        .test_pullbacks = NULL,
+        .element_pullbacks = NULL,
+        .basis_registry = ((basis_registry_object *)state->registry_basis)->registry,
+        .integration_registry = ((integration_registry_object *)state->registry_integration)->registry};
+    fdg_result_t res = constrain_elements_on_boundary_prepare(&request, &work, out_basis, out_integration, &plan);
+    if (res != FDG_SUCCESS)
+    {
+        PyErr_Format(PyExc_RuntimeError, "Could not prepare continuity constraints: %s (%s)", fdg_error_str(res),
+                     fdg_error_msg(res));
+        goto out;
+    }
+    plan_live = 1;
+
+    // Physical factors at the common frame: the surface measure and the
+    // k-form pullback of each face. Both faces must share one geometry
+    // sampling order so their sampled factors permute onto the merged
+    // rules exactly.
+    if (physical)
+    {
+        for (unsigned e = 0; e < nelem; ++e)
+        {
+            for (unsigned slot = 0; slot < bdim; ++slot)
+            {
+                if (factors[e].setup.canonical_specs[slot].order != out_integration[slot].order ||
+                    factors[e].setup.canonical_specs[slot].type != out_integration[slot].type)
+                {
+                    PyErr_SetString(PyExc_ValueError,
+                                    "Shared faces with differing geometry sampling orders are not supported.");
+                    goto out;
+                }
+            }
+        }
+        const unsigned physical_component_count =
+            (unsigned)combination_total_count((uint8_t)Py_SIZE(context->element_maps[element_ids[0]]), (uint8_t)order);
+        for (unsigned e = 0; e < nelem; ++e)
+        {
+            const boundary_face_setup_t *const setup = &factors[e].setup;
+            space_map_object *const face_map = setup->face_map;
+            surface_weights[e] = PyMem_Malloc(setup->point_count * sizeof(*surface_weights[e]));
+            if (!surface_weights[e])
+            {
+                PyErr_NoMemory();
+                goto out;
+            }
+            for (size_t point = 0; point < setup->point_count; ++point)
+            {
+                const size_t source_point = constraint_face_point_to_source(
+                    ndim, bdim, orientations[e], face_map->int_specs, setup->canonical_specs, setup->canonical_strides,
+                    setup->source_strides, point);
+                surface_weights[e][point] = fabs(face_map->determinant[source_point]);
+            }
+            if (order > 0)
+            {
+                transforms[e] = compute_basis_transform_impl(face_map, (Py_ssize_t)order);
+                pullback_values[e] =
+                    PyMem_Malloc((size_t)combination_total_count((uint8_t)ndim, (uint8_t)order) *
+                                 physical_component_count * setup->point_count * sizeof(*pullback_values[e]));
+                if (!transforms[e] || !pullback_values[e])
+                {
+                    PyErr_NoMemory();
+                    goto out;
+                }
+                const constraint_trace_pullback_build_t build = {
+                    .element_dim = ndim,
+                    .face_dim = bdim,
+                    .order = order,
+                    .face_component_count = (unsigned)component_count,
+                    .physical_component_count = physical_component_count,
+                    .source_point_count = integration_specs_total_points(bdim, face_map->int_specs),
+                    .canonical_point_count = setup->point_count,
+                    .source_strides = setup->source_strides,
+                    .canonical_strides = setup->canonical_strides,
+                    .orientation = orientations[e],
+                    .source_specs = face_map->int_specs,
+                    .canonical_specs = setup->canonical_specs,
+                    .transform = (const double *)PyArray_DATA(transforms[e]),
+                    .out = pullback_values[e],
+                    .canonical_components = true};
+                constraint_trace_pullback_build(&build);
+                element_pullback_values[e] =
+                    PyMem_Malloc((size_t)combination_total_count((uint8_t)ndim, (uint8_t)order) *
+                                 physical_component_count * setup->point_count * sizeof(*element_pullback_values[e]));
+                if (!element_pullback_values[e])
+                {
+                    PyErr_NoMemory();
+                    goto out;
+                }
+                const constraint_trace_pullback_build_t element_build = {
+                    .element_dim = build.element_dim,
+                    .face_dim = build.face_dim,
+                    .order = build.order,
+                    .face_component_count = build.face_component_count,
+                    .physical_component_count = build.physical_component_count,
+                    .source_point_count = build.source_point_count,
+                    .canonical_point_count = build.canonical_point_count,
+                    .source_strides = build.source_strides,
+                    .canonical_strides = build.canonical_strides,
+                    .orientation = build.orientation,
+                    .source_specs = build.source_specs,
+                    .canonical_specs = build.canonical_specs,
+                    .transform = build.transform,
+                    .out = element_pullback_values[e],
+                    .element_components = true};
+                constraint_trace_pullback_build(&element_build);
+                pullbacks[e] = (constraint_trace_pullback_t){.physical_component_count = physical_component_count,
+                                                             .point_count = setup->point_count,
+                                                             .values = pullback_values[e]};
+                element_pullbacks[e] =
+                    (constraint_trace_pullback_t){.physical_component_count = physical_component_count,
+                                                  .point_count = setup->point_count,
+                                                  .values = element_pullback_values[e]};
+            }
+        }
+        for (unsigned e = 0; e < nelem; ++e)
+        {
+            surface_rows[e] = surface_weights[e];
+            test_pullback_pointers[e] = &pullbacks[e];
+            element_pullback_pointers[e] = &element_pullbacks[e];
+        }
+        request.surface_weights = surface_rows;
+        request.test_pullbacks = order > 0 ? test_pullback_pointers : NULL;
+        request.element_pullbacks = order > 0 ? element_pullback_pointers : NULL;
+    }
+
+    size_t weights_size;
+    size_t row_values_size;
+    size_t col_values_size;
+    constrain_elements_on_boundary_work_size(&request, &plan, &weights_size, &row_values_size, &col_values_size);
+    work.weights = PyMem_Malloc(weights_size * sizeof(*work.weights));
+    work.mass.row_values = PyMem_Malloc(row_values_size * sizeof(*work.mass.row_values));
+    work.mass.col_values = PyMem_Malloc(col_values_size * sizeof(*work.mass.col_values));
+    work.mass.point_factors = PyMem_Malloc(weights_size * sizeof(*work.mass.point_factors));
+    arena = PyMem_Malloc(plan.total_values * sizeof(*arena));
+    if (!work.weights || !work.mass.row_values || !work.mass.col_values || !work.mass.point_factors || !arena)
+    {
+        PyErr_NoMemory();
+        goto out;
+    }
+
+    constrain_elements_on_boundary_assemble(&request, &plan, &work, arena);
+
+    // Pack both element matrices with the alternating side signs, then emit
+    // ONE builder row per common test DoF holding side 0's entries followed
+    // by side 1's.
+    const int coupled = physical && order > 0;
+    size_t rows = 0;
+    for (unsigned e = 0; e < nelem; ++e)
+    {
+        const kform_spec_t element_descriptor = {.ndim = ndim, .order = order, .basis = views[e].basis};
+        const constraint_boundary_mass_spec_t spec = {.ndim = ndim,
+                                                      .bdim = bdim,
+                                                      .order = order,
+                                                      .element_spec = &element_descriptor,
+                                                      .boundary_basis = out_basis,
+                                                      .boundary_integration = out_integration,
+                                                      .orientation = orientations[e],
+                                                      .axis_skip = axis_skip};
+        size_t rows_e;
+        size_t cols_e;
+        size_t entries;
+        constraint_boundary_mass_layout(&spec, &work.mass, coupled, &rows_e, &cols_e, &entries);
+        pack_sides[e] = PyMem_Malloc(entries * sizeof(*pack_sides[e]));
+        pack_components[e] = PyMem_Malloc(entries * sizeof(*pack_components[e]));
+        pack_dofs[e] = PyMem_Malloc(entries * sizeof(*pack_dofs[e]));
+        pack_coefficients[e] = PyMem_Malloc(entries * sizeof(*pack_coefficients[e]));
+        pack_offsets[e] = PyMem_Malloc((rows_e + 1) * sizeof(*pack_offsets[e]));
+        if (!pack_sides[e] || !pack_components[e] || !pack_dofs[e] || !pack_coefficients[e] || !pack_offsets[e])
+        {
+            PyErr_NoMemory();
+            goto out;
+        }
+        constraint_boundary_mass_pack(&spec, &work.mass, coupled, arena + plan.item_offsets[e], plan.item_cols[e],
+                                      side_signs[e], (uint8_t)e, pack_sides[e], pack_components[e], pack_dofs[e],
+                                      pack_coefficients[e], pack_offsets[e]);
+        if (e == 0)
+        {
+            rows = rows_e;
+        }
+        else
+        {
+            CUTL_ASSERT(rows_e == rows, "The sides' test spaces disagree on the row count.");
+        }
+    }
+    CUTL_ASSERT(plan.item_rows[0] == rows, "The prepared row count disagrees with the packed rows.");
+    // Star rows: one builder row per (test DoF, non-anchor element) linking
+    // that element's trace moments to the anchor's.
+    for (size_t row = 0; row < rows; ++row)
+    {
+        for (unsigned side = 1; side < nelem; ++side)
+        {
+            const unsigned sides[2] = {0, side};
+            for (unsigned s = 0; s < 2; ++s)
+            {
+                const unsigned e = sides[s];
+                for (size_t entry = pack_offsets[e][row]; entry < pack_offsets[e][row + 1]; ++entry)
+                {
+                    if (mesh_continuity_builder_append_row(&context->builder, element_ids[e], pack_components[e][entry],
+                                                           pack_dofs[e][entry], pack_coefficients[e][entry]) < 0)
+                        goto out;
+                }
+            }
+            if (mesh_continuity_builder_finish_row(&context->builder) < 0)
+                goto out;
+        }
+    }
+    failed = 0;
+
+out:
+    if (plan_live)
+    {
+        constrain_elements_on_boundary_plan_release(&plan);
+    }
+    for (unsigned e = 0; e < nelem; ++e)
+    {
+        Py_XDECREF(transforms[e]);
+        PyMem_Free(pullback_values[e]);
+        PyMem_Free(element_pullback_values[e]);
+        PyMem_Free(surface_weights[e]);
+        if (physical && factors[e].setup.face_object != NULL)
+        {
+            release_boundary_face_setup(state, bdim, &factors[e].setup);
+        }
+        PyMem_Free(pack_sides[e]);
+        PyMem_Free(pack_components[e]);
+        PyMem_Free(pack_dofs[e]);
+        PyMem_Free(pack_coefficients[e]);
+        PyMem_Free(pack_offsets[e]);
+    }
+    PyMem_Free(arena);
+    PyMem_Free(work.mass.point_factors);
+    PyMem_Free(work.mass.col_values);
+    PyMem_Free(work.mass.row_values);
+    PyMem_Free(work.weights);
+    PyMem_Free(work.mass.blocks);
+    PyMem_Free(work.mass.components);
+    PyMem_Free(work.mass.mapped_axes);
+    PyMem_Free(work.mass.axis_tables);
+    PyMem_Free(work.mass.digits);
+    PyMem_Free(work.mass.axis_sets);
+    PyMem_Free(work.mass.offsets);
+    PyMem_Free(work.mass.counts);
+    PyMem_Free(work.mass.axes);
+    PyMem_Free(work.mass.element_signs);
+    PyMem_Free(work.mass.element_components);
+    PyMem_Free(work.mass.col_offsets);
+    PyMem_Free(work.mass.row_offsets);
+    PyMem_Free(work.mass.point_strides);
+    PyMem_Free(work.element_rules);
+    PyMem_Free(work.axis_slot);
+    PyMem_Free(work.axis_fixed);
+    PyMem_Free(plan.element_lower_specs);
+    PyMem_Free(plan.element_endpoints_lower);
+    PyMem_Free(plan.element_endpoints);
+    PyMem_Free(plan.element_sets_lower);
+    PyMem_Free(plan.element_sets);
+    PyMem_Free(plan.boundary_lower_specs);
+    PyMem_Free(plan.boundary_sets_lower);
+    PyMem_Free(plan.boundary_sets);
+    PyMem_Free(plan.rules);
+    PyMem_Free(out_integration);
+    PyMem_Free(out_basis);
+    PyMem_Free(axis_skip);
+    PyMem_Free(element_integrations);
+    return failed ? -1 : 0;
+}
+
+static void mesh_continuity_object_callback(const topo_mesh_t *const mesh,
+                                            const topo_mesh_shared_object_t *const object, void *const user_data)
 {
     (void)mesh;
     mesh_continuity_context_t *const context = user_data;
     if (context->failed)
         return;
-    const size_t object_index = context->test_dimension_offsets[mdim] + (size_t)object_id;
-    ASSERT(object_index < context->test_object_count, "Test object slot out of bounds.");
-    PyObject *const component_objects = context->test_object_specs[object_index];
-    const Py_ssize_t component_count = PySequence_Fast_GET_SIZE(component_objects);
-    for (Py_ssize_t component = 0; component < component_count; ++component)
+    if (mesh_continuity_assemble_object(context, object->mdim, object->element_count, object->element_ids,
+                                        object->orientations) < 0)
     {
-        PyObject *const test_object = PySequence_Fast_GET_ITEM(component_objects, component);
-        if (test_object == Py_None)
-            continue;
-        kform_spec_object *const test_spec = (kform_spec_object *)test_object;
-        if (context->c1_continuous)
-        {
-            // Pairs repeat across a mesh: identical spec objects with
-            // identical orientations produce identical rows, so the assembled
-            // result (dense or reduced to links) is computed once and reused.
-            PyArrayObject **cached = mesh_continuity_reference_cache_lookup(
-                &context->reference_cache, test_spec, context->element_specs[element_id_1], orientation_1,
-                context->element_specs[element_id_2], orientation_2, context->ndim);
-            if (!cached)
-            {
-                PyObject *const result = compute_kform_reference_constraints_impl(
-                    context->state, test_spec, context->element_specs[element_id_1], orientation_1,
-                    context->element_specs[element_id_2], orientation_2);
-                if (!result)
-                {
-                    context->failed = 1;
-                    return;
-                }
-                cached = mesh_continuity_reference_cache_store(
-                    &context->reference_cache, test_spec, context->element_specs[element_id_1], orientation_1,
-                    context->element_specs[element_id_2], orientation_2, context->ndim, result);
-                Py_DECREF(result);
-                if (!cached)
-                {
-                    context->failed = 1;
-                    return;
-                }
-            }
-            const size_t rows = test_spec->component_offsets[component + 1] - test_spec->component_offsets[component];
-            for (size_t row = 0; row < rows; ++row)
-            {
-                if (mesh_continuity_append_two_sided_arrays(&context->builder, test_spec, (unsigned)component, row,
-                                                            element_id_1, element_id_2, cached) < 0 ||
-                    mesh_continuity_builder_finish_row(&context->builder) < 0)
-                {
-                    context->failed = 1;
-                    return;
-                }
-            }
-            continue;
-        }
-        PyObject *const first_result =
-            compute_kform_boundary_constraints_impl(context->state, test_spec, context->element_specs[element_id_1],
-                                                    context->element_maps[element_id_1], orientation_1);
-        if (!first_result)
-        {
-            context->failed = 1;
-            return;
-        }
-        PyObject *const second_result =
-            compute_kform_boundary_constraints_impl(context->state, test_spec, context->element_specs[element_id_2],
-                                                    context->element_maps[element_id_2], orientation_2);
-        if (!second_result)
-        {
-            Py_DECREF(first_result);
-            context->failed = 1;
-            return;
-        }
-        const size_t row_count = test_spec->component_offsets[component + 1] - test_spec->component_offsets[component];
-        for (size_t row = 0; row < row_count; ++row)
-        {
-            if (mesh_continuity_append_local_row(&context->builder, test_spec, (unsigned)component, row, element_id_1,
-                                                 +1.0, first_result) < 0 ||
-                mesh_continuity_append_local_row(&context->builder, test_spec, (unsigned)component, row, element_id_2,
-                                                 -1.0, second_result) < 0 ||
-                mesh_continuity_builder_finish_row(&context->builder) < 0)
-            {
-                Py_DECREF(first_result);
-                Py_DECREF(second_result);
-                context->failed = 1;
-                return;
-            }
-        }
-        Py_DECREF(first_result);
-        Py_DECREF(second_result);
+        context->failed = 1;
     }
 }
+
 static PyObject *mesh_continuity_builder_to_python(mesh_continuity_builder_t *const builder)
 {
     size_t row_bytes;
@@ -1537,47 +1881,28 @@ static PyObject *mesh_compute_kform_continuity_constraints(PyObject *self, PyTyp
         }
     }
 
-    context.test_dimension_offsets = PyMem_Malloc((size_t)(ndim + 1) * sizeof(*context.test_dimension_offsets));
-    if (!context.test_dimension_offsets)
+    // The engine derives one common Legendre boundary space per object, so
+    // only the Legendre family override is meaningful here.
     {
-        PyErr_NoMemory();
-        goto fail;
-    }
-    {
-        size_t total_objects = 0;
-        for (unsigned mdim = 0; mdim < ndim; ++mdim)
-        {
-            const uint64_t object_count = mdim == 0 ? mesh->point_count : mesh->collections[mdim - 1].count;
-            if (object_count > (uint64_t)PY_SSIZE_T_MAX || total_objects > SIZE_MAX - (size_t)object_count)
-            {
-                PyErr_SetString(PyExc_OverflowError, "The mesh object count overflows size limits.");
-                goto fail;
-            }
-            total_objects += (size_t)object_count;
-        }
-        context.test_object_specs = PyMem_Malloc(total_objects * sizeof(*context.test_object_specs));
-        if (!context.test_object_specs)
-        {
-            PyErr_NoMemory();
-            goto fail;
-        }
-        memset(context.test_object_specs, 0, total_objects * sizeof(*context.test_object_specs));
-        context.test_object_count = total_objects;
         basis_set_type_t type_override = BASIS_INVALID;
         if (mesh_parse_basis_type(basis_type_object, &type_override) < 0)
             goto fail;
-        if (mesh_build_boundary_spec_objects(state, mesh, context.element_specs, context.order, type_override, false,
-                                             context.test_object_specs, context.test_dimension_offsets) < 0)
+        if (type_override != BASIS_INVALID && type_override != BASIS_LEGENDRE)
+        {
+            PyErr_SetString(PyExc_ValueError,
+                            "Continuity test spaces always use the Legendre family; pass basis_type=None or "
+                            "BasisType.LEGENDRE.");
             goto fail;
+        }
     }
 
     if (mesh_continuity_builder_grow((void **)&context.builder.row_offsets, &context.builder.row_capacity, 1,
                                      sizeof(*context.builder.row_offsets)) < 0)
         goto fail;
     context.builder.row_offsets[0] = 0;
-    if (topo_mesh_iterate_shared_pairs(mesh, mesh_continuity_pair_callback, &context) != TOPO_SUCCESS)
+    if (topo_mesh_iterate_shared_all(mesh, mesh_continuity_object_callback, &context) != TOPO_SUCCESS)
     {
-        PyErr_SetString(PyExc_ValueError, "Could not iterate over shared mesh pairs.");
+        PyErr_SetString(PyExc_ValueError, "Could not iterate over shared mesh objects.");
         goto fail;
     }
     if (context.failed)

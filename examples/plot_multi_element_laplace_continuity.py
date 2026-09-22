@@ -222,8 +222,19 @@ def build_continuity_rows_reference(
     test_specs: list[list[list[KFormSpecs | None]]] = mesh.kform_boundary_spaces(
         element_specs
     )
+    max_basis_order = max(
+        basis.order for spec in element_specs for basis in spec.base_space.basis_specs
+    )
     rows: list[list[tuple[int, int, int, float]]] = []
     for mdim, object_id, shared_element_ids, _ in mesh.iterate_shared_all():
+        if mdim == 0 and element_specs[0].order > 0:
+            # Points carry only the scalar corner-value pairing.
+            continue
+        if mdim > 0 and element_specs[0].order == 0 and max_basis_order <= 1:
+            # A multilinear order-one scalar field is determined by its
+            # corner values, so the point pairings already imply every
+            # face and line moment row.
+            continue
         object_tests = test_specs[mdim][int(object_id)]
         if not object_tests:
             continue

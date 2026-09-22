@@ -45,6 +45,7 @@ from fdg import (
     compute_kform_boundary_load,
     compute_kform_mass_matrix,
     incidence_kform_operator,
+    packed_kform_constraints_to_csr,
     projection_kform_l2_dual,
     reconstruct,
     transform_kform_to_target,
@@ -436,32 +437,6 @@ def face_test_specs(
     return face_tests, test_specs
 
 
-def packed_to_sparse(
-    packed: tuple[np.ndarray, ...], specs_q: KFormSpecs, element_count: int
-) -> scipy.sparse.csr_matrix:
-    """Materialize packed global flux rows as an element-major sparse matrix."""
-    row_offsets, element_ids, components, local_dofs, coefficients = packed
-    n_rows = row_offsets.size - 1
-    nq = int(np.sum(specs_q.component_dof_counts))
-    component_offsets = np.asarray(
-        [
-            int(specs_q.get_component_slice(component).start)
-            for component in range(specs_q.component_count)
-        ],
-        dtype=np.uintp,
-    )
-    element_offsets = np.arange(element_count, dtype=np.uintp) * nq
-    columns = element_offsets[element_ids] + component_offsets[components] + local_dofs
-    row_indices = np.repeat(
-        np.arange(n_rows, dtype=np.intp),
-        np.diff(row_offsets).astype(np.intp, copy=False),
-    )
-    return scipy.sparse.coo_matrix(
-        (coefficients, (row_indices, columns)),
-        shape=(n_rows, element_count * nq),
-    ).tocsr()
-
-
 def solve(
     mesh: Mesh,
     maps: list[SpaceMap],
@@ -549,7 +524,14 @@ def solve(
         None,
         None,
     )
-    constraints = packed_to_sparse(packed, specs_q, element_count)
+    constraint_data, constraint_columns, constraint_offsets = (
+        packed_kform_constraints_to_csr(packed, specs_q, element_count)
+    )
+    constraints = scipy.sparse.csr_matrix(
+        (constraint_data, constraint_columns, constraint_offsets),
+        shape=(constraint_offsets.size - 1, element_count * nq),
+    )
+    constraints.sum_duplicates()
     continuity_progress.update()
     continuity_progress.finish()
 

@@ -10,9 +10,34 @@ PyObject *compute_kform_boundary_constraints_impl(const interplib_module_state_t
                                                   kform_spec_object *element_spec, space_map_object *element_map,
                                                   const int8_t *orientation);
 
+/**
+ * @brief Restricted face map plus the canonical/source quadrature frames of
+ *        one element boundary.
+ *
+ * The face map is the volume map restricted to the face in one values-level
+ * pass; its own integration specs are the source frame, and the canonical
+ * frame is that frame permuted to canonical test-axis order.
+ */
+typedef struct
+{
+    PyObject *face_object;                      // Restricted space map (owned reference).
+    space_map_object *face_map;                 // Borrowed alias of face_object.
+    const integration_rule_t **source_rules;    // Rules of the source-frame face axes.
+    const integration_rule_t **canonical_rules; // Rules permuted to canonical test axes.
+    integration_spec_t *canonical_specs;        // Canonical axis specs.
+    size_t *canonical_strides;                  // Canonical row-major point strides.
+    size_t *source_strides;                     // Source-frame row-major point strides.
+    double *point_weights;                      // Canonical tensor quadrature weights.
+    size_t point_count;                         // Total canonical face points.
+    void *memory;
+} boundary_face_setup_t;
+
 FDG_INTERNAL
-PyObject *compute_kform_reference_constraints_impl(const interplib_module_state_t *state, kform_spec_object *test_spec,
-                                                   kform_spec_object *element_spec_1, const int8_t *orientation_1,
-                                                   kform_spec_object *element_spec_2, const int8_t *orientation_2);
+int make_boundary_face_setup(const interplib_module_state_t *state, const space_map_object *element_map,
+                             const int8_t *orientation, const unsigned element_dim, const unsigned face_dim,
+                             boundary_face_setup_t *setup);
+FDG_INTERNAL
+void release_boundary_face_setup(const interplib_module_state_t *state, const unsigned face_dim,
+                                 boundary_face_setup_t *setup);
 
 #endif // FDG_PYTHON_CONSTRAINTS_H

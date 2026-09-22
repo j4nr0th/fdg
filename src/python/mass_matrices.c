@@ -50,7 +50,6 @@ typedef struct
     const basis_set_t **basis_in;
     unsigned n_dim_out;
     const basis_set_t **basis_out;
-    outer_product_pair_iterator_t *pair_iter;
     const double *determinant;
 } mass_matrix_resources_t;
 
@@ -68,8 +67,6 @@ static void mass_matrix_release_resources(mass_matrix_resources_t *resources,
         PyMem_Free(resources->iter_out);
     if (resources->iter_in)
         PyMem_Free(resources->iter_in);
-    if (resources->pair_iter)
-        PyMem_Free(resources->pair_iter);
     *resources = (mass_matrix_resources_t){};
 }
 
@@ -91,10 +88,7 @@ static int mass_matrix_create_resources(const function_space_object *space_in, c
     const Py_ssize_t n_basis_out = Py_SIZE(space_out);
     res.basis_out = res.rules ? python_basis_sets_get(n_basis_out, space_out->specs, res.rules, basis_registry) : NULL;
     res.n_dim_out = n_basis_out;
-    res.pair_iter = PyMem_Malloc(outer_product_pair_iterator_data_size(n_rules));
-    if (res.pair_iter)
-        outer_product_pair_iterator_init(res.pair_iter, n_rules, res.basis_in, res.basis_out, res.rules, 0, 0);
-    if (!res.iter_in || !res.iter_out || !res.rules || !res.basis_in || !res.basis_out || !res.pair_iter)
+    if (!res.iter_in || !res.iter_out || !res.rules || !res.basis_in || !res.basis_out)
     {
         mass_matrix_release_resources(&res, integration_registry, basis_registry);
         return -1;
@@ -121,6 +115,68 @@ static int function_spaces_match(const function_space_object *space_in, const fu
             return 0;
     }
     return 1;
+}
+
+/**
+ * @brief Build the point-major table of one space's tensor-product values.
+ *
+ * Fills `table[point * dof_total + dof]` with the tensor product of the
+ * axis basis functions of the DoF over the shared integration points (last
+ * axis fastest). A non-negative `derivative_axis` reads that axis's
+ * derivatives instead of its values.
+ *
+ * @param space Function space that owns the DoF enumeration.
+ * @param iterator DoF iterator over `space`, reset by this function.
+ * @param basis Per-axis basis sets matching the space specifications.
+ * @param specs Per-axis integration specifications.
+ * @param derivative_axis Axis to differentiate, or a negative value.
+ * @param point_count Total tensor integration point count.
+ * @param point_strides Flat point strides of the integration tensor.
+ * @param table Output buffer with `dof_total * point_count` entries.
+ */
+static void mass_matrix_dof_table(const function_space_object *space, multidim_iterator_t *iterator,
+                                  const basis_set_t *const basis[static Py_SIZE(space)],
+                                  const integration_spec_t specs[static Py_SIZE(space)],
+                                  const Py_ssize_t derivative_axis, const size_t point_count,
+                                  const size_t point_strides[static Py_SIZE(space)], double table[restrict])
+{
+    const unsigned ndim = (unsigned)Py_SIZE(space);
+    const size_t dof_total = multidim_iterator_total_size(iterator);
+    multidim_iterator_set_to_start(iterator);
+    while (!multidim_iterator_is_at_end(iterator))
+    {
+        const size_t flat = multidim_iterator_get_flat_index(iterator);
+        const size_t *const digits = multidim_iterator_offsets(iterator);
+        for (size_t point = 0; point < point_count; ++point)
+        {
+            double value = 1.0;
+            for (unsigned axis = 0; axis < ndim; ++axis)
+            {
+                const size_t node = (point / point_strides[axis]) % ((size_t)specs[axis].order + 1u);
+                value *= derivative_axis == (Py_ssize_t)axis
+                             ? basis_set_basis_derivatives(basis[axis], (unsigned)digits[axis])[node]
+                             : basis_set_basis_values(basis[axis], (unsigned)digits[axis])[node];
+            }
+            table[point * dof_total + flat] = value;
+        }
+        multidim_iterator_advance(iterator, ndim - 1, 1);
+    }
+}
+
+/**
+ * @brief Fill the per-point quadrature weights.
+ *
+ * Tensor product of the axis rule weights, times the geometry determinant
+ * when the integration comes from a space map.
+ */
+static void mass_matrix_point_weights(const unsigned ndim, const integration_rule_t *const rules[static ndim],
+                                      const double *determinant, const size_t point_count,
+                                      double weights[restrict static point_count])
+{
+    integration_rule_tensor_weights(ndim, rules, weights);
+    if (determinant)
+        for (size_t point = 0; point < point_count; ++point)
+            weights[point] *= determinant[point];
 }
 
 static double calculate_integration_weight(const unsigned n_space_dim,
@@ -239,38 +295,35 @@ static PyObject *compute_mass_matrix(PyObject *module, PyObject *const *args, co
 
     // Matrix is symmetric if spaces match
     const int is_symmetric = function_spaces_match(space_in, space_out);
-    multidim_iterator_set_to_start(resources.iter_in);
-    multidim_iterator_set_to_start(resources.iter_out);
-    while (!multidim_iterator_is_at_end(resources.iter_out))
+
+    // Table engine: evaluate every axis basis once at the shared points,
+    // then accumulate the whole matrix in a single inner-product block.
+    size_t point_count = 1;
+    for (unsigned i = 0; i < n_space_dim; ++i)
+        point_count *= (size_t)p_int_specs[i].order + 1u;
+    size_t point_strides[UINT8_MAX];
+    integration_spec_point_strides(n_space_dim, p_int_specs, point_strides);
+    double *const table_out = PyMem_Malloc((size_t)dims[0] * point_count * sizeof(*table_out));
+    double *const table_in = PyMem_Malloc((size_t)dims[1] * point_count * sizeof(*table_in));
+    double *const weights = PyMem_Malloc(point_count * sizeof(*weights));
+    if (!table_out || !table_in || !weights)
     {
-        const size_t index_out = multidim_iterator_get_flat_index(resources.iter_out);
-        CPYUTL_ASSERT(index_out < (size_t)dims[0], "Out index out of bounds.");
-        const size_t index_in = multidim_iterator_get_flat_index(resources.iter_in);
-        // Integrate the basis product over the shared integration points with the pair iterator
-        outer_product_pair_iterator_set_basis_indices(resources.pair_iter, multidim_iterator_offsets(resources.iter_in),
-                                                      multidim_iterator_offsets(resources.iter_out));
-        double result = 0;
-        for (;;)
-        {
-            const size_t ip = outer_product_pair_iterator_point_index(resources.pair_iter);
-            const double point_factor = resources.determinant ? resources.determinant[ip] : 1;
-            result += point_factor * outer_product_pair_iterator_current_value(resources.pair_iter);
-            if (!outer_product_pair_iterator_next_integration_point(resources.pair_iter))
-                break;
-        }
-
-        // Write the output
-        p_out[index_out * dims[1] + index_in] = result;
-
-        // Advance the input basis
-        multidim_iterator_advance(resources.iter_in, n_space_dim - 1, 1);
-        // If we've done enough input basis, we advance the output basis and reset the input iterator
-        if ((is_symmetric && index_in == index_out) || multidim_iterator_is_at_end(resources.iter_in))
-        {
-            multidim_iterator_advance(resources.iter_out, n_space_dim - 1, 1);
-            multidim_iterator_set_to_start(resources.iter_in);
-        }
+        PyMem_Free(weights);
+        PyMem_Free(table_in);
+        PyMem_Free(table_out);
+        mass_matrix_release_resources(&resources, integration_registry->registry, basis_registry->registry);
+        return PyErr_NoMemory();
     }
+    mass_matrix_dof_table(space_out, resources.iter_out, resources.basis_out, p_int_specs, -1, point_count,
+                          point_strides, table_out);
+    mass_matrix_dof_table(space_in, resources.iter_in, resources.basis_in, p_int_specs, -1, point_count, point_strides,
+                          table_in);
+    mass_matrix_point_weights(n_space_dim, resources.rules, resources.determinant, point_count, weights);
+    kform_inner_product_block(point_count, (size_t)dims[0], (size_t)dims[1], table_out, table_in, weights, 0, 0,
+                              (size_t)dims[1], p_out);
+    PyMem_Free(weights);
+    PyMem_Free(table_in);
+    PyMem_Free(table_out);
 
     // If we're symmetric, we have to fill up the upper diagonal part
     if (is_symmetric)
@@ -431,8 +484,6 @@ static PyObject *compute_gradient_mass_matrix(PyObject *module, PyObject *const 
         return NULL;
     }
     // The input side reads derivatives along idx_in; the output side reads plain values
-    outer_product_pair_iterator_set_derivative_masks(resources.pair_iter, 1u << idx_in, 0);
-
     const npy_intp dims[2] = {(npy_intp)multidim_iterator_total_size(resources.iter_out),
                               (npy_intp)multidim_iterator_total_size(resources.iter_in)};
 
@@ -446,43 +497,39 @@ static PyObject *compute_gradient_mass_matrix(PyObject *module, PyObject *const 
 
     // Matrix is symmetric if spaces match
     const int is_symmetric = function_spaces_match(space_in, space_out);
-    multidim_iterator_set_to_start(resources.iter_in);
-    multidim_iterator_set_to_start(resources.iter_out);
-    while (!multidim_iterator_is_at_end(resources.iter_out))
+
+    // Table engine: the output side reads plain values, the input side the
+    // derivative along idx_in; the weights carry the determinant and the
+    // inverse-map factor d xi_in / d x_out.
+    size_t point_count = 1;
+    for (unsigned i = 0; i < n_space_dim; ++i)
+        point_count *= (size_t)p_int_specs[i].order + 1u;
+    size_t point_strides[UINT8_MAX];
+    integration_spec_point_strides(n_space_dim, p_int_specs, point_strides);
+    double *const table_out = PyMem_Malloc((size_t)dims[0] * point_count * sizeof(*table_out));
+    double *const table_in = PyMem_Malloc((size_t)dims[1] * point_count * sizeof(*table_in));
+    double *const weights = PyMem_Malloc(point_count * sizeof(*weights));
+    if (!table_out || !table_in || !weights)
     {
-        const size_t index_out = multidim_iterator_get_flat_index(resources.iter_out);
-        CPYUTL_ASSERT(index_out < (size_t)dims[0], "Out index out of bounds.");
-        const size_t index_in = multidim_iterator_get_flat_index(resources.iter_in);
-        CPYUTL_ASSERT(index_in < (size_t)dims[1], "In index out of bounds.");
-
-        // Integrate the basis derivative product over the shared integration points with the pair iterator
-        outer_product_pair_iterator_set_basis_indices(resources.pair_iter, multidim_iterator_offsets(resources.iter_in),
-                                                      multidim_iterator_offsets(resources.iter_out));
-        double result = 0;
-        for (;;)
-        {
-            const size_t ip = outer_product_pair_iterator_point_index(resources.pair_iter);
-            const double *const local_inverse = inverse_map ? inverse_map + inv_map_stride * ip : NULL;
-            const double point_factor =
-                resources.determinant ? resources.determinant[ip] * local_inverse[(size_t)idx_in * n_coords + idx_out]
-                                      : 1;
-            result += point_factor * outer_product_pair_iterator_current_value(resources.pair_iter);
-            if (!outer_product_pair_iterator_next_integration_point(resources.pair_iter))
-                break;
-        }
-
-        // Write the output
-        p_out[index_out * dims[1] + index_in] = result;
-
-        // Advance the input basis
-        multidim_iterator_advance(resources.iter_in, n_space_dim - 1, 1);
-        // If we've done enough input basis, we advance the output basis and reset the input iterator
-        if ((is_symmetric && index_in == index_out) || multidim_iterator_is_at_end(resources.iter_in))
-        {
-            multidim_iterator_advance(resources.iter_out, n_space_dim - 1, 1);
-            multidim_iterator_set_to_start(resources.iter_in);
-        }
+        PyMem_Free(weights);
+        PyMem_Free(table_in);
+        PyMem_Free(table_out);
+        mass_matrix_release_resources(&resources, integration_registry->registry, basis_registry->registry);
+        return PyErr_NoMemory();
     }
+    mass_matrix_dof_table(space_out, resources.iter_out, resources.basis_out, p_int_specs, -1, point_count,
+                          point_strides, table_out);
+    mass_matrix_dof_table(space_in, resources.iter_in, resources.basis_in, p_int_specs, idx_in, point_count,
+                          point_strides, table_in);
+    mass_matrix_point_weights(n_space_dim, resources.rules, resources.determinant, point_count, weights);
+    if (inverse_map)
+        for (size_t point = 0; point < point_count; ++point)
+            weights[point] *= inverse_map[point * inv_map_stride + (size_t)idx_in * n_coords + (size_t)idx_out];
+    kform_inner_product_block(point_count, (size_t)dims[0], (size_t)dims[1], table_out, table_in, weights, 0, 0,
+                              (size_t)dims[1], p_out);
+    PyMem_Free(weights);
+    PyMem_Free(table_in);
+    PyMem_Free(table_out);
 
     // If we're symmetric, we have to fill up the upper diagonal part
     if (is_symmetric)
@@ -501,8 +548,8 @@ static PyObject *compute_gradient_mass_matrix(PyObject *module, PyObject *const 
 }
 
 PyDoc_STRVAR(compute_gradient_mass_matrix_docstring,
-             "compute_gradient_mass_matrix(space_in: FunctionSpace, idims_in: typing.Sequence[int], space_out: "
-             "FunctionSpace, idims_out: typing.Sequence[int], integration: IntegrationSpace | SpaceMap, /, *, "
+             "compute_gradient_mass_matrix(space_in: FunctionSpace, space_out: FunctionSpace, integration: "
+             "IntegrationSpace | SpaceMap, idx_in: int, idx_out: int = ..., /, *, "
              "integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY, basis_registry: BasisRegistry "
              "= DEFAULT_BASIS_REGISTRY) -> numpy.typing.NDArray[numpy.double]\n"
              "Compute the mass matrix between two function spaces.\n"
@@ -512,14 +559,14 @@ PyDoc_STRVAR(compute_gradient_mass_matrix_docstring,
              "space_in : FunctionSpace\n"
              "    Function space for the input functions.\n"
              "\n"
-             "idim_in : Sequence of int\n"
-             "    Indices of the dimension that input space is to be differentiated along.\n"
+             "idx_in : int\n"
+             "    Index of the dimension that input space is to be differentiated along.\n"
              "\n"
              "space_out : FunctionSpace\n"
              "    Function space for the output functions.\n"
              "\n"
-             "idim_out : Sequence of int\n"
-             "    Indices of the dimension that input space is to be differentiated along.\n"
+             "idx_out : int\n"
+             "    Index of the dimension that output space is to be differentiated along.\n"
              "\n"
              "integration : IntegrationSpace or SpaceMap\n"
              "    Integration space used to compute the mass matrix or a space mapping.\n"

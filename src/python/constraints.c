@@ -79,25 +79,9 @@ static int make_boundary_topology(PyObject *const collections_object, const unsi
     return 0;
 }
 
-typedef struct
-{
-    PyObject *face_object;                      // Restricted space map (owned reference).
-    space_map_object *face_map;                 // Borrowed alias of face_object.
-    const integration_rule_t **source_rules;    // Rules of the source-frame face axes.
-    const integration_rule_t **canonical_rules; // Rules permuted to canonical test axes.
-    integration_spec_t *canonical_specs;        // Canonical axis specs.
-    size_t *canonical_strides;                  // Canonical row-major point strides.
-    size_t *source_strides;                     // Source-frame row-major point strides.
-    double *point_weights;                      // Canonical tensor quadrature weights.
-    size_t point_count;                         // Total canonical face points.
-    void *memory;
-} boundary_face_setup_t;
-
-static void release_boundary_face_setup(const interplib_module_state_t *state, unsigned face_dim,
-                                        boundary_face_setup_t *setup);
-static int make_boundary_face_setup(const interplib_module_state_t *state, const space_map_object *element_map,
-                                    const int8_t *orientation, const unsigned element_dim, const unsigned face_dim,
-                                    boundary_face_setup_t *setup)
+int make_boundary_face_setup(const interplib_module_state_t *state, const space_map_object *element_map,
+                             const int8_t *orientation, const unsigned element_dim, const unsigned face_dim,
+                             boundary_face_setup_t *setup)
 {
     *setup = (boundary_face_setup_t){};
     // Restrict the volume map to the face in one values-level pass: the orientation
@@ -155,8 +139,8 @@ fail:
     return -1;
 }
 
-static void release_boundary_face_setup(const interplib_module_state_t *state, const unsigned face_dim,
-                                        boundary_face_setup_t *setup)
+void release_boundary_face_setup(const interplib_module_state_t *state, const unsigned face_dim,
+                                 boundary_face_setup_t *setup)
 {
     if (setup->source_rules)
         python_integration_rules_release(face_dim, setup->source_rules,
@@ -732,201 +716,6 @@ fail:
 }
 
 /** Packs the five reference constraint arrays into the returned tuple. */
-static PyObject *reference_result_tuple(PyArrayObject *const row_array, PyArrayObject *const side_array,
-                                        PyArrayObject *const component_array, PyArrayObject *const dof_array,
-                                        PyArrayObject *const coefficient_array)
-{
-    PyObject *result = PyTuple_New(5);
-    if (!result)
-    {
-        Py_DECREF(row_array);
-        Py_DECREF(side_array);
-        Py_DECREF(component_array);
-        Py_DECREF(dof_array);
-        Py_DECREF(coefficient_array);
-        return NULL;
-    }
-    PyTuple_SET_ITEM(result, 0, (PyObject *)row_array);
-    PyTuple_SET_ITEM(result, 1, (PyObject *)side_array);
-    PyTuple_SET_ITEM(result, 2, (PyObject *)component_array);
-    PyTuple_SET_ITEM(result, 3, (PyObject *)dof_array);
-    PyTuple_SET_ITEM(result, 4, (PyObject *)coefficient_array);
-    return result;
-}
-
-PyObject *compute_kform_reference_constraints_impl(const interplib_module_state_t *state, kform_spec_object *test_spec,
-                                                   kform_spec_object *element_spec_1, const int8_t *orientation_1,
-                                                   kform_spec_object *element_spec_2, const int8_t *orientation_2)
-{
-    const unsigned face_dim = Py_SIZE(test_spec->function_space);
-    const unsigned order = test_spec->order;
-    const unsigned element_dim_1 = Py_SIZE(element_spec_1->function_space);
-    const unsigned element_dim_2 = Py_SIZE(element_spec_2->function_space);
-
-    PyArrayObject *row_array = NULL;
-    PyArrayObject *side_array = NULL;
-    PyArrayObject *component_array = NULL;
-    PyArrayObject *dof_array = NULL;
-    PyArrayObject *coefficient_array = NULL;
-    integration_spec_t *rule_specs = NULL;
-    const integration_rule_t **rules = NULL;
-    double *point_weights = NULL;
-    trace_basis_table_t test_table = {};
-    trace_basis_table_t element_table_1 = {};
-    trace_basis_table_t element_table_2 = {};
-
-    if (element_dim_1 != element_dim_2 || element_dim_1 <= face_dim)
-    {
-        PyErr_SetString(PyExc_ValueError, "Both element sides must share the boundary's element dimension.");
-        goto fail;
-    }
-
-    const kform_spec_t test_descriptor = {.ndim = face_dim, .order = order, .basis = test_spec->function_space->specs};
-    const constraint_element_side_t sides[2] = {
-        {.ndim = element_dim_1, .basis_specs = element_spec_1->function_space->specs, .orientation = orientation_1},
-        {.ndim = element_dim_2, .basis_specs = element_spec_2->function_space->specs, .orientation = orientation_2},
-    };
-
-    // Per face axis, a Gauss-Legendre rule chosen exact for the pairing
-    // integrand: the trace factors reach the test order plus the larger
-    // element order on the mapped axis, with one spare degree for the
-    // inactive-axis basis shifts.
-    const size_t slot_count = face_dim > 0 ? face_dim : 1;
-    rule_specs = PyMem_Malloc(slot_count * sizeof(*rule_specs));
-    if (!rule_specs)
-        goto fail;
-    constraint_reference_rule_specs(&test_descriptor, sides, rule_specs);
-    const size_t point_count = integration_specs_total_points(face_dim, rule_specs);
-    point_weights = PyMem_Malloc(point_count * sizeof(*point_weights));
-    if (!point_weights)
-        goto fail;
-    if (face_dim > 0)
-    {
-        rules = python_integration_rules_get(face_dim, rule_specs,
-                                             ((integration_registry_object *)state->registry_integration)->registry);
-        if (!rules)
-            goto fail;
-        integration_rule_tensor_weights(face_dim, rules, point_weights);
-    }
-    else
-    {
-        point_weights[0] = 1.0;
-    }
-    basis_registry_object *const basis_registry = (basis_registry_object *)state->registry_basis;
-    size_t *reference_strides = PyMem_Malloc(slot_count * sizeof(*reference_strides));
-    if (!reference_strides)
-        goto fail;
-    integration_spec_point_strides(face_dim, rule_specs, reference_strides);
-    if (make_trace_basis_table(element_dim_1, face_dim, order, test_spec->function_space->specs, orientation_1,
-                               rule_specs, rules, reference_strides, basis_registry, false, point_count,
-                               &test_table) < 0)
-    {
-        PyMem_Free(reference_strides);
-        goto fail;
-    }
-    if (make_trace_basis_table(element_dim_1, face_dim, order, element_spec_1->function_space->specs, orientation_1,
-                               rule_specs, rules, reference_strides, basis_registry, true, point_count,
-                               &element_table_1) < 0)
-    {
-        PyMem_Free(reference_strides);
-        goto fail;
-    }
-    if (make_trace_basis_table(element_dim_2, face_dim, order, element_spec_2->function_space->specs, orientation_2,
-                               rule_specs, rules, reference_strides, basis_registry, true, point_count,
-                               &element_table_2) < 0)
-    {
-        PyMem_Free(reference_strides);
-        goto fail;
-    }
-    PyMem_Free(reference_strides);
-
-    size_t row_count;
-    size_t entry_count;
-    constraint_reference_layout(&test_descriptor, sides, &row_count, &entry_count);
-    const npy_intp row_dims[1] = {(npy_intp)(row_count + 1)};
-    const npy_intp entry_dims[1] = {(npy_intp)entry_count};
-    row_array = (PyArrayObject *)PyArray_SimpleNew(1, row_dims, NPY_UINTP);
-    side_array = (PyArrayObject *)PyArray_SimpleNew(1, entry_dims, NPY_UINT8);
-    component_array = (PyArrayObject *)PyArray_SimpleNew(1, entry_dims, NPY_UINT32);
-    dof_array = (PyArrayObject *)PyArray_SimpleNew(1, entry_dims, NPY_UINTP);
-    coefficient_array = (PyArrayObject *)PyArray_SimpleNew(1, entry_dims, NPY_DOUBLE);
-    if (!row_array || !side_array || !component_array || !dof_array || !coefficient_array)
-        goto fail;
-    const kform_values_table_t *element_tables[2] = {&element_table_1.descriptor, &element_table_2.descriptor};
-    constraint_reference_assemble(&test_descriptor, sides, point_weights, &test_table.descriptor, element_tables,
-                                  (uint8_t *)PyArray_DATA(side_array), (uint32_t *)PyArray_DATA(component_array),
-                                  (size_t *)PyArray_DATA(dof_array), (double *)PyArray_DATA(coefficient_array),
-                                  (size_t *)PyArray_DATA(row_array));
-
-    // Matching trace spaces reduce the exact moment rows to per-DoF links:
-    // same packed contract, one entry per side per row, signs read from the
-    // dense row itself.
-    PyArrayObject *link_row_array = NULL;
-    PyArrayObject *link_side_array = NULL;
-    PyArrayObject *link_component_array = NULL;
-    PyArrayObject *link_dof_array = NULL;
-    PyArrayObject *link_coefficient_array = NULL;
-    if (constraint_reference_links_eligible(&test_descriptor, sides))
-    {
-        size_t link_rows;
-        size_t link_entries;
-        constraint_reference_links_layout(&test_descriptor, sides, &link_rows, &link_entries);
-        const npy_intp link_row_dims[1] = {(npy_intp)(link_rows + 1)};
-        const npy_intp link_entry_dims[1] = {(npy_intp)link_entries};
-        link_row_array = (PyArrayObject *)PyArray_SimpleNew(1, link_row_dims, NPY_UINTP);
-        link_side_array = (PyArrayObject *)PyArray_SimpleNew(1, link_entry_dims, NPY_UINT8);
-        link_component_array = (PyArrayObject *)PyArray_SimpleNew(1, link_entry_dims, NPY_UINT32);
-        link_dof_array = (PyArrayObject *)PyArray_SimpleNew(1, link_entry_dims, NPY_UINTP);
-        link_coefficient_array = (PyArrayObject *)PyArray_SimpleNew(1, link_entry_dims, NPY_DOUBLE);
-        if (!link_row_array || !link_side_array || !link_component_array || !link_dof_array || !link_coefficient_array)
-            goto fail;
-        constraint_reference_links_reduce(
-            &test_descriptor, sides, row_count, (uint8_t *)PyArray_DATA(side_array),
-            (uint32_t *)PyArray_DATA(component_array), (size_t *)PyArray_DATA(dof_array),
-            (double *)PyArray_DATA(coefficient_array), (size_t *)PyArray_DATA(row_array),
-            (uint8_t *)PyArray_DATA(link_side_array), (uint32_t *)PyArray_DATA(link_component_array),
-            (size_t *)PyArray_DATA(link_dof_array), (double *)PyArray_DATA(link_coefficient_array),
-            (size_t *)PyArray_DATA(link_row_array));
-        Py_DECREF(row_array);
-        Py_DECREF(side_array);
-        Py_DECREF(component_array);
-        Py_DECREF(dof_array);
-        Py_DECREF(coefficient_array);
-        return reference_result_tuple(link_row_array, link_side_array, link_component_array, link_dof_array,
-                                      link_coefficient_array);
-    }
-
-    PyMem_Free(point_weights);
-    if (rules)
-        python_integration_rules_release(face_dim, rules,
-                                         ((integration_registry_object *)state->registry_integration)->registry);
-    PyMem_Free(rule_specs);
-    release_trace_basis_table(&test_table);
-    release_trace_basis_table(&element_table_1);
-    release_trace_basis_table(&element_table_2);
-    return reference_result_tuple(row_array, side_array, component_array, dof_array, coefficient_array);
-
-fail:
-    Py_XDECREF(row_array);
-    Py_XDECREF(side_array);
-    Py_XDECREF(component_array);
-    Py_XDECREF(dof_array);
-    Py_XDECREF(coefficient_array);
-    Py_XDECREF(link_row_array);
-    Py_XDECREF(link_side_array);
-    Py_XDECREF(link_component_array);
-    Py_XDECREF(link_dof_array);
-    Py_XDECREF(link_coefficient_array);
-    PyMem_Free(point_weights);
-    if (rules)
-        python_integration_rules_release(face_dim, rules,
-                                         ((integration_registry_object *)state->registry_integration)->registry);
-    PyMem_Free(rule_specs);
-    release_trace_basis_table(&test_table);
-    release_trace_basis_table(&element_table_1);
-    release_trace_basis_table(&element_table_2);
-    return NULL;
-}
 static PyObject *compute_kform_boundary_load(PyObject *module, PyObject *const *args, const Py_ssize_t nargs,
                                              const PyObject *kwnames)
 {

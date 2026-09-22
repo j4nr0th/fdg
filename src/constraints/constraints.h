@@ -121,16 +121,6 @@ typedef struct
     const kform_values_table_t *element_table;   ///< Element trace basis values.
     const constraint_trace_pullback_t *pullback; ///< Required when order > 0, else NULL.
 } constraint_assembly_inputs_t;
-
-/**
- * @brief One two-sided physical trace assembly item in a batch.
- */
-typedef struct
-{
-    const constraint_element_side_t *sides;       ///< Two element-side specifications.
-    const constraint_assembly_inputs_t inputs[2]; ///< Per-side assembly inputs.
-} constraint_physical_batch_item_t;
-
 /**
  * @brief Parameters for building a sampled trace pullback.
  *
@@ -154,6 +144,9 @@ typedef struct
     const integration_spec_t *canonical_specs; ///< [face_dim] canonical axis specs.
     const double *transform;                   ///< Sampled face transform (see above).
     double *out;                               ///< [element_comp * physical_comp * canonical_point_count].
+    bool canonical_components;                 ///< Index `out` by canonical boundary component.
+    bool element_components;                   ///< Index `out` by element component (C(element_dim, order)
+                                               ///< blocks) instead of face component.
 } constraint_trace_pullback_build_t;
 
 /**
@@ -547,104 +540,6 @@ void boundary_space_map_resample_work_size(unsigned bdim, unsigned coords,
                                            size_t *out_positions, size_t *out_jacobian, size_t *out_q);
 
 /**
- * @brief Compute the packed size of a two-sided reference trace matrix.
- *
- * @param test_spec Face test-space specification with
- *        `order <= ndim`; both sides must satisfy the constraints of
- *        #constraint_element_side_t against `test_spec`.
- * @param sides Two element-side specifications.
- * @param out_row_count Receives the total test DoF count.
- * @param out_entry_count Receives the total packed entry count.
- */
-void constraint_reference_layout(const kform_spec_t *test_spec, const constraint_element_side_t sides[static 2],
-                                 size_t *out_row_count, size_t *out_entry_count);
-
-/**
- * @brief Choose the per-face-axis Gauss rule for a two-sided reference trace.
- *
- * The rule on face axis `a` integrates the trace pairing exactly: its
- * accuracy is the test-axis order plus the larger of the two mapped element
- * axis orders, plus one spare degree for the inactive-axis basis shifts.
- *
- * @param test_spec Face test-space specification.
- * @param sides Two element-side specifications.
- * @param out_specs Receives `test_spec->ndim` integration specifications.
- */
-void constraint_reference_rule_specs(const kform_spec_t *test_spec, const constraint_element_side_t sides[static 2],
-                                     integration_spec_t out_specs[static test_spec->ndim]);
-
-/**
- * @brief Assemble a two-sided reference-space trace constraint matrix.
- *
- * Rows follow the packed-row contract: component-major, then component-local
- * test DoF. Each row holds the mapped component block of side 0 followed by
- * side 1, with DoFs in table order; `out_row_offsets` has
- * `row_count + 1` entries starting at zero. Coefficients are
- * `side_sign * orientation_sign * integral` with `side_sign` +1 on side 0
- * and -1 on side 1.
- *
- * @param test_spec Face test-space specification.
- * @param sides Two element-side specifications.
- * @param point_weights Tensor quadrature weights of the shared face rules.
- * @param test_table Test trace basis values on the shared rules.
- * @param element_tables Per-side element trace basis values on the shared
- *        rules; negative orientations read mirrored node indices.
- * @param out_sides [entry_count] Side index of each entry.
- * @param out_components [entry_count] Element component of each entry.
- * @param out_local_dofs [entry_count] Component-local DoF of each entry.
- * @param out_coefficients [entry_count] Entry coefficients.
- * @param out_row_offsets [row_count + 1] Packed row offsets.
- */
-void constraint_reference_assemble(const kform_spec_t *test_spec, const constraint_element_side_t sides[static 2],
-                                   const double *point_weights, const kform_values_table_t *test_table,
-                                   const kform_values_table_t *element_tables[static 2], uint8_t out_sides[],
-                                   uint32_t out_components[], size_t out_local_dofs[], double out_coefficients[],
-                                   size_t out_row_offsets[]);
-
-/**
- * @brief Test whether a two-sided reference trace reduces to single DoF links.
- *
- * The link form replaces the assembled moment rows with one equality link per
- * test DoF and side. It is exact when both sides sample the same trace space:
- * along every canonical face axis the two sides must map to the same basis
- * family and order, matching the test order, and every fixed normal axis must
- * carry a basis with a single DoF supported at each endpoint (Gauss-Lobatto
- * Lagrange or Bernstein). Under these conditions each component's exact trace
- * Gram block is square and invertible and the two sides' blocks agree up to a
- * node permutation, so the dense rows and the links span the same row space.
- */
-bool constraint_reference_links_eligible(const kform_spec_t *test_spec,
-                                         const constraint_element_side_t sides[static 2]);
-
-/**
- * @brief Compute the packed size of a two-sided reference link constraint.
- *
- * Rows match @ref constraint_reference_layout; every row holds exactly one
- * entry per side.
- */
-void constraint_reference_links_layout(const kform_spec_t *test_spec, const constraint_element_side_t sides[static 2],
-                                       size_t *out_row_count, size_t *out_entry_count);
-
-/**
- * @brief Reduce assembled dense trace rows to single-DoF links.
- *
- * Requires @ref constraint_reference_links_eligible and the dense rows of
- * @ref constraint_reference_assemble. Every row is replaced by one equality
- * per side linking the endpoint-supported, canonicalized element DoFs that
- * carry the row's test DoF; the coefficient ratio is read from the dense row
- * itself, so orientation signs need no re-derivation. Same packed-row
- * contract, with exactly one entry per side per row.
- */
-void constraint_reference_links_reduce(const kform_spec_t *test_spec, const constraint_element_side_t sides[static 2],
-                                       size_t dense_row_count, const uint8_t dense_sides[static 1],
-                                       const uint32_t dense_components[static 1],
-                                       const size_t dense_local_dofs[static 1],
-                                       const double dense_coefficients[static 1],
-                                       const size_t dense_row_offsets[static 1], uint8_t out_sides[],
-                                       uint32_t out_components[], size_t out_local_dofs[], double out_coefficients[],
-                                       size_t out_row_offsets[]);
-
-/**
  * @brief Compute the packed size of one side of a physical trace matrix.
  *
  * @param test_spec Face test-space specification with `order <= ndim`.
@@ -674,60 +569,6 @@ void constraint_physical_side_layout(const kform_spec_t *test_spec, const constr
 void constraint_physical_side_assemble(const kform_spec_t *test_spec, const constraint_element_side_t *side,
                                        const constraint_assembly_inputs_t *inputs, uint32_t out_components[],
                                        size_t out_local_dofs[], double out_coefficients[], size_t out_row_offsets[]);
-
-/**
- * @brief Assemble a two-sided physical trace constraint matrix.
- *
- * Same contract as #constraint_physical_side_assemble with side 0's entries
- * before side 1's in each row; coefficients additionally carry the side sign
- * (+1 on side 0, -1 on side 1).
- *
- * @param test_spec Face test-space specification.
- * @param sides Two element-side specifications.
- * @param inputs Per-side assembly inputs.
- * @param out_sides [entry_count] Side index of each entry.
- * @param out_components [entry_count] Element component of each entry.
- * @param out_local_dofs [entry_count] Component-local DoF of each entry.
- * @param out_coefficients [entry_count] Entry coefficients.
- * @param out_row_offsets [row_count + 1] Packed row offsets.
- */
-void constraint_physical_assemble(const kform_spec_t *test_spec, const constraint_element_side_t sides[static 2],
-                                  const constraint_assembly_inputs_t inputs[static 2], uint8_t out_sides[],
-                                  uint32_t out_components[], size_t out_local_dofs[], double out_coefficients[],
-                                  size_t out_row_offsets[]);
-
-/**
- * @brief Compute the packed size of a concatenated physical trace batch.
- *
- * @param test_spec Shared face test-space specification.
- * @param item_count Number of batch items.
- * @param items Batch descriptors.
- * @param out_row_count Receives the total row count.
- * @param out_entry_count Receives the total entry count.
- */
-void constraint_physical_batch_layout(const kform_spec_t *test_spec, size_t item_count,
-                                      const constraint_physical_batch_item_t items[static item_count],
-                                      size_t *out_row_count, size_t *out_entry_count);
-
-/**
- * @brief Assemble a concatenated batch of two-sided physical trace matrices.
- *
- * Items are assembled in input order; each item's local row offsets are
- * rebased by the accumulated entry count of the earlier items.
- *
- * @param test_spec Shared face test-space specification.
- * @param item_count Number of batch items.
- * @param items Batch descriptors in output order.
- * @param out_sides [entry_count] Side index of each entry.
- * @param out_components [entry_count] Element component of each entry.
- * @param out_local_dofs [entry_count] Component-local DoF of each entry.
- * @param out_coefficients [entry_count] Entry coefficients.
- * @param out_row_offsets [row_count + 1] Combined packed row offsets.
- */
-void constraint_physical_batch_assemble(const kform_spec_t *test_spec, size_t item_count,
-                                        const constraint_physical_batch_item_t items[static item_count],
-                                        uint8_t out_sides[], uint32_t out_components[], size_t out_local_dofs[],
-                                        double out_coefficients[], size_t out_row_offsets[]);
 
 /**
  * @brief Assemble a boundary load from sampled element-frame k-form data.

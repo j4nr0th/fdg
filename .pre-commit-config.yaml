@@ -11,14 +11,14 @@ repos:
         exclude: "uv.lock"
 
   - repo: https://github.com/pre-commit/mirrors-clang-format
-    rev: "v21.1.7"
+    rev: "v23.1.1"
     hooks:
       - id: clang-format
         args: ["--style=Microsoft", "-i"]
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     # Ruff version.
-    rev: v0.14.8
+    rev: v0.16.8
     hooks:
       # Run the linter.
       - id: ruff-check
@@ -31,7 +31,7 @@ repos:
   #       additional_dependencies:
   #         - tomli
   - repo: https://github.com/facebook/pyrefly-pre-commit
-    rev: "0.44.2" # Use the sha / tag you want to point at
+    rev: "1.4.0.dev1" # Use the sha / tag you want to point at
     hooks:
       - id: pyrefly-check
         name: Pyrefly (type checking)

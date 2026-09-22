@@ -74,7 +74,12 @@ def _orientation_record(*axes: int) -> list[int]:
 
 
 def test_common_space_merges_orders_and_rules() -> None:
-    """The common space takes the per-axis minimum order and maximum accuracy."""
+    """The common link space takes the per-axis minimum order, maximum accuracy.
+
+    The lowest order is the strongest link that never overconstrains: an
+    element boundary cannot be constrained to a higher-order boundary
+    solution, so higher-order traces conform in the L2 sense.
+    """
     specs = [_element_spec(2), _element_spec(3)]
     orientations = [_orientation_record(1, 2), _orientation_record(-1, 2)]
     integrations = [_integrations((3, 3)), _integrations((4, 5))]

@@ -132,6 +132,9 @@ add_executable(test_constraints operations/test_constraints.c)
 target_link_libraries(test_constraints PRIVATE test_common)
 add_test(NAME constraints COMMAND test_constraints)
 
+add_executable(bench_boundary_mass operations/bench_boundary_mass.c)
+target_link_libraries(bench_boundary_mass PRIVATE test_common)
+
 add_executable(test_element_data data/test_element_data.c)
 target_link_libraries(test_element_data PRIVATE test_common)
 add_test(NAME element_data COMMAND test_element_data)
