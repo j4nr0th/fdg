@@ -6,7 +6,8 @@ Multi-element Poisson equation
 
 This example demonstrates how the mixed Poisson equation can be solved on
 multiple hypercube elements at once, with the continuity of the flux across
-the shared faces enforced by :meth:`Mesh.compute_kform_boundary_constraints`.
+the shared faces enforced by
+:meth:`Mesh.compute_kform_continuity_constraints`.
 
 The mixed Poisson equation is defined in the weak form as:
 
@@ -33,9 +34,10 @@ a Lagrange multiplier :math:`\lambda^{(n - 1)}`:
     \left( v^{(n - 1)}, \operatorname{tr}_{\Omega_a} q^{(n - 1)} -
     \operatorname{tr}_{\Omega_b} q^{(n - 1)} \right)_F = 0
 
-The traces are assembled with :meth:`Mesh.compute_kform_boundary_constraints`,
-which computes the physical boundary rows of one element against the shared
-face.
+The traces are assembled with
+:meth:`Mesh.compute_kform_continuity_constraints`, which derives the common
+trace test spaces internally and returns packed global rows that compare the
+traces of paired elements on each shared face.
 
 For this example, a 2x2 grid of four quadrilateral elements and a 2x2x2 grid
 of eight hexahedral elements are used, together with the same manufactured
@@ -71,7 +73,8 @@ which vanishes on the outer boundary and is represented exactly by the
 cubic geometry basis. The deformation is modest (c = 0.3), so the map
 remains a diffeomorphism with :math:`\det J \in [0.4, 1.6]`. The flux
 continuity across the curved shared faces is enforced with
-:meth:`Mesh.compute_kform_boundary_constraints`.
+:meth:`Mesh.compute_kform_continuity_constraints`, whose rows carry the full
+pullback geometry of every incident element.
 
 The three-dimensional solution is rendered with `pyvista
 <https://docs.pyvista.org/>`_ as curved (Lagrange) hexahedral cells, the
@@ -310,26 +313,32 @@ def assemble_element_rhs(
 
 # %%
 #
-# The boundary constraints returned by
-# :meth:`Mesh.compute_kform_boundary_constraints` are packed sparse rows. For
-# this example they are materialized into dense element operators, whose
-# columns are the flattened degrees of freedom of the flux :math:`q`.
+# The continuity rows returned by
+# :meth:`Mesh.compute_kform_continuity_constraints` are packed sparse global
+# rows: each entry names an element, an element-frame component, and a local
+# DoF of the flux :math:`q`. For this example they are materialized into one
+# dense global operator whose columns are the interleaved element blocks of
+# flux degrees of freedom.
 #
 
 
 def packed_to_dense(
-    result: tuple[np.ndarray, ...], element_spec: KFormSpecs
+    packed: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray],
+    specs_q: KFormSpecs,
+    element_count: int,
+    block: int,
 ) -> np.ndarray:
-    """Materialize packed boundary-constraint rows as a dense operator."""
-    row_offsets, components, local_dofs, coefficients = result
+    """Materialize packed global continuity rows as a dense operator."""
+    row_offsets, element_ids, components, local_dofs, coefficients = packed
     n_rows = row_offsets.size - 1
-    n_dofs = int(np.sum(element_spec.component_dof_counts))
-    matrix = np.zeros((n_rows, n_dofs))
+    matrix = np.zeros((n_rows, element_count * block))
     for row in range(n_rows):
         start, end = int(row_offsets[row]), int(row_offsets[row + 1])
         for i in range(start, end):
-            column = int(
-                element_spec.get_component_slice(int(components[i])).start
+            element = int(element_ids[i])
+            column = (
+                element * block
+                + int(specs_q.get_component_slice(int(components[i])).start)
                 + int(local_dofs[i])
             )
             matrix[row, column] += coefficients[i]
@@ -340,11 +349,12 @@ def packed_to_dense(
 # With all the small building blocks in place, the global saddle-point system
 # can be assembled. The element blocks are placed on the diagonal, while the
 # continuity constraints of the flux across the shared faces are added as rows
-# of the constraint matrix :math:`C`, one Lagrange multiplier block per shared
-# face. The shared faces are curved by the deformation, so every constraint
-# row is assembled with the full pullback geometry of its element. The shared
-# faces are enumerated with :meth:`Mesh.iterate_shared`, which reports the
-# pair of elements and the orientation of every shared object.
+# of the constraint matrix :math:`C`, one Lagrange multiplier per packed row.
+# The continuity rows are assembled in one
+# :meth:`Mesh.compute_kform_continuity_constraints` call: the method walks the
+# shared objects from faces to points, pairs consecutive incident elements,
+# and returns cycle-free rows whose test spaces are derived from the incident
+# element specifications.
 #
 
 
@@ -353,7 +363,6 @@ def solve(
     maps: list[SpaceMap],
     specs_q: KFormSpecs,
     specs_u: KFormSpecs,
-    test_specs: KFormSpecs,
 ) -> tuple[list[np.ndarray], list[np.ndarray], float]:
     """Solve the multi-element mixed Poisson system with continuity constraints."""
     nq = int(np.sum(specs_q.component_dof_counts))
@@ -371,29 +380,9 @@ def solve(
         )
         rhs[off + nq : off + blk] = assemble_element_rhs(specs_u, specs_q, maps[e])[nq:]
 
-    constraints: list[tuple[int, int, np.ndarray, np.ndarray]] = []
-    n_lambda = 0
-    for mdim, object_id, element_ids, _ in mesh.iterate_shared(mesh.ndim - 1):
-        assert mdim == mesh.ndim - 1 and element_ids.size == 2
-        t = [
-            packed_to_dense(
-                mesh.compute_kform_boundary_constraints(
-                    test_specs, specs_q, maps[int(eid)], int(eid), int(object_id)
-                ),
-                specs_q,
-            )
-            for eid in element_ids
-        ]
-        constraints.append((int(element_ids[0]), int(element_ids[1]), t[0], t[1]))
-        n_lambda += t[0].shape[0]
-
-    c_matrix = np.zeros((n_lambda, nx))
-    offset = 0
-    for a, b, t_a, t_b in constraints:
-        n_test = t_a.shape[0]
-        c_matrix[offset : offset + n_test, a * blk : a * blk + nq] = t_a
-        c_matrix[offset : offset + n_test, b * blk : b * blk + nq] = -t_b
-        offset += n_test
+    packed = mesh.compute_kform_continuity_constraints([specs_q] * nel, maps)
+    c_matrix = packed_to_dense(packed, specs_q, nel, blk)
+    n_lambda = c_matrix.shape[0]
 
     system = np.block([[lhs, c_matrix.T], [c_matrix, np.zeros((n_lambda, n_lambda))]])
     solution = np.linalg.solve(system, np.concatenate((rhs, np.zeros(n_lambda))))
@@ -401,11 +390,8 @@ def solve(
     q_dofs = [solution[e * blk : e * blk + nq] for e in range(nel)]
     u_dofs = [solution[e * blk + nq : e * blk + blk] for e in range(nel)]
 
-    # Max absolute trace mismatch over all shared faces.
-    continuity = max(
-        float(np.max(np.abs(t_a @ q_dofs[a] - t_b @ q_dofs[b])))
-        for a, b, t_a, t_b in constraints
-    )
+    # Max absolute mismatch of the packed continuity rows over all shared faces.
+    continuity = float(np.max(np.abs(c_matrix @ solution[:nx])))
     return q_dofs, u_dofs, continuity
 
 
@@ -467,15 +453,8 @@ def compute_l2_error(
     maps_high = create_element_maps(ndim, integration_high)
 
     specs_u, specs_q = create_kform_specs(type_basis, order_basis, ndim)
-    # The multiplier space on a shared face matches the flux trace: an
-    # (ndim-1)-form on an (ndim-1)-dimensional face with the same basis type
-    # and order as the element.
-    test_specs = KFormSpecs(
-        ndim - 1,
-        FunctionSpace(*(BasisSpecs(type_basis, order_basis) for _ in range(ndim - 1))),
-    )
 
-    q_dofs, u_dofs, continuity = solve(mesh, maps, specs_q, specs_u, test_specs)
+    q_dofs, u_dofs, continuity = solve(mesh, maps, specs_q, specs_u)
     err_l2 = np.sqrt(
         sum(
             reconstruct_element_error_l2(specs_u, u_dofs[e], maps_high[e])
@@ -604,12 +583,7 @@ integration_vis = IntegrationSpace(
 )
 maps_vis = create_element_maps(3, integration_vis)
 specs_u_vis, specs_q_vis = create_kform_specs(BTYPE, ORDER_VIS, 3)
-test_specs_vis = KFormSpecs(
-    2, FunctionSpace(*(BasisSpecs(BTYPE, ORDER_VIS) for _ in range(2)))
-)
-q_dofs_vis, u_dofs_vis, _ = solve(
-    mesh_3d, maps_vis, specs_q_vis, specs_u_vis, test_specs_vis
-)
+q_dofs_vis, u_dofs_vis, _ = solve(mesh_3d, maps_vis, specs_q_vis, specs_u_vis)
 ERROR_ORDER_VIS = 24
 error_samples_vis = sample_error_grid(
     u_dofs_vis, specs_u_vis, maps_vis, ERROR_ORDER_VIS + 1

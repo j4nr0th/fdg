@@ -199,46 +199,6 @@ def test_grouped_periodic_faces_require_equal_lengths() -> None:
         BoundaryPairGroup((1, 2), (3,), (1,))
 
 
-def test_boundary_trace_batch_matches_one_sided_assembly() -> None:
-    """The C batch path concatenates the established one-sided rows."""
-    mesh, maps, element_specs = _setup(2, 2, 0)
-    faces = mesh.iterate_boundary(1)
-    spaces = mesh.kform_boundary_spaces(element_specs)
-    test_spec = spaces[1][int(faces[0][1])][0]
-    element_ids = [int(element_ids[0]) for _, _, element_ids, _ in faces]
-    boundary_ids = [int(object_id) for _, object_id, _, _ in faces]
-    batched = mesh.compute_kform_boundary_constraints_batch(
-        test_spec,
-        element_specs[0],
-        [maps[element_id] for element_id in element_ids],
-        element_ids,
-        boundary_ids,
-    )
-    offsets, batched_elements, batched_components, batched_dofs, batched_coefficients = (
-        batched
-    )
-    row = 0
-    for element_id, boundary_id in zip(element_ids, boundary_ids, strict=True):
-        local = mesh.compute_kform_boundary_constraints(
-            test_spec,
-            element_specs[0],
-            maps[element_id],
-            element_id,
-            boundary_id,
-        )
-        local_offsets, local_components, local_dofs, local_coefficients = local
-        local_rows = local_offsets.size - 1
-        start = int(offsets[row])
-        end = int(offsets[row + local_rows])
-        assert end - start == local_components.size
-        np.testing.assert_array_equal(batched_elements[start:end], element_id)
-        np.testing.assert_array_equal(batched_components[start:end], local_components)
-        np.testing.assert_array_equal(batched_dofs[start:end], local_dofs)
-        np.testing.assert_allclose(batched_coefficients[start:end], local_coefficients)
-        row += local_rows
-    assert row == offsets.size - 1
-
-
 def test_packed_kform_constraints_to_csr() -> None:
     """CSR arrays use element-major component and local-DoF numbering."""
     base_space = FunctionSpace(

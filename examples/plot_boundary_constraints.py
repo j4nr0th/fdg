@@ -1,37 +1,39 @@
 r"""
 .. currentmodule:: fdg
 
-Boundary Constraints and Continuity
-===================================
+Boundary Trace Mass Matrices
+============================
 
-A boundary row is a trace inner product,
-
-.. math::
-
-   r_i(u_e) = (v_i, \operatorname{tr}_e u_e)_{F_e}.
-
-For two adjacent elements, continuity is checked with
+Each row of a boundary mass matrix is a trace inner product,
 
 .. math::
 
-   T_A u_A - T_B u_B = 0,
+   r_i(q_e) = (v_i, \operatorname{tr}_e q_e)_{F_e},
 
-where each :math:`T` is assembled by
-:func:`compute_kform_boundary_constraints`.  The function returns a packed
-row representation rather than choosing a global sparse-matrix numbering, so
-this example converts each local operator to a SciPy CSR array explicitly.
+where :math:`v_i` are the windowed common Legendre test functions of the
+shared face: the per-axis minimum order of the incident elements, reduced by
+two on every axis that carries no covector of the k-form component
+(``axis_skip=2``).  The columns pair with the element's trace degrees of
+freedom, so one matrix collects the boundary geometry and metric factors of
+one element trace in a single per-object operator.
 
-The printed checks run before the figures are created.  They cover point and
-line traces in 2D, and point, line, and face traces in 3D.  Every valid test
-and element k-form order is assembled; scalar and tangential one-form traces
-are compared numerically across the shared objects.
+:func:`compute_kform_boundary_mass_matrices` assembles one matrix per
+incident element of a shared boundary object in a single call and returns the
+rows in a packed CSR-like representation.  This example assembles the shared
+edge of two quadrilaterals and the shared face of two hexahedra for every
+k-form order living on that face, prints the packed row data, and verifies
+that both incident elements pair a constant trace with the same values.
+
+The printed checks run before the figures are created, and the boundary
+geometry of both setups is plotted afterwards.
 """  # noqa: D205 D400
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import matplotlib.pyplot as plt
 import numpy as np
-import numpy.typing as npt
 from fdg import (
     BasisSpecs,
     BasisType,
@@ -42,36 +44,20 @@ from fdg import (
     IntegrationSpecs,
     KFormSpecs,
     SpaceMap,
-    compute_kform_boundary_constraints,
+    compute_kform_boundary_mass_matrices,
 )
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-from scipy.sparse import csr_array
+
+#: Element k-form order. The windowed common test space reduces the per-axis
+#: order by two on axes that carry no component covector, so the order is
+#: chosen high enough to leave visible rows on the shared face.
+ELEMENT_ORDER = 3
 
 
-def packed_to_sparse(
-    result: tuple[npt.NDArray[np.generic], ...], specs: KFormSpecs
-) -> csr_array:
-    """Convert one element's packed rows to a local sparse operator."""
-    row_offsets, components, local_dofs, coefficients = result
-    columns = np.empty(components.size, dtype=np.uintp)
-    for component in range(specs.component_count):
-        component_entries = components == component
-        component_slice = specs.get_component_slice(component)
-        columns[component_entries] = component_slice.start + local_dofs[component_entries]
-    rows = np.repeat(
-        np.arange(row_offsets.size - 1), np.diff(row_offsets).astype(np.intp)
-    )
-    return csr_array(
-        (coefficients, (rows, columns)),
-        shape=(row_offsets.size - 1, int(np.sum(specs.component_dof_counts))),
-    )
-
-
-def make_test_specs(dimension: int, order: int) -> KFormSpecs:
-    """Create a Legendre test space on a canonical boundary."""
-    return KFormSpecs(
-        order,
-        FunctionSpace(*(BasisSpecs(BasisType.LEGENDRE, 1) for _ in range(dimension))),
+def make_element_basis(ndim: int) -> FunctionSpace:
+    """Make the uniform element k-form basis of the demo order."""
+    return FunctionSpace(
+        *(BasisSpecs(BasisType.LAGRANGE_UNIFORM, ELEMENT_ORDER) for _ in range(ndim))
     )
 
 
@@ -91,16 +77,6 @@ def make_2d_maps() -> tuple[list[SpaceMap], FunctionSpace]:
         for x_values in ([-1, -1, 0, 0], [0, 0, 1, 1])
     ]
     return maps, basis
-
-
-def make_2d_collections() -> tuple[np.ndarray, np.ndarray]:
-    """Return two quadrilaterals sharing edge 2 and points 2/3."""
-    lines = np.array(
-        [[0, 1], [0, 2], [2, 3], [1, 3], [2, 4], [4, 5], [3, 5]],
-        dtype=np.uint64,
-    )
-    elements = np.array([[0, 1, 2, 3], [2, 4, 5, 6]], dtype=np.uint64)
-    return lines, elements
 
 
 def make_3d_maps() -> tuple[
@@ -128,158 +104,76 @@ def make_3d_maps() -> tuple[
     return maps, basis, coordinate_values  # type: ignore[return-value]
 
 
-def make_3d_collections() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Return two hexahedra sharing face 2, line 0, and point 0."""
-    lines = np.array(
-        [
-            [0, 1],
-            [1, 2],
-            [2, 3],
-            [3, 0],
-            [4, 5],
-            [5, 6],
-            [6, 7],
-            [7, 4],
-            [0, 4],
-            [1, 5],
-            [2, 6],
-            [3, 7],
-            [8, 9],
-            [9, 10],
-            [10, 11],
-            [11, 8],
-            [0, 8],
-            [1, 9],
-            [5, 10],
-            [4, 11],
-        ],
-        dtype=np.uint64,
-    )
-    faces = np.array(
-        [
-            [0, 1, 2, 3],
-            [4, 5, 6, 7],
-            [0, 9, 4, 8],
-            [1, 10, 5, 9],
-            [2, 11, 6, 10],
-            [3, 8, 7, 11],
-            [0, 17, 12, 16],
-            [9, 18, 13, 17],
-            [4, 18, 14, 19],
-            [8, 19, 15, 16],
-            [12, 13, 14, 15],
-        ],
-        dtype=np.uint64,
-    )
-    elements = np.array([[5, 2, 0, 3, 4, 1], [2, 6, 7, 10, 8, 9]], dtype=np.uint64)
-    return lines, faces, elements
+def boundary_mass_matrices(
+    order: int,
+    basis: FunctionSpace,
+    maps: list[SpaceMap],
+    orientations: tuple[Sequence[int], Sequence[int]],
+    boundary_dimension: int,
+) -> list[np.ndarray]:
+    """Assemble and print one shared-boundary mass matrix per incident element.
 
-
-def boundary_operator(
-    test_specs: KFormSpecs,
-    element_specs: KFormSpecs,
-    element_map: SpaceMap,
-    collections: tuple[np.ndarray, ...],
-    npts: int,
-    element_id: int,
-    boundary_id: int,
-) -> csr_array:
-    """Assemble and print one local boundary operator."""
-    result = compute_kform_boundary_constraints(
-        test_specs,
-        element_specs,
-        element_map,
-        collections,
-        npts,
-        element_id,
-        boundary_id,
+    The rows of every matrix are the windowed common Legendre test space of
+    the shared face; the columns are the trace degrees of freedom of the
+    element k-form.  The orientation records fix the shared face inside each
+    element: the first entry is the signed one-based fixed axis, the
+    remaining entries list the tangential axes.
+    """
+    specs = [KFormSpecs(order, basis) for _ in maps]
+    common_specs, _common_integration, matrices, packed = (
+        compute_kform_boundary_mass_matrices(
+            specs,
+            orientations,
+            [element_map.integration_space for element_map in maps],
+            axis_skip=(2,) * boundary_dimension,
+            boundary_dimension=boundary_dimension,
+            packed=True,
+        )
     )
-    matrix = packed_to_sparse(result, element_specs)
-    row_offsets, components, local_dofs, coefficients = result
     print(
-        f"  element {element_id}: rows={matrix.shape[0]}, cols={matrix.shape[1]}, "
-        f"nnz={matrix.nnz}, packed_entries={coefficients.size}"
+        f"  common test space: k={common_specs.order}, "
+        f"rows={matrices[0].shape[0]}, trace DoFs per element={matrices[0].shape[1]}"
     )
-    print(f"    offsets={row_offsets.tolist()}")
-    print(f"    first coefficients={coefficients[: min(8, coefficients.size)]}")
-    print(f"    first components={components[: min(8, components.size)]}")
-    print(f"    first local DoFs={local_dofs[: min(8, local_dofs.size)]}")
-    return matrix
+    for element_id, (matrix, rows) in enumerate(zip(matrices, packed, strict=True)):
+        row_offsets, _sides, components, local_dofs, coefficients = rows
+        print(
+            f"  element {element_id}: shape={matrix.shape}, "
+            f"nnz={int(np.count_nonzero(matrix))}, packed_entries={coefficients.size}"
+        )
+        print(f"    offsets={row_offsets.tolist()}")
+        support = np.nonzero(coefficients)[0]
+        print(f"    first components={components[support][:8].tolist()}")
+        print(f"    first local DoFs={local_dofs[support][:8].tolist()}")
+        print(f"    first coefficients={coefficients[support][:8]}")
+    return matrices
 
 
 def report_2d() -> None:
-    """Print 2D point and edge continuity checks."""
-    maps, basis = make_2d_maps()
-    collections = make_2d_collections()
-    print("2D polynomial k-form: every component is the constant polynomial 1")
-    for face_dim, boundary_id, label in ((0, 2, "point"), (1, 2, "edge")):
-        print(f"2D shared {label} boundary (object {boundary_id})")
-        for order in range(face_dim + 1):
-            test_specs = make_test_specs(face_dim, order)
-            element_specs = KFormSpecs(order, basis)
-            matrices = [
-                boundary_operator(
-                    test_specs,
-                    element_specs,
-                    maps[element_id],
-                    collections,
-                    6,
-                    element_id,
-                    boundary_id,
-                )
-                for element_id in range(2)
-            ]
-            element_values = [
-                np.ones(int(np.sum(element_specs.component_dof_counts))) for _ in maps
-            ]
-            traces = [
-                matrix @ element_values[element_id]
-                for element_id, matrix in enumerate(matrices)
-            ]
-            residual = np.max(np.abs(traces[0] - traces[1]))
-            print(f"  k={order}: continuity residual = {residual:.3e}")
+    """Assemble the shared-edge boundary mass matrices of two quadrilaterals."""
+    maps, _ = make_2d_maps()
+    basis = make_element_basis(2)
+    print("2D shared edge (boundary dimension 1)")
+    for order in range(2):
+        print(f"  k={order} element k-form:")
+        matrices = boundary_mass_matrices(order, basis, maps, ((1, 2), (-1, 2)), 1)
+        if order == 0:
+            ones = [np.ones(matrix.shape[1]) for matrix in matrices]
+            residual = np.max(np.abs(matrices[0] @ ones[0] - matrices[1] @ ones[1]))
+            print(f"    constant trace pairing residual = {residual:.3e}")
 
 
 def report_3d() -> None:
-    """Print 3D point, line, and face assembly and continuity checks."""
-    maps, basis, _ = make_3d_maps()
-    collections = make_3d_collections()
-    print("3D polynomial k-form: every component is the constant polynomial 1")
-    for face_dim, boundary_id, label in ((0, 0, "point"), (1, 0, "line"), (2, 2, "face")):
-        print(f"3D shared {label} boundary (object {boundary_id})")
-        for order in range(face_dim + 1):
-            test_specs = make_test_specs(face_dim, order)
-            element_specs = KFormSpecs(order, basis)
-            matrices = [
-                boundary_operator(
-                    test_specs,
-                    element_specs,
-                    maps[element_id],
-                    collections,
-                    12,
-                    element_id,
-                    boundary_id,
-                )
-                for element_id in range(2)
-            ]
-            element_values = [
-                np.ones(int(np.sum(element_specs.component_dof_counts))) for _ in maps
-            ]
-            traces = [
-                matrix @ element_values[element_id]
-                for element_id, matrix in enumerate(matrices)
-            ]
-            if order == 0:
-                residual = np.max(np.abs(traces[0] - traces[1]))
-                print(f"  k=0 constant test mode residual = {residual:.3e}")
-            elif face_dim == 1:
-                residual = np.max(np.abs(traces[0] - traces[1]))
-                print(f"  k=1 tangential one-form residual = {residual:.3e}")
-            else:
-                print(
-                    f"  k={order}: assembled all face components; compare with "
-                    "orientation-matched local DoFs"
-                )
+    """Assemble the shared-face boundary mass matrices of two hexahedra."""
+    maps, _, _ = make_3d_maps()
+    basis = make_element_basis(3)
+    print("3D shared face (boundary dimension 2)")
+    for order in range(3):
+        print(f"  k={order} element k-form:")
+        matrices = boundary_mass_matrices(order, basis, maps, ((1, 2, 3), (-1, 2, 3)), 2)
+        if order == 0:
+            ones = [np.ones(matrix.shape[1]) for matrix in matrices]
+            residual = np.max(np.abs(matrices[0] @ ones[0] - matrices[1] @ ones[1]))
+            print(f"    constant trace pairing residual = {residual:.3e}")
 
 
 def plot_geometry() -> None:

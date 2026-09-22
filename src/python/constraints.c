@@ -510,211 +510,6 @@ static PyObject *packed_kform_constraints_to_csr(PyObject *module, PyObject *con
     return result;
 }
 
-static PyObject *compute_kform_boundary_constraints(PyObject *module, PyObject *const *args, const Py_ssize_t nargs,
-                                                    const PyObject *kwnames)
-{
-    const interplib_module_state_t *state = PyModule_GetState(module);
-    if (!state)
-        return NULL;
-
-    PyObject *test_object;
-    PyObject *spec_object;
-    PyObject *map_object;
-    PyObject *collections_object;
-    Py_ssize_t npts;
-    Py_ssize_t element_id;
-    Py_ssize_t boundary_id;
-    if (parse_arguments_check(
-            (cpyutl_argument_t[]){
-                {.type = CPYARG_TYPE_PYTHON, .p_val = &test_object, .type_check = state->kform_specs_type},
-                {.type = CPYARG_TYPE_PYTHON, .p_val = &spec_object, .type_check = state->kform_specs_type},
-                {.type = CPYARG_TYPE_PYTHON, .p_val = &map_object, .type_check = state->space_mapping_type},
-                {.type = CPYARG_TYPE_PYTHON, .p_val = &collections_object},
-                {.type = CPYARG_TYPE_SSIZE, .p_val = &npts},
-                {.type = CPYARG_TYPE_SSIZE, .p_val = &element_id},
-                {.type = CPYARG_TYPE_SSIZE, .p_val = &boundary_id},
-                {},
-            },
-            args, nargs, kwnames) < 0)
-        return NULL;
-
-    kform_spec_object *const test_spec = (kform_spec_object *)test_object;
-    kform_spec_object *const element_spec = (kform_spec_object *)spec_object;
-    space_map_object *const element_map = (space_map_object *)map_object;
-    const unsigned face_dim = Py_SIZE(test_spec->function_space);
-    const unsigned order = test_spec->order;
-    const unsigned element_dim = Py_SIZE(element_spec->function_space);
-    if (npts < 0 || element_id < 0 || boundary_id < 0 || face_dim >= element_dim || element_spec->order != order ||
-        Py_SIZE(element_spec->function_space) != element_dim || element_map->ndim != element_dim)
-    {
-        PyErr_SetString(PyExc_ValueError, "Incompatible test, element, or topology dimensions.");
-        return NULL;
-    }
-    if (!PyTuple_Check(collections_object) || PyTuple_GET_SIZE(collections_object) != element_dim)
-    {
-        PyErr_Format(PyExc_ValueError, "Expected %u mesh collections.", element_dim);
-        return NULL;
-    }
-
-    boundary_topology_t topology;
-    if (make_boundary_topology(collections_object, element_dim, (unsigned)npts, &topology) < 0)
-        return NULL;
-    const unsigned boundary_immersion_index = face_dim;
-    const topo_status_t topo_status =
-        topo_obj_boundary_orientation(topology.immersions + boundary_immersion_index, element_dim,
-                                      (uint64_t)boundary_id, (uint64_t)element_id, topology.orientation);
-    if (topo_status != TOPO_SUCCESS)
-    {
-        PyErr_Format(PyExc_ValueError, "Boundary %zd is not present in element %zd: %s (%s).", boundary_id, element_id,
-                     topo_status_to_str(topo_status), topo_status_msg(topo_status));
-        release_boundary_topology(element_dim, &topology);
-        return NULL;
-    }
-
-    PyObject *const result =
-        compute_kform_boundary_constraints_impl(state, test_spec, element_spec, element_map, topology.orientation);
-    release_boundary_topology(element_dim, &topology);
-    return result;
-}
-
-PyObject *compute_kform_boundary_constraints_impl(const interplib_module_state_t *state, kform_spec_object *test_spec,
-                                                  kform_spec_object *element_spec, space_map_object *element_map,
-                                                  const int8_t *orientation)
-{
-    const unsigned face_dim = Py_SIZE(test_spec->function_space);
-    const unsigned order = test_spec->order;
-    const unsigned element_dim = Py_SIZE(element_spec->function_space);
-
-    boundary_face_setup_t setup;
-    if (make_boundary_face_setup(state, element_map, orientation, element_dim, face_dim, &setup) < 0)
-        return NULL;
-    space_map_object *const face_map = setup.face_map;
-    const integration_spec_t *const face_specs = face_map->int_specs;
-
-    PyArrayObject *transform = NULL;
-    double *pullback_values = NULL;
-    double *surface_weights = NULL;
-    trace_basis_table_t test_table = {};
-    trace_basis_table_t element_table = {};
-    PyArrayObject *row_array = NULL;
-    PyArrayObject *component_array = NULL;
-    PyArrayObject *dof_array = NULL;
-    PyArrayObject *coefficient_array = NULL;
-
-    const unsigned physical_components = combination_total_count((uint8_t)Py_SIZE(element_map), (uint8_t)order);
-    const unsigned element_components = combination_total_count((uint8_t)element_dim, (uint8_t)order);
-    if (order != 0)
-    {
-        transform = compute_basis_transform_impl(face_map, order);
-        if (!transform)
-            goto fail;
-    }
-    pullback_values =
-        PyMem_Malloc(sizeof(*pullback_values) * (size_t)element_components * physical_components * setup.point_count);
-    if (!pullback_values)
-        goto fail;
-    const constraint_trace_pullback_build_t build = {
-        .element_dim = element_dim,
-        .face_dim = face_dim,
-        .order = order,
-        .face_component_count = combination_total_count((uint8_t)face_dim, (uint8_t)order),
-        .physical_component_count = physical_components,
-        .source_point_count = integration_specs_total_points(face_dim, face_specs),
-        .canonical_point_count = setup.point_count,
-        .source_strides = setup.source_strides,
-        .canonical_strides = setup.canonical_strides,
-        .orientation = orientation,
-        .source_specs = face_specs,
-        .canonical_specs = setup.canonical_specs,
-        .transform = transform ? (const double *)PyArray_DATA(transform) : NULL,
-        .out = pullback_values,
-    };
-    constraint_trace_pullback_build(&build);
-    Py_CLEAR(transform);
-
-    // The surface measure sampled at the canonical face points.
-    surface_weights = PyMem_Malloc(sizeof(*surface_weights) * setup.point_count);
-    if (!surface_weights)
-        goto fail;
-    for (size_t point = 0; point < setup.point_count; ++point)
-    {
-        const size_t source_point =
-            constraint_face_point_to_source(element_dim, face_dim, orientation, face_specs, setup.canonical_specs,
-                                            setup.canonical_strides, setup.source_strides, point);
-        surface_weights[point] = fabs(face_map->determinant[source_point]);
-    }
-
-    basis_registry_object *const basis_registry = (basis_registry_object *)state->registry_basis;
-    if (make_trace_basis_table(element_dim, face_dim, order, test_spec->function_space->specs, orientation,
-                               setup.canonical_specs, setup.canonical_rules, setup.canonical_strides, basis_registry,
-                               false, setup.point_count, &test_table) < 0)
-        goto fail;
-    if (make_trace_basis_table(element_dim, face_dim, order, element_spec->function_space->specs, orientation,
-                               setup.canonical_specs, setup.canonical_rules, setup.canonical_strides, basis_registry,
-                               true, setup.point_count, &element_table) < 0)
-        goto fail;
-
-    const kform_spec_t test_descriptor = {.ndim = face_dim, .order = order, .basis = test_spec->function_space->specs};
-    const constraint_element_side_t side_descriptor = {
-        .ndim = element_dim, .basis_specs = element_spec->function_space->specs, .orientation = orientation};
-    const constraint_trace_pullback_t pullback_descriptor = {
-        .physical_component_count = physical_components, .point_count = setup.point_count, .values = pullback_values};
-    const constraint_assembly_inputs_t inputs = {.point_weights = setup.point_weights,
-                                                 .surface_weights = surface_weights,
-                                                 .test_table = &test_table.descriptor,
-                                                 .element_table = &element_table.descriptor,
-                                                 .pullback = &pullback_descriptor};
-    size_t row_count;
-    size_t entry_count;
-    constraint_physical_side_layout(&test_descriptor, &side_descriptor, &row_count, &entry_count);
-    const npy_intp row_dims[1] = {(npy_intp)(row_count + 1)};
-    const npy_intp entry_dims[1] = {(npy_intp)entry_count};
-    row_array = (PyArrayObject *)PyArray_SimpleNew(1, row_dims, NPY_UINTP);
-    component_array = (PyArrayObject *)PyArray_SimpleNew(1, entry_dims, NPY_UINT32);
-    dof_array = (PyArrayObject *)PyArray_SimpleNew(1, entry_dims, NPY_UINTP);
-    coefficient_array = (PyArrayObject *)PyArray_SimpleNew(1, entry_dims, NPY_DOUBLE);
-    if (!row_array || !component_array || !dof_array || !coefficient_array)
-        goto fail;
-    constraint_physical_side_assemble(&test_descriptor, &side_descriptor, &inputs,
-                                      (uint32_t *)PyArray_DATA(component_array), (size_t *)PyArray_DATA(dof_array),
-                                      (double *)PyArray_DATA(coefficient_array), (size_t *)PyArray_DATA(row_array));
-
-    PyMem_Free(surface_weights);
-    release_trace_basis_table(&test_table);
-    release_trace_basis_table(&element_table);
-    PyMem_Free(pullback_values);
-    release_boundary_face_setup(state, face_dim, &setup);
-    {
-        PyObject *result = PyTuple_New(4);
-        if (!result)
-        {
-            Py_DECREF(row_array);
-            Py_DECREF(component_array);
-            Py_DECREF(dof_array);
-            Py_DECREF(coefficient_array);
-            return NULL;
-        }
-        PyTuple_SET_ITEM(result, 0, row_array);
-        PyTuple_SET_ITEM(result, 1, component_array);
-        PyTuple_SET_ITEM(result, 2, dof_array);
-        PyTuple_SET_ITEM(result, 3, coefficient_array);
-        return result;
-    }
-
-fail:
-    Py_XDECREF(row_array);
-    Py_XDECREF(component_array);
-    Py_XDECREF(dof_array);
-    Py_XDECREF(coefficient_array);
-    Py_XDECREF(transform);
-    PyMem_Free(surface_weights);
-    release_trace_basis_table(&test_table);
-    release_trace_basis_table(&element_table);
-    PyMem_Free(pullback_values);
-    release_boundary_face_setup(state, face_dim, &setup);
-    return NULL;
-}
-
 /** Packs the five reference constraint arrays into the returned tuple. */
 static PyObject *compute_kform_boundary_load(PyObject *module, PyObject *const *args, const Py_ssize_t nargs,
                                              const PyObject *kwnames)
@@ -1007,8 +802,15 @@ static int parse_orientation_sequence(PyObject *object, const unsigned ndim, int
     return 0;
 }
 
-static PyObject *compute_kform_boundary_mass_matrices(PyObject *module, PyObject *const *args, const Py_ssize_t nargs,
-                                                      const PyObject *kwnames)
+/**
+ * @brief Shared assembly core for the boundary mass bindings.
+ *
+ * Both the inter-element batch route (two or more sides) and the prescribed
+ * trace-moments route (one side) run this core; the caller's `nelem_min`
+ * states its contract.
+ */
+static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args, const Py_ssize_t nargs,
+                                        const PyObject *kwnames, const Py_ssize_t nelem_min)
 {
     const interplib_module_state_t *state = PyModule_GetState(module);
     if (!state)
@@ -1017,7 +819,9 @@ static PyObject *compute_kform_boundary_mass_matrices(PyObject *module, PyObject
     PyObject *orientations_object;
     PyObject *integrations_object;
     PyObject *axis_skip_object = Py_None;
+    PyObject *maps_object = Py_None;
     Py_ssize_t boundary_dim = -1;
+    int shared_face = 1;
     int c1_continuous = 0;
     int packed = 0;
     if (parse_arguments_check(
@@ -1030,11 +834,17 @@ static PyObject *compute_kform_boundary_mass_matrices(PyObject *module, PyObject
                  .kwname = "axis_skip",
                  .optional = 1,
                  .kw_only = 1},
+                {.type = CPYARG_TYPE_PYTHON,
+                 .p_val = &maps_object,
+                 .kwname = "element_maps",
+                 .optional = 1,
+                 .kw_only = 1},
                 {.type = CPYARG_TYPE_SSIZE,
                  .p_val = &boundary_dim,
                  .kwname = "boundary_dimension",
                  .optional = 1,
                  .kw_only = 1},
+                {.type = CPYARG_TYPE_BOOL, .p_val = &shared_face, .kwname = "shared_face", .optional = 1, .kw_only = 1},
                 {.type = CPYARG_TYPE_BOOL,
                  .p_val = &c1_continuous,
                  .kwname = "c1_continuous",
@@ -1058,12 +868,13 @@ static PyObject *compute_kform_boundary_mass_matrices(PyObject *module, PyObject
         return NULL;
     }
     const Py_ssize_t nelem_ssize = PySequence_Fast_GET_SIZE(specs_seq);
-    if (nelem_ssize < 2 || PySequence_Fast_GET_SIZE(orientations_seq) != nelem_ssize ||
+    if (nelem_ssize < nelem_min || PySequence_Fast_GET_SIZE(orientations_seq) != nelem_ssize ||
         PySequence_Fast_GET_SIZE(integrations_seq) != nelem_ssize)
     {
-        PyErr_SetString(PyExc_ValueError,
-                        "element_specs, orientations, and element_integrations must be equal-length sequences of at "
-                        "least two elements.");
+        PyErr_Format(PyExc_ValueError,
+                     "element_specs, orientations, and element_integrations must be equal-length sequences of at "
+                     "least %zd element%s.",
+                     nelem_min, nelem_min == 1 ? "" : "s");
         Py_DECREF(specs_seq);
         Py_DECREF(orientations_seq);
         Py_DECREF(integrations_seq);
@@ -1073,18 +884,74 @@ static PyObject *compute_kform_boundary_mass_matrices(PyObject *module, PyObject
     const unsigned ndim = (unsigned)Py_SIZE(first_spec->function_space);
     const unsigned order = first_spec->order;
     const unsigned bdim = boundary_dim >= 0 ? (unsigned)boundary_dim : ndim - 1u;
-    if (bdim == 0 || bdim >= ndim)
+    if (bdim >= ndim || (bdim == 0 && order != 0))
     {
-        PyErr_Format(PyExc_ValueError, "Boundary dimension %u is not in [1, %u).", bdim, ndim);
+        PyErr_Format(PyExc_ValueError, "Boundary dimension %u is not in [0, %u) with a matching form order.", bdim,
+                     ndim);
         Py_DECREF(specs_seq);
         Py_DECREF(orientations_seq);
         Py_DECREF(integrations_seq);
         return NULL;
     }
     const size_t nelem = (size_t)nelem_ssize;
+    // Physical sampling: element maps override the reference rules with each
+    // face's own geometry sampling. C1-continuous requests ignore the maps.
+    PyObject *maps_seq = NULL;
+    const int physical = !c1_continuous && maps_object != Py_None;
+    if (physical)
+    {
+        maps_seq = PySequence_Fast(maps_object, "element_maps must be a sequence of SpaceMaps.");
+        if (!maps_seq)
+        {
+            Py_DECREF(specs_seq);
+            Py_DECREF(orientations_seq);
+            Py_DECREF(integrations_seq);
+            return NULL;
+        }
+        if (PySequence_Fast_GET_SIZE(maps_seq) != nelem_ssize)
+        {
+            PyErr_SetString(PyExc_ValueError, "element_maps must match the element count.");
+            Py_DECREF(maps_seq);
+            Py_DECREF(specs_seq);
+            Py_DECREF(orientations_seq);
+            Py_DECREF(integrations_seq);
+            return NULL;
+        }
+        for (Py_ssize_t element = 0; element < nelem_ssize; ++element)
+        {
+            if (!PyObject_TypeCheck(PySequence_Fast_GET_ITEM(maps_seq, element), state->space_mapping_type))
+            {
+                PyErr_SetString(PyExc_ValueError, "element_maps entries must all be SpaceMaps.");
+                Py_DECREF(maps_seq);
+                Py_DECREF(specs_seq);
+                Py_DECREF(orientations_seq);
+                Py_DECREF(integrations_seq);
+                return NULL;
+            }
+        }
+    }
     // Live from the prepare call onwards; declared before any failure jump so
     // the cleanup path never reads an uninitialized flag.
     int plan_live = 0;
+
+    // Physical factors per element: face setups, sampled surface weights and
+    // k-form pullbacks. Allocated up front so the cleanup label releases them
+    // on any failure path.
+    boundary_face_setup_t *setups = physical ? PyMem_Calloc(nelem, sizeof(*setups)) : NULL;
+    PyArrayObject **transforms = physical ? PyMem_Calloc(nelem, sizeof(*transforms)) : NULL;
+    double **pullback_values = physical ? PyMem_Calloc(nelem, sizeof(*pullback_values)) : NULL;
+    double **element_pullback_values = physical ? PyMem_Calloc(nelem, sizeof(*element_pullback_values)) : NULL;
+    double **surface_weights = physical ? PyMem_Calloc(nelem, sizeof(*surface_weights)) : NULL;
+    constraint_trace_pullback_t *pullbacks = physical ? PyMem_Calloc(nelem, sizeof(*pullbacks)) : NULL;
+    constraint_trace_pullback_t *element_pullbacks = physical ? PyMem_Calloc(nelem, sizeof(*element_pullbacks)) : NULL;
+    const constraint_trace_pullback_t **test_pullback_pointers =
+        physical ? PyMem_Malloc(nelem * sizeof(*test_pullback_pointers)) : NULL;
+    const constraint_trace_pullback_t **element_pullback_pointers =
+        physical ? PyMem_Malloc(nelem * sizeof(*element_pullback_pointers)) : NULL;
+    const double **surface_rows = physical ? PyMem_Malloc(nelem * sizeof(*surface_rows)) : NULL;
+    // Per-element integration rules: the reference mode reads the given
+    // IntegrationSpaces, the physical mode the canonical face specs.
+    integration_spec_t *element_integrations = PyMem_Malloc(nelem * ndim * sizeof(*element_integrations));
 
     // Plan and work arrays. Every buffer is allocated (or NULL) up front so
     // the single cleanup label can release them on any failure path; the plan
@@ -1136,7 +1003,10 @@ static PyObject *compute_kform_boundary_mass_matrices(PyObject *module, PyObject
         !work.mass.point_strides || !work.mass.row_offsets || !work.mass.col_offsets || !work.mass.element_components ||
         !work.mass.element_signs || !work.mass.axes || !work.mass.counts || !work.mass.offsets ||
         !work.mass.axis_sets || !work.mass.digits || !work.mass.axis_tables || !work.mass.mapped_axes ||
-        !work.mass.components || !work.mass.blocks)
+        !work.mass.components || !work.mass.blocks || !element_integrations ||
+        (physical &&
+         (!setups || !transforms || !pullback_values || !element_pullback_values || !surface_weights || !pullbacks ||
+          !element_pullbacks || !test_pullback_pointers || !element_pullback_pointers || !surface_rows)))
     {
         PyErr_NoMemory();
         goto fail_memory;
@@ -1161,10 +1031,34 @@ static PyObject *compute_kform_boundary_mass_matrices(PyObject *module, PyObject
         {
             goto fail_memory;
         }
+        memcpy(element_integrations + element * ndim, ((integration_space_object *)integration)->specs,
+               ndim * sizeof(*element_integrations));
         views[element] = (boundary_element_space_t){.order = order,
                                                     .orientation = orientations + element * ndim,
                                                     .basis = spec->function_space->specs,
-                                                    .integration = ((integration_space_object *)integration)->specs};
+                                                    .integration = element_integrations + element * ndim};
+    }
+
+    // Physical mode: restrict each element map to its face and adopt the
+    // face's canonical sampling as the element's integration rules. Fixed
+    // normal axes read endpoint values only, so they keep the given rules.
+    if (physical)
+    {
+        for (size_t element = 0; element < nelem; ++element)
+        {
+            if (make_boundary_face_setup(state,
+                                         (space_map_object *)PySequence_Fast_GET_ITEM(maps_seq, (Py_ssize_t)element),
+                                         orientations + element * ndim, ndim, bdim, &setups[element]) < 0)
+            {
+                goto fail_memory;
+            }
+            for (unsigned slot = 0; slot < bdim; ++slot)
+            {
+                const int8_t mapping = orientations[element * ndim + ndim - bdim + slot];
+                const unsigned element_axis = (unsigned)(mapping < 0 ? -mapping : mapping) - 1;
+                element_integrations[element * ndim + element_axis] = setups[element].canonical_specs[slot];
+            }
+        }
     }
 
     if (axis_skip_object != Py_None)
@@ -1206,6 +1100,7 @@ static PyObject *compute_kform_boundary_mass_matrices(PyObject *module, PyObject
         .elements = views,
         .axis_skip = axis_skip,
         .c1_continuous = c1_continuous != 0,
+        .shared_face_guard = shared_face != 0,
         .surface_weights = NULL,
         .test_pullbacks = NULL,
         .element_pullbacks = NULL,
@@ -1238,6 +1133,115 @@ static PyObject *compute_kform_boundary_mass_matrices(PyObject *module, PyObject
         goto fail_memory;
     }
 
+    // Physical factors at the common frame: the surface measure and the
+    // k-form pullback of each face. All faces must share one geometry
+    // sampling order so the merged common rules resolve them exactly. A form
+    // of order past the object dimension has no trace components and yields
+    // no rows, so nothing is sampled for it.
+    if (physical && order <= bdim)
+    {
+        for (size_t element = 0; element < nelem; ++element)
+        {
+            for (unsigned slot = 0; slot < bdim; ++slot)
+            {
+                if (setups[element].canonical_specs[slot].order != out_integration[slot].order ||
+                    setups[element].canonical_specs[slot].type != out_integration[slot].type)
+                {
+                    PyErr_SetString(PyExc_ValueError,
+                                    "Faces with differing geometry sampling orders are not supported.");
+                    goto fail_memory;
+                }
+            }
+        }
+        const unsigned physical_component_count = (unsigned)combination_total_count((uint8_t)ndim, (uint8_t)order);
+        for (size_t element = 0; element < nelem; ++element)
+        {
+            const boundary_face_setup_t *const setup = &setups[element];
+            space_map_object *const face_map = setup->face_map;
+            surface_weights[element] = PyMem_Malloc(setup->point_count * sizeof(*surface_weights[element]));
+            if (!surface_weights[element])
+            {
+                PyErr_NoMemory();
+                goto fail_memory;
+            }
+            for (size_t point = 0; point < setup->point_count; ++point)
+            {
+                const size_t source_point = constraint_face_point_to_source(
+                    ndim, bdim, orientations + element * ndim, face_map->int_specs, setup->canonical_specs,
+                    setup->canonical_strides, setup->source_strides, point);
+                surface_weights[element][point] = fabs(face_map->determinant[source_point]);
+            }
+            if (order > 0)
+            {
+                // Both pullback variants share one sizing: the element
+                // variant writes one row per element component, the
+                // canonical variant one per face component, and the element
+                // count is the larger.
+                const size_t pullback_values_size = (size_t)combination_total_count((uint8_t)ndim, (uint8_t)order) *
+                                                    physical_component_count * setup->point_count;
+                transforms[element] = compute_basis_transform_impl(face_map, (Py_ssize_t)order);
+                pullback_values[element] = PyMem_Malloc(pullback_values_size * sizeof(*pullback_values[element]));
+                element_pullback_values[element] =
+                    PyMem_Malloc(pullback_values_size * sizeof(*element_pullback_values[element]));
+                if (!transforms[element] || !pullback_values[element] || !element_pullback_values[element])
+                {
+                    PyErr_NoMemory();
+                    goto fail_memory;
+                }
+                const constraint_trace_pullback_build_t build = {
+                    .element_dim = ndim,
+                    .face_dim = bdim,
+                    .order = order,
+                    .face_component_count = (unsigned)component_count,
+                    .physical_component_count = physical_component_count,
+                    .source_point_count = integration_specs_total_points(bdim, face_map->int_specs),
+                    .canonical_point_count = setup->point_count,
+                    .source_strides = setup->source_strides,
+                    .canonical_strides = setup->canonical_strides,
+                    .orientation = orientations + element * ndim,
+                    .source_specs = face_map->int_specs,
+                    .canonical_specs = setup->canonical_specs,
+                    .transform = (const double *)PyArray_DATA(transforms[element]),
+                    .out = pullback_values[element],
+                    .canonical_components = true};
+                constraint_trace_pullback_build(&build);
+                const constraint_trace_pullback_build_t element_build = {
+                    .element_dim = build.element_dim,
+                    .face_dim = build.face_dim,
+                    .order = build.order,
+                    .face_component_count = build.face_component_count,
+                    .physical_component_count = build.physical_component_count,
+                    .source_point_count = build.source_point_count,
+                    .canonical_point_count = build.canonical_point_count,
+                    .source_strides = build.source_strides,
+                    .canonical_strides = build.canonical_strides,
+                    .orientation = build.orientation,
+                    .source_specs = build.source_specs,
+                    .canonical_specs = build.canonical_specs,
+                    .transform = build.transform,
+                    .out = element_pullback_values[element],
+                    .element_components = true};
+                constraint_trace_pullback_build(&element_build);
+                pullbacks[element] = (constraint_trace_pullback_t){.physical_component_count = physical_component_count,
+                                                                   .point_count = setup->point_count,
+                                                                   .values = pullback_values[element]};
+                element_pullbacks[element] =
+                    (constraint_trace_pullback_t){.physical_component_count = physical_component_count,
+                                                  .point_count = setup->point_count,
+                                                  .values = element_pullback_values[element]};
+            }
+        }
+        for (size_t element = 0; element < nelem; ++element)
+        {
+            surface_rows[element] = surface_weights[element];
+            test_pullback_pointers[element] = &pullbacks[element];
+            element_pullback_pointers[element] = &element_pullbacks[element];
+        }
+        request.surface_weights = surface_rows;
+        request.test_pullbacks = order > 0 ? test_pullback_pointers : NULL;
+        request.element_pullbacks = order > 0 ? element_pullback_pointers : NULL;
+    }
+
     PyArrayObject *const arena =
         (PyArrayObject *)PyArray_SimpleNew(1, &(npy_intp){(npy_intp)plan.total_values}, NPY_DOUBLE);
     if (!arena)
@@ -1263,12 +1267,20 @@ static PyObject *compute_kform_boundary_mass_matrices(PyObject *module, PyObject
     constrain_elements_on_boundary_assemble(&request, &plan, &work, (double *)PyArray_DATA(arena));
     Py_END_ALLOW_THREADS;
 
-    // Common boundary space as Python objects.
+    // Common boundary space as Python objects. A form of order past the
+    // object dimension has no trace on the boundary and no representable
+    // common specs, so the pair is returned as None.
     function_space_object *const common_space =
         function_space_object_create(state->function_space_type, bdim, out_basis);
-    PyObject *const common_specs = common_space ? PyObject_CallFunction((PyObject *)state->kform_specs_type, "nO",
-                                                                        (Py_ssize_t)order, (PyObject *)common_space)
-                                                : NULL;
+    PyObject *common_specs = (order <= bdim && common_space)
+                                 ? PyObject_CallFunction((PyObject *)state->kform_specs_type, "nO", (Py_ssize_t)order,
+                                                         (PyObject *)common_space)
+                                 : NULL;
+    if (order > bdim)
+    {
+        common_specs = Py_None;
+        Py_INCREF(common_specs);
+    }
     Py_XDECREF(common_space);
     integration_space_object *const common_integration =
         (integration_space_object *)state->integration_space_type->tp_alloc(state->integration_space_type,
@@ -1324,7 +1336,8 @@ static PyObject *compute_kform_boundary_mass_matrices(PyObject *module, PyObject
             size_t rows;
             size_t cols;
             size_t entries;
-            constraint_boundary_mass_layout(&spec, &work.mass, false, &rows, &cols, &entries);
+            const int coupled = physical && order > 0;
+            constraint_boundary_mass_layout(&spec, &work.mass, coupled, &rows, &cols, &entries);
             const npy_intp entry_dims[1] = {(npy_intp)entries};
             const npy_intp row_dims[1] = {(npy_intp)(rows + 1)};
             PyArrayObject *const side_array = (PyArrayObject *)PyArray_SimpleNew(1, entry_dims, NPY_UINT8);
@@ -1346,8 +1359,8 @@ static PyObject *compute_kform_boundary_mass_matrices(PyObject *module, PyObject
                 Py_DECREF(arena);
                 goto fail_memory;
             }
-            constraint_boundary_mass_pack(&spec, &work.mass, false, (const double *)PyArray_DATA(matrix), (size_t)cols,
-                                          1.0, (uint8_t)element, (uint8_t *)PyArray_DATA(side_array),
+            constraint_boundary_mass_pack(&spec, &work.mass, coupled, (const double *)PyArray_DATA(matrix),
+                                          (size_t)cols, 1.0, (uint8_t)element, (uint8_t *)PyArray_DATA(side_array),
                                           (uint32_t *)PyArray_DATA(component_array), (size_t *)PyArray_DATA(dof_array),
                                           (double *)PyArray_DATA(coefficient_array), (size_t *)PyArray_DATA(row_array));
             PyObject *const item =
@@ -1370,6 +1383,29 @@ static PyObject *compute_kform_boundary_mass_matrices(PyObject *module, PyObject
         }
     }
 
+    if (physical)
+    {
+        for (size_t element = 0; element < nelem; ++element)
+        {
+            release_boundary_face_setup(state, bdim, &setups[element]);
+            Py_XDECREF(transforms[element]);
+            PyMem_Free(element_pullback_values[element]);
+            PyMem_Free(pullback_values[element]);
+            PyMem_Free(surface_weights[element]);
+        }
+        PyMem_Free(surface_rows);
+        PyMem_Free(element_pullback_pointers);
+        PyMem_Free(test_pullback_pointers);
+        PyMem_Free(element_pullbacks);
+        PyMem_Free(pullbacks);
+        PyMem_Free(surface_weights);
+        PyMem_Free(element_pullback_values);
+        PyMem_Free(pullback_values);
+        PyMem_Free(transforms);
+        PyMem_Free(setups);
+        Py_DECREF(maps_seq);
+    }
+    PyMem_Free(element_integrations);
     PyMem_Free(out_integration);
     PyMem_Free(out_basis);
     PyMem_Free(item_offsets);
@@ -1400,6 +1436,32 @@ fail_memory:
         constrain_elements_on_boundary_plan_release(&plan);
         Py_END_ALLOW_THREADS;
     }
+    if (physical)
+    {
+        for (size_t element = 0; element < nelem; ++element)
+        {
+            if (setups[element].face_object)
+            {
+                release_boundary_face_setup(state, bdim, &setups[element]);
+            }
+            Py_XDECREF(transforms[element]);
+            PyMem_Free(element_pullback_values[element]);
+            PyMem_Free(pullback_values[element]);
+            PyMem_Free(surface_weights[element]);
+        }
+        PyMem_Free(surface_rows);
+        PyMem_Free(element_pullback_pointers);
+        PyMem_Free(test_pullback_pointers);
+        PyMem_Free(element_pullbacks);
+        PyMem_Free(pullbacks);
+        PyMem_Free(surface_weights);
+        PyMem_Free(element_pullback_values);
+        PyMem_Free(pullback_values);
+        PyMem_Free(transforms);
+        PyMem_Free(setups);
+        Py_DECREF(maps_seq);
+    }
+    PyMem_Free(element_integrations);
     PyMem_Free(work.mass.point_factors);
     PyMem_Free(work.mass.col_values);
     PyMem_Free(work.mass.row_values);
@@ -1442,6 +1504,22 @@ fail_memory:
     Py_DECREF(orientations_seq);
     Py_DECREF(integrations_seq);
     return NULL;
+}
+
+static PyObject *compute_kform_boundary_mass_matrices(PyObject *module, PyObject *const *args, const Py_ssize_t nargs,
+                                                      const PyObject *kwnames)
+{
+    // Inter-element route: two or more incident sides pair against one
+    // common boundary space.
+    return boundary_mass_assemble(module, args, nargs, kwnames, 2);
+}
+
+static PyObject *compute_kform_boundary_trace_moments(PyObject *module, PyObject *const *args, const Py_ssize_t nargs,
+                                                      const PyObject *kwnames)
+{
+    // Prescribed-data route: one element's trace rows against the common
+    // boundary space; the caller binds its own right-hand side.
+    return boundary_mass_assemble(module, args, nargs, kwnames, 1);
 }
 
 static PyObject *compute_boundary_space_map_factors(PyObject *module, PyObject *const *args, const Py_ssize_t nargs,
@@ -1591,14 +1669,6 @@ PyMethodDef constraint_methods[] = {
             "tuple[numpy.ndarray, ...]\nConvert packed global k-form rows to CSR data, indices, and indptr arrays.",
     },
     {
-        .ml_name = "compute_kform_boundary_constraints",
-        .ml_meth = (void *)compute_kform_boundary_constraints,
-        .ml_flags = METH_FASTCALL | METH_KEYWORDS,
-        .ml_doc = "compute_kform_boundary_constraints(test_specs, element_spec, element_map, collections, npts, "
-                  "element_id, boundary_id) -> tuple[numpy.ndarray, ...]\nCompute one element's physical k-form "
-                  "boundary rows.",
-    },
-    {
         .ml_name = "compute_kform_boundary_load",
         .ml_meth = (void *)compute_kform_boundary_load,
         .ml_flags = METH_FASTCALL | METH_KEYWORDS,
@@ -1616,12 +1686,31 @@ PyMethodDef constraint_methods[] = {
         .ml_meth = (void *)compute_kform_boundary_mass_matrices,
         .ml_flags = METH_FASTCALL | METH_KEYWORDS,
         .ml_doc = "compute_kform_boundary_mass_matrices(element_specs, orientations, element_integrations, "
-                  "axis_skip=None, *, boundary_dimension=None, c1_continuous=False, packed=False) -> tuple\n"
-                  "Assemble every incident element's mass matrix against the common boundary space of one shared "
-                  "object. Returns (common KFormSpecs, common IntegrationSpace, per-element dense matrices, "
+                  "axis_skip=None, element_maps=None, *, boundary_dimension=None, shared_face=True, "
+                  "c1_continuous=False, packed=False) -> tuple\n"
+                  "Assemble at least two incident elements' mass matrices against the common boundary space of one "
+                  "shared object. Returns (common KFormSpecs, common IntegrationSpace, per-element dense matrices, "
                   "per-element packed COO tuples or None). Rows are the common Legendre k-form test space with "
                   "axis_skip[axis] lowest functions removed on inactive axes; columns are the mapped element trace "
-                  "DoFs. Coefficients carry the orientation signs but no side signs.",
+                  "DoFs. boundary_dimension may be zero for scalar traces: point rows pair vertex value "
+                  "functionals through the endpoint tables. shared_face=False skips the debug surface-measure "
+                  "and pullback-moment agreement guard for sides that are distinct physical faces (periodic "
+                  "pairs). Coefficients carry the orientation signs but no side signs. With element_maps (one "
+                  "SpaceMap per element) the assembly samples each face's surface measure and k-form "
+                  "pullback on its own canonical grid; C1-continuous requests ignore the maps.",
+    },
+    {
+        .ml_name = "compute_kform_boundary_trace_moments",
+        .ml_meth = (void *)compute_kform_boundary_trace_moments,
+        .ml_flags = METH_FASTCALL | METH_KEYWORDS,
+        .ml_doc = "compute_kform_boundary_trace_moments(element_specs, orientations, element_integrations, "
+                  "axis_skip=None, element_maps=None, *, boundary_dimension=None, shared_face=True, "
+                  "c1_continuous=False, packed=False) -> tuple\n"
+                  "Assemble one element's trace mass rows against the common boundary space: the explicit "
+                  "prescribed-data interface behind strong boundary conditions. Returns (common KFormSpecs, "
+                  "common IntegrationSpace, dense matrix, packed COO tuple or None) with the same row and "
+                  "column conventions as compute_kform_boundary_mass_matrices; bind a right-hand side by "
+                  "multiplying the rows with the mapped data DoFs.",
     },
     {
         .ml_name = "compute_boundary_space_map_factors",

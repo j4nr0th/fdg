@@ -13,6 +13,7 @@ from fdg._fdg import (
     KFormSpecs,
     MeshGeometry,
     SpaceMap,
+    compute_kform_boundary_mass_matrices,
 )
 from fdg.enum_type import BasisType
 
@@ -222,20 +223,29 @@ def test_geometry_maps_feed_boundary_constraints(
 ) -> None:
     """Store-built maps are interchangeable with manually built maps."""
     element_specs = KFormSpecs(1, GEOM_BASIS)
-    test_specs = KFormSpecs(1, FunctionSpace(BasisSpecs(BasisType.LEGENDRE, 1)))
 
     shared = mesh.iterate_shared(1)[0]
-    object_id = int(shared[1])
-    element_id = int(shared[2][0])
+    element_ids = [int(element_id) for element_id in shared[2]]
+    orientations = [[int(v) for v in record] for record in shared[3]]
 
-    stored_map = geometry.space_map(element_id)
-    manual_map = _affine_map(element_id, INTEGRATION)
+    stored_maps = [geometry.space_map(element_id) for element_id in element_ids]
+    manual_maps = [_affine_map(element_id, INTEGRATION) for element_id in element_ids]
 
-    stored_result = mesh.compute_kform_boundary_constraints(
-        test_specs, element_specs, stored_map, element_id, object_id
+    stored_result = compute_kform_boundary_mass_matrices(
+        [element_specs for _ in element_ids],
+        orientations,
+        [space_map.integration_space for space_map in stored_maps],
+        element_maps=stored_maps,
+        boundary_dimension=1,
+        axis_skip=(2,),
     )
-    manual_result = mesh.compute_kform_boundary_constraints(
-        test_specs, element_specs, manual_map, element_id, object_id
+    manual_result = compute_kform_boundary_mass_matrices(
+        [element_specs for _ in element_ids],
+        orientations,
+        [space_map.integration_space for space_map in manual_maps],
+        element_maps=manual_maps,
+        boundary_dimension=1,
+        axis_skip=(2,),
     )
-    for expected, actual in zip(manual_result, stored_result):
+    for expected, actual in zip(manual_result[2], stored_result[2]):
         np.testing.assert_array_equal(actual, expected)

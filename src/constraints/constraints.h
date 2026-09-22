@@ -59,41 +59,6 @@ typedef struct
 } boundary_element_space_t;
 
 /**
- * @brief Inputs describing the common boundary space of one shared object.
- */
-typedef struct
-{
-    unsigned ndim;                            ///< Element dimension, at least 2.
-    unsigned bdim;                            ///< Boundary dimension, in `[1, ndim)`.
-    unsigned nelem;                           ///< Incident element count, at least 2.
-    const boundary_element_space_t *elements; ///< [nelem] Per-element views.
-} boundary_common_space_request_t;
-
-/**
- * @brief Determine the common boundary space for a set of elements.
- *
- * Based on information about the boundary in all the elements it is contained in
- * a common basis and integration spaces are determined. These specify the basis
- * orders such that all the solutions can be fully resolved. The integration rules
- * are instead of the highest accuracy, to allow integration without any precision
- * loss compared to all elements.
- * For the sake of consistency, the resulting boundary space is always set to use
- * Legendre basis for all dimensions. This is for the reason, that when constraints
- * are assembled with C1 continuous space maps, the resulting constraints are
- * very sparse.
- *
- * Every element view must satisfy the #boundary_element_space_t array lengths
- * against the request's `ndim`, and its orientation record must be a signed
- * one-based permutation whose fixed-axis prefix increases in absolute value.
- *
- * @param request Filled request; read-only.
- * @param out_basis [bdim] Boundary-axis basis specifications.
- * @param out_integration [bdim] Boundary-axis integration rules.
- */
-void boundary_common_space(const boundary_common_space_request_t *request, basis_spec_t *out_basis,
-                           integration_spec_t *out_integration);
-
-/**
  * @brief Sampled tangential pullback of a physical k-form on a face.
  *
  * `values` holds `element_component_count * physical_component_count *
@@ -106,21 +71,6 @@ typedef struct
     const double *values;              ///< Sampled pullback values.
 } constraint_trace_pullback_t;
 
-/**
- * @brief Precomputed inputs for one side of a physical trace assembly.
- *
- * The test and element tables are built on the same canonical face points,
- * and `point_weights` carries the canonical tensor-product quadrature weight
- * of each point.
- */
-typedef struct
-{
-    const double *point_weights;                 ///< [point_count] canonical quadrature weights.
-    const double *surface_weights;               ///< [point_count] optional face measure, NULL = unweighted.
-    const kform_values_table_t *test_table;      ///< Test trace basis values.
-    const kform_values_table_t *element_table;   ///< Element trace basis values.
-    const constraint_trace_pullback_t *pullback; ///< Required when order > 0, else NULL.
-} constraint_assembly_inputs_t;
 /**
  * @brief Parameters for building a sampled trace pullback.
  *
@@ -148,37 +98,6 @@ typedef struct
     bool element_components;                   ///< Index `out` by element component (C(element_dim, order)
                                                ///< blocks) instead of face component.
 } constraint_trace_pullback_build_t;
-
-/**
- * @brief Derive per-component test-space basis specifications on a boundary.
- *
- * For every canonical boundary axis the returned order is the lowest order
- * found among the incident elements (mapped through their orientation
- * records), so shared objects are never overconstrained by higher-order
- * neighbours. Each component then reduces the order by two on every axis that
- * does not carry one of its covector axes; a component is reported absent
- * when any reduced order would become negative. The basis family of an axis
- * is taken from the element achieving the per-axis minimum (ties keep the
- * lowest element index), unless `type_override` selects a single family.
- *
- * @param ndim Element dimension, in `[1, UINT8_MAX]`.
- * @param boundary_dim Boundary-object dimension, strictly below `ndim`.
- * @param order Form degree, at most `boundary_dim`.
- * @param element_count Number of incident elements, at least one.
- * @param element_bases Per-element array of axis specifications.
- * @param orientations Signed one-based orientation records; the fixed-axis
- *        prefix must increase in absolute value.
- * @param type_override Family forced onto every output axis, or
- *        `BASIS_INVALID` to derive families from the incident elements.
- * @param out_specs Component-major axis specifications with
- *        `C(boundary_dim, order) * boundary_dim` entries; absent components
- *        clamp negative orders to zero.
- * @param out_present Component availability flags with
- *        `C(boundary_dim, order)` entries.
- */
-void constraint_boundary_test_specs(unsigned ndim, unsigned boundary_dim, unsigned order, size_t element_count,
-                                    const basis_spec_t *const *element_bases, const int8_t *orientations,
-                                    basis_set_type_t type_override, basis_spec_t out_specs[], bool out_present[]);
 
 /**
  * @brief Shape of one element's boundary mass matrix.
@@ -353,10 +272,12 @@ typedef struct
     unsigned ndim;                            ///< Element dimension, at least 2.
     unsigned bdim;                            ///< Boundary dimension, in `[1, ndim)`.
     unsigned nforms;                          ///< Traced k-form count, at least 1.
-    unsigned nelem;                           ///< Incident element count, at least 2.
+    unsigned nelem;                           ///< Incident element count, at least 1.
     const boundary_element_space_t *elements; ///< [nforms * nelem] Form-major element views.
     const uint8_t *axis_skip;                 ///< [nforms * bdim] Per-form skipped test functions, NULL = none.
     bool c1_continuous;                       ///< Reference-space pairing; pullback inputs may be NULL.
+    bool shared_face_guard;                   ///< Debug-guard incident sides against one shared physical face;
+                                              ///< disable when sides are distinct faces (periodic pairs).
     const double *const *surface_weights;     ///< [nforms * nelem] Optional per-item face measure rows.
     const constraint_trace_pullback_t *const *test_pullbacks;    ///< [nforms * nelem] Optional per-item pullbacks.
     const constraint_trace_pullback_t *const *element_pullbacks; ///< [nforms * nelem] Optional per-item pullbacks.
@@ -538,37 +459,6 @@ void boundary_space_map_resample_work_size(unsigned bdim, unsigned coords,
                                            const integration_rule_t *const *source_rules,
                                            const integration_rule_t *const *target_rules, size_t *out_axis_matrices,
                                            size_t *out_positions, size_t *out_jacobian, size_t *out_q);
-
-/**
- * @brief Compute the packed size of one side of a physical trace matrix.
- *
- * @param test_spec Face test-space specification with `order <= ndim`.
- * @param side Element-side specification.
- * @param out_row_count Receives the total test DoF count.
- * @param out_entry_count Receives the total packed entry count.
- */
-void constraint_physical_side_layout(const kform_spec_t *test_spec, const constraint_element_side_t *side,
-                                     size_t *out_row_count, size_t *out_entry_count);
-
-/**
- * @brief Assemble one side of a physical trace constraint matrix.
- *
- * Row order as in #constraint_reference_assemble, but every face component's
- * mapped element component block is emitted in face-component order because
- * the physical pullback can couple components. Coefficients are
- * `test_orientation_sign * orientation_sign * integral`.
- *
- * @param test_spec Face test-space specification.
- * @param side Element-side specification.
- * @param inputs Precomputed weights, tables, and pullback of the side.
- * @param out_components [entry_count] Element component of each entry.
- * @param out_local_dofs [entry_count] Component-local DoF of each entry.
- * @param out_coefficients [entry_count] Entry coefficients.
- * @param out_row_offsets [row_count + 1] Packed row offsets.
- */
-void constraint_physical_side_assemble(const kform_spec_t *test_spec, const constraint_element_side_t *side,
-                                       const constraint_assembly_inputs_t *inputs, uint32_t out_components[],
-                                       size_t out_local_dofs[], double out_coefficients[], size_t out_row_offsets[]);
 
 /**
  * @brief Assemble a boundary load from sampled element-frame k-form data.

@@ -469,7 +469,7 @@ void integration_rules_to_boundary(unsigned ndim, const integration_spec_t eleme
                                    const int8_t orientation[static ndim], unsigned bdim,
                                    integration_spec_t boundary_rule[static restrict bdim])
 {
-    CUTL_ASSERT(ndim > 0 && bdim > 0 && bdim < ndim, "Invalid boundary dimension.");
+    CUTL_ASSERT(ndim > 0 && bdim < ndim, "Invalid boundary dimension.");
     // Canonical orientation array has first (ndim - bdim) entries corresponding to the normal directions of the
     // boundary.
     const int8_t *varying_axes = orientation + (ndim - bdim);

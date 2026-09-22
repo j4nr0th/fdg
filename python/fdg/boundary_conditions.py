@@ -12,14 +12,25 @@ import numpy as np
 import numpy.typing as npt
 
 from fdg._fdg import (
+    BasisSpecs,
+    FunctionSpace,
+    IntegrationSpace,
     KFormSpecs,
     SpaceMap,
+    compute_kform_boundary_mass_matrices,
+    compute_kform_boundary_trace_moments,
     transform_kform_component_to_target,
 )
 
 if TYPE_CHECKING:
     from fdg._fdg import Mesh
-    from fdg.enum_type import BasisType
+
+from fdg.enum_type import BasisType
+
+#: Number of lowest-order Legendre functions dropped on windowed axes whose
+#: covector is inactive in a component; mirrors the C ``axis_skip`` input of
+#: the continuity assembly.
+AXIS_SKIP = 2
 
 BoundaryCallable = Callable[..., npt.ArrayLike]
 BoundaryData = BoundaryCallable | Sequence[BoundaryCallable]
@@ -464,54 +475,6 @@ def _component_relation(
     return components.index(tuple(sorted(mapped_axes))), sign
 
 
-def _component_rows(
-    result: tuple[np.ndarray, ...],
-    test_spec: KFormSpecs,
-    component: int,
-    element_id: int,
-    scale: float,
-) -> list[list[tuple[int, int, int, float]]]:
-    """Extract packed rows belonging to one trace-test component.
-
-    Parameters
-    ----------
-    result : tuple of ndarray
-        Four-array result of the one-boundary constraint method, excluding
-        the side field: row offsets, component IDs, local DoF IDs, and
-        coefficients.
-    test_spec : KFormSpecs
-        Test-space specification that supplies component row counts.
-    component : int
-        Canonical k-form component whose rows should be extracted.
-    element_id : int
-        Global element ID to attach to every extracted entry.
-    scale : float
-        Factor applied to every extracted coefficient.
-
-    Returns
-    -------
-    list of list of tuple
-        Rows represented as ``(element_id, component, local_dof,
-        coefficient)`` entries.
-    """
-    row_offsets, components, local_dofs, coefficients = result
-    counts = np.asarray(test_spec.component_dof_counts)
-    row_start = int(np.sum(counts[:component]))
-    row_end = row_start + int(counts[component])
-    return [
-        [
-            (
-                element_id,
-                int(components[index]),
-                int(local_dofs[index]),
-                scale * float(coefficients[index]),
-            )
-            for index in range(int(row_offsets[row]), int(row_offsets[row + 1]))
-        ]
-        for row in range(row_start, row_end)
-    ]
-
-
 def _pack(
     rows: Sequence[Sequence[tuple[int, int, int, float]]], rhs: Sequence[float]
 ) -> tuple[PackedRows, npt.NDArray[np.double]]:
@@ -674,60 +637,101 @@ def _physical_data_values(
     return np.asarray(values, dtype=np.double)
 
 
-def _boundary_dual_values(
+def _windowed_row_count(
+    orders: Sequence[int], component_axes: Sequence[int]
+) -> tuple[int, ...]:
+    """Per-axis row counts of one component's windowed test block.
+
+    Active covector axes keep the order-minus-one basis (``order``
+    functions); inactive axes drop their :data:`AXIS_SKIP` lowest functions,
+    mirroring the C boundary mass assembly.
+    """
+    counts = []
+    for axis, minimum in enumerate(orders):
+        if axis in component_axes:
+            counts.append(int(minimum))
+        else:
+            counts.append(max(int(minimum) + 1 - AXIS_SKIP, 0))
+    return tuple(counts)
+
+
+def _windowed_component_basis(
+    common: KFormSpecs,
+    integration: IntegrationSpace,
+    component_axes: tuple[int, ...],
+) -> np.ndarray | None:
+    """Windowed test table of one common component on the shared grid.
+
+    Returns an array of shape ``(*axis_counts, *grid)`` holding the tensor
+    product of the per-axis Legendre slices at the common integration
+    nodes — the same layout ``values_at_integration_nodes`` produces — or
+    ``None`` when the component's row block drops out.
+    """
+    mdim = len(common.base_space.orders)
+    nodes = [np.asarray(specs.nodes()) for specs in integration.integration_specs]
+    axis_tables = []
+    for axis, minimum in enumerate(common.base_space.orders):
+        minimum = int(minimum)
+        if axis in component_axes:
+            if minimum < 1:
+                return None
+            space = KFormSpecs(
+                0, FunctionSpace(BasisSpecs(BasisType.LEGENDRE, minimum - 1))
+            ).get_component_function_space(0)
+            axis_tables.append(np.asarray(space.evaluate(nodes[axis])))
+        else:
+            if minimum + 1 <= AXIS_SKIP:
+                return None
+            space = KFormSpecs(
+                0, FunctionSpace(BasisSpecs(BasisType.LEGENDRE, minimum))
+            ).get_component_function_space(0)
+            axis_tables.append(np.asarray(space.evaluate(nodes[axis]))[:, AXIS_SKIP:])
+    value = axis_tables[0]
+    for table in axis_tables[1:]:
+        value = value[..., None, None] * table[None, None, :, :]
+    grid_axes = tuple(range(0, 2 * mdim, 2))
+    dof_axes = tuple(range(1, 2 * mdim, 2))
+    return np.ascontiguousarray(value.transpose(dof_axes + grid_axes))
+
+
+def _windowed_row_counts(common: KFormSpecs) -> list[int]:
+    """Row count of every canonical common component's windowed block."""
+    mdim = len(common.base_space.orders)
+    return [
+        int(np.prod(_windowed_row_count(common.base_space.orders, axes)))
+        for axes in combinations(range(mdim), int(common.order))
+    ]
+
+
+def _windowed_dual_values(
     data: BoundaryData,
-    test_spec: KFormSpecs,
+    common: KFormSpecs,
     boundary_map: SpaceMap,
+    integration: IntegrationSpace,
     ndim: int,
     mdim: int,
-) -> np.ndarray:
-    """Assemble prescribed boundary data into test-space dual moments.
+) -> list[np.ndarray]:
+    """Assemble prescribed data into windowed test-space dual moments.
 
-    Parameters
-    ----------
-    data : callable or sequence of callable
-        Physical k-form boundary data.
-    test_spec : KFormSpecs
-        Test trace space. Its basis and k-form degree determine the moments.
-    boundary_map : SpaceMap
-        Map from the canonical boundary reference object to physical space.
-    ndim : int
-        Ambient physical dimension.
-    mdim : int
-        Dimension of the boundary object.
-
-    Returns
-    -------
-    ndarray
-        One dual value per test row, concatenated by canonical test component.
-        A zero-dimensional object contributes its point value directly;
-        higher-dimensional objects include the mapped measure, basis, and
-        k-form pullback.
-
-    Raises
-    ------
-    ValueError
-        If the physical data shape is incompatible with the mapped trace.
+    Returns one dual vector per canonical common component; components
+    whose row block drops out contribute an empty vector.
     """
-    physical_values = _physical_data_values(data, boundary_map, ndim, test_spec.order)
+    order = int(common.order)
+    physical_values = _physical_data_values(data, boundary_map, ndim, order)
     if mdim == 0:
-        return np.asarray([physical_values[0].reshape(-1)[0]], dtype=np.double)
-
-    integration = boundary_map.integration_space
+        # A vertex traces one scalar value: the single dual moment is the
+        # point value itself; no window or quadrature is involved.
+        return [np.asarray(physical_values[0].reshape(-1)[0], dtype=np.double).reshape(1)]
     weights = np.asarray(integration.weights()) * np.abs(
         np.asarray(boundary_map.determinant)
     )
     result: list[np.ndarray] = []
-    for component in range(test_spec.component_count):
-        basis = test_spec.get_component_function_space(
-            component
-        ).values_at_integration_nodes(integration, transpose=True)
-        if test_spec.order == 0:
-            expected_shape = (1, *basis.shape[mdim:])
-            if physical_values.shape != expected_shape:
-                raise ValueError(
-                    "Boundary data component shape does not match the physical trace map."
-                )
+    for component, axes in enumerate(combinations(range(mdim), order)):
+        basis = _windowed_component_basis(common, integration, axes)
+        if basis is None:
+            result.append(np.zeros(0, dtype=np.double))
+            continue
+        if order == 0:
             physical_component = physical_values[0].reshape(
                 (1,) * mdim + physical_values[0].shape
             )
@@ -736,85 +740,38 @@ def _boundary_dual_values(
             value = np.sum(weighted, axis=tuple(range(mdim, weighted.ndim)))
         else:
             transformed = np.asarray(
-                transform_kform_component_to_target(
-                    test_spec.order, boundary_map, basis, component
-                )
+                transform_kform_component_to_target(order, boundary_map, basis, component)
             )
-            target_axis = mdim
-            expected_shape = (
-                transformed.shape[target_axis],
-                *transformed.shape[target_axis + 1 :],
-            )
-            if physical_values.shape != expected_shape:
-                raise ValueError(
-                    "Boundary data component shape does not match the physical trace map."
-                )
             physical_components = physical_values.reshape(
                 (1,) * mdim + physical_values.shape
             )
             weight = weights.reshape((1,) * (mdim + 1) + weights.shape)
             weighted = transformed * physical_components * weight
-            value = np.sum(weighted, axis=tuple(range(target_axis, weighted.ndim)))
+            value = np.sum(weighted, axis=tuple(range(mdim, weighted.ndim)))
         result.append(np.asarray(value).reshape(-1))
-    return np.concatenate(result).astype(np.double, copy=False)
+    return result
 
 
-def _basis_change(left_space, right_space, axis_map: Sequence[int]) -> np.ndarray:
-    """Compute the coefficient map between two related trace test spaces.
+def _permute_orientation(
+    orientation: Sequence[int], axis_map: Sequence[int], ndim: int, mdim: int
+) -> list[int]:
+    """Re-index one element's face slots onto the left object's frame.
 
-    Parameters
-    ----------
-    left_space, right_space : function-space-like
-        Component test spaces on the left and right periodic objects.
-    axis_map : sequence of int
-        Signed permutation mapping left reference axes to right reference axes.
-
-    Returns
-    -------
-    ndarray
-        Matrix of shape ``(right_dof_count, left_dof_count)``. Multiplying
-        right-space evaluations by this matrix reproduces the mapped
-        left-space evaluations.
-
-    Raises
-    ------
-    ValueError
-        If the two spaces are not related by the supplied axis map to the
-        numerical tolerance used by the least-squares fit.
+    The fixed normal-axis prefix is unchanged; face slot ``j`` receives the
+    record entry of the slot mapped from left axis ``j`` by ``axis_map``,
+    which aligns the pair's canonical frames for one shared assembly.
     """
-    mdim = len(axis_map)
-    if mdim == 0:
-        return np.ones((1, 1), dtype=np.double)
-    left_orders = tuple(int(order) for order in left_space.orders)
-    right_orders = tuple(int(order) for order in right_space.orders)
-    left_count = int(np.prod(np.asarray(left_orders) + 1, dtype=np.intp))
-    right_count = int(np.prod(np.asarray(right_orders) + 1, dtype=np.intp))
-    nodes = tuple(np.linspace(-1.0, 1.0, max(order, 0) + 2) for order in left_orders)
-    left_grid = np.meshgrid(*nodes, indexing="ij")
-    right_coordinates: list[np.ndarray | None] = [None] * mdim
-    for left_axis, mapped_axis in enumerate(axis_map):
-        right_coordinates[abs(mapped_axis) - 1] = (
-            1.0 if mapped_axis > 0 else -1.0
-        ) * left_grid[left_axis]
-    left_values = np.asarray(left_space.evaluate(*left_grid)).reshape(-1, left_count)
-    right_values = np.asarray(
-        right_space.evaluate(*(coordinate for coordinate in right_coordinates))
-    ).reshape(-1, right_count)
-    coefficients, *_ = np.linalg.lstsq(right_values, left_values, rcond=None)
-    residual = np.max(np.abs(right_values @ coefficients - left_values), initial=0.0)
-    scale = max(float(np.max(np.abs(left_values), initial=0.0)), 1.0)
-    if residual > 1.0e-9 * scale:
-        raise ValueError(
-            "Periodic boundary test spaces are not related by the supplied axis map."
-        )
-    return coefficients
+    fixed = ndim - mdim
+    record = [int(value) for value in orientation[:fixed]]
+    for slot in range(mdim):
+        record.append(int(orientation[fixed + abs(int(axis_map[slot])) - 1]))
+    return record
 
 
 def _append_boundary_rows(
     mesh: Mesh,
     maps: Sequence[SpaceMap],
     element_specs: Sequence[KFormSpecs],
-    spaces: Sequence[Sequence[Sequence[KFormSpecs | None]]],
     sources: Mapping[tuple[int, int], Sequence[BoundaryData]],
     records: Mapping[
         tuple[int, int], tuple[npt.NDArray[np.uint64], npt.NDArray[np.int8]]
@@ -832,10 +789,6 @@ def _append_boundary_rows(
         Full element maps indexed by global element ID.
     element_specs : sequence of KFormSpecs
         Volume trial specifications indexed by global element ID.
-    spaces : nested sequence of KFormSpecs
-        Derived boundary test spaces from ``Mesh.kform_boundary_spaces``,
-        indexed as ``spaces[mdim][object_id][component]``; components
-        without rows hold ``None``.
     sources : mapping
         Boundary data keyed by ``(object_dimension, object_id)``.
     records : mapping
@@ -846,60 +799,83 @@ def _append_boundary_rows(
 
     Notes
     -----
-    Rows are imposed on the lowest-ID incident element. If several selected
-    outer faces reach one object, their prescribed moments must agree.
+    Each object with prescribed data assembles its incident element's
+    boundary mass matrix against the windowed common Legendre test space in
+    one mass call; the right-hand sides are the windowed dual moments of the
+    data. Rows are imposed on the lowest-ID incident element. If several
+    selected outer faces reach one object, their prescribed moments must
+    agree. Zero-dimensional objects only constrain scalar (order zero)
+    traces: their single row pairs the incident elements' vertex values.
     """
     ndim = mesh.ndim
     for mdim, object_id, _, _ in mesh.iterate_boundary_all():
         key = (mdim, int(object_id))
         object_sources = sources.get(key)
-        object_spaces = spaces[mdim][int(object_id)]
         if not object_sources:
             continue
-        if not object_spaces:
+        if element_specs[int(records[key][0][0])].order > mdim:
+            # A form of order past the object dimension has no trace: no
+            # rows and no prescribed moments exist on this object.
             continue
         element_ids, orientations = records[key]
         element_id = int(element_ids[0])
         boundary_map = _restrict_map(maps[element_id], orientations[0], ndim, mdim)
-        for component, test_spec in enumerate(object_spaces):
-            if test_spec is None:
-                continue
-            local_result = mesh.compute_kform_boundary_constraints(
-                test_spec,
-                element_specs[element_id],
-                maps[element_id],
-                element_id,
-                int(object_id),
+        common, common_integration, _matrices, packed = (
+            compute_kform_boundary_trace_moments(
+                [element_specs[element_id]],
+                [orientations[0]],
+                [maps[element_id].integration_space],
+                element_maps=[maps[element_id]],
+                boundary_dimension=mdim,
+                axis_skip=(AXIS_SKIP,) * mdim,
+                packed=True,
             )
-            local_rows = _component_rows(
-                local_result, test_spec, component, element_id, +1.0
+        )
+        row_offsets, _sides, components, local_dofs, coefficients = packed[0]
+        candidates = [
+            _windowed_dual_values(
+                data, common, boundary_map, common_integration, ndim, mdim
             )
-            candidates = [
-                _boundary_dual_values(data, test_spec, boundary_map, ndim, mdim)
-                for data in object_sources
-            ]
-            component_counts = np.asarray(test_spec.component_dof_counts)
-            start = int(np.sum(component_counts[:component]))
-            end = start + int(component_counts[component])
-            values = candidates[0][start:end]
-            if any(
-                not np.allclose(values, candidate[start:end], rtol=1.0e-10, atol=1.0e-11)
-                for candidate in candidates[1:]
-            ):
-                raise ValueError(
-                    f"Boundary data disagree on the shared boundary object {object_id}."
-                )
-            if len(local_rows) != values.size:
-                raise RuntimeError("Boundary trace rows and data have different sizes.")
-            rows.extend(local_rows)
-            rhs.extend(float(value) for value in values)
+            for data in object_sources
+        ]
+        for value_list in candidates[1:]:
+            for values, other in zip(candidates[0], value_list):
+                if not np.allclose(values, other, rtol=1.0e-10, atol=1.0e-11):
+                    raise ValueError(
+                        f"Boundary data disagree on the shared boundary "
+                        f"object {object_id}."
+                    )
+        # The C pack skips components whose row block drops out and records
+        # one offset per row; walk the non-empty dual vectors and verify the
+        # total row count against the packed offsets.
+        duals = [values for values in candidates[0] if values.size > 0]
+        total_rows = len(row_offsets) - 1
+        if sum(values.size for values in duals) != total_rows:
+            raise RuntimeError("Boundary trace rows and data have different sizes.")
+        row_base = 0
+        for values in duals:
+            for row in range(values.size):
+                entries = [
+                    (
+                        element_id,
+                        int(components[index]),
+                        int(local_dofs[index]),
+                        float(coefficients[index]),
+                    )
+                    for index in range(
+                        int(row_offsets[row_base + row]),
+                        int(row_offsets[row_base + row + 1]),
+                    )
+                ]
+                rows.append(entries)
+                rhs.append(float(values[row]))
+            row_base += values.size
 
 
 def _append_periodic_rows(
     mesh: Mesh,
     maps: Sequence[SpaceMap],
     element_specs: Sequence[KFormSpecs],
-    spaces: Sequence[Sequence[Sequence[KFormSpecs | None]]],
     relations: Mapping[tuple[int, int, int], tuple[int, ...]],
     records: Mapping[
         tuple[int, int], tuple[npt.NDArray[np.uint64], npt.NDArray[np.int8]]
@@ -917,149 +893,100 @@ def _append_periodic_rows(
         Full element maps indexed by global element ID.
     element_specs : sequence of KFormSpecs
         Volume trial specifications indexed by global element ID.
-    spaces : nested sequence of KFormSpecs
-        Derived boundary test spaces from ``Mesh.kform_boundary_spaces``,
-        indexed as ``spaces[mdim][object_id][component]``; components
-        without rows hold ``None``.
     relations : mapping
         Signed-axis relations keyed by ``(mdim, left_id, right_id)``.
     records : mapping
         Boundary incident-element IDs and orientations keyed by object.
     rows, rhs : list
-        Mutable output lists receiving periodic rows and zero right-hand sides.
+        Mutable output lists receiving periodic rows and zero right-hand
+        sides.
 
     Notes
     -----
-    Local traces are batched when they share test and element specifications.
-    Component pullback signs and basis changes are then applied to the right
-    side of each periodic equation.
+    Each related pair assembles in ONE boundary mass call against a common
+    windowed Legendre test space: the right element's face slots are
+    re-indexed onto the left object's frame, so equal component indices
+    pair and only mirrored axes contribute a Legendre parity factor.
     """
-    order = element_specs[0].order
+    ndim = mesh.ndim
     relation_items = sorted(
         relations.items(), key=lambda item: (-item[0][0], item[0][1], item[0][2])
     )
-    requests: dict[tuple[int, int, int], tuple[KFormSpecs, int, int]] = {}
-    validated_relations = []
     for (mdim, left_id, right_id), axis_map in relation_items:
-        left_spaces = spaces[mdim][left_id]
-        right_spaces = spaces[mdim][right_id]
-        if not any(s is not None for s in left_spaces) and not any(
-            s is not None for s in right_spaces
-        ):
-            continue
         left_elements, _ = records[(mdim, left_id)]
         right_elements, _ = records[(mdim, right_id)]
         left_element = int(left_elements[0])
         right_element = int(right_elements[0])
-        validated_relations.append(
-            (
-                mdim,
-                left_id,
-                right_id,
-                axis_map,
-                left_spaces,
-                right_spaces,
-                left_element,
-                right_element,
-            )
+        if element_specs[left_element].order > mdim:
+            # A form of order past the object dimension has no trace: no
+            # periodic constraint exists on this object.
+            continue
+        left_orientation = [int(value) for value in records[(mdim, left_id)][1][0]]
+        right_orientation = _permute_orientation(
+            records[(mdim, right_id)][1][0], axis_map, ndim, mdim
         )
-        for left_component, left_test_spec in enumerate(left_spaces):
-            if left_test_spec is None:
-                continue
-            right_component, _ = _component_relation(
-                mdim, order, left_component, axis_map
-            )
-            right_test_spec = right_spaces[right_component]
-            if right_test_spec is None:
-                continue
-            requests.setdefault(
-                (id(left_test_spec), left_element, left_id),
-                (left_test_spec, left_element, left_id),
-            )
-            requests.setdefault(
-                (id(right_test_spec), right_element, right_id),
-                (right_test_spec, right_element, right_id),
-            )
-
-    batches: dict[tuple[int, int], list[tuple[int, int, int]]] = {}
-    for key, (_, element_id, _) in requests.items():
-        test_spec = requests[key][0]
-        batches.setdefault((id(test_spec), id(element_specs[element_id])), []).append(key)
-
-    local_results: dict[tuple[int, int, int], tuple[np.ndarray, ...]] = {}
-    for keys in batches.values():
-        test_spec, _, _ = requests[keys[0]]
-        element_spec = element_specs[requests[keys[0]][1]]
-        batch = mesh.compute_kform_boundary_constraints_batch(
-            test_spec,
-            element_spec,
-            [maps[requests[key][1]] for key in keys],
-            [requests[key][1] for key in keys],
-            [requests[key][2] for key in keys],
+        common, _, _, packed = compute_kform_boundary_mass_matrices(
+            [
+                element_specs[left_element],
+                element_specs[right_element],
+            ],
+            [left_orientation, right_orientation],
+            [
+                maps[left_element].integration_space,
+                maps[right_element].integration_space,
+            ],
+            element_maps=[maps[left_element], maps[right_element]],
+            boundary_dimension=mdim,
+            axis_skip=(AXIS_SKIP,) * mdim,
+            shared_face=False,
+            packed=True,
         )
-        batch_offsets, _, batch_components, batch_dofs, batch_coefficients = batch
-        rows_per_item = int(np.sum(test_spec.component_dof_counts))
-        for index, key in enumerate(keys):
-            row_start = index * rows_per_item
-            row_end = row_start + rows_per_item
-            entry_start = int(batch_offsets[row_start])
-            entry_end = int(batch_offsets[row_end])
-            local_results[key] = (
-                np.asarray(
-                    batch_offsets[row_start : row_end + 1] - entry_start,
-                    dtype=np.uintp,
-                ),
-                batch_components[entry_start:entry_end],
-                batch_dofs[entry_start:entry_end],
-                batch_coefficients[entry_start:entry_end],
-            )
-
-    for (
-        mdim,
-        left_id,
-        right_id,
-        axis_map,
-        left_tests,
-        right_tests,
-        left_element,
-        right_element,
-    ) in validated_relations:
-        for left_component, left_test_spec in enumerate(left_tests):
-            if left_test_spec is None:
+        left_packed, right_packed = packed
+        counts_per_axis = [int(value) for value in common.base_space.orders]
+        row_base = 0
+        for component, axes in enumerate(combinations(range(mdim), int(common.order))):
+            counts = _windowed_row_count(counts_per_axis, axes)
+            row_count = int(np.prod(counts))
+            if row_count == 0:
                 continue
-            right_component, form_sign = _component_relation(
-                mdim, order, left_component, axis_map
-            )
-            right_test_spec = right_tests[right_component]
-            if right_test_spec is None:
-                continue
-            left_result = local_results[(id(left_test_spec), left_element, left_id)]
-            right_result = local_results[(id(right_test_spec), right_element, right_id)]
-            left_rows = _component_rows(
-                left_result, left_test_spec, left_component, left_element, +1.0
-            )
-            right_rows = _component_rows(
-                right_result, right_test_spec, right_component, right_element, +1.0
-            )
-            left_space = left_test_spec.get_component_function_space(left_component)
-            right_space = right_test_spec.get_component_function_space(right_component)
-            basis_change = _basis_change(left_space, right_space, axis_map)
-            if basis_change.shape != (len(right_rows), len(left_rows)):
-                raise ValueError(
-                    "Periodic boundary test spaces have incompatible row counts."
-                )
-            for left_row, left_entries in enumerate(left_rows):
-                entries = list(left_entries)
-                for right_row, right_entries in enumerate(right_rows):
-                    factor = -form_sign * float(basis_change[right_row, left_row])
+            strides = np.ones(mdim, dtype=int)
+            for axis in range(mdim - 2, -1, -1):
+                strides[axis] = strides[axis + 1] * counts[axis + 1]
+            for row in range(row_count):
+                parity = 1.0
+                for axis in range(mdim):
+                    if int(axis_map[axis]) < 0:
+                        digit = (row // int(strides[axis])) % counts[axis]
+                        if digit % 2 == 1:
+                            parity = -parity
+                left_start = int(left_packed[0][row_base + row])
+                left_end = int(left_packed[0][row_base + row + 1])
+                entries = [
+                    (
+                        left_element,
+                        int(left_packed[2][index]),
+                        int(left_packed[3][index]),
+                        float(left_packed[4][index]),
+                    )
+                    for index in range(left_start, left_end)
+                ]
+                right_start = int(right_packed[0][row_base + row])
+                right_end = int(right_packed[0][row_base + row + 1])
+                for index in range(right_start, right_end):
+                    factor = -parity * float(right_packed[4][index])
                     if factor == 0.0:
                         continue
-                    entries.extend(
-                        (element, component, dof, factor * coefficient)
-                        for element, component, dof, coefficient in right_entries
+                    entries.append(
+                        (
+                            right_element,
+                            int(right_packed[2][index]),
+                            int(right_packed[3][index]),
+                            factor,
+                        )
                     )
                 rows.append(entries)
                 rhs.append(0.0)
+            row_base += row_count
 
 
 def _compute_kform_global_constraints(
@@ -1106,12 +1033,12 @@ def _compute_kform_global_constraints(
 
     Notes
     -----
-    Boundary test spaces are derived automatically
-    (``Mesh.kform_boundary_spaces``): each component takes the lowest incident
-    element order per axis, reduced by two on axes without its covector.
-    Shared-object continuity is assembled first. Prescribed and periodic rows
-    are appended afterward, with periodic relations reduced to an acyclic
-    spanning forest.
+    Boundary test spaces are derived automatically: each component takes the
+    lowest incident element order per axis, reduced by two on axes without
+    its covector. Shared-object continuity is assembled first. Prescribed and
+    periodic rows are appended afterward, with periodic relations reduced to
+    an acyclic spanning forest. Zero-dimensional objects only constrain
+    scalar (order zero) traces.
     """
     need_maps = boundary_conditions is not None or periodic_pairs is not None
     if element_maps is None and (need_maps or not c1_continuous):
@@ -1119,7 +1046,6 @@ def _compute_kform_global_constraints(
             "element_maps are required unless the mesh is declared C1 "
             "continuous and no boundary data or periodic pairs are given."
         )
-    spaces = mesh.kform_boundary_spaces(element_specs, basis_type=basis_type)
     shared = mesh.compute_kform_continuity_constraints(
         element_specs,
         element_maps,
@@ -1179,10 +1105,8 @@ def _compute_kform_global_constraints(
         )
 
     maps: Sequence[SpaceMap] = element_maps if element_maps is not None else []
-    _append_boundary_rows(mesh, maps, element_specs, spaces, sources, records, rows, rhs)
-    _append_periodic_rows(
-        mesh, maps, element_specs, spaces, relations, records, rows, rhs
-    )
+    _append_boundary_rows(mesh, maps, element_specs, sources, records, rows, rhs)
+    _append_periodic_rows(mesh, maps, element_specs, relations, records, rows, rhs)
     return _pack(rows, rhs)
 
 

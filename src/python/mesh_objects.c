@@ -552,74 +552,6 @@ static PyObject *mesh_iterate_boundary_all(PyObject *self, PyTypeObject *definin
     return list;
 }
 
-static PyObject *mesh_compute_kform_boundary_constraints(PyObject *self, PyTypeObject *defining_class,
-                                                         PyObject *const *args, const Py_ssize_t nargs,
-                                                         PyObject *kwnames)
-{
-    const interplib_module_state_t *const state =
-        defining_class ? PyType_GetModuleState(defining_class) : interplib_get_module_state(Py_TYPE(self));
-    if (!state)
-        return NULL;
-    if (!PyObject_TypeCheck(self, state->mesh_type))
-    {
-        PyErr_SetString(PyExc_TypeError, "Expected a Mesh object.");
-        return NULL;
-    }
-    mesh_object *const mesh = (mesh_object *)self;
-
-    PyObject *test_object;
-    PyObject *spec_object;
-    PyObject *map_object;
-    Py_ssize_t element_id;
-    Py_ssize_t boundary_id;
-    if (parse_arguments_check(
-            (cpyutl_argument_t[]){
-                {.type = CPYARG_TYPE_PYTHON, .p_val = &test_object, .type_check = state->kform_specs_type},
-                {.type = CPYARG_TYPE_PYTHON, .p_val = &spec_object, .type_check = state->kform_specs_type},
-                {.type = CPYARG_TYPE_PYTHON, .p_val = &map_object, .type_check = state->space_mapping_type},
-                {.type = CPYARG_TYPE_SSIZE, .p_val = &element_id},
-                {.type = CPYARG_TYPE_SSIZE, .p_val = &boundary_id},
-                {},
-            },
-            args, nargs, kwnames) < 0)
-        return NULL;
-
-    kform_spec_object *const test_spec = (kform_spec_object *)test_object;
-    kform_spec_object *const element_spec = (kform_spec_object *)spec_object;
-    space_map_object *const element_map = (space_map_object *)map_object;
-    const unsigned face_dim = Py_SIZE(test_spec->function_space);
-    const unsigned order = test_spec->order;
-    const unsigned element_dim = Py_SIZE(element_spec->function_space);
-    if (face_dim >= element_dim || element_spec->order != order || element_map->ndim != element_dim ||
-        mesh->mesh->ndim != element_dim)
-    {
-        PyErr_SetString(PyExc_ValueError, "Incompatible test, element, or topology dimensions.");
-        return NULL;
-    }
-    if (element_id < 0 || (uint64_t)element_id >= mesh->mesh->element_count || boundary_id < 0)
-    {
-        PyErr_Format(PyExc_ValueError, "Invalid element ID %zd or boundary ID %zd.", element_id, boundary_id);
-        return NULL;
-    }
-
-    int8_t *const orientation = PyMem_Malloc(element_dim * sizeof(*orientation));
-    if (!orientation)
-        return NULL;
-    const topo_status_t topo_status = topo_obj_boundary_orientation(
-        mesh->mesh->immersions + face_dim, element_dim, (uint64_t)boundary_id, (uint64_t)element_id, orientation);
-    if (topo_status != TOPO_SUCCESS)
-    {
-        PyErr_Format(PyExc_ValueError, "Boundary %zd is not present in element %zd: %s (%s).", boundary_id, element_id,
-                     topo_status_to_str(topo_status), topo_status_msg(topo_status));
-        PyMem_Free(orientation);
-        return NULL;
-    }
-    PyObject *const result =
-        compute_kform_boundary_constraints_impl(state, test_spec, element_spec, element_map, orientation);
-    PyMem_Free(orientation);
-    return result;
-}
-
 typedef struct
 {
     size_t row_count;
@@ -720,65 +652,6 @@ static int mesh_continuity_builder_finish_row(mesh_continuity_builder_t *const b
         return -1;
     builder->row_count += 1;
     builder->row_offsets[builder->row_count] = builder->entry_count;
-    return 0;
-}
-
-static int mesh_continuity_append_local_row(mesh_continuity_builder_t *const builder,
-                                            const kform_spec_object *const test_spec, const unsigned component,
-                                            const size_t local_row, const uint64_t element_id, const double sign,
-                                            PyObject *const result)
-{
-    if (!PyTuple_Check(result) || PyTuple_GET_SIZE(result) != 4)
-    {
-        PyErr_SetString(PyExc_RuntimeError, "The local continuity assembler returned an invalid result.");
-        return -1;
-    }
-    PyArrayObject *const row_offsets = (PyArrayObject *)PyTuple_GET_ITEM(result, 0);
-    PyArrayObject *const components = (PyArrayObject *)PyTuple_GET_ITEM(result, 1);
-    PyArrayObject *const local_dofs = (PyArrayObject *)PyTuple_GET_ITEM(result, 2);
-    PyArrayObject *const coefficients = (PyArrayObject *)PyTuple_GET_ITEM(result, 3);
-    if (!PyArray_Check(row_offsets) || !PyArray_Check(components) || !PyArray_Check(local_dofs) ||
-        !PyArray_Check(coefficients) || PyArray_NDIM(row_offsets) != 1 || PyArray_NDIM(components) != 1 ||
-        PyArray_NDIM(local_dofs) != 1 || PyArray_NDIM(coefficients) != 1 || PyArray_TYPE(row_offsets) != NPY_UINTP ||
-        PyArray_TYPE(components) != NPY_UINT32 || PyArray_TYPE(local_dofs) != NPY_UINTP ||
-        PyArray_TYPE(coefficients) != NPY_DOUBLE)
-    {
-        PyErr_SetString(PyExc_RuntimeError, "The local continuity assembler returned invalid arrays.");
-        return -1;
-    }
-
-    const unsigned test_component_count =
-        combination_total_count((uint8_t)Py_SIZE(test_spec->function_space), (uint8_t)test_spec->order);
-    const size_t row_start = test_spec->component_offsets[component];
-    const size_t row_end = test_spec->component_offsets[component + 1];
-    if (local_row >= row_end - row_start ||
-        (size_t)PyArray_SIZE(row_offsets) != (size_t)test_spec->component_offsets[test_component_count] + 1 ||
-        (size_t)PyArray_SIZE(components) != (size_t)PyArray_SIZE(local_dofs) ||
-        (size_t)PyArray_SIZE(components) != (size_t)PyArray_SIZE(coefficients))
-    {
-        PyErr_SetString(PyExc_RuntimeError, "The local continuity assembler returned inconsistent row dimensions.");
-        return -1;
-    }
-
-    const npy_uintp *const local_offsets = PyArray_DATA(row_offsets);
-    const npy_uint32 *const local_components = PyArray_DATA(components);
-    const npy_uintp *const local_indices = PyArray_DATA(local_dofs);
-    const npy_double *const local_coefficients = PyArray_DATA(coefficients);
-    const size_t row = row_start + local_row;
-    const size_t entry_count = (size_t)PyArray_SIZE(components);
-    const size_t start = (size_t)local_offsets[row];
-    const size_t end = (size_t)local_offsets[row + 1];
-    if (start > end || end > entry_count)
-    {
-        PyErr_SetString(PyExc_RuntimeError, "The local continuity assembler returned invalid row offsets.");
-        return -1;
-    }
-    for (size_t entry = start; entry < end; ++entry)
-    {
-        if (mesh_continuity_builder_append_row(builder, element_id, local_components[entry],
-                                               (size_t)local_indices[entry], sign * local_coefficients[entry]) < 0)
-            return -1;
-    }
     return 0;
 }
 
@@ -1124,6 +997,7 @@ static int mesh_continuity_assemble_object(mesh_continuity_context_t *const cont
         .elements = views,
         .axis_skip = axis_skip,
         .c1_continuous = context->c1_continuous,
+        .shared_face_guard = true,
         .surface_weights = NULL,
         .test_pullbacks = NULL,
         .element_pullbacks = NULL,
@@ -1465,142 +1339,6 @@ static PyObject *mesh_continuity_builder_to_python(mesh_continuity_builder_t *co
     return result;
 }
 
-/**
- * Derives the boundary test-space specification tuples for every mesh object.
- *
- * For each object of every dimension the incident elements' mapped per-axis
- * orders are minimized and reduced by two on axes without a component's
- * covector, see `constraint_boundary_test_specs`. Objects skipped by
- * `include_single` keep a NULL slot; every other slot receives a tuple of
- * KFormSpecs, possibly empty.
- */
-static int mesh_build_boundary_spec_objects(const interplib_module_state_t *const state, const topo_mesh_t *const mesh,
-                                            kform_spec_object *const *const element_specs, const unsigned order,
-                                            const basis_set_type_t type_override, const bool include_single,
-                                            PyObject **const object_specs, size_t *const dimension_offsets)
-{
-    const unsigned ndim = mesh->ndim;
-    dimension_offsets[0] = 0;
-    size_t total_objects = 0;
-    for (unsigned mdim = 0; mdim < ndim; ++mdim)
-    {
-        const uint64_t object_count = mdim == 0 ? mesh->point_count : mesh->collections[mdim - 1].count;
-        if (object_count > (uint64_t)PY_SSIZE_T_MAX || total_objects > SIZE_MAX - (size_t)object_count)
-        {
-            PyErr_SetString(PyExc_OverflowError, "The mesh object count overflows size limits.");
-            return -1;
-        }
-        total_objects += (size_t)object_count;
-        dimension_offsets[mdim + 1] = total_objects;
-    }
-    memset(object_specs, 0, total_objects * sizeof(*object_specs));
-
-    int failed = 0;
-    const basis_spec_t **bases = NULL;
-    int8_t *orientations = NULL;
-    uint64_t capacity = 0;
-    for (unsigned mdim = 0; mdim < ndim && !failed; ++mdim)
-    {
-        const uint64_t object_count = mdim == 0 ? mesh->point_count : mesh->collections[mdim - 1].count;
-        const topo_obj_immersion_t *const immersion = &mesh->immersions[mdim];
-        const unsigned component_count = combination_total_count((uint8_t)mdim, (uint8_t)order);
-        const size_t derived_size = (size_t)component_count * (mdim == 0 ? 1u : (size_t)mdim);
-        basis_spec_t *const derived = PyMem_Malloc(derived_size * sizeof(*derived));
-        bool *const present = PyMem_Malloc((size_t)component_count * sizeof(*present));
-        if (!derived || !present)
-            failed = 1;
-        for (uint64_t object_id = 0; object_id < object_count && !failed; ++object_id)
-        {
-            ASSERT(object_id < immersion->object_count, "Object ID out of bounds.");
-            const uint64_t begin = immersion->element_offsets[object_id];
-            const uint64_t end = immersion->element_offsets[object_id + 1];
-            ASSERT(begin <= end, "Immersion offsets are not monotonic.");
-            const uint64_t element_count = end - begin;
-            if (element_count == 0 || (element_count == 1 && !include_single))
-                continue;
-            if (component_count == 0)
-            {
-                // Objects below the form degree carry no rows at all.
-                object_specs[dimension_offsets[mdim] + (size_t)object_id] = PyTuple_New(0);
-                continue;
-            }
-            if (element_count > capacity)
-            {
-                uint64_t grown = capacity == 0 ? 4 : capacity;
-                while (grown < element_count)
-                    grown *= 2;
-                const basis_spec_t **const next_bases = PyMem_Realloc(bases, (size_t)grown * sizeof(*bases));
-                int8_t *const next_orientations =
-                    PyMem_Realloc(orientations, (size_t)grown * (size_t)ndim * sizeof(*orientations));
-                if (!next_bases || !next_orientations)
-                    failed = 1;
-                else
-                {
-                    bases = next_bases;
-                    orientations = next_orientations;
-                    capacity = grown;
-                }
-            }
-            if (failed)
-                break;
-            for (uint64_t index = 0; index < element_count; ++index)
-            {
-                ASSERT(index < capacity, "Orientation scratch capacity exceeded.");
-                const uint64_t element_id = immersion->element_ids[begin + index];
-                ASSERT(element_id < mesh->element_count, "Incident element ID out of bounds.");
-                bases[index] = element_specs[element_id]->function_space->specs;
-                memcpy(orientations + (size_t)index * (size_t)ndim,
-                       immersion->element_orientation + (size_t)(begin + index) * (size_t)ndim, (size_t)ndim);
-            }
-            constraint_boundary_test_specs(ndim, mdim, order, (size_t)element_count, bases, orientations, type_override,
-                                           derived, present);
-            PyObject *const tuple = PyTuple_New((Py_ssize_t)component_count);
-            if (!tuple)
-            {
-                failed = 1;
-                break;
-            }
-            for (unsigned component = 0; component < component_count && !failed; ++component)
-            {
-                ASSERT(component < component_count, "Component slot out of bounds.");
-                if (!present[component])
-                {
-                    Py_INCREF(Py_None);
-                    PyTuple_SET_ITEM(tuple, (Py_ssize_t)component, Py_None);
-                    continue;
-                }
-                PyObject *const space = (PyObject *)function_space_object_create(
-                    state->function_space_type, mdim, derived + (size_t)component * (size_t)mdim);
-                if (space)
-                {
-                    PyObject *const spec =
-                        PyObject_CallFunction((PyObject *)state->kform_specs_type, "nO", (Py_ssize_t)order, space);
-                    Py_DECREF(space);
-                    if (spec)
-                    {
-                        PyTuple_SET_ITEM(tuple, (Py_ssize_t)component, spec);
-                        continue;
-                    }
-                }
-                failed = 1;
-            }
-            if (failed)
-            {
-                Py_DECREF(tuple);
-                break;
-            }
-            ASSERT(dimension_offsets[mdim] + (size_t)object_id < dimension_offsets[ndim],
-                   "Boundary space slot out of bounds.");
-            object_specs[dimension_offsets[mdim] + (size_t)object_id] = tuple;
-        }
-        PyMem_Free(derived);
-        PyMem_Free(present);
-    }
-    PyMem_Free(bases);
-    PyMem_Free(orientations);
-    return failed ? -1 : 0;
-}
-
 static int mesh_check_element_specs(const interplib_module_state_t *const state, PyObject *const element_specs_seq,
                                     const unsigned ndim, const uint64_t element_count, unsigned *const out_order,
                                     kform_spec_object **const element_specs)
@@ -1655,122 +1393,6 @@ static int mesh_parse_basis_type(PyObject *const basis_type_object, basis_set_ty
     }
     *out_type = type;
     return 0;
-}
-
-static PyObject *mesh_kform_boundary_spaces(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
-                                            const Py_ssize_t nargs, PyObject *kwnames)
-{
-    const interplib_module_state_t *const state =
-        defining_class ? PyType_GetModuleState(defining_class) : interplib_get_module_state(Py_TYPE(self));
-    if (!state)
-        return NULL;
-    if (!PyObject_TypeCheck(self, state->mesh_type))
-    {
-        PyErr_SetString(PyExc_TypeError, "Expected a Mesh object.");
-        return NULL;
-    }
-    PyObject *element_specs_object;
-    PyObject *basis_type_object = Py_None;
-    if (parse_arguments_check((cpyutl_argument_t[]){{.type = CPYARG_TYPE_PYTHON, .p_val = &element_specs_object},
-                                                    {.type = CPYARG_TYPE_PYTHON,
-                                                     .p_val = &basis_type_object,
-                                                     .kwname = "basis_type",
-                                                     .optional = 1,
-                                                     .kw_only = 1},
-                                                    {}},
-                              args, nargs, kwnames) < 0)
-        return NULL;
-
-    mesh_object *const mesh_object_this = (mesh_object *)self;
-    topo_mesh_t *const mesh = mesh_object_this->mesh;
-    const unsigned ndim = mesh->ndim;
-    if (mesh->element_count > (uint64_t)(SIZE_MAX / sizeof(kform_spec_object *)))
-    {
-        PyErr_SetString(PyExc_OverflowError, "The element count overflows specification storage.");
-        return NULL;
-    }
-    PyObject *const element_specs_seq = PySequence_Fast(element_specs_object, "element_specs must be a sequence.");
-    if (!element_specs_seq)
-        return NULL;
-    if (PySequence_Fast_GET_SIZE(element_specs_seq) != (Py_ssize_t)mesh->element_count)
-    {
-        PyErr_Format(PyExc_ValueError, "element_specs must contain %llu entries.",
-                     (unsigned long long)mesh->element_count);
-        Py_DECREF(element_specs_seq);
-        return NULL;
-    }
-
-    basis_set_type_t type_override = BASIS_INVALID;
-    unsigned order = 0;
-    int failed = mesh_parse_basis_type(basis_type_object, &type_override) != 0;
-    kform_spec_object **element_specs =
-        failed ? NULL : PyMem_Malloc((size_t)mesh->element_count * sizeof(*element_specs));
-    if (!failed && !element_specs)
-        failed = 1;
-    if (!failed)
-        failed =
-            mesh_check_element_specs(state, element_specs_seq, ndim, mesh->element_count, &order, element_specs) != 0;
-
-    size_t total_objects = 0;
-    for (unsigned mdim = 0; mdim < ndim && !failed; ++mdim)
-    {
-        const uint64_t object_count = mdim == 0 ? mesh->point_count : mesh->collections[mdim - 1].count;
-        if (object_count > (uint64_t)PY_SSIZE_T_MAX || total_objects > SIZE_MAX - (size_t)object_count)
-        {
-            PyErr_SetString(PyExc_OverflowError, "The mesh object count overflows size limits.");
-            failed = 1;
-        }
-        else
-            total_objects += (size_t)object_count;
-    }
-    size_t *dimension_offsets = NULL;
-    PyObject **object_specs = NULL;
-    PyObject *outer = NULL;
-    if (!failed)
-    {
-        dimension_offsets = PyMem_Malloc((size_t)(ndim + 1) * sizeof(*dimension_offsets));
-        object_specs = PyMem_Malloc(total_objects * sizeof(*object_specs));
-        if (!dimension_offsets || !object_specs)
-            failed = 1;
-    }
-    if (!failed)
-        failed = mesh_build_boundary_spec_objects(state, mesh, element_specs, order, type_override, true, object_specs,
-                                                  dimension_offsets) != 0;
-    if (!failed)
-    {
-        outer = PyList_New((Py_ssize_t)ndim);
-        failed = !outer;
-    }
-    for (unsigned mdim = 0; mdim < ndim && !failed; ++mdim)
-    {
-        const uint64_t object_count = mdim == 0 ? mesh->point_count : mesh->collections[mdim - 1].count;
-        PyObject *const dimension_list = PyList_New((Py_ssize_t)object_count);
-        if (!dimension_list)
-        {
-            failed = 1;
-            break;
-        }
-        PyList_SET_ITEM(outer, (Py_ssize_t)mdim, dimension_list);
-        for (uint64_t object_id = 0; object_id < object_count; ++object_id)
-        {
-            PyObject *const tuple = object_specs[dimension_offsets[mdim] + (size_t)object_id];
-            object_specs[dimension_offsets[mdim] + (size_t)object_id] = NULL;
-            PyList_SET_ITEM(dimension_list, (Py_ssize_t)object_id, tuple);
-        }
-    }
-    if (object_specs)
-        for (size_t index = 0; index < total_objects; ++index)
-            Py_XDECREF(object_specs[index]);
-    PyMem_Free(object_specs);
-    PyMem_Free(dimension_offsets);
-    PyMem_Free(element_specs);
-    Py_DECREF(element_specs_seq);
-    if (failed)
-    {
-        Py_XDECREF(outer);
-        return NULL;
-    }
-    return outer;
 }
 
 static PyObject *mesh_compute_kform_continuity_constraints(PyObject *self, PyTypeObject *defining_class,
@@ -1921,148 +1543,6 @@ fail:
     Py_XDECREF(element_maps_seq);
     return NULL;
 }
-static PyObject *mesh_compute_kform_boundary_constraints_batch(PyObject *self, PyTypeObject *defining_class,
-                                                               PyObject *const *args, const Py_ssize_t nargs,
-                                                               PyObject *kwnames)
-{
-    const interplib_module_state_t *const state =
-        defining_class ? PyType_GetModuleState(defining_class) : interplib_get_module_state(Py_TYPE(self));
-    if (!state)
-        return NULL;
-    PyObject *test_object;
-    PyObject *element_spec_object;
-    PyObject *maps_object;
-    PyObject *element_ids_object;
-    PyObject *boundary_ids_object;
-    if (parse_arguments_check(
-            (cpyutl_argument_t[]){
-                {.type = CPYARG_TYPE_PYTHON, .p_val = &test_object, .type_check = state->kform_specs_type},
-                {.type = CPYARG_TYPE_PYTHON, .p_val = &element_spec_object, .type_check = state->kform_specs_type},
-                {.type = CPYARG_TYPE_PYTHON, .p_val = &maps_object},
-                {.type = CPYARG_TYPE_PYTHON, .p_val = &element_ids_object},
-                {.type = CPYARG_TYPE_PYTHON, .p_val = &boundary_ids_object},
-                {}},
-            args, nargs, kwnames) < 0)
-        return NULL;
-
-    if (!PyObject_TypeCheck(self, state->mesh_type))
-    {
-        PyErr_SetString(PyExc_TypeError, "Expected a Mesh object.");
-        return NULL;
-    }
-    mesh_object *const mesh_this = (mesh_object *)self;
-    topo_mesh_t *const mesh = mesh_this->mesh;
-    kform_spec_object *const test_spec = (kform_spec_object *)test_object;
-    kform_spec_object *const element_spec = (kform_spec_object *)element_spec_object;
-    const unsigned test_dim = Py_SIZE(test_spec->function_space);
-    const unsigned element_dim = Py_SIZE(element_spec->function_space);
-    if (element_dim != mesh->ndim || test_dim >= element_dim || element_spec->order != test_spec->order)
-    {
-        PyErr_SetString(PyExc_ValueError, "Incompatible test, element, or mesh dimensions.");
-        return NULL;
-    }
-
-    PyObject *const maps_seq = PySequence_Fast(maps_object, "element_maps must be a sequence.");
-    PyObject *const element_ids_seq = PySequence_Fast(element_ids_object, "element_ids must be a sequence.");
-    PyObject *const boundary_ids_seq = PySequence_Fast(boundary_ids_object, "boundary_ids must be a sequence.");
-    if (!maps_seq || !element_ids_seq || !boundary_ids_seq)
-    {
-        Py_XDECREF(maps_seq);
-        Py_XDECREF(element_ids_seq);
-        Py_XDECREF(boundary_ids_seq);
-        return NULL;
-    }
-    const Py_ssize_t item_count = PySequence_Fast_GET_SIZE(maps_seq);
-    if (PySequence_Fast_GET_SIZE(element_ids_seq) != item_count ||
-        PySequence_Fast_GET_SIZE(boundary_ids_seq) != item_count)
-    {
-        PyErr_SetString(PyExc_ValueError, "element_maps, element_ids, and boundary_ids must have equal lengths.");
-        goto fail;
-    }
-
-    mesh_continuity_context_t context = {.state = state, .ndim = element_dim};
-    if (mesh_continuity_builder_grow((void **)&context.builder.row_offsets, &context.builder.row_capacity, 1,
-                                     sizeof(*context.builder.row_offsets)) < 0)
-        goto batch_fail;
-    context.builder.row_offsets[0] = 0;
-    const unsigned component_count = combination_total_count((uint8_t)test_dim, (uint8_t)test_spec->order);
-    for (Py_ssize_t item = 0; item < item_count; ++item)
-    {
-        PyObject *const map_object = PySequence_Fast_GET_ITEM(maps_seq, item);
-        if (!PyObject_TypeCheck(map_object, state->space_mapping_type))
-        {
-            PyErr_SetString(PyExc_TypeError, "element_maps entries must be SpaceMap objects.");
-            goto batch_fail;
-        }
-        space_map_object *const element_map = (space_map_object *)map_object;
-        if (element_map->ndim != element_dim)
-        {
-            PyErr_SetString(PyExc_ValueError, "Every element map must describe the mesh dimension.");
-            goto batch_fail;
-        }
-        const unsigned long long element_id_value =
-            PyLong_AsUnsignedLongLong(PySequence_Fast_GET_ITEM(element_ids_seq, item));
-        if (PyErr_Occurred())
-            goto batch_fail;
-        const unsigned long long boundary_id_value =
-            PyLong_AsUnsignedLongLong(PySequence_Fast_GET_ITEM(boundary_ids_seq, item));
-        if (PyErr_Occurred())
-            goto batch_fail;
-        if (element_id_value >= mesh->element_count)
-        {
-            PyErr_SetString(PyExc_ValueError, "element_ids contains an element outside the mesh.");
-            goto batch_fail;
-        }
-        int8_t orientation[element_dim];
-        const topo_status_t topology_status = topo_obj_boundary_orientation(
-            mesh->immersions + test_dim, element_dim, boundary_id_value, element_id_value, orientation);
-        if (topology_status != TOPO_SUCCESS)
-        {
-            PyErr_Format(PyExc_ValueError, "Boundary %llu is not present in element %llu: %s (%s).", boundary_id_value,
-                         element_id_value, topo_status_to_str(topology_status), topo_status_msg(topology_status));
-            goto batch_fail;
-        }
-        PyObject *const local_result =
-            compute_kform_boundary_constraints_impl(state, test_spec, element_spec, element_map, orientation);
-        if (!local_result)
-            goto batch_fail;
-        int failed = 0;
-        for (unsigned component = 0; component < component_count && !failed; ++component)
-        {
-            const size_t component_rows =
-                test_spec->component_offsets[component + 1] - test_spec->component_offsets[component];
-            for (size_t row = 0; row < component_rows; ++row)
-            {
-                if (mesh_continuity_append_local_row(&context.builder, test_spec, component, row, element_id_value,
-                                                     +1.0, local_result) < 0 ||
-                    mesh_continuity_builder_finish_row(&context.builder) < 0)
-                {
-                    failed = 1;
-                    break;
-                }
-            }
-        }
-        Py_DECREF(local_result);
-        if (failed)
-            goto batch_fail;
-    }
-    {
-        PyObject *const result = mesh_continuity_builder_to_python(&context.builder);
-        mesh_continuity_builder_release(&context.builder);
-        Py_DECREF(maps_seq);
-        Py_DECREF(element_ids_seq);
-        Py_DECREF(boundary_ids_seq);
-        return result;
-    }
-
-batch_fail:
-    mesh_continuity_builder_release(&context.builder);
-fail:
-    Py_DECREF(maps_seq);
-    Py_DECREF(element_ids_seq);
-    Py_DECREF(boundary_ids_seq);
-    return NULL;
-}
 
 static PyObject *mesh_compute_kform_global_constraints(PyObject *self, PyTypeObject *defining_class,
                                                        PyObject *const *args, const Py_ssize_t nargs, PyObject *kwnames)
@@ -2127,7 +1607,7 @@ PyDoc_STRVAR(mesh_docstring, "Mesh()\n"
                              "    collections of all topological objects of every dimension and their\n"
                              "    immersion information, but no geometry. Its primary use is the generation\n"
                              "    of continuity constraints between neighboring elements, see\n"
-                             "    ``compute_kform_boundary_constraints``.\n"
+                             "    ``compute_kform_continuity_constraints``.\n"
                              "\n"
                              "    The type cannot be instantiated directly; use ``from_corners`` or\n"
                              "    ``from_collections``.\n");
@@ -2206,44 +1686,6 @@ static PyMethodDef mesh_methods[] = {
                   "Returns five packed one-dimensional arrays; empty output has row_offsets=[0].",
     },
     {
-        .ml_name = "kform_boundary_spaces",
-        .ml_meth = (void *)mesh_kform_boundary_spaces,
-        .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
-        .ml_doc = "kform_boundary_spaces(element_specs, /, *, basis_type=None) -> list[list[tuple[KFormSpecs, ...]]]\n"
-                  "Derive the compatible boundary test space of every mesh object: the lowest incident\n"
-                  "element order per axis, reduced by two on axes without a component's covector.\n"
-                  "Indexed by object dimension, then object ID; each entry holds one KFormSpecs per\n"
-                  "canonical component with rows.",
-    },
-    {.ml_name = "compute_kform_boundary_constraints_batch",
-     .ml_meth = (void *)mesh_compute_kform_boundary_constraints_batch,
-     .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
-     .ml_doc = "compute_kform_boundary_constraints_batch(test_spec, element_spec, element_maps, element_ids, "
-               "boundary_ids, /) -> tuple[numpy.ndarray, ...]\n"
-               "Assemble one test trace specification for each requested element boundary.\n"
-               "\n"
-               "Parameters\n"
-               "----------\n"
-               "test_spec : KFormSpecs\n"
-               "    Trace test-space specification. Its dimension is the boundary-object dimension, "
-               "and its k-form order must equal element_spec.order.\n"
-               "element_spec : KFormSpecs\n"
-               "    Volume trial-space specification shared by every item in the batch.\n"
-               "element_maps : sequence of SpaceMap\n"
-               "    Element maps, one per item, in the same order as element_ids and boundary_ids.\n"
-               "element_ids : sequence of int\n"
-               "    Global mesh element ID for each requested boundary trace.\n"
-               "boundary_ids : sequence of int\n"
-               "    Boundary-object ID for each trace. Item i must belong to element_ids[i].\n"
-               "\n"
-               "Returns\n"
-               "-------\n"
-               "tuple of numpy.ndarray\n"
-               "    Five packed arrays: row_offsets, element_ids, components, local_dofs, and "
-               "coefficients. Rows are concatenated in input order; components and local_dofs "
-               "identify element-local k-form entries, and coefficients contain physical trace "
-               "weights. An empty batch returns row_offsets=[0] and empty entry arrays."},
-    {
         .ml_name = "compute_kform_global_constraints",
         .ml_meth = (void *)mesh_compute_kform_global_constraints,
         .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
@@ -2254,14 +1696,6 @@ static PyMethodDef mesh_methods[] = {
                   "Boundary test spaces are derived automatically; boundary data are physical k-form\n"
                   "callables, and pair descriptors define boundary face mappings.\n"
                   "Returns five packed row arrays and one right-hand-side array.",
-    },
-    {
-        .ml_name = "compute_kform_boundary_constraints",
-        .ml_meth = (void *)mesh_compute_kform_boundary_constraints,
-        .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
-        .ml_doc = "compute_kform_boundary_constraints(test_specs, element_spec, element_map, element_id, boundary_id, "
-                  "/) -> tuple[numpy.ndarray, ...]\\n"
-                  "Compute one element's physical k-form boundary rows for the given boundary object of the mesh.",
     },
     {},
 };

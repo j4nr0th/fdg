@@ -22,7 +22,6 @@ from fdg.enum_type import IntegrationMethod
 
 from examples.plot_multi_element_laplace_continuity import (
     build_continuity_rows,
-    build_continuity_rows_reference,
     make_element_maps,
     make_mesh,
     packed_to_dense,
@@ -55,7 +54,6 @@ def test_scalar_hierarchy_row_ownership(
     mesh, element_specs, packed = _scalar_setup(ndim, order)
     matrix = packed_to_dense(packed, element_specs)
     row_offsets, element_ids, components, local_dofs, coefficients = packed
-    spaces = mesh.kform_boundary_spaces(element_specs)
 
     assert matrix.shape[0] == expected_rows
     assert np.linalg.matrix_rank(matrix) == expected_rows
@@ -66,29 +64,6 @@ def test_scalar_hierarchy_row_ownership(
     assert coefficients.dtype == np.double
     assert row_offsets[-1] == element_ids.size
     assert element_ids.size == components.size == local_dofs.size == coefficients.size
-
-    stage_rows: list[int] = []
-    for mdim in range(ndim - 1, -1, -1):
-        count = 0
-        for _, object_id, object_elements, _ in mesh.iterate_shared(mdim):
-            for test_spec in spaces[mdim][int(object_id)]:
-                if test_spec is None:
-                    continue
-                count += (object_elements.size - 1) * int(
-                    np.sum(test_spec.component_dof_counts)
-                )
-        stage_rows.append(count)
-
-    if ndim == 2 and order == 1:
-        assert stage_rows == [0, 7]
-    elif ndim == 2 and order == 2:
-        assert stage_rows == [4, 7]
-    elif ndim == 3 and order == 1:
-        assert stage_rows == [0, 0, 37]
-    else:
-        assert stage_rows[0] == 12
-        assert stage_rows[-1] == 37
-        assert sum(stage_rows) == expected_rows
 
 
 def test_multi_element_objects_use_spanning_paths() -> None:
@@ -114,14 +89,13 @@ def test_degree_one_has_empty_higher_stratum_stages() -> None:
     """Degree-one scalar traces leave face and edge interiors empty."""
     for ndim in (2, 3):
         mesh, element_specs, packed = _scalar_setup(ndim, 1)
-        spaces = mesh.kform_boundary_spaces(element_specs)
-        for mdim in range(1, ndim):
-            assert all(
-                all(s is None for s in spaces[mdim][int(object_id)])
-                for _, object_id, _, _ in mesh.iterate_shared(mdim)
-            )
+        # Only the vertex stratum contributes rows: the face and edge stages
+        # are empty, so the total is the vertex row count alone.
         expected_offsets = 38 if ndim == 3 else 8
         assert packed[0].shape[0] == expected_offsets
+        assert np.linalg.matrix_rank(packed_to_dense(packed, element_specs)) == (
+            expected_offsets - 1
+        )
 
 
 def test_direct_laplace_solves_have_continuous_full_rank_systems() -> None:
@@ -135,97 +109,6 @@ def test_direct_laplace_solves_have_continuous_full_rank_systems() -> None:
             assert residual < 1.0e-12
             assert np.isfinite(error)
         assert results[1][2] <= results[0][2] + 1.0e-10
-
-
-def _manual_test_orders(
-    mesh: Mesh,
-    element_specs: list[KFormSpecs],
-    form_order: int,
-) -> list[list[list[tuple[int, ...] | None]]]:
-    """Reimplement the documented derivation order rule as a manual oracle.
-
-    Returns per object dimension, object ID, and canonical component either
-    the tuple of derived per-axis orders or ``None`` when the component has
-    no rows.
-    """
-    ndim = mesh.ndim
-    incidents_by_dimension: list[dict[int, tuple[np.ndarray, np.ndarray]]] = []
-    for mdim in range(ndim):
-        incidents: dict[int, tuple[np.ndarray, np.ndarray]] = {}
-        for iterator in (mesh.iterate_shared(mdim), mesh.iterate_boundary(mdim)):
-            incidents.update(
-                {
-                    int(object_id): (element_ids, orientations)
-                    for _, object_id, element_ids, orientations in iterator
-                }
-            )
-        incidents_by_dimension.append(incidents)
-
-    result: list[list[list[tuple[int, ...] | None]]] = []
-    for mdim in range(ndim):
-        objects: list[list[tuple[int, ...] | None]] = []
-        object_count = (
-            mesh.point_count if mdim == 0 else int(mesh.collections[mdim - 1].shape[0])
-        )
-        components = list(combinations(range(mdim), form_order))
-        for object_id in range(object_count):
-            component_orders: list[tuple[int, ...] | None] = [None] * len(components)
-            incident = incidents_by_dimension[mdim].get(object_id)
-            if incident is not None and mdim >= form_order:
-                element_ids, orientations = incident
-                fixed_count = ndim - mdim
-                for index, active_axes in enumerate(components):
-                    orders: list[int] = []
-                    present = True
-                    for canonical_axis in range(mdim):
-                        mapped = [
-                            abs(int(orientations[row][fixed_count + canonical_axis])) - 1
-                            for row in range(len(element_ids))
-                        ]
-                        lowest = min(
-                            element_specs[int(eid)].base_space.orders[axis]
-                            for eid, axis in zip(element_ids, mapped, strict=True)
-                        )
-                        reduced = lowest - (0 if canonical_axis in active_axes else 2)
-                        present = present and reduced >= 0
-                        orders.append(reduced)
-                    if present:
-                        component_orders[index] = tuple(orders)
-            objects.append(component_orders)
-        result.append(objects)
-    return result
-
-
-@pytest.mark.parametrize("ndim", (2, 3))
-@pytest.mark.parametrize("form_order", (0, 1, 2))
-def test_auto_matches_manual_derivation(ndim: int, form_order: int) -> None:
-    """Derived boundary spaces reproduce the documented min/minus-two rule."""
-    if form_order > ndim:
-        return
-    mesh = make_mesh(ndim)
-    maps = make_element_maps(ndim, form_order + 4)
-    base_space = FunctionSpace(
-        *(
-            BasisSpecs(BasisType.LAGRANGE_GAUSS_LOBATTO, form_order + 1)
-            for _ in range(ndim)
-        )
-    )
-    element_specs = [KFormSpecs(form_order, base_space) for _ in maps]
-    spaces = mesh.kform_boundary_spaces(element_specs)
-    manual = _manual_test_orders(mesh, element_specs, form_order)
-
-    for mdim in range(ndim):
-        for object_id in range(len(spaces[mdim])):
-            expected = manual[mdim][object_id]
-            actual = spaces[mdim][object_id]
-            assert len(actual) == len(expected)
-            for component, order_tuple in enumerate(expected):
-                test_spec = actual[component]
-                if order_tuple is None:
-                    assert test_spec is None
-                    continue
-                assert test_spec is not None
-                assert tuple(test_spec.base_space.orders) == order_tuple
 
 
 def test_identity_maps_c1_rows_match_physical() -> None:
@@ -282,47 +165,6 @@ def test_identity_maps_c1_rows_match_physical() -> None:
             assert rank_physical == matrix_physical.shape[0]
             stacked = np.vstack((matrix_c1, matrix_physical))
             assert np.linalg.matrix_rank(stacked) == rank_c1
-
-
-def test_reference_builder_matches_c_rows() -> None:
-    """The readable Python pairing spans the same rows as the C assembly.
-
-    The star-row structure (anchor test DoFs, one row per non-anchor side)
-    and the packed layout match exactly. Coefficients do not: the readable
-    pairing integrates the physical measure on the element map's own grid
-    via the local boundary API, while the C mass path integrates on the
-    min-order common grid, so the test asserts equality of the constraint
-    row spaces instead.
-    """
-    for ndim in (2, 3):
-        mesh = make_mesh(ndim)
-        maps = make_element_maps(ndim, 5)
-        base_space = FunctionSpace(
-            *(BasisSpecs(BasisType.LAGRANGE_GAUSS_LOBATTO, 2) for _ in range(ndim))
-        )
-        element_specs = [KFormSpecs(0, base_space) for _ in maps]
-        reference = build_continuity_rows_reference(mesh, maps, element_specs)
-        produced = build_continuity_rows(mesh, maps, element_specs)
-        assert np.array_equal(np.asarray(reference[0]), produced[0])
-        for reference_array, produced_array in zip(reference[1:-1], produced[1:-1]):
-            assert np.array_equal(np.asarray(reference_array), produced_array)
-        dof_counts = [int(np.sum(s.component_dof_counts)) for s in element_specs]
-        offsets = np.concatenate(([0], np.cumsum(dof_counts))).astype(int)
-        dense = []
-        for packed in (reference, produced):
-            matrix = np.zeros((len(packed[0]) - 1, int(offsets[-1])))
-            for row in range(len(packed[0]) - 1):
-                for k in range(packed[0][row], packed[0][row + 1]):
-                    element = int(packed[1][k])
-                    matrix[row, offsets[element] + int(packed[3][k])] = packed[4][k]
-            dense.append(matrix)
-        rank_reference = np.linalg.matrix_rank(dense[0], tol=1e-9)
-        rank_produced = np.linalg.matrix_rank(dense[1], tol=1e-9)
-        rank_stacked = np.linalg.matrix_rank(np.vstack(dense), tol=1e-9)
-        assert rank_reference == rank_produced == rank_stacked, (
-            f"reference rank {rank_reference}, produced rank {rank_produced}, "
-            f"stacked rank {rank_stacked}"
-        )
 
 
 def test_c1_without_maps_and_rejections() -> None:

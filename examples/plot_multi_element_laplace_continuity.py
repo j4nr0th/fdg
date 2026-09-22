@@ -26,7 +26,7 @@ lowest-ID incident element of each object. Existing shared-object continuity
 rows then propagate that prescribed trace to the other incident elements, so a
 boundary node is never independently constrained multiple times.
 
-The prototype deliberately keeps the test spaces explicit. On a shared
+The continuity assembly derives the test spaces internally. On a shared
 object, the default scalar trace test degree is the minimum element degree
 minus two in every tangential direction. Thus degree-one traces have no
 interior rows; their edge and face boundary values are connected when the
@@ -56,7 +56,6 @@ from fdg import (
     KFormSpecs,
     Mesh,
     SpaceMap,
-    compute_kform_boundary_constraints,
     compute_kform_incidence_matrix,
     compute_kform_mass_matrix,
 )
@@ -174,134 +173,18 @@ def make_element_maps(ndim: int, integration_order: int) -> list[SpaceMap]:
 
 
 # %%
-# Reference and production row assembly
-# --------------------------------------
+# Continuity row assembly
+# -----------------------
 #
-# ``build_continuity_rows_reference`` is intentionally kept as a readable
-# Python reference. It walks shared objects from faces to points, pairs
-# consecutive incident elements, and reuses the one-boundary assembler for
-# both sides with opposite signs. The trace test spaces are the ones derived
-# by ``Mesh.kform_boundary_spaces``: the lowest incident element order per
-# axis, reduced by two on axes without a component's covector.
-# ``build_continuity_rows`` then calls the production C-backed method, which
-# derives the same spaces internally.
-
-
-def _local_component_rows(
-    local_result: tuple[np.ndarray, ...],
-    test_spec: KFormSpecs,
-    component: int,
-    element_id: int,
-    sign: float,
-) -> list[list[tuple[int, int, int, float]]]:
-    """Return one packed entry list per canonical test row."""
-    row_offsets, local_components, local_dofs, coefficients = local_result
-    component_counts = np.asarray(test_spec.component_dof_counts)
-    row_start = int(np.sum(component_counts[:component]))
-    row_count = int(component_counts[component])
-    return [
-        [
-            (
-                element_id,
-                int(local_components[index]),
-                int(local_dofs[index]),
-                sign * float(coefficients[index]),
-            )
-            for index in range(int(row_offsets[row]), int(row_offsets[row + 1]))
-        ]
-        for row in range(row_start, row_start + row_count)
-    ]
-
-
-# TODO: might as well swap this over to the new mesh C-backed constraint assembly.
-def build_continuity_rows_reference(
-    mesh: Mesh,
-    maps: list[SpaceMap],
-    element_specs: list[KFormSpecs],
-) -> PackedRows:
-    """Assemble cycle-free rows using the local boundary API reference."""
-    test_specs: list[list[list[KFormSpecs | None]]] = mesh.kform_boundary_spaces(
-        element_specs
-    )
-    max_basis_order = max(
-        basis.order for spec in element_specs for basis in spec.base_space.basis_specs
-    )
-    rows: list[list[tuple[int, int, int, float]]] = []
-    for mdim, object_id, shared_element_ids, _ in mesh.iterate_shared_all():
-        if mdim == 0 and element_specs[0].order > 0:
-            # Points carry only the scalar corner-value pairing.
-            continue
-        if mdim > 0 and element_specs[0].order == 0 and max_basis_order <= 1:
-            # A multilinear order-one scalar field is determined by its
-            # corner values, so the point pairings already imply every
-            # face and line moment row.
-            continue
-        object_tests = test_specs[mdim][int(object_id)]
-        if not object_tests:
-            continue
-
-        # Star rows, matching the C assembly: one row per anchor test DoF and
-        # non-anchor side, the anchor's entries followed by that side's, rows
-        # ordered by component then test DoF and sides by element order.
-        element_ids = [int(e) for e in shared_element_ids]
-        anchor = element_ids[0]
-
-        def local_rows(
-            element_id: int,
-        ) -> list[list[list[tuple[int, int, int, float]]]]:
-            return [
-                _local_component_rows(
-                    compute_kform_boundary_constraints(
-                        test_spec,
-                        element_specs[element_id],
-                        maps[element_id],
-                        mesh.collections,
-                        mesh.point_count,
-                        element_id,
-                        int(object_id),
-                    ),
-                    test_spec,
-                    component,
-                    element_id,
-                    +1.0 if element_id == anchor else -1.0,
-                )
-                for component, test_spec in enumerate(object_tests)
-            ]
-
-        anchor_rows = local_rows(anchor)
-        side_rows = [local_rows(e) for e in element_ids[1:]]
-        for component, rows_c in enumerate(anchor_rows):
-            if rows_c is None:
-                continue
-            for side_index, rows_s in enumerate(side_rows):
-                if len(rows_s[component]) != len(rows_c):
-                    raise ValueError(
-                        "Paired elements produced different trace row counts."
-                    )
-        for component, rows_c in enumerate(anchor_rows):
-            if rows_c is None:
-                continue
-            for local in range(len(rows_c)):
-                for rows_s in side_rows:
-                    rows.append(rows_c[local] + rows_s[component][local])
-    row_offsets = np.zeros(len(rows) + 1, dtype=np.uintp)
-    element_ids: list[int] = []
-    components: list[int] = []
-    local_dofs: list[int] = []
-    coefficients: list[float] = []
-    for row, entries in enumerate(rows):
-        element_ids.extend(entry[0] for entry in entries)
-        components.extend(entry[1] for entry in entries)
-        local_dofs.extend(entry[2] for entry in entries)
-        coefficients.extend(entry[3] for entry in entries)
-        row_offsets[row + 1] = len(element_ids)
-    return (
-        row_offsets,
-        np.asarray(element_ids, dtype=np.uint64),
-        np.asarray(components, dtype=np.uint32),
-        np.asarray(local_dofs, dtype=np.uintp),
-        np.asarray(coefficients, dtype=np.double),
-    )
+# One call to ``Mesh.compute_kform_continuity_constraints`` walks the shared
+# objects from faces down to points, pairs consecutive incident elements, and
+# returns the cycle-free rows as five packed arrays: row offsets, element IDs,
+# element-frame components, local DoF indices, and coefficients. The trace
+# test spaces are derived internally: on each shared object the canonical test
+# component takes the lowest incident element order per axis, reduced by two
+# on axes without the component's covector. The first side of every pair
+# carries a positive sign and the second side a negative sign, so each row
+# states that the paired traces agree.
 
 
 def build_continuity_rows(

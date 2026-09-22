@@ -25,7 +25,7 @@ typedef struct
  *
  * @todo Some of these could be clarified and streamlined. For example, this
  * holds data for both fixed and non-fixed axes, which can be separated by
- * turning this into a tagged union.
+ * turning this into a tagged union or just have a bool to specify if it is fixed or not.
  *
  * Free axes (tangent axes of a trace) read the basis sets evaluated on the
  * axis quadrature rule; fixed axes (normal axes of a trace) read cached

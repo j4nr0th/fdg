@@ -6,7 +6,8 @@ import numpy as np
 import pytest
 from fdg import (
     Mesh,
-    compute_kform_boundary_constraints,
+    compute_kform_boundary_mass_matrices,
+    compute_kform_boundary_trace_moments,
     projection_kform_l2_dual,
     projection_kform_l2_primal,
     reconstruct,
@@ -233,34 +234,6 @@ def test_mesh_from_collections() -> None:
     assert orientations.shape == (2, 2)
 
 
-def test_mesh_boundary_constraints_matches_free_function() -> None:
-    """The bound method returns bit-identical results to the free function."""
-    mesh = Mesh.from_corners(2, CORNERS_2X2)
-    integration = IntegrationSpace(IntegrationSpecs(3), IntegrationSpecs(3))
-    element_specs = KFormSpecs(1, GEOM_BASIS)
-    test_specs = KFormSpecs(1, FunctionSpace(BasisSpecs(BasisType.LEGENDRE, 1)))
-
-    shared = mesh.iterate_shared(1)[0]
-    object_id = int(shared[1])
-    element_id = int(shared[2][0])
-    element_map = _affine_map(element_id, integration)
-
-    bound = mesh.compute_kform_boundary_constraints(
-        test_specs, element_specs, element_map, element_id, object_id
-    )
-    free = compute_kform_boundary_constraints(
-        test_specs,
-        element_specs,
-        element_map,
-        mesh.collections,
-        mesh.point_count,
-        element_id,
-        object_id,
-    )
-    for expected, actual in zip(free, bound):
-        np.testing.assert_array_equal(actual, expected)
-
-
 def _grid_corners(ndim: int) -> np.ndarray:
     """Corner point IDs of all elements of the 2^ndim grid on [0, 2]^ndim."""
     corners: list[int] = []
@@ -375,6 +348,28 @@ def _kform_specs(ndim: int, order: int) -> tuple[KFormSpecs, KFormSpecs]:
     return KFormSpecs(ndim - 1, base_space), KFormSpecs(ndim, base_space)
 
 
+def _expand_mass_rows(
+    packed_item: tuple[np.ndarray, ...], element_spec: KFormSpecs
+) -> np.ndarray:
+    """Materialize one element's packed mass rows as a dense operator.
+
+    The row space is the windowed common Legendre test space; columns are
+    scattered into the element's full flat DoF numbering. Packed local DoFs
+    are component-relative, so each entry is offset by its component block.
+    """
+    row_offsets, _, components, local_dofs, coefficients = packed_item
+    offsets = np.concatenate(([0], np.cumsum(element_spec.component_dof_counts)))
+    n_rows = row_offsets.size - 1
+    n_dofs = int(np.sum(element_spec.component_dof_counts))
+    matrix = np.zeros((n_rows, n_dofs))
+    for row in range(n_rows):
+        for entry in range(int(row_offsets[row]), int(row_offsets[row + 1])):
+            matrix[row, int(offsets[components[entry]]) + int(local_dofs[entry])] = (
+                coefficients[entry]
+            )
+    return matrix
+
+
 @pytest.mark.parametrize("ndim", range(1, 6))
 def test_kform_boundary_load_chain_integral(ndim: int) -> None:
     """The boundary load sums to the element momentum boundary term.
@@ -487,18 +482,22 @@ def test_kform_boundary_constraints_strong_weak_solve(ndim: int) -> None:
         ].flatten()
 
     c_rows = []
-    for mdim, object_id, element_ids, _ in mesh.iterate_shared(ndim - 1):
-        element_ids = element_ids.tolist()
-        t = [
-            _packed_to_dense(
-                mesh.compute_kform_boundary_constraints(
-                    test_specs, specs_q, maps[int(eid)], int(eid), int(object_id)
-                ),
-                specs_q,
+    for mdim in range(ndim - 1, 0, -1):
+        for _, _object_id, element_ids, orientations in mesh.iterate_shared(mdim):
+            ids = [int(e) for e in element_ids]
+            common, _, _matrices, packed = compute_kform_boundary_mass_matrices(
+                [specs_q for _ in ids],
+                [list(map(int, record)) for record in orientations],
+                [maps[e].integration_space for e in ids],
+                element_maps=[maps[e] for e in ids],
+                boundary_dimension=mdim,
+                axis_skip=(2,) * mdim,
+                shared_face=False,
+                packed=True,
             )
-            for eid in element_ids
-        ]
-        c_rows.append((int(element_ids[0]), int(element_ids[1]), t[0], t[1]))
+            del common, _object_id
+            t = [_expand_mass_rows(packed[i], specs_q) for i in range(len(ids))]
+            c_rows.append((ids[0], ids[1], t[0], t[1]))
 
     strong_rows = []
     for mdim, object_id, element_ids, orientations in mesh.iterate_boundary(ndim - 1):
@@ -508,12 +507,16 @@ def test_kform_boundary_constraints_strong_weak_solve(ndim: int) -> None:
         side = -1 if orient[0] < 0 else 1
         strong = (axis == 0 and side < 0) or (axis == 1 and side < 0)
         if strong:
-            t = _packed_to_dense(
-                mesh.compute_kform_boundary_constraints(
-                    test_specs, specs_q, maps[element_id], element_id, int(object_id)
-                ),
-                specs_q,
+            _, _, _, packed = compute_kform_boundary_trace_moments(
+                [specs_q],
+                [list(map(int, orient))],
+                [maps[element_id].integration_space],
+                element_maps=[maps[element_id]],
+                boundary_dimension=mdim,
+                axis_skip=(2,) * mdim,
+                packed=True,
             )
+            t = _expand_mass_rows(packed[0], specs_q)
             q_exact = np.concatenate(
                 [
                     p.flatten()

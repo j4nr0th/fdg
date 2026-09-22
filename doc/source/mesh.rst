@@ -140,9 +140,6 @@ The mesh offers three iteration families:
   reduced by two on axes that do not carry one of the component's covector
   axes, so shared objects are never over-constrained by higher-order
   neighbours. Components whose reduced order would go negative are skipped.
-- :meth:`Mesh.kform_boundary_spaces` exposes the same derived spaces for
-  every mesh object (including boundary objects contained in a single
-  element); prescribed-data assembly reuses them.
 - :meth:`Mesh.iterate_boundary` and :meth:`Mesh.iterate_boundary_all` visit
   the objects that lie on the outer boundary of the mesh: an object lies on
   the boundary when it is contained in a *boundary face*, an object of
@@ -191,11 +188,10 @@ The global method accepts the following sequences:
     omitted when ``c1_continuous`` is set, in which case traces are paired in
     the reference domain without geometry factors.
 
-The boundary test spaces are derived automatically (see
-``Mesh.kform_boundary_spaces``); no explicit per-object test specification is
-required. An optional ``basis_type`` keyword forces one basis family onto every
-derived test space; by default each axis keeps the family of the incident
-element achieving the minimum mapped order.
+The boundary test spaces are derived automatically; no explicit per-object
+test specification is required. An optional ``basis_type`` keyword forces one
+basis family onto every derived test space; by default each axis keeps the
+family of the incident element achieving the minimum mapped order.
 
 The method returns five packed one-dimensional arrays:
 ``(row_offsets, element_ids, components, local_dofs, coefficients)``.
@@ -246,56 +242,26 @@ induced k-form component signs and basis reversals included in the packed rows.
 Pairing is explicit because mesh topology does not contain geometric
 information with which to infer periodic counterparts.
 
-For repeated one-sided traces sharing one test specification, :meth:`Mesh.compute_kform_boundary_constraints_batch`
-accepts one element specification and equal-length ``element_maps``,
-``element_ids``, and ``boundary_ids`` sequences. The batch items are paired
-by position: item ``i`` uses ``element_maps[i]`` and ``boundary_ids[i]`` on
-``element_ids[i]``. ``test_spec`` supplies the trace basis type, per-axis
-orders, and k-form degree; ``element_spec`` is the shared volume trial
-specification. The method does not infer a test space or geometry.
-
-It returns five packed arrays:
-
-``row_offsets``
-    ``uintp`` CSR-like offsets of length ``row_count + 1``. Rows for each
-    batch item are concatenated in input order.
-
-``element_ids``
-    ``uint64`` global element ID for each packed row entry.
-
-``components``
-    ``uint32`` element-frame k-form component for each packed row entry.
-
-``local_dofs``
-    ``uintp`` DoF index within the component named by ``components``.
-
-``coefficients``
-    ``double`` physical trace coefficient for each packed row entry. The
-    batch method assembles one positive-side trace per requested item.
-
-An empty batch has ``row_offsets == [0]`` and empty entry arrays. The method
-raises if the three input sequences have different lengths, a map has the
-wrong dimension, an element ID is outside the mesh, or a requested boundary
-object is not present in its element.
-
 The global method returns the packed five-array row representation and a sixth
 ``rhs`` array with one prescribed value per row. Shared and periodic rows have
 zero right-hand side; only prescribed boundary rows contribute nonzero values.
 
-Boundary constraints
---------------------
+Per-object boundary mass matrices
+---------------------------------
 
-:meth:`Mesh.compute_kform_boundary_constraints` is identical to the free
-function :func:`compute_kform_boundary_constraints`, except that the mesh
-collections, the point count and the orientation of the selected boundary
-within the selected element are taken from the mesh itself. See
+:func:`compute_kform_boundary_mass_matrices` assembles the per-object
+boundary mass matrices of one shared boundary object: one dense matrix per
+incident element, with rows from the windowed common Legendre test space and
+columns pairing with the element trace degrees of freedom. The orientation
+records of every boundary object are reported by :meth:`Mesh.iterate_boundary`
+and :meth:`Mesh.iterate_boundary_all`, and the per-element integration spaces
+are available as ``SpaceMap.integration_space``. See
 :ref:`fdg_boundary_constraints` for the mathematical construction and the
 packed format of the returned rows.
 
 The gallery example
 :ref:`sphx_glr_auto_examples_plot_multi_element_poisson.py` builds a mesh
-with :meth:`Mesh.from_corners`, enumerates the shared faces with
-:meth:`Mesh.iterate_shared` and assembles the flux continuity with
-:meth:`Mesh.compute_kform_boundary_constraints`.
+with :meth:`Mesh.from_corners` and assembles the flux continuity across every
+shared object with :meth:`Mesh.compute_kform_continuity_constraints`.
 
 .. autoclass:: Mesh

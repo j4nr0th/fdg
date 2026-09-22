@@ -21,10 +21,13 @@ from fdg._fdg import MeshGeometry as MeshGeometry
 from fdg._fdg import SampledSpaceMap as SampledSpaceMap
 from fdg._fdg import SpaceMap as SpaceMap
 from fdg._fdg import compute_gradient_mass_matrix as compute_gradient_mass_matrix
-from fdg._fdg import (
-    compute_kform_boundary_constraints as compute_kform_boundary_constraints,
-)
 from fdg._fdg import compute_kform_boundary_load as compute_kform_boundary_load
+from fdg._fdg import (
+    compute_kform_boundary_mass_matrices as compute_kform_boundary_mass_matrices,
+)
+from fdg._fdg import (
+    compute_kform_boundary_trace_moments as compute_kform_boundary_trace_moments,
+)
 from fdg._fdg import (
     compute_kform_incidence_matrix as compute_kform_incidence_matrix,
 )

@@ -5,11 +5,6 @@
 #include "mappings.h"
 #include "module.h"
 
-FDG_INTERNAL
-PyObject *compute_kform_boundary_constraints_impl(const interplib_module_state_t *state, kform_spec_object *test_spec,
-                                                  kform_spec_object *element_spec, space_map_object *element_map,
-                                                  const int8_t *orientation);
-
 /**
  * @brief Restricted face map plus the canonical/source quadrature frames of
  *        one element boundary.

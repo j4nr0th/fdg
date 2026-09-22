@@ -14,6 +14,14 @@ from fdg.boundary_conditions import (
 )
 from fdg.enum_type import _BasisTypeHint, _IntegrationMethodHint
 
+PackedRows = tuple[
+    npt.NDArray[np.uintp],
+    npt.NDArray[np.uint64],
+    npt.NDArray[np.uint32],
+    npt.NDArray[np.uintp],
+    npt.NDArray[np.double],
+]
+
 @final
 class IntegrationRegistry:
     """Registry for integration rules.
@@ -1436,51 +1444,6 @@ class Mesh:
         """
         ...
 
-    def compute_kform_boundary_constraints(
-        self,
-        test_specs: KFormSpecs,
-        element_spec: KFormSpecs,
-        element_map: SpaceMap,
-        element_id: int,
-        boundary_id: int,
-        /,
-    ) -> tuple[
-        npt.NDArray[np.uintp],
-        npt.NDArray[np.uint32],
-        npt.NDArray[np.uintp],
-        npt.NDArray[np.double],
-    ]:
-        """Assemble physical k-form boundary constraints for one boundary object.
-
-        Identical to the free function :func:`compute_kform_boundary_constraints`,
-        but the mesh collections and point count are taken from the mesh itself.
-
-        Parameters
-        ----------
-        test_specs : KFormSpecs
-            Test k-form specification on the canonical boundary space.
-
-        element_spec : KFormSpecs
-            Volume k-form specification for the selected element.
-
-        element_map : SpaceMap
-            Volume map for the selected element. Its restricted face map provides
-            the k-form pullbacks and physical measure.
-
-        element_id : int
-            Element containing the selected boundary.
-
-        boundary_id : int
-            Mesh boundary-object ID on the selected element.
-
-        Returns
-        -------
-        tuple of arrays
-            Row offsets, element component indices, local DoF indices, and
-            coefficients for the packed constraint rows.
-        """
-        ...
-
     def compute_kform_continuity_constraints(
         self,
         element_specs: Sequence[KFormSpecs],
@@ -1551,88 +1514,6 @@ class Mesh:
         coefficients : ndarray[double]
             Trace coefficient for each packed entry. The first side of every
             pair has positive sign and the second side has negative sign.
-        """
-        ...
-
-    def kform_boundary_spaces(
-        self,
-        element_specs: Sequence[KFormSpecs],
-        /,
-        *,
-        basis_type: _BasisTypeHint | None = None,
-    ) -> list[list[tuple[KFormSpecs, ...]]]:
-        """Derive the compatible boundary test space of every mesh object.
-
-        Each canonical component of a boundary object takes the lowest order
-        of the incident elements on every axis, reduced by two on axes that do
-        not carry one of the component's covector axes. Components whose
-        reduced order would go negative are omitted. Boundary-only objects
-        are derived from their single incident element.
-
-        Parameters
-        ----------
-        element_specs : Sequence[KFormSpecs]
-            One volume k-form specification per mesh element, exactly as for
-            :meth:`compute_kform_continuity_constraints`.
-
-        basis_type : int, optional
-            Basis family forced onto every derived test space. Defaults to
-            the family of the incident element achieving the per-axis minimum
-            order.
-
-        Returns
-        -------
-        list[list[tuple[KFormSpecs, ...]]]
-            ``spaces[mdim][object_id]`` holds one ``KFormSpecs`` per
-            canonical component that has rows on that object, in canonical
-            component order.
-        """
-        ...
-
-    def compute_kform_boundary_constraints_batch(
-        self,
-        test_spec: KFormSpecs,
-        element_spec: KFormSpecs,
-        element_maps: Sequence[SpaceMap],
-        element_ids: Sequence[int],
-        boundary_ids: Sequence[int],
-        /,
-    ) -> tuple[
-        npt.NDArray[np.uintp],
-        npt.NDArray[np.uint64],
-        npt.NDArray[np.uint32],
-        npt.NDArray[np.uintp],
-        npt.NDArray[np.double],
-    ]:
-        """Assemble one test trace specification for each requested boundary.
-
-        Parameters
-        ----------
-        test_spec : KFormSpecs
-            Trace test-space specification. Its dimension is the boundary
-            object dimension, and its k-form order must equal
-            ``element_spec.order``.
-        element_spec : KFormSpecs
-            Volume trial-space specification shared by every batch item.
-        element_maps : sequence of SpaceMap
-            Element maps, one per item, in the same order as
-            ``element_ids`` and ``boundary_ids``. Each map must describe the
-            mesh dimension.
-        element_ids : sequence of int
-            Global mesh element ID for each requested boundary trace.
-        boundary_ids : sequence of int
-            Boundary-object ID for each trace. Item ``i`` must belong to
-            ``element_ids[i]``.
-
-        Returns
-        -------
-        tuple of ndarray
-            Five packed arrays: ``row_offsets``, ``element_ids``,
-            ``components``, ``local_dofs``, and ``coefficients``. Rows are
-            concatenated in input order. ``components`` and ``local_dofs``
-            identify element-local k-form entries, and ``coefficients`` holds
-            their physical trace weights. An empty batch returns
-            ``row_offsets == [0]`` and empty entry arrays.
         """
         ...
 
@@ -2102,52 +1983,74 @@ def compute_kform_interior_product_matrix(
     """
     ...
 
-def compute_kform_boundary_constraints(
-    test_specs: KFormSpecs,
-    element_spec: KFormSpecs,
-    element_map: SpaceMap,
-    collections: tuple[npt.ArrayLike, ...],
-    npts: int,
-    element_id: int,
-    boundary_id: int,
+def compute_kform_boundary_mass_matrices(
+    element_specs: Sequence[KFormSpecs],
+    orientations: Sequence[Sequence[int]],
+    element_integrations: Sequence[IntegrationSpace],
+    axis_skip: Sequence[int] | None = None,
+    element_maps: Sequence[SpaceMap] | None = None,
+    *,
+    boundary_dimension: int | None = None,
+    shared_face: bool = True,
+    c1_continuous: bool = False,
+    packed: bool = False,
 ) -> tuple[
-    npt.NDArray[np.uintp],
-    npt.NDArray[np.uint32],
-    npt.NDArray[np.uintp],
-    npt.NDArray[np.double],
+    KFormSpecs,
+    IntegrationSpace,
+    tuple[npt.NDArray[np.double], ...],
+    tuple[PackedRows, ...] | None,
 ]:
-    """Assemble physical k-form boundary constraints.
+    """Assemble incident elements' mass matrices against one common boundary space.
 
-    Parameters
-    ----------
-    test_specs : KFormSpecs
-        Test k-form specification on the canonical boundary space.
+    Requires two or more incident elements (one inter-element constraint
+    route). Each element provides one orientation record: a signed one-based
+    permutation of the element axes whose first ``ndim - boundary_dimension``
+    entries name the fixed normal axes and whose tail maps the free
+    canonical boundary axes. Rows are the windowed common Legendre test
+    space of the shared object (``axis_skip[axis]`` lowest functions removed
+    on axes inactive in a component); columns span each element's flat DoF
+    numbering. With ``element_maps`` (one SpaceMap per element) the assembly
+    samples each face's surface measure and k-form pullback on its own
+    canonical grid; C1-continuous requests ignore the maps.
+    ``shared_face=False`` skips the debug surface-measure and pullback-moment
+    agreement guard for sides that are distinct physical faces (periodic
+    pairs).
 
-    element_spec : KFormSpecs
-        Volume k-form specification for the selected element.
+    Returns ``(common_specs, common_integration, matrices, packed)``: the
+    merged common k-form specification and integration space, one dense
+    matrix per element, and — with ``packed=True`` — one packed row tuple
+    per element with fields ``(row_offsets, sides, components, local_dofs,
+    coefficients)``.
+    """
+    ...
 
-    element_map : SpaceMap
-        Volume map for the selected element. Its restricted face map provides the
-        k-form pullbacks and physical measure.
+def compute_kform_boundary_trace_moments(
+    element_specs: Sequence[KFormSpecs],
+    orientations: Sequence[Sequence[int]],
+    element_integrations: Sequence[IntegrationSpace],
+    axis_skip: Sequence[int] | None = None,
+    element_maps: Sequence[SpaceMap] | None = None,
+    *,
+    boundary_dimension: int | None = None,
+    shared_face: bool = True,
+    c1_continuous: bool = False,
+    packed: bool = False,
+) -> tuple[
+    KFormSpecs,
+    IntegrationSpace,
+    tuple[npt.NDArray[np.double], ...],
+    tuple[PackedRows, ...] | None,
+]:
+    """Assemble one element's trace mass rows against the common boundary space.
 
-    collections : tuple of array_like
-        Boundary-ID arrays for mesh objects of dimensions 1 through N. The last
-        collection contains the N-dimensional elements.
+    The prescribed-data interface behind strong boundary conditions: a
+    single element's trace pairing with the same row and column conventions
+    as :func:`compute_kform_boundary_mass_matrices`. Bind a right-hand side
+    by multiplying the rows with the mapped data degrees of freedom.
 
-    npts : int
-        Number of mesh points represented implicitly by point IDs.
-
-    element_id : int
-        Element containing the selected boundary.
-
-    boundary_id : int
-        Mesh boundary-object ID on the selected element.
-
-    Returns
-    -------
-    tuple of arrays
-        Row offsets, element component indices, local DoF indices, and coefficients
-        for the packed constraint rows.
+    Returns ``(common_specs, common_integration, matrices, packed)`` with
+    one dense matrix and, with ``packed=True``, one packed row tuple
+    ``(row_offsets, sides, components, local_dofs, coefficients)``.
     """
     ...
 
