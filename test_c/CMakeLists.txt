@@ -128,6 +128,10 @@ add_executable(test_mesh topology/test_mesh.c)
 target_link_libraries(test_mesh PRIVATE test_common)
 add_test(NAME mesh COMMAND test_mesh)
 
+add_executable(test_topo_rotated_corners topology/test_topo_rotated_corners.c)
+target_link_libraries(test_topo_rotated_corners PRIVATE test_topo_common)
+add_test(NAME topo_rotated_corners COMMAND test_topo_rotated_corners)
+
 add_executable(test_constraints operations/test_constraints.c)
 target_link_libraries(test_constraints PRIVATE test_common)
 add_test(NAME constraints COMMAND test_constraints)

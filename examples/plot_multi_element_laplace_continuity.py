@@ -213,6 +213,7 @@ def _local_component_rows(
     ]
 
 
+# TODO: might as well swap this over to the new mesh C-backed constraint assembly.
 def build_continuity_rows_reference(
     mesh: Mesh,
     maps: list[SpaceMap],
@@ -238,45 +239,51 @@ def build_continuity_rows_reference(
         object_tests = test_specs[mdim][int(object_id)]
         if not object_tests:
             continue
-        for first, second in zip(
-            shared_element_ids[:-1], shared_element_ids[1:], strict=True
-        ):
-            first_id, second_id = int(first), int(second)
-            for component, test_spec in enumerate(object_tests):
-                if test_spec is None:
-                    continue
-                first_result = compute_kform_boundary_constraints(
+
+        # Star rows, matching the C assembly: one row per anchor test DoF and
+        # non-anchor side, the anchor's entries followed by that side's, rows
+        # ordered by component then test DoF and sides by element order.
+        element_ids = [int(e) for e in shared_element_ids]
+        anchor = element_ids[0]
+
+        def local_rows(
+            element_id: int,
+        ) -> list[list[list[tuple[int, int, int, float]]]]:
+            return [
+                _local_component_rows(
+                    compute_kform_boundary_constraints(
+                        test_spec,
+                        element_specs[element_id],
+                        maps[element_id],
+                        mesh.collections,
+                        mesh.point_count,
+                        element_id,
+                        int(object_id),
+                    ),
                     test_spec,
-                    element_specs[first_id],
-                    maps[first_id],
-                    mesh.collections,
-                    mesh.point_count,
-                    first_id,
-                    int(object_id),
+                    component,
+                    element_id,
+                    +1.0 if element_id == anchor else -1.0,
                 )
-                second_result = compute_kform_boundary_constraints(
-                    test_spec,
-                    element_specs[second_id],
-                    maps[second_id],
-                    mesh.collections,
-                    mesh.point_count,
-                    second_id,
-                    int(object_id),
-                )
-                first_rows = _local_component_rows(
-                    first_result, test_spec, component, first_id, +1.0
-                )
-                second_rows = _local_component_rows(
-                    second_result, test_spec, component, second_id, -1.0
-                )
-                if len(first_rows) != len(second_rows):
+                for component, test_spec in enumerate(object_tests)
+            ]
+
+        anchor_rows = local_rows(anchor)
+        side_rows = [local_rows(e) for e in element_ids[1:]]
+        for component, rows_c in enumerate(anchor_rows):
+            if rows_c is None:
+                continue
+            for side_index, rows_s in enumerate(side_rows):
+                if len(rows_s[component]) != len(rows_c):
                     raise ValueError(
                         "Paired elements produced different trace row counts."
                     )
-                rows.extend(
-                    first_row + second_row
-                    for first_row, second_row in zip(first_rows, second_rows, strict=True)
-                )
+        for component, rows_c in enumerate(anchor_rows):
+            if rows_c is None:
+                continue
+            for local in range(len(rows_c)):
+                for rows_s in side_rows:
+                    rows.append(rows_c[local] + rows_s[component][local])
     row_offsets = np.zeros(len(rows) + 1, dtype=np.uintp)
     element_ids: list[int] = []
     components: list[int] = []
