@@ -96,12 +96,17 @@ int make_boundary_face_setup(const interplib_module_state_t *state, const space_
     setup->face_map = face;
 
     const integration_spec_t *const face_specs = setup->face_map->int_specs;
-    // The canonical specs determine the tensor point count, which sizes the
-    // weight buffer; derive them into stack scratch before allocating.
-    integration_spec_t canonical_specs_scratch[UINT8_MAX];
-    constraint_face_canonical_specs(element_dim, face_dim, orientation, face_specs, canonical_specs_scratch);
+    // The canonical specs are a pure reordering of the face specs, so the
+    // tensor point count follows from the mapped face rules directly.
+    size_t weight_count = 1;
+    for (unsigned face_axis = 0; face_axis < face_dim; ++face_axis)
+    {
+        const int8_t mapping = orientation[element_dim - face_dim + face_axis];
+        const unsigned element_axis = (unsigned)(mapping < 0 ? -mapping : mapping) - 1;
+        weight_count *=
+            (size_t)face_specs[constraint_face_source_axis(element_dim, face_dim, orientation, element_axis)].order + 1;
+    }
     const size_t slot_count = face_dim > 0 ? face_dim : 1;
-    const size_t weight_count = integration_specs_total_points(face_dim, canonical_specs_scratch);
     setup->memory = cutl_alloc_group(
         &PYTHON_ALLOCATOR, (const cutl_alloc_info_t[]){
                                {sizeof(*setup->source_rules) * slot_count, (void **)&setup->source_rules},
@@ -113,7 +118,7 @@ int make_boundary_face_setup(const interplib_module_state_t *state, const space_
                                {}});
     if (!setup->memory)
         goto fail;
-    memcpy(setup->canonical_specs, canonical_specs_scratch, sizeof(*setup->canonical_specs) * slot_count);
+    constraint_face_canonical_specs(element_dim, face_dim, orientation, face_specs, setup->canonical_specs);
     memset(setup->source_rules, 0, sizeof(*setup->source_rules) * slot_count);
     memset(setup->canonical_rules, 0, sizeof(*setup->canonical_rules) * slot_count);
     setup->point_count = weight_count;
@@ -197,6 +202,7 @@ static int make_trace_basis_table(const unsigned element_dim, const unsigned fac
     basis_spec_t *free_specs_lower;
     basis_spec_t *lower_specs;
     unsigned *source_axes;
+    combination_iterator_t *components;
     void *const memory = cutl_alloc_group(
         &PYTHON_ALLOCATOR,
         (const cutl_alloc_info_t[]){
@@ -205,6 +211,7 @@ static int make_trace_basis_table(const unsigned element_dim, const unsigned fac
             {sizeof(*free_specs_lower) * (free_count > 0 ? free_count : 1), (void **)&free_specs_lower},
             {sizeof(*lower_specs) * axis_count, (void **)&lower_specs},
             {sizeof(*source_axes) * axis_count, (void **)&source_axes},
+            {combination_iterator_required_memory((uint8_t)order), (void **)&components},
             {}});
     if (!memory)
         return -1;
@@ -344,15 +351,17 @@ static int make_trace_basis_table(const unsigned element_dim, const unsigned fac
                                              .point_count = point_count,
                                              .component_offsets = out->component_offsets,
                                              .values = out->values};
-    for (unsigned component = 0; component < component_count; ++component)
+    combination_iterator_init(components, (uint8_t)ndim, (uint8_t)order);
+    for (size_t component = 0; component < component_count; ++component)
     {
         const size_t dof_count = out->component_offsets[component + 1] - out->component_offsets[component];
-        if (dof_count == 0)
-            continue;
-        uint8_t component_axes[UINT8_MAX];
-        kform_component_axes(&descriptor, component, component_axes);
-        kform_component_basis_values(ndim, basis_specs, order, component_axes, axes, canonical_strides, point_count,
-                                     out->values + out->component_offsets[component] * point_count);
+        if (dof_count != 0)
+        {
+            kform_component_basis_values(ndim, basis_specs, order, combination_iterator_current(components), axes,
+                                         canonical_strides, point_count,
+                                         out->values + out->component_offsets[component] * point_count);
+        }
+        combination_iterator_next(components);
     }
     if (basis_sets_lower)
         python_basis_sets_release(free_count, basis_sets_lower, basis_registry->registry);
@@ -647,20 +656,31 @@ static PyObject *compute_kform_boundary_load(PyObject *module, PyObject *const *
     double *data_owned = NULL;
     double *surface_weights = NULL;
     trace_basis_table_t element_table = {};
-
-    space_map_object *const face_map = setup.face_map;
-    const integration_spec_t *const face_specs = face_map->int_specs;
+    constraint_physical_side_load_work_t load_work = {0};
     {
+        size_t load_face_axes;
+        size_t load_datum_axes;
+        size_t load_iterator;
+        const kform_spec_t load_test_descriptor = {.ndim = face_dim, .order = order, .basis = NULL};
+        constraint_physical_side_load_work_size(&load_test_descriptor, &load_face_axes, &load_datum_axes,
+                                                &load_iterator);
         load_memory = cutl_alloc_group(
             &PYTHON_ALLOCATOR,
             (const cutl_alloc_info_t[]){
                 {sizeof(*surface_weights) * (weighted ? setup.point_count : 1), (void **)&surface_weights},
                 {sizeof(*data_owned) * component_count * setup.point_count, (void **)&data_owned},
+                {sizeof(*load_work.face_axes) * load_face_axes, (void **)&load_work.face_axes},
+                {sizeof(*load_work.element_axes) * load_face_axes, (void **)&load_work.element_axes},
+                {sizeof(*load_work.datum_axes) * load_datum_axes, (void **)&load_work.datum_axes},
+                {sizeof(*load_work.mapped_axes) * load_face_axes, (void **)&load_work.mapped_axes},
+                {load_iterator, (void **)&load_work.face_components},
                 {}});
         if (!load_memory)
             goto load_fail;
     }
 
+    space_map_object *const face_map = setup.face_map;
+    const integration_spec_t *const face_specs = face_map->int_specs;
     if (weighted)
     {
         for (size_t point = 0; point < setup.point_count; ++point)
@@ -746,7 +766,7 @@ static PyObject *compute_kform_boundary_load(PyObject *module, PyObject *const *
                                true, setup.point_count, &element_table) < 0)
         goto load_fail;
     constraint_physical_side_load(&test_descriptor, &side_descriptor, setup.point_weights, data_owned,
-                                  weighted ? surface_weights : NULL, &element_table.descriptor,
+                                  weighted ? surface_weights : NULL, &element_table.descriptor, &load_work,
                                   (double *)PyArray_DATA((PyArrayObject *)result));
     cutl_dealloc(&PYTHON_ALLOCATOR, load_memory);
     release_trace_basis_table(&element_table);
@@ -935,81 +955,109 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
     int plan_live = 0;
 
     // Physical factors per element: face setups, sampled surface weights and
-    // k-form pullbacks. Allocated up front so the cleanup label releases them
-    // on any failure path.
+    // k-form pullbacks. The setup and transform arrays carry per-element
+    // release work and stay separate; every plain buffer shares one group.
     boundary_face_setup_t *setups = physical ? PyMem_Calloc(nelem, sizeof(*setups)) : NULL;
     PyArrayObject **transforms = physical ? PyMem_Calloc(nelem, sizeof(*transforms)) : NULL;
-    double **pullback_values = physical ? PyMem_Calloc(nelem, sizeof(*pullback_values)) : NULL;
-    double **element_pullback_values = physical ? PyMem_Calloc(nelem, sizeof(*element_pullback_values)) : NULL;
-    double **surface_weights = physical ? PyMem_Calloc(nelem, sizeof(*surface_weights)) : NULL;
     constraint_trace_pullback_t *pullbacks = physical ? PyMem_Calloc(nelem, sizeof(*pullbacks)) : NULL;
     constraint_trace_pullback_t *element_pullbacks = physical ? PyMem_Calloc(nelem, sizeof(*element_pullbacks)) : NULL;
-    const constraint_trace_pullback_t **test_pullback_pointers =
-        physical ? PyMem_Malloc(nelem * sizeof(*test_pullback_pointers)) : NULL;
-    const constraint_trace_pullback_t **element_pullback_pointers =
-        physical ? PyMem_Malloc(nelem * sizeof(*element_pullback_pointers)) : NULL;
-    const double **surface_rows = physical ? PyMem_Malloc(nelem * sizeof(*surface_rows)) : NULL;
-    // Per-element integration rules: the reference mode reads the given
-    // IntegrationSpaces, the physical mode the canonical face specs.
-    integration_spec_t *element_integrations = PyMem_Malloc(nelem * ndim * sizeof(*element_integrations));
+    void *physical_memory = NULL;
+    void *rows_memory = NULL;
+    void *build_memory = NULL;
+    void *weights_memory = NULL;
+    double **pullback_values = NULL;
+    double **element_pullback_values = NULL;
+    double **surface_weights = NULL;
+    const constraint_trace_pullback_t **test_pullback_pointers = NULL;
+    const constraint_trace_pullback_t **element_pullback_pointers = NULL;
+    const double **surface_rows = NULL;
 
-    // Plan and work arrays. Every buffer is allocated (or NULL) up front so
-    // the single cleanup label can release them on any failure path; the plan
-    // itself is live from the prepare call onwards.
+    // Plan and work arrays. Every plain buffer shares one allocation group so
+    // the cleanup path releases them with a single dealloc; the plan itself is
+    // live from the prepare call onwards.
     const size_t axis_items = nelem * ndim;
     const size_t component_count = combination_total_count((uint8_t)bdim, (uint8_t)order);
     const size_t order_storage = order == 0 ? 1u : order;
     const size_t iterator_memory = combination_iterator_required_memory((uint8_t)order);
-    int8_t *orientations = PyMem_Malloc(nelem * ndim * sizeof(*orientations));
-    boundary_element_space_t *views = PyMem_Malloc(nelem * sizeof(*views));
-    uint8_t *axis_skip = NULL;
-    size_t *item_rows = PyMem_Malloc(nelem * sizeof(*item_rows));
-    size_t *item_cols = PyMem_Malloc(nelem * sizeof(*item_cols));
-    size_t *item_offsets = PyMem_Malloc((nelem + 1) * sizeof(*item_offsets));
-    basis_spec_t *out_basis = PyMem_Malloc(bdim * sizeof(*out_basis));
-    integration_spec_t *out_integration = PyMem_Malloc(bdim * sizeof(*out_integration));
-    const integration_rule_t **plan_rules = PyMem_Malloc(bdim * sizeof(*plan_rules));
-    const basis_set_t **plan_boundary_sets = PyMem_Malloc(bdim * sizeof(*plan_boundary_sets));
-    const basis_set_t **plan_boundary_sets_lower = PyMem_Malloc(bdim * sizeof(*plan_boundary_sets_lower));
-    basis_spec_t *plan_boundary_lower_specs = PyMem_Malloc(bdim * sizeof(*plan_boundary_lower_specs));
-    const basis_set_t **plan_element_sets = PyMem_Malloc(axis_items * sizeof(*plan_element_sets));
-    const basis_set_t **plan_element_sets_lower = PyMem_Malloc(axis_items * sizeof(*plan_element_sets_lower));
-    const basis_endpoint_set_t **plan_element_endpoints = PyMem_Malloc(axis_items * sizeof(*plan_element_endpoints));
-    const basis_endpoint_set_t **plan_element_endpoints_lower =
-        PyMem_Malloc(axis_items * sizeof(*plan_element_endpoints_lower));
-    basis_spec_t *plan_element_lower_specs = PyMem_Malloc(axis_items * sizeof(*plan_element_lower_specs));
+    int8_t *orientations;
+    boundary_element_space_t *views;
+    size_t *item_rows;
+    size_t *item_cols;
+    size_t *item_offsets;
+    basis_spec_t *out_basis;
+    integration_spec_t *out_integration;
+    const integration_rule_t **plan_rules;
+    const basis_set_t **plan_boundary_sets;
+    const basis_set_t **plan_boundary_sets_lower;
+    basis_spec_t *plan_boundary_lower_specs;
+    const basis_set_t **plan_element_sets;
+    const basis_set_t **plan_element_sets_lower;
+    const basis_endpoint_set_t **plan_element_endpoints;
+    const basis_endpoint_set_t **plan_element_endpoints_lower;
+    basis_spec_t *plan_element_lower_specs;
     constrain_elements_on_boundary_work_t work = {0};
-    work.axis_fixed = PyMem_Malloc(ndim * sizeof(*work.axis_fixed));
-    work.axis_slot = PyMem_Malloc(ndim * sizeof(*work.axis_slot));
-    work.element_rules = PyMem_Malloc(ndim * sizeof(*work.element_rules));
-    work.mass.point_strides = PyMem_Malloc(bdim * sizeof(*work.mass.point_strides));
-    work.mass.row_offsets = PyMem_Malloc((component_count + 1) * sizeof(*work.mass.row_offsets));
-    work.mass.col_offsets = PyMem_Malloc((component_count + 1) * sizeof(*work.mass.col_offsets));
-    work.mass.element_components = PyMem_Malloc(component_count * sizeof(*work.mass.element_components));
-    work.mass.element_signs = PyMem_Malloc(component_count * sizeof(*work.mass.element_signs));
-    work.mass.axes = PyMem_Malloc(ndim * sizeof(*work.mass.axes));
-    work.mass.counts = PyMem_Malloc(bdim * sizeof(*work.mass.counts));
-    work.mass.offsets = PyMem_Malloc(bdim * sizeof(*work.mass.offsets));
-    work.mass.axis_sets = PyMem_Malloc(bdim * sizeof(*work.mass.axis_sets));
-    work.mass.digits = PyMem_Malloc(bdim * sizeof(*work.mass.digits));
-    work.mass.axis_tables = PyMem_Malloc(bdim * sizeof(*work.mass.axis_tables));
-    work.mass.mapped_axes = PyMem_Malloc(order_storage * sizeof(*work.mass.mapped_axes));
-    work.mass.components = PyMem_Malloc(iterator_memory);
-    work.mass.blocks = PyMem_Malloc(iterator_memory);
-    if (!orientations || !views || !item_rows || !item_cols || !item_offsets || !out_basis || !out_integration ||
-        !plan_rules || !plan_boundary_sets || !plan_boundary_sets_lower || !plan_boundary_lower_specs ||
-        !plan_element_sets || !plan_element_sets_lower || !plan_element_endpoints || !plan_element_endpoints_lower ||
-        !plan_element_lower_specs || !work.axis_fixed || !work.axis_slot || !work.element_rules ||
-        !work.mass.point_strides || !work.mass.row_offsets || !work.mass.col_offsets || !work.mass.element_components ||
-        !work.mass.element_signs || !work.mass.axes || !work.mass.counts || !work.mass.offsets ||
-        !work.mass.axis_sets || !work.mass.digits || !work.mass.axis_tables || !work.mass.mapped_axes ||
-        !work.mass.components || !work.mass.blocks || !element_integrations ||
-        (physical &&
-         (!setups || !transforms || !pullback_values || !element_pullback_values || !surface_weights || !pullbacks ||
-          !element_pullbacks || !test_pullback_pointers || !element_pullback_pointers || !surface_rows)))
+    uint8_t *axis_skip;
+    integration_spec_t *element_integrations;
+    void *const core_memory = cutl_alloc_group(
+        &PYTHON_ALLOCATOR,
+        (const cutl_alloc_info_t[]){
+            {sizeof(*orientations) * nelem * ndim, (void **)&orientations},
+            {sizeof(*views) * nelem, (void **)&views},
+            {sizeof(*item_rows) * nelem, (void **)&item_rows},
+            {sizeof(*item_cols) * nelem, (void **)&item_cols},
+            {sizeof(*item_offsets) * (nelem + 1), (void **)&item_offsets},
+            {sizeof(*out_basis) * bdim, (void **)&out_basis},
+            {sizeof(*out_integration) * bdim, (void **)&out_integration},
+            {sizeof(*plan_rules) * bdim, (void **)&plan_rules},
+            {sizeof(*plan_boundary_sets) * bdim, (void **)&plan_boundary_sets},
+            {sizeof(*plan_boundary_sets_lower) * bdim, (void **)&plan_boundary_sets_lower},
+            {sizeof(*plan_boundary_lower_specs) * bdim, (void **)&plan_boundary_lower_specs},
+            {sizeof(*plan_element_sets) * axis_items, (void **)&plan_element_sets},
+            {sizeof(*plan_element_sets_lower) * axis_items, (void **)&plan_element_sets_lower},
+            {sizeof(*plan_element_endpoints) * axis_items, (void **)&plan_element_endpoints},
+            {sizeof(*plan_element_endpoints_lower) * axis_items, (void **)&plan_element_endpoints_lower},
+            {sizeof(*plan_element_lower_specs) * axis_items, (void **)&plan_element_lower_specs},
+            {sizeof(*work.axis_fixed) * ndim, (void **)&work.axis_fixed},
+            {sizeof(*work.axis_slot) * ndim, (void **)&work.axis_slot},
+            {sizeof(*work.element_rules) * ndim, (void **)&work.element_rules},
+            {sizeof(*work.mass.point_strides) * bdim, (void **)&work.mass.point_strides},
+            {sizeof(*work.mass.row_offsets) * (component_count + 1), (void **)&work.mass.row_offsets},
+            {sizeof(*work.mass.col_offsets) * (component_count + 1), (void **)&work.mass.col_offsets},
+            {sizeof(*work.mass.element_components) * component_count, (void **)&work.mass.element_components},
+            {sizeof(*work.mass.element_signs) * component_count, (void **)&work.mass.element_signs},
+            {sizeof(*work.mass.axes) * ndim, (void **)&work.mass.axes},
+            {sizeof(*work.mass.counts) * bdim, (void **)&work.mass.counts},
+            {sizeof(*work.mass.offsets) * bdim, (void **)&work.mass.offsets},
+            {sizeof(*work.mass.axis_sets) * bdim, (void **)&work.mass.axis_sets},
+            {sizeof(*work.mass.digits) * bdim, (void **)&work.mass.digits},
+            {sizeof(*work.mass.axis_tables) * bdim, (void **)&work.mass.axis_tables},
+            {sizeof(*work.mass.mapped_axes) * order_storage, (void **)&work.mass.mapped_axes},
+            {iterator_memory, (void **)&work.mass.components},
+            {iterator_memory, (void **)&work.mass.blocks},
+            {sizeof(*axis_skip) * bdim, (void **)&axis_skip},
+            {sizeof(*element_integrations) * nelem * ndim, (void **)&element_integrations},
+            {}});
+    if (!core_memory || (physical && (!setups || !transforms || !pullbacks || !element_pullbacks)))
     {
         PyErr_NoMemory();
         goto fail_memory;
+    }
+    if (physical)
+    {
+        physical_memory = cutl_alloc_group(
+            &PYTHON_ALLOCATOR, (const cutl_alloc_info_t[]){
+                                   {sizeof(*pullback_values) * nelem, (void **)&pullback_values},
+                                   {sizeof(*element_pullback_values) * nelem, (void **)&element_pullback_values},
+                                   {sizeof(*surface_weights) * nelem, (void **)&surface_weights},
+                                   {sizeof(*test_pullback_pointers) * nelem, (void **)&test_pullback_pointers},
+                                   {sizeof(*element_pullback_pointers) * nelem, (void **)&element_pullback_pointers},
+                                   {sizeof(*surface_rows) * nelem, (void **)&surface_rows},
+                                   {}});
+        if (!physical_memory)
+        {
+            PyErr_NoMemory();
+            goto fail_memory;
+        }
     }
     for (size_t element = 0; element < nelem; ++element)
     {
@@ -1042,8 +1090,14 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
     // Physical mode: restrict each element map to its face and adopt the
     // face's canonical sampling as the element's integration rules. Fixed
     // normal axes read endpoint values only, so they keep the given rules.
+    double *surface_block = NULL;
+    double *pullback_block = NULL;
     if (physical)
     {
+        size_t surface_total = 0;
+        size_t pullback_total = 0;
+        const size_t pullback_row = (size_t)combination_total_count((uint8_t)ndim, (uint8_t)order) *
+                                    (size_t)combination_total_count((uint8_t)ndim, (uint8_t)order);
         for (size_t element = 0; element < nelem; ++element)
         {
             if (make_boundary_face_setup(state,
@@ -1052,6 +1106,8 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
             {
                 goto fail_memory;
             }
+            surface_total += setups[element].point_count;
+            pullback_total += order > 0 ? 2u * pullback_row * setups[element].point_count : 0u;
             for (unsigned slot = 0; slot < bdim; ++slot)
             {
                 const int8_t mapping = orientations[element * ndim + ndim - bdim + slot];
@@ -1059,8 +1115,22 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
                 element_integrations[element * ndim + element_axis] = setups[element].canonical_specs[slot];
             }
         }
+        // The per-element surface weights and pullback tables share one
+        // arena; both variants of a pullback write one row per element and
+        // canonical component, so the element count sizes both.
+        rows_memory = cutl_alloc_group(
+            &PYTHON_ALLOCATOR,
+            (const cutl_alloc_info_t[]){{sizeof(*surface_block) * surface_total, (void **)&surface_block},
+                                        {sizeof(*pullback_block) * pullback_total, (void **)&pullback_block},
+                                        {}});
+        if (!rows_memory)
+        {
+            PyErr_NoMemory();
+            goto fail_memory;
+        }
     }
 
+    uint8_t *const request_axis_skip = axis_skip_object != Py_None ? axis_skip : NULL;
     if (axis_skip_object != Py_None)
     {
         PyObject *const skip_seq = PySequence_Fast(axis_skip_object, "axis_skip must be a sequence of integers.");
@@ -1070,13 +1140,6 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
         {
             PyErr_Format(PyExc_ValueError, "axis_skip must contain %u entries.", bdim);
             Py_DECREF(skip_seq);
-            goto fail_memory;
-        }
-        axis_skip = PyMem_Malloc(bdim * sizeof(*axis_skip));
-        if (!axis_skip)
-        {
-            Py_DECREF(skip_seq);
-            PyErr_NoMemory();
             goto fail_memory;
         }
         for (unsigned axis = 0; axis < bdim; ++axis)
@@ -1098,7 +1161,7 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
         .nforms = 1,
         .nelem = (unsigned)nelem,
         .elements = views,
-        .axis_skip = axis_skip,
+        .axis_skip = request_axis_skip,
         .c1_continuous = c1_continuous != 0,
         .shared_face_guard = shared_face != 0,
         .surface_weights = NULL,
@@ -1154,16 +1217,74 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
             }
         }
         const unsigned physical_component_count = (unsigned)combination_total_count((uint8_t)ndim, (uint8_t)order);
+        // One shared work per build variant: the sizes depend only on the
+        // dimensions and the component indexing mode, not on the element.
+        const constraint_trace_pullback_build_t canonical_template = {
+            .element_dim = ndim, .face_dim = bdim, .order = order, .canonical_components = true};
+        const constraint_trace_pullback_build_t element_template = {
+            .element_dim = ndim, .face_dim = bdim, .order = order, .element_components = true};
+        constraint_trace_pullback_build_work_sizes_t canonical_sizes;
+        constraint_trace_pullback_build_work_sizes_t element_sizes;
+        constraint_trace_pullback_build_work_size(&canonical_template, &canonical_sizes);
+        constraint_trace_pullback_build_work_size(&element_template, &element_sizes);
+        constraint_trace_pullback_build_work_t canonical_work;
+        constraint_trace_pullback_build_work_t element_work;
+        build_memory = cutl_alloc_group(
+            &PYTHON_ALLOCATOR,
+            (const cutl_alloc_info_t[]){
+                {sizeof(*canonical_work.axis_source_slots) * canonical_sizes.face_axis_count,
+                 (void **)&canonical_work.axis_source_slots},
+                {sizeof(*canonical_work.axis_orders) * canonical_sizes.face_axis_count,
+                 (void **)&canonical_work.axis_orders},
+                {sizeof(*canonical_work.axis_source_strides) * canonical_sizes.face_axis_count,
+                 (void **)&canonical_work.axis_source_strides},
+                {sizeof(*canonical_work.axis_canonical_strides) * canonical_sizes.face_axis_count,
+                 (void **)&canonical_work.axis_canonical_strides},
+                {sizeof(*canonical_work.axis_mirrored) * canonical_sizes.face_axis_count,
+                 (void **)&canonical_work.axis_mirrored},
+                {sizeof(*canonical_work.element_axis_free) * canonical_sizes.element_axis_count,
+                 (void **)&canonical_work.element_axis_free},
+                {sizeof(*canonical_work.element_source_rank) * canonical_sizes.element_axis_count,
+                 (void **)&canonical_work.element_source_rank},
+                {sizeof(*canonical_work.element_to_face) * canonical_sizes.element_component_map,
+                 (void **)&canonical_work.element_to_face},
+                {sizeof(*canonical_work.mapped_axes) * canonical_sizes.axes_scratch,
+                 (void **)&canonical_work.mapped_axes},
+                {sizeof(*canonical_work.source_axes) * canonical_sizes.axes_scratch,
+                 (void **)&canonical_work.source_axes},
+                {canonical_sizes.iterator_memory, (void **)&canonical_work.components},
+                {sizeof(*element_work.axis_source_slots) * element_sizes.face_axis_count,
+                 (void **)&element_work.axis_source_slots},
+                {sizeof(*element_work.axis_orders) * element_sizes.face_axis_count, (void **)&element_work.axis_orders},
+                {sizeof(*element_work.axis_source_strides) * element_sizes.face_axis_count,
+                 (void **)&element_work.axis_source_strides},
+                {sizeof(*element_work.axis_canonical_strides) * element_sizes.face_axis_count,
+                 (void **)&element_work.axis_canonical_strides},
+                {sizeof(*element_work.axis_mirrored) * element_sizes.face_axis_count,
+                 (void **)&element_work.axis_mirrored},
+                {sizeof(*element_work.element_axis_free) * element_sizes.element_axis_count,
+                 (void **)&element_work.element_axis_free},
+                {sizeof(*element_work.element_source_rank) * element_sizes.element_axis_count,
+                 (void **)&element_work.element_source_rank},
+                {sizeof(*element_work.element_to_face) * element_sizes.element_component_map,
+                 (void **)&element_work.element_to_face},
+                {sizeof(*element_work.mapped_axes) * element_sizes.axes_scratch, (void **)&element_work.mapped_axes},
+                {sizeof(*element_work.source_axes) * element_sizes.axes_scratch, (void **)&element_work.source_axes},
+                {element_sizes.iterator_memory, (void **)&element_work.components},
+                {}});
+        if (!build_memory)
+        {
+            PyErr_NoMemory();
+            goto fail_memory;
+        }
+        size_t surface_offset = 0;
+        size_t pullback_offset = 0;
         for (size_t element = 0; element < nelem; ++element)
         {
             const boundary_face_setup_t *const setup = &setups[element];
             space_map_object *const face_map = setup->face_map;
-            surface_weights[element] = PyMem_Malloc(setup->point_count * sizeof(*surface_weights[element]));
-            if (!surface_weights[element])
-            {
-                PyErr_NoMemory();
-                goto fail_memory;
-            }
+            surface_weights[element] = surface_block + surface_offset;
+            surface_offset += setup->point_count;
             for (size_t point = 0; point < setup->point_count; ++point)
             {
                 const size_t source_point = constraint_face_point_to_source(
@@ -1180,14 +1301,15 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
                 const size_t pullback_values_size = (size_t)combination_total_count((uint8_t)ndim, (uint8_t)order) *
                                                     physical_component_count * setup->point_count;
                 transforms[element] = compute_basis_transform_impl(face_map, (Py_ssize_t)order);
-                pullback_values[element] = PyMem_Malloc(pullback_values_size * sizeof(*pullback_values[element]));
-                element_pullback_values[element] =
-                    PyMem_Malloc(pullback_values_size * sizeof(*element_pullback_values[element]));
-                if (!transforms[element] || !pullback_values[element] || !element_pullback_values[element])
+                if (!transforms[element])
                 {
                     PyErr_NoMemory();
                     goto fail_memory;
                 }
+                pullback_values[element] = pullback_block + pullback_offset;
+                pullback_offset += pullback_values_size;
+                element_pullback_values[element] = pullback_block + pullback_offset;
+                pullback_offset += pullback_values_size;
                 const constraint_trace_pullback_build_t build = {
                     .element_dim = ndim,
                     .face_dim = bdim,
@@ -1203,7 +1325,8 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
                     .canonical_specs = setup->canonical_specs,
                     .transform = (const double *)PyArray_DATA(transforms[element]),
                     .out = pullback_values[element],
-                    .canonical_components = true};
+                    .canonical_components = true,
+                    .work = &canonical_work};
                 constraint_trace_pullback_build(&build);
                 const constraint_trace_pullback_build_t element_build = {
                     .element_dim = build.element_dim,
@@ -1220,7 +1343,8 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
                     .canonical_specs = build.canonical_specs,
                     .transform = build.transform,
                     .out = element_pullback_values[element],
-                    .element_components = true};
+                    .element_components = true,
+                    .work = &element_work};
                 constraint_trace_pullback_build(&element_build);
                 pullbacks[element] = (constraint_trace_pullback_t){.physical_component_count = physical_component_count,
                                                                    .point_count = setup->point_count,
@@ -1253,11 +1377,14 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
     size_t row_values_size;
     size_t col_values_size;
     constrain_elements_on_boundary_work_size(&request, &plan, &weights_size, &row_values_size, &col_values_size);
-    work.weights = PyMem_Malloc(weights_size * sizeof(*work.weights));
-    work.mass.row_values = PyMem_Malloc(row_values_size * sizeof(*work.mass.row_values));
-    work.mass.col_values = PyMem_Malloc(col_values_size * sizeof(*work.mass.col_values));
-    work.mass.point_factors = PyMem_Malloc(weights_size * sizeof(*work.mass.point_factors));
-    if (!work.weights || !work.mass.row_values || !work.mass.col_values || !work.mass.point_factors)
+    weights_memory = cutl_alloc_group(
+        &PYTHON_ALLOCATOR, (const cutl_alloc_info_t[]){
+                               {sizeof(*work.weights) * weights_size, (void **)&work.weights},
+                               {sizeof(*work.mass.row_values) * row_values_size, (void **)&work.mass.row_values},
+                               {sizeof(*work.mass.col_values) * col_values_size, (void **)&work.mass.col_values},
+                               {sizeof(*work.mass.point_factors) * weights_size, (void **)&work.mass.point_factors},
+                               {}});
+    if (!weights_memory)
     {
         PyErr_NoMemory();
         goto fail_memory;
@@ -1332,7 +1459,7 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
                                                           .boundary_basis = out_basis,
                                                           .boundary_integration = out_integration,
                                                           .orientation = views[element].orientation,
-                                                          .axis_skip = axis_skip};
+                                                          .axis_skip = request_axis_skip};
             size_t rows;
             size_t cols;
             size_t entries;
@@ -1383,37 +1510,29 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
         }
     }
 
+    // The plan's registry references live in the core group's arrays, so
+    // release them before any group buffer goes away.
+    Py_BEGIN_ALLOW_THREADS;
+    constrain_elements_on_boundary_plan_release(&plan);
+    Py_END_ALLOW_THREADS;
     if (physical)
     {
         for (size_t element = 0; element < nelem; ++element)
         {
             release_boundary_face_setup(state, bdim, &setups[element]);
             Py_XDECREF(transforms[element]);
-            PyMem_Free(element_pullback_values[element]);
-            PyMem_Free(pullback_values[element]);
-            PyMem_Free(surface_weights[element]);
         }
-        PyMem_Free(surface_rows);
-        PyMem_Free(element_pullback_pointers);
-        PyMem_Free(test_pullback_pointers);
-        PyMem_Free(element_pullbacks);
+        cutl_dealloc(&PYTHON_ALLOCATOR, rows_memory);
+        cutl_dealloc(&PYTHON_ALLOCATOR, build_memory);
+        cutl_dealloc(&PYTHON_ALLOCATOR, weights_memory);
+        cutl_dealloc(&PYTHON_ALLOCATOR, physical_memory);
         PyMem_Free(pullbacks);
-        PyMem_Free(surface_weights);
-        PyMem_Free(element_pullback_values);
-        PyMem_Free(pullback_values);
+        PyMem_Free(element_pullbacks);
         PyMem_Free(transforms);
         PyMem_Free(setups);
         Py_DECREF(maps_seq);
     }
-    PyMem_Free(element_integrations);
-    PyMem_Free(out_integration);
-    PyMem_Free(out_basis);
-    PyMem_Free(item_offsets);
-    PyMem_Free(item_cols);
-    PyMem_Free(item_rows);
-    PyMem_Free(axis_skip);
-    PyMem_Free(views);
-    PyMem_Free(orientations);
+    cutl_dealloc(&PYTHON_ALLOCATOR, core_memory);
     Py_DECREF(specs_seq);
     Py_DECREF(orientations_seq);
     Py_DECREF(integrations_seq);
@@ -1424,9 +1543,6 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
     Py_DECREF((PyObject *)common_integration);
     Py_DECREF(matrices);
     Py_XDECREF(packed_rows);
-    Py_BEGIN_ALLOW_THREADS;
-    constrain_elements_on_boundary_plan_release(&plan);
-    Py_END_ALLOW_THREADS;
     return result;
 
 fail_memory:
@@ -1445,61 +1561,18 @@ fail_memory:
                 release_boundary_face_setup(state, bdim, &setups[element]);
             }
             Py_XDECREF(transforms[element]);
-            PyMem_Free(element_pullback_values[element]);
-            PyMem_Free(pullback_values[element]);
-            PyMem_Free(surface_weights[element]);
         }
-        PyMem_Free(surface_rows);
-        PyMem_Free(element_pullback_pointers);
-        PyMem_Free(test_pullback_pointers);
-        PyMem_Free(element_pullbacks);
+        cutl_dealloc(&PYTHON_ALLOCATOR, rows_memory);
+        cutl_dealloc(&PYTHON_ALLOCATOR, build_memory);
+        cutl_dealloc(&PYTHON_ALLOCATOR, weights_memory);
+        cutl_dealloc(&PYTHON_ALLOCATOR, physical_memory);
         PyMem_Free(pullbacks);
-        PyMem_Free(surface_weights);
-        PyMem_Free(element_pullback_values);
-        PyMem_Free(pullback_values);
+        PyMem_Free(element_pullbacks);
         PyMem_Free(transforms);
         PyMem_Free(setups);
         Py_DECREF(maps_seq);
     }
-    PyMem_Free(element_integrations);
-    PyMem_Free(work.mass.point_factors);
-    PyMem_Free(work.mass.col_values);
-    PyMem_Free(work.mass.row_values);
-    PyMem_Free(work.weights);
-    PyMem_Free(work.mass.blocks);
-    PyMem_Free(work.mass.components);
-    PyMem_Free(work.mass.mapped_axes);
-    PyMem_Free(work.mass.axis_tables);
-    PyMem_Free(work.mass.digits);
-    PyMem_Free(work.mass.axis_sets);
-    PyMem_Free(work.mass.offsets);
-    PyMem_Free(work.mass.counts);
-    PyMem_Free(work.mass.axes);
-    PyMem_Free(work.mass.element_signs);
-    PyMem_Free(work.mass.element_components);
-    PyMem_Free(work.mass.col_offsets);
-    PyMem_Free(work.mass.row_offsets);
-    PyMem_Free(work.mass.point_strides);
-    PyMem_Free(work.element_rules);
-    PyMem_Free(work.axis_slot);
-    PyMem_Free(work.axis_fixed);
-    PyMem_Free(plan_element_lower_specs);
-    PyMem_Free(plan_element_endpoints_lower);
-    PyMem_Free(plan_element_endpoints);
-    PyMem_Free(plan_element_sets_lower);
-    PyMem_Free(plan_element_sets);
-    PyMem_Free(plan_boundary_lower_specs);
-    PyMem_Free(plan_boundary_sets_lower);
-    PyMem_Free(plan_boundary_sets);
-    PyMem_Free(plan_rules);
-    PyMem_Free(out_integration);
-    PyMem_Free(out_basis);
-    PyMem_Free(item_offsets);
-    PyMem_Free(item_cols);
-    PyMem_Free(item_rows);
-    PyMem_Free(axis_skip);
-    PyMem_Free(views);
-    PyMem_Free(orientations);
+    cutl_dealloc(&PYTHON_ALLOCATOR, core_memory);
     Py_DECREF(specs_seq);
     Py_DECREF(orientations_seq);
     Py_DECREF(integrations_seq);
@@ -1593,23 +1666,32 @@ static PyObject *compute_boundary_space_map_factors(PyObject *module, PyObject *
     size_t positions_size;
     size_t jacobian_size;
     size_t q_size;
+    size_t scratch_bytes;
     boundary_space_map_resample_work_size(bdim, coords, source_rules, target_rules, &axis_matrices_size,
-                                          &positions_size, &jacobian_size, &q_size);
-    double *const axis_matrices = PyMem_Malloc(axis_matrices_size * sizeof(*axis_matrices));
-    double *const positions = PyMem_Malloc(positions_size * sizeof(*positions));
-    double *const jacobian = PyMem_Malloc(jacobian_size * sizeof(*jacobian));
-    double *const q = PyMem_Malloc(q_size * sizeof(*q));
-    const double **const coordinate_values = PyMem_Malloc(coords * sizeof(*coordinate_values));
-    const double **const coordinate_gradients = PyMem_Malloc((size_t)coords * bdim * sizeof(*coordinate_gradients));
-    if (!determinant || !inverse_maps || !axis_matrices || !positions || !jacobian || !q || !coordinate_values ||
-        !coordinate_gradients)
+                                          &positions_size, &jacobian_size, &q_size, &scratch_bytes);
+    double *axis_matrices;
+    double *positions;
+    double *jacobian;
+    double *q;
+    const double **coordinate_values;
+    const double **coordinate_gradients;
+    unsigned *target_orders;
+    unsigned *source_orders;
+    const double **axis_matrix_rows;
+    integration_spec_t *target_specs;
+    void *const work_memory =
+        cutl_alloc_group(&PYTHON_ALLOCATOR,
+                         (const cutl_alloc_info_t[]){
+                             {sizeof(*axis_matrices) * axis_matrices_size, (void **)&axis_matrices},
+                             {sizeof(*positions) * positions_size, (void **)&positions},
+                             {sizeof(*jacobian) * jacobian_size, (void **)&jacobian},
+                             {sizeof(*q) * q_size, (void **)&q},
+                             {sizeof(*coordinate_values) * coords, (void **)&coordinate_values},
+                             {sizeof(*coordinate_gradients) * ((size_t)coords * bdim), (void **)&coordinate_gradients},
+                             {scratch_bytes, (void **)&target_orders},
+                             {}});
+    if (!determinant || !inverse_maps || !work_memory)
     {
-        PyMem_Free(coordinate_gradients);
-        PyMem_Free(coordinate_values);
-        PyMem_Free(q);
-        PyMem_Free(jacobian);
-        PyMem_Free(positions);
-        PyMem_Free(axis_matrices);
         Py_XDECREF(determinant);
         Py_XDECREF(inverse_maps);
         python_integration_rules_release(bdim, source_rules, registry);
@@ -1617,6 +1699,10 @@ static PyObject *compute_boundary_space_map_factors(PyObject *module, PyObject *
         Py_DECREF((PyObject *)face_map);
         return PyErr_NoMemory();
     }
+    // Carve the scratch block into the request's per-axis work arrays.
+    source_orders = (unsigned *)(void *)(target_orders + bdim);
+    axis_matrix_rows = (const double **)(const void *)(source_orders + bdim);
+    target_specs = (integration_spec_t *)(void *)(axis_matrix_rows + bdim);
     for (unsigned coordinate = 0; coordinate < coords; ++coordinate)
     {
         coordinate_values[coordinate] = coordinate_map_values(face_map->maps[coordinate]);
@@ -1638,17 +1724,16 @@ static PyObject *compute_boundary_space_map_factors(PyObject *module, PyObject *
                                                            .axis_matrices = axis_matrices,
                                                            .positions = positions,
                                                            .jacobian = jacobian,
-                                                           .q = q};
+                                                           .q = q,
+                                                           .target_orders = target_orders,
+                                                           .source_orders = source_orders,
+                                                           .axis_matrix_rows = axis_matrix_rows,
+                                                           .target_specs = target_specs};
     Py_BEGIN_ALLOW_THREADS;
     boundary_space_map_resample(&request);
     Py_END_ALLOW_THREADS;
 
-    PyMem_Free(coordinate_gradients);
-    PyMem_Free(coordinate_values);
-    PyMem_Free(q);
-    PyMem_Free(jacobian);
-    PyMem_Free(positions);
-    PyMem_Free(axis_matrices);
+    cutl_dealloc(&PYTHON_ALLOCATOR, work_memory);
     python_integration_rules_release(bdim, source_rules, registry);
     python_integration_rules_release(bdim, target_rules, registry);
     Py_DECREF((PyObject *)face_map);

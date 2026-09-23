@@ -72,6 +72,14 @@ typedef struct
 } constraint_trace_pullback_t;
 
 /**
+ * @brief Work buffers of one sampled trace pullback build.
+ *
+ * Every pointer is caller-provided; sizes come from
+ * #constraint_trace_pullback_build_work_size.
+ */
+typedef struct constraint_trace_pullback_build_work_t_ constraint_trace_pullback_build_work_t;
+
+/**
  * @brief Parameters for building a sampled trace pullback.
  *
  * The transform is the `compute_basis_transform_impl` output of the mapped
@@ -80,24 +88,68 @@ typedef struct
  */
 typedef struct
 {
-    unsigned element_dim;                      ///< Element dimension.
-    unsigned face_dim;                         ///< Canonical face dimension.
-    unsigned order;                            ///< Traced k-form order.
-    unsigned face_component_count;             ///< C(face_dim, order).
-    unsigned physical_component_count;         ///< C(coordinates, order) of the mapped face.
-    size_t source_point_count;                 ///< Points of the source-frame face tensor.
-    size_t canonical_point_count;              ///< Points of the canonical face tensor.
-    const size_t *source_strides;              ///< [face_dim] row-major source-frame strides.
-    const size_t *canonical_strides;           ///< [face_dim] row-major canonical strides.
-    const int8_t *orientation;                 ///< Signed one-based element-axis mapping.
-    const integration_spec_t *source_specs;    ///< [face_dim] source-frame axis specs.
-    const integration_spec_t *canonical_specs; ///< [face_dim] canonical axis specs.
-    const double *transform;                   ///< Sampled face transform (see above).
-    double *out;                               ///< [element_comp * physical_comp * canonical_point_count].
-    bool canonical_components;                 ///< Index `out` by canonical boundary component.
-    bool element_components;                   ///< Index `out` by element component (C(element_dim, order)
-                                               ///< blocks) instead of face component.
+    unsigned element_dim;                         ///< Element dimension.
+    unsigned face_dim;                            ///< Canonical face dimension.
+    unsigned order;                               ///< Traced k-form order.
+    unsigned face_component_count;                ///< C(face_dim, order).
+    unsigned physical_component_count;            ///< C(coordinates, order) of the mapped face.
+    size_t source_point_count;                    ///< Points of the source-frame face tensor.
+    size_t canonical_point_count;                 ///< Points of the canonical face tensor.
+    const size_t *source_strides;                 ///< [face_dim] row-major source-frame strides.
+    const size_t *canonical_strides;              ///< [face_dim] row-major canonical strides.
+    const int8_t *orientation;                    ///< Signed one-based element-axis mapping.
+    const integration_spec_t *source_specs;       ///< [face_dim] source-frame axis specs.
+    const integration_spec_t *canonical_specs;    ///< [face_dim] canonical axis specs.
+    const double *transform;                      ///< Sampled face transform (see above).
+    double *out;                                  ///< [element_comp * physical_comp * canonical_point_count].
+    bool canonical_components;                    ///< Index `out` by canonical boundary component.
+    bool element_components;                      ///< Index `out` by element component (C(element_dim, order)
+                                                  ///< blocks) instead of face component.
+    constraint_trace_pullback_build_work_t *work; ///< Caller-provided scratch buffers.
 } constraint_trace_pullback_build_t;
+
+/**
+ * @brief Allocation sizes of one trace pullback build's work buffers.
+ */
+typedef struct
+{
+    unsigned face_axis_count;     ///< Per-face-axis work arrays, `face_dim`.
+    unsigned element_axis_count;  ///< Per-element-axis work arrays, `element_dim`.
+    size_t element_component_map; ///< `element_to_face` slots: `C(element_dim, order) + 1`.
+    unsigned axes_scratch;        ///< Component axes scratch slots, `max(order, 1)`.
+    size_t iterator_memory;       ///< Combination iterator memory, `required_memory(order)`.
+} constraint_trace_pullback_build_work_sizes_t;
+
+/**
+ * @brief Compute the work buffer sizes of one sampled trace pullback build.
+ *
+ * @param request Build request; only its dimensions and `element_components`
+ *                flag are read.
+ * @param out_sizes Output allocation sizes.
+ */
+void constraint_trace_pullback_build_work_size(const constraint_trace_pullback_build_t *request,
+                                               constraint_trace_pullback_build_work_sizes_t *out_sizes);
+
+/**
+ * @brief Work buffers of one sampled trace pullback build.
+ *
+ * Every pointer is caller-provided; sizes come from
+ * #constraint_trace_pullback_build_work_size.
+ */
+typedef struct constraint_trace_pullback_build_work_t_
+{
+    unsigned *axis_source_slots;        ///< [face_axis_count] Free-axis rank of each face axis.
+    unsigned *axis_orders;              ///< [face_axis_count] Canonical rule order per face axis.
+    size_t *axis_source_strides;        ///< [face_axis_count] Source-frame stride per face axis.
+    size_t *axis_canonical_strides;     ///< [face_axis_count] Canonical stride per face axis.
+    int *axis_mirrored;                 ///< [face_axis_count] Mirror flag per face axis.
+    bool *element_axis_free;            ///< [element_axis_count] Free-axis classification.
+    unsigned *element_source_rank;      ///< [element_axis_count] Free-axis rank per element axis.
+    unsigned *element_to_face;          ///< [element_component_map] Element to face component map.
+    uint8_t *mapped_axes;               ///< [axes_scratch] Mapped axes scratch.
+    uint8_t *source_axes;               ///< [axes_scratch] Rank scratch of the current component.
+    combination_iterator_t *components; ///< `iterator_memory` bytes.
+} constraint_trace_pullback_build_work_t;
 
 /**
  * @brief Shape of one element's boundary mass matrix.
@@ -429,6 +481,10 @@ typedef struct
     double *positions;                             ///< Work sized by #boundary_space_map_resample_work_size.
     double *jacobian;                              ///< Work sized by #boundary_space_map_resample_work_size.
     double *q;                                     ///< Work sized by #boundary_space_map_resample_work_size.
+    unsigned *target_orders;                       ///< [bdim] Work: per-axis target interpolation degrees.
+    unsigned *source_orders;                       ///< [bdim] Work: per-axis source interpolation degrees.
+    const double **axis_matrix_rows;               ///< [bdim] Work: per-axis interpolation matrices.
+    integration_spec_t *target_specs;              ///< [bdim] Work: target specs of the common grid.
 } boundary_space_map_resample_request_t;
 
 /**
@@ -454,11 +510,38 @@ void boundary_space_map_resample(const boundary_space_map_resample_request_t *re
  * @param out_positions Receives the doubles for the interpolated positions.
  * @param out_jacobian Receives the doubles for the Jacobian scratch.
  * @param out_q Receives the doubles for the inversion scratch.
+ * @param out_scratch_bytes Receives the bytes for the per-axis work arrays of
+ *                          the request's `target_orders`, `source_orders`,
+ *                          `axis_matrix_rows`, and `target_specs` fields.
  */
 void boundary_space_map_resample_work_size(unsigned bdim, unsigned coords,
                                            const integration_rule_t *const *source_rules,
                                            const integration_rule_t *const *target_rules, size_t *out_axis_matrices,
-                                           size_t *out_positions, size_t *out_jacobian, size_t *out_q);
+                                           size_t *out_positions, size_t *out_jacobian, size_t *out_q,
+                                           size_t *out_scratch_bytes);
+
+/**
+ * @brief Work buffers of #constraint_physical_side_load.
+ */
+typedef struct
+{
+    uint8_t *face_axes;                      ///< [max(order, 1)] Current face component's covector axes.
+    uint8_t *element_axes;                   ///< [max(order, 1)] Mapped element component's covector axes.
+    uint8_t *datum_axes;                     ///< [max(order, 1) + 1] Paired datum component's axes.
+    uint8_t *mapped_axes;                    ///< [max(order, 1)] Mapped axes scratch.
+    combination_iterator_t *face_components; ///< `combination_iterator_required_memory(order)`.
+} constraint_physical_side_load_work_t;
+
+/**
+ * @brief Size the work buffers of #constraint_physical_side_load.
+ *
+ * @param test_spec Test (k-1)-form specification of the face.
+ * @param out_face_axes Receives the face and scratch axis slots, `max(order, 1)`.
+ * @param out_datum_axes Receives the datum axis slots, `max(order, 1) + 1`.
+ * @param out_iterator Receives the combination iterator memory bytes.
+ */
+void constraint_physical_side_load_work_size(const kform_spec_t *test_spec, size_t *out_face_axes,
+                                             size_t *out_datum_axes, size_t *out_iterator);
 
 /**
  * @brief Assemble a boundary load from sampled element-frame k-form data.
@@ -477,12 +560,13 @@ void boundary_space_map_resample_work_size(unsigned bdim, unsigned coords,
  *        `datum_values[component * point_count + point]`.
  * @param surface_weights Optional unsigned face measures, NULL = unweighted.
  * @param element_table Element trace basis values on the same points.
+ * @param work Caller-provided work buffers.
  * @param values Output accumulator with one slot per element DoF.
  */
 void constraint_physical_side_load(const kform_spec_t *test_spec, const constraint_element_side_t *side,
                                    const double *point_weights, const double *datum_values,
                                    const double *surface_weights, const kform_values_table_t *element_table,
-                                   double values[]);
+                                   constraint_physical_side_load_work_t *work, double values[]);
 
 /**
  * @brief Map an element axis to its canonical face position.

@@ -97,11 +97,9 @@ static void mapped_axes_and_sign(const constraint_element_side_t *const side, co
  */
 static void mapped_component(const constraint_element_side_t *const side, const unsigned boundary_dim,
                              const unsigned order, const uint8_t test_axes[const static order == 0 ? 1 : order],
-                             unsigned *const out_component, int *const out_sign)
+                             uint8_t mapped_axes[const static order == 0 ? 1 : order], unsigned *const out_component,
+                             int *const out_sign)
 {
-    // Fixed-size scratch bounded by the form order; order zero still gets one
-    // harmless placeholder.
-    uint8_t mapped_axes[UINT8_MAX];
     mapped_axes_and_sign(side, boundary_dim, order, test_axes, mapped_axes, out_sign);
 
     // Get the component index based on the element's mapped axes
@@ -1041,15 +1039,23 @@ void constrain_elements_on_boundary_plan_release(constrain_elements_on_boundary_
     }
 }
 
+void constraint_physical_side_load_work_size(const kform_spec_t *const test_spec, size_t *const out_face_axes,
+                                             size_t *const out_datum_axes, size_t *const out_iterator)
+{
+    const unsigned order = test_spec->order;
+    *out_face_axes = order == 0 ? 1u : order;
+    *out_datum_axes = *out_face_axes + 1u;
+    *out_iterator = combination_iterator_required_memory((uint8_t)order);
+}
+
 void constraint_physical_side_load(const kform_spec_t *const test_spec, const constraint_element_side_t *const side,
                                    const double *const point_weights, const double *const datum_values,
                                    const double *const surface_weights, const kform_values_table_t *const element_table,
-                                   double values[])
+                                   constraint_physical_side_load_work_t *const work, double values[])
 {
     ASSERT(side->ndim == test_spec->ndim + 1, "The load is defined on codimension-one faces.");
     const unsigned face_dim = test_spec->ndim;
     const unsigned order = test_spec->order;
-    const unsigned face_component_count = combination_total_count((uint8_t)face_dim, (uint8_t)order);
     const kform_spec_t element_spec = {.ndim = side->ndim, .order = order, .basis = side->basis_specs};
     const size_t point_count = element_table->point_count;
     // The datum is an element-frame k-form with k = test_spec->order + 1, given
@@ -1062,34 +1068,32 @@ void constraint_physical_side_load(const kform_spec_t *const test_spec, const co
     const int8_t fixed_mapping = side->orientation[0];
     const unsigned fixed_axis = (unsigned)(fixed_mapping < 0 ? -fixed_mapping : fixed_mapping) - 1;
     const double side_sign = fixed_mapping < 0 ? -1.0 : 1.0;
-    for (unsigned face_component = 0; face_component < face_component_count; ++face_component)
+    combination_iterator_init(work->face_components, (uint8_t)face_dim, (uint8_t)order);
+    for (const uint8_t *face_axes = combination_iterator_current(work->face_components);
+         !combination_iterator_is_done(work->face_components); combination_iterator_next(work->face_components))
     {
-        uint8_t face_axes[UINT8_MAX];
-        kform_component_axes(test_spec, face_component, face_axes);
         unsigned element_component;
         int orientation_sign;
-        mapped_component(side, face_dim, order, face_axes, &element_component, &orientation_sign);
+        mapped_component(side, face_dim, order, face_axes, work->mapped_axes, &element_component, &orientation_sign);
         const size_t element_dof_count = kform_spec_component_dof_count(&element_spec, element_component);
         const size_t element_start = element_table->component_offsets[element_component];
         const size_t element_block_dofs = element_table->component_offsets[element_component + 1] -
                                           element_table->component_offsets[element_component];
         const size_t element_block_start = element_start * point_count;
-        uint8_t element_axes[UINT8_MAX];
-        kform_component_axes(&element_spec, element_component, element_axes);
+        kform_component_axes(&element_spec, element_component, work->element_axes);
         unsigned exponent_below_fixed = 0;
         for (unsigned i = 0; i < order; ++i)
-            exponent_below_fixed += element_axes[i] < fixed_axis ? 1u : 0u;
-        uint8_t datum_axes[UINT8_MAX + 1];
+            exponent_below_fixed += work->element_axes[i] < fixed_axis ? 1u : 0u;
         for (unsigned i = 0; i < order; ++i)
-            datum_axes[i] = element_axes[i];
-        datum_axes[order] = (uint8_t)fixed_axis;
-        for (unsigned i = order; i > 0 && datum_axes[i - 1] > datum_axes[i]; --i)
+            work->datum_axes[i] = work->element_axes[i];
+        work->datum_axes[order] = (uint8_t)fixed_axis;
+        for (unsigned i = order; i > 0 && work->datum_axes[i - 1] > work->datum_axes[i]; --i)
         {
-            const uint8_t tmp = datum_axes[i - 1];
-            datum_axes[i - 1] = datum_axes[i];
-            datum_axes[i] = tmp;
+            const uint8_t tmp = work->datum_axes[i - 1];
+            work->datum_axes[i - 1] = work->datum_axes[i];
+            work->datum_axes[i] = tmp;
         }
-        const unsigned datum_component = combination_get_index(side->ndim, order + 1, datum_axes);
+        const unsigned datum_component = combination_get_index(side->ndim, order + 1, work->datum_axes);
         const double sign = side_sign * (double)orientation_sign * (exponent_below_fixed % 2 == 0 ? 1.0 : -1.0);
         for (size_t point = 0; point < point_count; ++point)
         {
@@ -1182,8 +1186,25 @@ static unsigned sorted_row(const unsigned face_dim, const unsigned order,
     return combination_get_index((uint8_t)face_dim, (uint8_t)order, axes);
 }
 
+void constraint_trace_pullback_build_work_size(const constraint_trace_pullback_build_t *const request,
+                                               constraint_trace_pullback_build_work_sizes_t *const out_sizes)
+{
+    const unsigned order = request->order == 0 ? 1u : request->order;
+    *out_sizes = (constraint_trace_pullback_build_work_sizes_t){
+        .face_axis_count = request->face_dim,
+        .element_axis_count = request->element_dim,
+        .element_component_map =
+            request->element_components
+                ? (size_t)combination_total_count((uint8_t)request->element_dim, (uint8_t)request->order) + 1u
+                : 1u,
+        .axes_scratch = order,
+        .iterator_memory = combination_iterator_required_memory((uint8_t)request->order),
+    };
+}
+
 void constraint_trace_pullback_build(const constraint_trace_pullback_build_t *const request)
 {
+    const constraint_trace_pullback_build_work_t *const work = request->work;
     const unsigned face_component_count = request->face_component_count;
     const unsigned physical_component_count = request->physical_component_count;
     const size_t point_count = request->canonical_point_count;
@@ -1201,21 +1222,19 @@ void constraint_trace_pullback_build(const constraint_trace_pullback_build_t *co
 
     const constraint_element_side_t side = {
         .ndim = request->element_dim, .basis_specs = NULL, .orientation = request->orientation};
-    const kform_spec_t face_spec = {.ndim = request->face_dim, .order = request->order, .basis = NULL};
     // The canonical to source point map is component independent: derive the
     // loop-invariant per-axis decode data once, then decode every point with
     // one divide-modulo pair per axis.
     const unsigned fixed_count = request->element_dim - request->face_dim;
-    // TODO: all of these should be passed in as work arrays.
-    unsigned axis_source_slots[UINT8_MAX];
-    unsigned axis_orders[UINT8_MAX];
-    size_t axis_source_strides[UINT8_MAX];
-    size_t axis_canonical_strides[UINT8_MAX];
-    int axis_mirrored[UINT8_MAX];
+    unsigned *const axis_source_slots = work->axis_source_slots;
+    unsigned *const axis_orders = work->axis_orders;
+    size_t *const axis_source_strides = work->axis_source_strides;
+    size_t *const axis_canonical_strides = work->axis_canonical_strides;
+    int *const axis_mirrored = work->axis_mirrored;
     // Rank of every element axis among the free axes (the face map's own
     // axis order) and whether the axis is free at all.
-    bool element_axis_free[UINT8_MAX];
-    unsigned element_source_rank[UINT8_MAX];
+    bool *const element_axis_free = work->element_axis_free;
+    unsigned *const element_source_rank = work->element_source_rank;
     for (unsigned axis = 0; axis < request->element_dim; ++axis)
         element_axis_free[axis] = false;
     for (unsigned face_axis = 0; face_axis < request->face_dim; ++face_axis)
@@ -1236,34 +1255,39 @@ void constraint_trace_pullback_build(const constraint_trace_pullback_build_t *co
     // face component's transform rows. Element component indexing instead
     // enumerates the element k-form's own components, reading each one's
     // transform rows from the inverse-mapped face component.
-    unsigned element_to_face[UINT8_MAX + 1];
+    unsigned *const element_to_face = work->element_to_face;
+    const unsigned element_total =
+        (unsigned)combination_total_count((uint8_t)request->element_dim, (uint8_t)request->order);
     if (request->element_components)
     {
-        const unsigned element_total =
-            (unsigned)combination_total_count((uint8_t)request->element_dim, (uint8_t)request->order);
-        for (unsigned index = 0; index <= UINT8_MAX && index < element_total; ++index)
+        for (unsigned index = 0; index < element_total; ++index)
             element_to_face[index] = UINT8_MAX + 1;
-        for (unsigned face_component = 0; face_component < face_component_count; ++face_component)
+        combination_iterator_init(work->components, (uint8_t)request->face_dim, (uint8_t)request->order);
+        size_t face_component = 0;
+        for (const uint8_t *component_axes = combination_iterator_current(work->components);
+             !combination_iterator_is_done(work->components);
+             combination_iterator_next(work->components), ++face_component)
         {
-            uint8_t face_axes[UINT8_MAX];
-            kform_component_axes(&face_spec, face_component, face_axes);
             unsigned element_component;
             int orientation_sign;
-            mapped_component(&side, request->face_dim, request->order, face_axes, &element_component,
-                             &orientation_sign);
+            mapped_component(&side, request->face_dim, request->order, component_axes, work->mapped_axes,
+                             &element_component, &orientation_sign);
             CUTL_ASSERT(element_component < element_total, "Mapped element component out of range.");
-            element_to_face[element_component] = face_component;
+            element_to_face[element_component] = (unsigned)face_component;
         }
     }
-    const unsigned written_components =
-        request->element_components
-            ? (unsigned)combination_total_count((uint8_t)request->element_dim, (uint8_t)request->order)
-            : face_component_count;
-    // TODO: swap over the iteration to use combination iterator instead
-    for (unsigned component = 0; component < written_components; ++component)
+    // The mode selects the enumerated space: element components read their
+    // face counterpart through the map, canonical and plain modes enumerate
+    // the canonical boundary form's components directly.
+    const bool element_mode = request->element_components;
+    combination_iterator_init(work->components, (uint8_t)(element_mode ? request->element_dim : request->face_dim),
+                              (uint8_t)request->order);
+    size_t component = 0;
+    for (const uint8_t *component_axes = combination_iterator_current(work->components);
+         !combination_iterator_is_done(work->components); combination_iterator_next(work->components), ++component)
     {
-        const unsigned face_component = request->element_components ? element_to_face[component] : component;
-        if (request->element_components && !request->canonical_components && face_component > face_component_count)
+        const unsigned face_component = element_mode ? element_to_face[component] : (unsigned)component;
+        if (element_mode && !request->canonical_components && face_component > face_component_count)
         {
             // A component whose covectors lie entirely on the fixed normal
             // axes has no tangential face counterpart; the engine's block
@@ -1278,30 +1302,22 @@ void constraint_trace_pullback_build(const constraint_trace_pullback_build_t *co
             continue;
         }
         CUTL_ASSERT(face_component <= face_component_count, "Element component has no face component mapping.");
-        // TODO: this gets solved by using combination iterator instead of manually mapping axes.
-        uint8_t face_axes[UINT8_MAX];
         unsigned element_component;
-        if (request->element_components)
+        if (element_mode)
         {
-            kform_component_axes(&(kform_spec_t){.ndim = request->element_dim, .order = request->order, .basis = NULL},
-                                 component, face_axes);
-            element_component = component;
+            element_component = (unsigned)component;
+        }
+        else if (request->canonical_components)
+        {
+            // The canonical boundary form's components index their own
+            // transform rows directly; no element-side mapping applies.
+            element_component = (unsigned)component;
         }
         else
         {
-            kform_component_axes(&face_spec, component, face_axes);
-            if (request->canonical_components)
-            {
-                // The canonical boundary form's components index their own
-                // transform rows directly; no element-side mapping applies.
-                element_component = component;
-            }
-            else
-            {
-                int orientation_sign;
-                mapped_component(&side, request->face_dim, request->order, face_axes, &element_component,
-                                 &orientation_sign);
-            }
+            int orientation_sign;
+            mapped_component(&side, request->face_dim, request->order, component_axes, work->mapped_axes,
+                             &element_component, &orientation_sign);
         }
         // The transform rows follow the face map's own free-axis order, so a
         // component whose axis order differs from that order must read the
@@ -1312,16 +1328,15 @@ void constraint_trace_pullback_build(const constraint_trace_pullback_build_t *co
         // the table holds the canonical covector's physical image. Element
         // rows stay the element's own image; consumers pair the two physical
         // images without further orientation signs.
-        uint8_t source_axes[UINT8_MAX];
+        uint8_t *const source_axes = work->source_axes;
         unsigned source_row = face_component;
         int value_sign = 1;
         if (request->canonical_components)
         {
-            kform_component_axes(&face_spec, face_component, source_axes);
             for (unsigned i = 0; i < request->order; ++i)
             {
-                source_axes[i] = (uint8_t)axis_source_slots[source_axes[i]];
-                if (axis_mirrored[face_axes[i]])
+                source_axes[i] = (uint8_t)axis_source_slots[component_axes[i]];
+                if (axis_mirrored[component_axes[i]])
                     value_sign = -value_sign;
             }
             for (unsigned i = 0; i < request->order; ++i)
@@ -1334,14 +1349,12 @@ void constraint_trace_pullback_build(const constraint_trace_pullback_build_t *co
             }
             source_row = sorted_row(request->face_dim, request->order, source_axes);
         }
-        else if (request->element_components)
+        else if (element_mode)
         {
-            kform_component_axes(&(kform_spec_t){.ndim = request->element_dim, .order = request->order, .basis = NULL},
-                                 component, source_axes);
             bool tangential = true;
             for (unsigned i = 0; i < request->order; ++i)
             {
-                const unsigned element_axis = source_axes[i];
+                const unsigned element_axis = component_axes[i];
                 tangential &= element_axis_free[element_axis];
                 source_axes[i] = (uint8_t)element_source_rank[element_axis];
             }
@@ -1376,7 +1389,8 @@ void boundary_space_map_resample_work_size(const unsigned bdim, const unsigned c
                                            const integration_rule_t *const *source_rules,
                                            const integration_rule_t *const *target_rules,
                                            size_t *const out_axis_matrices, size_t *const out_positions,
-                                           size_t *const out_jacobian, size_t *const out_q)
+                                           size_t *const out_jacobian, size_t *const out_q,
+                                           size_t *const out_scratch_bytes)
 {
     size_t matrices = 0;
     size_t points = 1;
@@ -1389,17 +1403,17 @@ void boundary_space_map_resample_work_size(const unsigned bdim, const unsigned c
     *out_positions = points * coords;
     *out_jacobian = (size_t)bdim * coords;
     *out_q = (size_t)coords * coords;
+    *out_scratch_bytes = (size_t)bdim * (2 * sizeof(unsigned) + sizeof(const double *) + sizeof(integration_spec_t));
 }
 
 void boundary_space_map_resample(const boundary_space_map_resample_request_t *const request)
 {
     const unsigned bdim = request->bdim;
     const unsigned coords = request->coords;
-    // TODO: these should be work buffers passed in
-    unsigned target_orders[UINT8_MAX];
-    unsigned source_orders[UINT8_MAX];
-    const double *axis_matrices[UINT8_MAX];
-    integration_spec_t target_specs[UINT8_MAX];
+    unsigned *const target_orders = request->target_orders;
+    unsigned *const source_orders = request->source_orders;
+    const double **const axis_matrices = request->axis_matrix_rows;
+    integration_spec_t *const target_specs = request->target_specs;
 
     size_t offset = 0;
     for (unsigned axis = 0; axis < bdim; ++axis)
