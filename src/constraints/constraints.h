@@ -22,6 +22,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <cutl/iterators/multidim_iteration.h>
+
 #include "../basis/basis_set.h"
 #include "../kforms/kform_types.h"
 #include "../kforms/kform_values.h"
@@ -223,8 +225,9 @@ typedef struct
     unsigned *counts;                   ///< [bdim] Per-axis test function counts.
     unsigned *offsets;                  ///< [bdim] Per-axis test function offsets.
     const basis_set_t **axis_sets;      ///< [bdim] Per-axis selected basis tables.
-    unsigned *digits;                   ///< [bdim] Component-local DoF counters.
     const double **axis_tables;         ///< [bdim] Per-axis basis value tables.
+    multidim_iterator_t *dof_iter;      ///< `multidim_iterator_needed_memory(bdim)`; component-local DoF digits.
+    multidim_iterator_t *point_iter;    ///< `multidim_iterator_needed_memory(bdim)`; tensor quadrature points.
     uint8_t *mapped_axes;               ///< [order] Mapped element axes of the current component.
     combination_iterator_t *components; ///< `combination_iterator_required_memory(order)`.
     combination_iterator_t *blocks;     ///< `combination_iterator_required_memory(order)`; physical pairing only.

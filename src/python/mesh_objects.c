@@ -891,7 +891,8 @@ static int mesh_continuity_assemble_object(mesh_continuity_context_t *const cont
             {sizeof(*work.mass.counts) * bdim, (void **)&work.mass.counts},
             {sizeof(*work.mass.offsets) * bdim, (void **)&work.mass.offsets},
             {sizeof(*work.mass.axis_sets) * bdim, (void **)&work.mass.axis_sets},
-            {sizeof(*work.mass.digits) * bdim, (void **)&work.mass.digits},
+            {multidim_iterator_needed_memory(bdim), (void **)&work.mass.dof_iter},
+            {multidim_iterator_needed_memory(bdim), (void **)&work.mass.point_iter},
             {sizeof(*work.mass.axis_tables) * bdim, (void **)&work.mass.axis_tables},
             {sizeof(*work.mass.mapped_axes) * order_storage, (void **)&work.mass.mapped_axes},
             {combination_iterator_required_memory((uint8_t)order), (void **)&work.mass.components},
@@ -1300,12 +1301,15 @@ out:
         {
             release_boundary_face_setup(state, bdim, &factors[e].setup);
         }
+        // TODO: again, I recon we can allocate and deallocate these as a group!
         PyMem_Free(pack_sides[e]);
         PyMem_Free(pack_components[e]);
         PyMem_Free(pack_dofs[e]);
         PyMem_Free(pack_coefficients[e]);
         PyMem_Free(pack_offsets[e]);
     }
+    // TODO: ALL these pointers get freed together using PyMem_Free. Why not just allocate them together using
+    // cult_alloc_group?
     PyMem_Free(arena);
     cutl_dealloc(&PYTHON_ALLOCATOR, weights_memory);
     cutl_dealloc(&PYTHON_ALLOCATOR, build_memory);

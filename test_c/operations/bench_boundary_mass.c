@@ -194,7 +194,8 @@ int main(void)
             work.counts = malloc(bdim * sizeof(*work.counts));
             work.offsets = malloc(bdim * sizeof(*work.offsets));
             work.axis_sets = malloc(bdim * sizeof(*work.axis_sets));
-            work.digits = malloc(bdim * sizeof(*work.digits));
+            work.dof_iter = malloc(multidim_iterator_needed_memory(bdim));
+            work.point_iter = malloc(multidim_iterator_needed_memory(bdim));
             work.axis_tables = malloc(bdim * sizeof(*work.axis_tables));
             work.mapped_axes = malloc((order == 0 ? 1u : order) * sizeof(*work.mapped_axes));
             work.components = malloc(iter_mem);
@@ -203,9 +204,9 @@ int main(void)
             work.col_values = malloc(sizes.col_values * sizeof(*work.col_values));
             work.point_factors = malloc(sizes.point_factors * sizeof(*work.point_factors));
             if (!work.point_strides || !work.row_offsets || !work.col_offsets || !work.element_components ||
-                !work.element_signs || !work.axes || !work.counts || !work.offsets || !work.axis_sets || !work.digits ||
-                !work.axis_tables || !work.mapped_axes || !work.components || !work.blocks || !work.row_values ||
-                !work.col_values || !work.point_factors)
+                !work.element_signs || !work.axes || !work.counts || !work.offsets || !work.axis_sets ||
+                !work.dof_iter || !work.point_iter || !work.axis_tables || !work.mapped_axes || !work.components ||
+                !work.blocks || !work.row_values || !work.col_values || !work.point_factors)
             {
                 fprintf(stderr, "work allocation failed\n");
                 return 1;
@@ -395,7 +396,8 @@ int main(void)
             free(work.counts);
             free(work.offsets);
             free(work.axis_sets);
-            free(work.digits);
+            free(work.dof_iter);
+            free(work.point_iter);
             free(work.axis_tables);
             free(work.mapped_axes);
             free(work.components);
