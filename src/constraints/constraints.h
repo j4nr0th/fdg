@@ -216,9 +216,10 @@ void constraint_boundary_mass_work_size(const constraint_boundary_mass_spec_t *s
  */
 typedef struct
 {
-    size_t *point_strides;              ///< [bdim] Point strides of the boundary rules.
-    size_t *row_offsets;                ///< [component_count + 1] Test component offsets.
-    size_t *col_offsets;                ///< [component_count + 1] Mapped element offsets.
+    multidim_iterator_t
+        *point_iter;     ///< `multidim_iterator_needed_memory(ndim)`; tensor points of the column value tables.
+    size_t *row_offsets; ///< [component_count + 1] Test component offsets.
+    size_t *col_offsets; ///< [component_count + 1] Mapped element offsets.
     unsigned *element_components;       ///< [component_count] Mapped element components.
     int *element_signs;                 ///< [component_count] Mapped covector signs.
     kform_trace_axis_t *axes;           ///< [ndim] Element axis trace descriptors.
@@ -227,7 +228,8 @@ typedef struct
     const basis_set_t **axis_sets;      ///< [bdim] Per-axis selected basis tables.
     const double **axis_tables;         ///< [bdim] Per-axis basis value tables.
     multidim_iterator_t *dof_iter;      ///< `multidim_iterator_needed_memory(bdim)`; component-local DoF digits.
-    multidim_iterator_t *point_iter;    ///< `multidim_iterator_needed_memory(bdim)`; tensor quadrature points.
+    unsigned *point_digits;             ///< [bdim] Point odometer digits of the row value sweep.
+    double *point_prefix;               ///< [bdim] Prefix products of the axis row tables.
     uint8_t *mapped_axes;               ///< [order] Mapped element axes of the current component.
     combination_iterator_t *components; ///< `combination_iterator_required_memory(order)`.
     combination_iterator_t *blocks;     ///< `combination_iterator_required_memory(order)`; physical pairing only.

@@ -38,6 +38,10 @@ add_executable(test_rw_lock common/test_rw_lock.c)
 target_link_libraries(test_rw_lock PRIVATE test_common)
 add_test(NAME rw_lock COMMAND test_rw_lock)
 
+add_executable(test_multidim_iteration common/test_multidim_iteration.c)
+target_link_libraries(test_multidim_iteration PRIVATE test_common)
+add_test(NAME multidim_iteration COMMAND test_multidim_iteration)
+
 # POLYNOMIAL TESTS
 
 add_executable(test_lagrange_transpose polynomials/test_lagrange_transpose.c)

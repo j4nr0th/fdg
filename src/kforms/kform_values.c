@@ -5,9 +5,41 @@
 
 void kform_component_basis_values(const unsigned ndim, const basis_spec_t basis[static ndim], const unsigned order,
                                   const uint8_t component_axes[], const kform_trace_axis_t axes[],
-                                  const size_t point_strides[], const size_t point_count, double values[restrict])
+                                  multidim_iterator_t *const point_iter, const size_t point_count,
+                                  double values[restrict])
 {
     const size_t dof_count = kform_component_dof_count(ndim, basis, order, component_axes);
+
+    // init_dim takes dimensions in ascending order while free axes carry their stride slots (point tensor, last axis
+    // fastest) in arbitrary order, so locate each slot's owning axis first.
+    unsigned point_dims = 0;
+    for (unsigned axis = 0; axis < ndim; ++axis)
+    {
+        point_dims += axes[axis].kind == KFORM_TRACE_AXIS_FREE;
+    }
+    if (point_dims == 0)
+    {
+        multidim_iterator_init(point_iter, 0, (const size_t[1]){0});
+    }
+    for (unsigned slot = 0; slot < point_dims; ++slot)
+    {
+        unsigned owner = ndim;
+        for (unsigned axis = 0; axis < ndim; ++axis)
+        {
+            if (axes[axis].kind == KFORM_TRACE_AXIS_FREE && axes[axis].free.stride_slot == slot)
+            {
+                owner = axis;
+                break;
+            }
+        }
+        ASSERT(owner < ndim, "Free axes must cover stride slots 0..%u exactly once.", point_dims - 1);
+        multidim_iterator_init_dim(point_iter, slot, axes[owner].free.rule_size);
+    }
+    ASSERT(multidim_iterator_total_size(point_iter) == point_count,
+           "Point count does not match the stride-slot tensor (%zu vs %zu).", multidim_iterator_total_size(point_iter),
+           point_count);
+    const size_t *const point_digits = multidim_iterator_offsets(point_iter);
+
     for (size_t point = 0; point < point_count; ++point)
     {
         double *const point_values = values + point * dof_count;
@@ -20,21 +52,22 @@ void kform_component_basis_values(const unsigned ndim, const basis_spec_t basis[
             if (active)
                 component_axis += 1;
             const kform_trace_axis_t *const axis_desc = &axes[axis];
-            const bool fixed_axis = axis_desc->endpoint != NULL;
+            const bool fixed_axis = axis_desc->kind == KFORM_TRACE_AXIS_FIXED;
             size_t integration_index;
             if (fixed_axis)
             {
-                integration_index = axis_desc->end;
+                integration_index = axis_desc->mirror ? 0u : 1u;
             }
             else
             {
-                integration_index = (point / point_strides[axis_desc->stride_slot]) % (size_t)axis_desc->rule_size;
+                integration_index = point_digits[axis_desc->free.stride_slot];
                 if (axis_desc->mirror)
-                    integration_index = (size_t)axis_desc->rule_size - 1 - integration_index;
+                    integration_index = (size_t)axis_desc->free.rule_size - 1 - integration_index;
             }
             const basis_endpoint_set_t *const endpoint =
-                fixed_axis ? (active ? axis_desc->endpoint_lower : axis_desc->endpoint) : NULL;
-            const basis_set_t *const nodes = fixed_axis ? NULL : (active ? axis_desc->nodes_lower : axis_desc->nodes);
+                fixed_axis ? (active ? axis_desc->fixed.endpoint_lower : axis_desc->fixed.endpoint) : NULL;
+            const basis_set_t *const nodes =
+                fixed_axis ? NULL : (active ? axis_desc->free.nodes_lower : axis_desc->free.nodes);
             const size_t basis_dim = (size_t)(endpoint ? endpoint->spec.order : nodes->spec.order) + 1;
             for (size_t previous = current_count; previous > 0; --previous)
             {
@@ -51,6 +84,10 @@ void kform_component_basis_values(const unsigned ndim, const basis_spec_t basis[
         }
         ASSERT(current_count == dof_count, "Tensor-product basis count mismatch (%zu vs %zu).", current_count,
                dof_count);
+        if (point_dims > 0)
+        {
+            multidim_iterator_advance(point_iter, point_dims - 1, 1);
+        }
     }
 }
 

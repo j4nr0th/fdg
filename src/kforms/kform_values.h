@@ -1,6 +1,9 @@
 #pragma once
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+
+#include <cutl/iterators/multidim_iteration.h>
 
 #include "../basis/basis_set.h"
 
@@ -21,28 +24,39 @@ typedef struct
 } kform_values_table_t;
 
 /**
+ * @brief Value source kind of a #kform_trace_axis_t: which union arm is valid.
+ */
+typedef enum
+{
+    KFORM_TRACE_AXIS_FREE = 0,  // Tangent axis of a trace: reads the axis quadrature rule.
+    KFORM_TRACE_AXIS_FIXED = 1, // Normal axis of a trace: reads cached endpoint values.
+} kform_trace_axis_kind_t;
+
+/**
  * @brief Per-axis value source for building a component's basis values.
  *
- * @todo Some of these could be clarified and streamlined. For example, this
- * holds data for both fixed and non-fixed axes, which can be separated by
- * turning this into a tagged union or just have a bool to specify if it is fixed or not.
- *
- * Free axes (tangent axes of a trace) read the basis sets evaluated on the
- * axis quadrature rule; fixed axes (normal axes of a trace) read cached
- * endpoint values. A negative orientation reverses the node index, which is
- * exact for the symmetric Gauss rules used by this library because the
- * mirrored node sits at the negated coordinate.
+ * Tagged union: `kind` selects the arm; `mirror` (negative orientation) is shared: free axes read the node index
+ * backwards, fixed axes the opposite endpoint. Reversing is exact for symmetric Gauss rules, whose mirrored node
+ * sits at the negated coordinate.
  */
 typedef struct
 {
-    const basis_set_t *nodes;             // Free axis: full-order set (NULL when fixed).
-    const basis_set_t *nodes_lower;       // Free axis: order-1 set for active covector axes.
-    const basis_endpoint_set_t *endpoint; // Non-NULL marks a fixed axis.
-    const basis_endpoint_set_t *endpoint_lower;
-    unsigned end;         // Endpoint index for fixed axes: 0 = -1, 1 = +1.
-    unsigned rule_size;   // Free axis: node count of the axis rule.
-    unsigned stride_slot; // Which point_strides entry decodes this axis's node index.
-    int mirror;           // Reverse the node index (negative orientation).
+    kform_trace_axis_kind_t kind; // Which union arm below is valid.
+    bool mirror;                  // Negative orientation: reversed node index, or opposite endpoint.
+    union {
+        struct
+        {
+            const basis_set_t *nodes;       // Full-order set.
+            const basis_set_t *nodes_lower; // Order-1 set for active covector axes.
+            unsigned rule_size;             // Node count of the axis rule.
+            unsigned stride_slot;           // Which tensor-point digit (iterator dimension) holds the node index.
+        } free;
+        struct
+        {
+            const basis_endpoint_set_t *endpoint;
+            const basis_endpoint_set_t *endpoint_lower;
+        } fixed;
+    };
 } kform_trace_axis_t;
 
 /**
@@ -57,16 +71,16 @@ typedef struct
  * @param order Order of the k-form.
  * @param component_axes Sorted covector axes of the component.
  * @param axes Value source of each axis.
- * @param point_strides Strides of the flat point tensor (last axis fastest,
- *                      matching #integration_spec_point_strides); indexed by
- *                      #kform_trace_axis_t::stride_slot.
+ * @param point_iter Scratch iterator (#multidim_iterator_needed_memory(ndim) bytes); set to the tensor points (one
+ *                    dimension per free axis, last axis fastest, per #integration_spec_point_strides) and swept
+ *                    while filling @p values.
  * @param point_count Number of tensor points.
  * @param values Output buffer with `kform_component_dof_count(ndim, basis,
  *               order, component_axes) * point_count` entries.
  */
 void kform_component_basis_values(unsigned ndim, const basis_spec_t basis[static ndim], unsigned order,
                                   const uint8_t component_axes[], const kform_trace_axis_t axes[],
-                                  const size_t point_strides[], size_t point_count, double values[restrict]);
+                                  multidim_iterator_t *point_iter, size_t point_count, double values[restrict]);
 
 /**
  * @brief Accumulate a dense weighted inner-product block.

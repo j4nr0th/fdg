@@ -823,7 +823,7 @@ static PyObject *compute_kform_mass_matrix(PyObject *module, PyObject *const *ar
     const integration_rule_t **integration_rules;
     const basis_set_t **basis_sets_left, **basis_sets_right, **basis_sets_left_lower, **basis_sets_right_lower;
     basis_spec_t *lower_basis_buffer;
-    size_t *integration_strides;
+    multidim_iterator_t *point_iter;
     double *restrict integration_weights;
     double *restrict base_weights;
     double *restrict basis_values_left;
@@ -842,7 +842,7 @@ static PyObject *compute_kform_mass_matrix(PyObject *module, PyObject *const *ar
                                {sizeof(basis_set_t *) * n, (void **)&basis_sets_right},
                                {sizeof(basis_set_t *) * n, (void **)&basis_sets_right_lower},
                                {sizeof(basis_spec_t) * n, (void **)&lower_basis_buffer},
-                               {sizeof(*integration_strides) * n, (void **)&integration_strides},
+                               {multidim_iterator_needed_memory(n), (void **)&point_iter},
                                {sizeof(double) * int_pts_cnt, (void **)&integration_weights},
                                {sizeof(double) * int_pts_cnt, (void **)&base_weights},
                                {sizeof(kform_trace_axis_t) * n, (void **)&axes_left},
@@ -852,8 +852,6 @@ static PyObject *compute_kform_mass_matrix(PyObject *module, PyObject *const *ar
     if (!mem_1)
         return NULL;
 
-    // Prepare row-major strides for the tensor-product integration points.
-    integration_spec_point_strides(n, space_map->int_specs, integration_strides);
     // Count up rows and columns based on DoFs of all components combined.
     size_t row_cnt = 0, col_cnt = 0;
     size_t max_dofs_left = 0, max_dofs_right = 0;
@@ -986,16 +984,18 @@ static PyObject *compute_kform_mass_matrix(PyObject *module, PyObject *const *ar
 
     for (unsigned i = 0; i < n; ++i)
     {
-        axes_left[i] = (kform_trace_axis_t){.nodes = basis_sets_left[i],
-                                            .nodes_lower = basis_sets_left_lower[i],
-                                            .rule_size = space_map->int_specs[i].order + 1,
-                                            .stride_slot = i,
-                                            .mirror = 0};
-        axes_right[i] = (kform_trace_axis_t){.nodes = basis_sets_right[i],
-                                             .nodes_lower = basis_sets_right_lower[i],
-                                             .rule_size = space_map->int_specs[i].order + 1,
-                                             .stride_slot = i,
-                                             .mirror = 0};
+        axes_left[i] = (kform_trace_axis_t){.kind = KFORM_TRACE_AXIS_FREE,
+                                            .mirror = 0,
+                                            .free = {.nodes = basis_sets_left[i],
+                                                     .nodes_lower = basis_sets_left_lower[i],
+                                                     .rule_size = space_map->int_specs[i].order + 1,
+                                                     .stride_slot = i}};
+        axes_right[i] = (kform_trace_axis_t){.kind = KFORM_TRACE_AXIS_FREE,
+                                             .mirror = 0,
+                                             .free = {.nodes = basis_sets_right[i],
+                                                      .nodes_lower = basis_sets_right_lower[i],
+                                                      .rule_size = space_map->int_specs[i].order + 1,
+                                                      .stride_slot = i}};
     }
 
     const size_t basis_values_left_count = max_dofs_left * (size_t)int_pts_cnt;
@@ -1033,8 +1033,8 @@ static PyObject *compute_kform_mass_matrix(PyObject *module, PyObject *const *ar
          combination_iterator_next(iter_component_left), ++basis_idx_left)
     {
         const size_t dofs_left = kform_component_dof_count(n, fn_left->specs, order, p_basis_components_left);
-        kform_component_basis_values(n, fn_left->specs, (unsigned)order, p_basis_components_left, axes_left,
-                                     integration_strides, int_pts_cnt, basis_values_left);
+        kform_component_basis_values(n, fn_left->specs, (unsigned)order, p_basis_components_left, axes_left, point_iter,
+                                     int_pts_cnt, basis_values_left);
 
         size_t col_offset = 0;
         size_t basis_idx_right = 0;
@@ -1050,7 +1050,7 @@ static PyObject *compute_kform_mass_matrix(PyObject *module, PyObject *const *ar
                                                         integration_weights, transform_array, basis_idx_left,
                                                         basis_idx_right);
                 kform_component_basis_values(n, fn_right->specs, (unsigned)order, p_basis_components_right, axes_right,
-                                             integration_strides, int_pts_cnt, basis_values_right);
+                                             point_iter, int_pts_cnt, basis_values_right);
                 kform_inner_product_block(int_pts_cnt, dofs_left, dofs_right, basis_values_left, basis_values_right,
                                           integration_weights, row_offset, col_offset, col_cnt, ptr_mat_out);
             }

@@ -185,8 +185,8 @@ static void release_trace_basis_table(trace_basis_table_t *const table)
 static int make_trace_basis_table(const unsigned element_dim, const unsigned face_dim, const unsigned order,
                                   const basis_spec_t *basis_specs, const int8_t *orientation,
                                   const integration_spec_t *canonical_specs, const integration_rule_t **canonical_rules,
-                                  const size_t *canonical_strides, basis_registry_object *const basis_registry,
-                                  const bool element_table, const size_t point_count, trace_basis_table_t *const out)
+                                  basis_registry_object *const basis_registry, const bool element_table,
+                                  const size_t point_count, trace_basis_table_t *const out)
 {
     *out = (trace_basis_table_t){};
     const unsigned ndim = element_table ? element_dim : face_dim;
@@ -203,6 +203,7 @@ static int make_trace_basis_table(const unsigned element_dim, const unsigned fac
     basis_spec_t *lower_specs;
     unsigned *source_axes;
     combination_iterator_t *components;
+    multidim_iterator_t *point_iter;
     void *const memory = cutl_alloc_group(
         &PYTHON_ALLOCATOR,
         (const cutl_alloc_info_t[]){
@@ -212,6 +213,7 @@ static int make_trace_basis_table(const unsigned element_dim, const unsigned fac
             {sizeof(*lower_specs) * axis_count, (void **)&lower_specs},
             {sizeof(*source_axes) * axis_count, (void **)&source_axes},
             {combination_iterator_required_memory((uint8_t)order), (void **)&components},
+            {multidim_iterator_needed_memory(ndim), (void **)&point_iter},
             {}});
     if (!memory)
         return -1;
@@ -304,20 +306,22 @@ static int make_trace_basis_table(const unsigned element_dim, const unsigned fac
                 }
                 ASSERT(fixed_axis < fixed_count, "Axis is neither fixed nor free.");
                 axes[axis] = (kform_trace_axis_t){
-                    .endpoint = endpoint_sets[axis],
-                    .endpoint_lower = order > 0 ? endpoint_sets_lower[axis] : NULL,
-                    .end = orientation[fixed_axis] < 0 ? 0u : 1u,
+                    .kind = KFORM_TRACE_AXIS_FIXED,
+                    .mirror = orientation[fixed_axis] < 0,
+                    .fixed = {.endpoint = endpoint_sets[axis],
+                              .endpoint_lower = order > 0 ? endpoint_sets_lower[axis] : NULL},
                 };
             }
             else
             {
                 const int8_t mapping = orientation[fixed_count + slot];
                 axes[axis] = (kform_trace_axis_t){
-                    .nodes = basis_sets[slot],
-                    .nodes_lower = order > 0 ? basis_sets_lower[slot] : NULL,
-                    .rule_size = canonical_specs[slot].order + 1,
-                    .stride_slot = slot,
+                    .kind = KFORM_TRACE_AXIS_FREE,
                     .mirror = mapping < 0,
+                    .free = {.nodes = basis_sets[slot],
+                             .nodes_lower = order > 0 ? basis_sets_lower[slot] : NULL,
+                             .rule_size = canonical_specs[slot].order + 1,
+                             .stride_slot = slot},
                 };
             }
         }
@@ -327,11 +331,12 @@ static int make_trace_basis_table(const unsigned element_dim, const unsigned fac
         for (unsigned axis = 0; axis < face_dim; ++axis)
         {
             axes[axis] = (kform_trace_axis_t){
-                .nodes = basis_sets[axis],
-                .nodes_lower = order > 0 ? basis_sets_lower[axis] : NULL,
-                .rule_size = canonical_specs[axis].order + 1,
-                .stride_slot = axis,
+                .kind = KFORM_TRACE_AXIS_FREE,
                 .mirror = 0,
+                .free = {.nodes = basis_sets[axis],
+                         .nodes_lower = order > 0 ? basis_sets_lower[axis] : NULL,
+                         .rule_size = canonical_specs[axis].order + 1,
+                         .stride_slot = axis},
             };
         }
     }
@@ -358,7 +363,7 @@ static int make_trace_basis_table(const unsigned element_dim, const unsigned fac
         if (dof_count != 0)
         {
             kform_component_basis_values(ndim, basis_specs, order, combination_iterator_current(components), axes,
-                                         canonical_strides, point_count,
+                                         point_iter, point_count,
                                          out->values + out->component_offsets[component] * point_count);
         }
         combination_iterator_next(components);
@@ -762,8 +767,8 @@ static PyObject *compute_kform_boundary_load(PyObject *module, PyObject *const *
         goto load_fail;
     basis_registry_object *const basis_registry = (basis_registry_object *)state->registry_basis;
     if (make_trace_basis_table(element_dim, face_dim, order, element_spec->function_space->specs, orientation,
-                               setup.canonical_specs, setup.canonical_rules, setup.canonical_strides, basis_registry,
-                               true, setup.point_count, &element_table) < 0)
+                               setup.canonical_specs, setup.canonical_rules, basis_registry, true, setup.point_count,
+                               &element_table) < 0)
         goto load_fail;
     constraint_physical_side_load(&test_descriptor, &side_descriptor, setup.point_weights, data_owned,
                                   weighted ? surface_weights : NULL, &element_table.descriptor, &load_work,
@@ -1020,7 +1025,7 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
             {sizeof(*work.axis_fixed) * ndim, (void **)&work.axis_fixed},
             {sizeof(*work.axis_slot) * ndim, (void **)&work.axis_slot},
             {sizeof(*work.element_rules) * ndim, (void **)&work.element_rules},
-            {sizeof(*work.mass.point_strides) * bdim, (void **)&work.mass.point_strides},
+            {multidim_iterator_needed_memory(ndim), (void **)&work.mass.point_iter},
             {sizeof(*work.mass.row_offsets) * (component_count + 1), (void **)&work.mass.row_offsets},
             {sizeof(*work.mass.col_offsets) * (component_count + 1), (void **)&work.mass.col_offsets},
             {sizeof(*work.mass.element_components) * component_count, (void **)&work.mass.element_components},
@@ -1030,7 +1035,8 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
             {sizeof(*work.mass.offsets) * bdim, (void **)&work.mass.offsets},
             {sizeof(*work.mass.axis_sets) * bdim, (void **)&work.mass.axis_sets},
             {multidim_iterator_needed_memory(bdim), (void **)&work.mass.dof_iter},
-            {multidim_iterator_needed_memory(bdim), (void **)&work.mass.point_iter},
+            {sizeof(*work.mass.point_digits) * bdim, (void **)&work.mass.point_digits},
+            {sizeof(*work.mass.point_prefix) * bdim, (void **)&work.mass.point_prefix},
             {sizeof(*work.mass.axis_tables) * bdim, (void **)&work.mass.axis_tables},
             {sizeof(*work.mass.mapped_axes) * order_storage, (void **)&work.mass.mapped_axes},
             {iterator_memory, (void **)&work.mass.components},

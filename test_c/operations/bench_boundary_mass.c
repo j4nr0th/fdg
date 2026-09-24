@@ -185,7 +185,7 @@ int main(void)
             size_t entries;
             constraint_boundary_mass_work_t work = {};
             const size_t iter_mem = combination_iterator_required_memory((uint8_t)order);
-            work.point_strides = malloc(bdim * sizeof(*work.point_strides));
+            work.point_iter = malloc(multidim_iterator_needed_memory(bdim));
             work.row_offsets = malloc((component_count + 1) * sizeof(*work.row_offsets));
             work.col_offsets = malloc((component_count + 1) * sizeof(*work.col_offsets));
             work.element_components = malloc(component_count * sizeof(*work.element_components));
@@ -195,7 +195,8 @@ int main(void)
             work.offsets = malloc(bdim * sizeof(*work.offsets));
             work.axis_sets = malloc(bdim * sizeof(*work.axis_sets));
             work.dof_iter = malloc(multidim_iterator_needed_memory(bdim));
-            work.point_iter = malloc(multidim_iterator_needed_memory(bdim));
+            work.point_digits = malloc(bdim * sizeof(*work.point_digits));
+            work.point_prefix = malloc(bdim * sizeof(*work.point_prefix));
             work.axis_tables = malloc(bdim * sizeof(*work.axis_tables));
             work.mapped_axes = malloc((order == 0 ? 1u : order) * sizeof(*work.mapped_axes));
             work.components = malloc(iter_mem);
@@ -203,10 +204,10 @@ int main(void)
             work.row_values = malloc(sizes.row_values * sizeof(*work.row_values));
             work.col_values = malloc(sizes.col_values * sizeof(*work.col_values));
             work.point_factors = malloc(sizes.point_factors * sizeof(*work.point_factors));
-            if (!work.point_strides || !work.row_offsets || !work.col_offsets || !work.element_components ||
+            if (!work.point_iter || !work.row_offsets || !work.col_offsets || !work.element_components ||
                 !work.element_signs || !work.axes || !work.counts || !work.offsets || !work.axis_sets ||
-                !work.dof_iter || !work.point_iter || !work.axis_tables || !work.mapped_axes || !work.components ||
-                !work.blocks || !work.row_values || !work.col_values || !work.point_factors)
+                !work.dof_iter || !work.point_digits || !work.point_prefix || !work.axis_tables || !work.mapped_axes ||
+                !work.components || !work.blocks || !work.row_values || !work.col_values || !work.point_factors)
             {
                 fprintf(stderr, "work allocation failed\n");
                 return 1;
@@ -387,7 +388,7 @@ int main(void)
             free(matrix_pair);
             free(matrix_table);
             free(weights);
-            free(work.point_strides);
+            free(work.point_iter);
             free(work.row_offsets);
             free(work.col_offsets);
             free(work.element_components);
@@ -397,7 +398,8 @@ int main(void)
             free(work.offsets);
             free(work.axis_sets);
             free(work.dof_iter);
-            free(work.point_iter);
+            free(work.point_digits);
+            free(work.point_prefix);
             free(work.axis_tables);
             free(work.mapped_axes);
             free(work.components);

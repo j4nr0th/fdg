@@ -261,14 +261,12 @@ static size_t boundary_mass_row_dofs(const constraint_boundary_mass_spec_t *cons
 /**
  * @brief Sample one boundary component's test functions at the common points.
  *
- * The values are laid out point-major with axis 0 the slowest DoF digit, and
- * the skipped functions shift each axis's read window by its offset. DoF
- * digits and tensor point nodes both enumerate through the work buffer's
- * multidim iterators; their row-major order (last axis fastest) reproduces
- * the layout and the quadrature point indexing.
+ * Point-major layout, axis 0 the slowest DoF digit; skipped functions shift each axis's read window by its offset.
+ * DoF digits run through the work buffer's multidim iterator; tensor points through a last-axis-fastest odometer with
+ * a prefix cache of intermediate products (#outer_product_pair_iterator_t style).
  *
- * Preconditions: every per-axis test function count is positive; callers
- * drop row blocks that have no DoFs at all.
+ * Preconditions: per-axis test function counts are positive (callers drop empty row blocks); each basis set was built
+ * at the nodes of `spec->boundary_integration`.
  */
 static void boundary_mass_row_values(const constraint_boundary_mass_spec_t *const spec,
                                      const basis_set_t *const *basis_sets, const basis_set_t *const *basis_sets_lower,
@@ -286,37 +284,51 @@ static void boundary_mass_row_values(const constraint_boundary_mass_spec_t *cons
     }
 
     multidim_iterator_t *const dof_iter = work->dof_iter;
-    multidim_iterator_t *const point_iter = work->point_iter;
+    const double **const rows = work->axis_tables;
+    size_t tensor_points = 1;
     for (unsigned axis = 0; axis < bdim; ++axis)
     {
         const bool active = component_has_axis(spec->order, component_axes, axis);
         work->axis_sets[axis] = active ? basis_sets_lower[axis] : basis_sets[axis];
+        CUTL_ASSERT(work->axis_sets[axis]->integration_spec.order == spec->boundary_integration[axis].order,
+                    "Axis %u reads a basis set built at foreign integration nodes.", axis);
         multidim_iterator_init_dim(dof_iter, axis, work->counts[axis]);
-        multidim_iterator_init_dim(point_iter, axis, (size_t)spec->boundary_integration[axis].order + 1u);
+        tensor_points *= (size_t)spec->boundary_integration[axis].order + 1u;
     }
-    CUTL_ASSERT(multidim_iterator_total_size(point_iter) == point_count,
-                "The point iterator does not span the common rule's tensor points.");
+    CUTL_ASSERT(tensor_points == point_count, "The odometer bounds do not span the common rule's tensor points.");
     const size_t dof_count = multidim_iterator_total_size(dof_iter);
+    unsigned *const point_digits = work->point_digits;
+    double *const prefix = work->point_prefix;
     for (multidim_iterator_set_to_start(dof_iter); !multidim_iterator_is_at_end(dof_iter);
          multidim_iterator_advance(dof_iter, bdim - 1, 1))
     {
         const size_t *const digits = multidim_iterator_offsets(dof_iter);
+        const size_t flat = multidim_iterator_get_flat_index(dof_iter);
+        // Select this DoF's rows, restart the odometer, seed the prefix cache at point 0 (all digits zero).
         for (unsigned axis = 0; axis < bdim; ++axis)
         {
-            work->axis_tables[axis] =
-                basis_set_basis_values(work->axis_sets[axis], work->offsets[axis] + (unsigned)digits[axis]);
+            rows[axis] = basis_set_basis_values(work->axis_sets[axis], work->offsets[axis] + (unsigned)digits[axis]);
+            point_digits[axis] = 0;
+            prefix[axis] = (axis == 0 ? 1.0 : prefix[axis - 1]) * rows[axis][0];
         }
-        double *const out_column = work->row_values + multidim_iterator_get_flat_index(dof_iter);
-        multidim_iterator_set_to_start(point_iter);
-        for (size_t point = 0; point < point_count; ++point, multidim_iterator_advance(point_iter, bdim - 1, 1))
+        for (size_t point = 0; point < point_count; ++point)
         {
-            const size_t *const nodes = multidim_iterator_offsets(point_iter);
-            double value = 1.0;
-            for (unsigned axis = 0; axis < bdim; ++axis)
+            work->row_values[point * dof_count + flat] = prefix[bdim - 1];
+            // Advance from the last axis; a full wrap (carry reaches zero) exhausts the tensor, so no rebuild remains.
+            unsigned carry = bdim;
+            for (; carry > 0; --carry)
             {
-                value *= work->axis_tables[axis][nodes[axis]];
+                if (++point_digits[carry - 1] <= spec->boundary_integration[carry - 1].order)
+                    break;
+                point_digits[carry - 1] = 0;
             }
-            out_column[point * dof_count] = value;
+            if (carry > 0)
+            {
+                for (unsigned axis = carry - 1; axis < bdim; ++axis)
+                {
+                    prefix[axis] = (axis == 0 ? 1.0 : prefix[axis - 1]) * rows[axis][point_digits[axis]];
+                }
+            }
         }
     }
 }
@@ -343,12 +355,14 @@ static void boundary_mass_axis_descriptors(const constraint_boundary_mass_spec_t
         const int8_t mapping = spec->orientation[fixed_count + face_axis];
         const unsigned element_axis = (unsigned)(mapping < 0 ? -mapping : mapping) - 1;
         axes[element_axis] = (kform_trace_axis_t){
-            .nodes = request->element_basis_sets[element_axis],
-            .nodes_lower =
-                request->element_basis_sets_lower != NULL ? request->element_basis_sets_lower[element_axis] : NULL,
-            .rule_size = spec->boundary_integration[face_axis].order + 1u,
-            .stride_slot = face_axis,
+            .kind = KFORM_TRACE_AXIS_FREE,
             .mirror = mapping < 0,
+            .free = {.nodes = request->element_basis_sets[element_axis],
+                     .nodes_lower = request->element_basis_sets_lower != NULL
+                                        ? request->element_basis_sets_lower[element_axis]
+                                        : NULL,
+                     .rule_size = spec->boundary_integration[face_axis].order + 1u,
+                     .stride_slot = face_axis},
         };
     }
     for (unsigned fixed_axis = 0; fixed_axis < fixed_count; ++fixed_axis)
@@ -356,10 +370,12 @@ static void boundary_mass_axis_descriptors(const constraint_boundary_mass_spec_t
         const int8_t mapping = spec->orientation[fixed_axis];
         const unsigned element_axis = (unsigned)(mapping < 0 ? -mapping : mapping) - 1;
         axes[element_axis] = (kform_trace_axis_t){
-            .endpoint = request->element_endpoints != NULL ? request->element_endpoints[element_axis] : NULL,
-            .endpoint_lower =
-                request->element_endpoints_lower != NULL ? request->element_endpoints_lower[element_axis] : NULL,
-            .end = mapping < 0 ? 0u : 1u,
+            .kind = KFORM_TRACE_AXIS_FIXED,
+            .mirror = mapping < 0,
+            .fixed = {.endpoint = request->element_endpoints != NULL ? request->element_endpoints[element_axis] : NULL,
+                      .endpoint_lower = request->element_endpoints_lower != NULL
+                                            ? request->element_endpoints_lower[element_axis]
+                                            : NULL},
         };
     }
 }
@@ -537,7 +553,6 @@ void constraint_boundary_mass_assemble(const constraint_boundary_mass_request_t 
                 "Physical pullbacks must be given for both test and element sides.");
 
     const size_t point_count = integration_specs_total_points(spec->bdim, spec->boundary_integration);
-    integration_spec_point_strides(spec->bdim, spec->boundary_integration, work->point_strides);
 
     size_t rows;
     size_t cols;
@@ -598,7 +613,7 @@ void constraint_boundary_mass_assemble(const constraint_boundary_mass_request_t 
                 (void)mapped_axes_and_sign(&side, spec->bdim, order, component_axes, work->mapped_axes);
             }
             kform_component_basis_values(spec->ndim, spec->element_spec->basis, order, work->mapped_axes, work->axes,
-                                         work->point_strides, point_count, work->col_values);
+                                         work->point_iter, point_count, work->col_values);
 
             // The pullback tables hold each side's own covector image, so the
             // physical pairing is frame-free; only reference pairing needs the
