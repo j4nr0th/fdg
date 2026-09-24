@@ -2,13 +2,10 @@
  * @file constraints.c
  * @brief Implementation of reference and physical trace constraints.
  *
- * Assembly uses one canonical face coordinate system. Element-side
- * orientations map that system to signed, one-based element axes; the helper
- * functions below keep the mapping and its alternating k-form sign in one
- * place. Routines trust documented preconditions guarded by debug asserts
- * only, storage is sized with the `*_layout`/`*_work_size` functions, and
- * registry-backed routines report allocation failures through
- * `fdg_result_t`.
+ * Assembly uses one canonical face coordinate system; element-side orientations map it to signed, one-based element
+ * axes, and the helpers below keep that mapping and the alternating k-form sign in one place. Routines trust
+ * documented preconditions guarded by debug asserts only, size storage with the `*_layout`/`*_work_size` functions,
+ * and report registry allocation failures through `fdg_result_t`.
  */
 
 #include "constraints.h"
@@ -25,8 +22,8 @@
 /**
  * @brief Test whether a component contains one active covector axis.
  *
- * The active axes are sorted, but a linear scan keeps this helper independent
- * of the combination representation and is negligible beside quadrature work.
+ * The active axes are sorted, but a linear scan keeps the helper independent of the combination representation and
+ * is negligible beside quadrature work.
  */
 static bool component_has_axis(const unsigned order, const uint8_t axes[const static order == 0 ? 1 : order],
                                const unsigned axis)
@@ -42,15 +39,13 @@ static bool component_has_axis(const unsigned order, const uint8_t axes[const st
 /**
  * @brief Map a face component's axes into element axes and a sign.
  *
- * The side orientation contributes one sign for every reversed mapped axis.
- * The mapped axes are sorted into canonical element order, and each sorting
- * swap flips the alternating covector sign by one permutation transposition.
+ * The side orientation contributes one sign per reversed mapped axis; sorting the mapped axes into canonical element
+ * order flips the alternating covector sign once per transposition.
  *
- * Preconditions: `side->orientation` is a signed one-based permutation whose
- * fixed-axis prefix increases in absolute value; `order <= boundary_dim <=
- * side->ndim`; `test_axes` are the sorted covector axes of a valid component.
+ * Preconditions: `side->orientation` is a signed one-based permutation with an increasing-absolute-value fixed-axis
+ * prefix; `order <= boundary_dim <= side->ndim`; `test_axes` are a valid component's sorted covector axes.
  *
- * @return `true` if the sign needs to be flipped, `false` otherwise.
+ * @return `true` if the sign must be flipped.
  */
 static bool mapped_axes_and_sign(const constraint_element_side_t *const side, const unsigned boundary_dim,
                                  const unsigned order, const uint8_t test_axes[const static order == 0 ? 1 : order],
@@ -66,9 +61,7 @@ static bool mapped_axes_and_sign(const constraint_element_side_t *const side, co
         if (mapping < 0)
             sign += 1;
     }
-    // Bubble sort the mapped axes to the canonical order and adjust the sign
-    // accordingly: each swap flips the alternating covector sign by one
-    // permutation transposition.
+    // Sort into canonical order; each swap flips the sign (one transposition).
     for (unsigned i = 0; i < order; ++i)
     {
         for (unsigned j = i + 1; j < order; ++j)
@@ -89,16 +82,12 @@ static bool mapped_axes_and_sign(const constraint_element_side_t *const side, co
 /**
  * @brief Map a face component's axes into an element component.
  *
- * The side orientation contributes one sign for every reversed mapped axis.
- * Sorting the mapped axes into canonical element order contributes the
- * permutation parity. Together these signs are the pullback sign of the
- * covector component, while `out_component` is its combination index.
+ * Combines the orientation sign and permutation parity into the covector's pullback sign; `out_component` receives the
+ * combination index of the mapped axes.
  *
- * Preconditions: `side->orientation` is a signed one-based permutation whose
- * fixed-axis prefix increases in absolute value; `order <= boundary_dim <=
- * side->ndim`; `test_axes` are the sorted covector axes of a valid component.
+ * Preconditions: as in #mapped_axes_and_sign.
  *
- * @return `true` if the mapped component has a flipped sign, `false` otherwise.
+ * @return `true` if the mapped component's sign is flipped.
  */
 static bool mapped_component(const constraint_element_side_t *const side, const unsigned boundary_dim,
                              const unsigned order, const uint8_t test_axes[const static order == 0 ? 1 : order],
@@ -115,11 +104,9 @@ static bool mapped_component(const constraint_element_side_t *const side, const 
 /**
  * @brief Merge the per-element boundary views into one common boundary space.
  *
- * The first element seeds the canonical boundary basis and integration rules;
- * every other element then lowers a basis axis to its own order when smaller
- * and raises an integration axis to its own rule when more accurate. The
- * basis merge therefore takes the per-axis minimum order (the L2 link
- * target) while the integration merge takes the most accurate rule.
+ * The first element seeds the canonical basis and rules; later elements lower a basis axis to their own order when
+ * smaller and raise an integration axis to their own rule when more accurate — per-axis minimum order (the L2 link
+ * target) for the basis, most accurate rule for the integration.
  */
 static void boundary_common_space_merge(unsigned ndim, unsigned bdim, unsigned nelem,
                                         const boundary_element_space_t elements[static nelem],
@@ -159,37 +146,14 @@ static void boundary_common_space_merge(unsigned ndim, unsigned bdim, unsigned n
 /**
  * @brief Per-axis test function counts of one boundary component's row block.
  *
- * Active covector axes read the order-1 basis (`order` functions); inactive
- * axes read the full basis with the first `axis_skip[axis]` functions
- * removed. The offsets carry the matching start index into each axis's
- * function table. `counts` and `offsets` are caller-provided `[bdim]` arrays.
+ * Active covector axes read the order-1 basis (`order` functions); inactive axes read the full basis minus the first
+ * `axis_skip[axis]` functions, offsets carrying the matching start index. `counts`/`offsets` are caller-provided
+ * `[bdim]` arrays.
  */
 static void boundary_mass_row_axis_counts(const constraint_boundary_mass_spec_t *const spec,
                                           const uint8_t component_axes[const static spec->order == 0 ? 1 : spec->order],
                                           unsigned counts[spec->bdim], unsigned offsets[spec->bdim])
 {
-    for (unsigned axis = 0; axis < spec->bdim; ++axis)
-    {
-        const bool active = component_has_axis(spec->order, component_axes, axis);
-        const unsigned full_count = spec->boundary_basis[axis].order + 1u;
-        const unsigned skip = !active && spec->axis_skip != NULL ? spec->axis_skip[axis] : 0u;
-        // An active axis of order zero yields zero test functions, so the
-        // whole component's row block drops out.
-        if (active)
-        {
-            counts[axis] = spec->boundary_basis[axis].order;
-            offsets[axis] = 0;
-        }
-        else
-        {
-            counts[axis] = full_count > skip ? full_count - skip : 0u;
-            offsets[axis] = skip;
-        }
-    }
-    // The alternative loop below re-derives the same counts in a single pass
-    // over the sorted active axes and asserts agreement with the reference
-    // loop on every call (kept for now: a future benchmark may pick one).
-
     unsigned i_axis, i_active;
     for (i_axis = 0, i_active = 0; i_active < spec->order; ++i_axis)
     {
@@ -206,17 +170,12 @@ static void boundary_mass_row_axis_counts(const constraint_boundary_mass_spec_t 
             full_count += 1u;
             if (spec->axis_skip != NULL)
             {
-                // We have to potentially skip the axis
+                // Apply the axis's skip.
                 const unsigned skip = spec->axis_skip[i_axis];
                 offset = skip;
                 full_count = full_count > skip ? full_count - skip : 0u;
             }
         }
-        // Check this is the same as the original calculation
-        CUTL_ASSERT(counts[i_axis] == full_count && offsets[i_axis] == offset,
-                    "Mismatch between calculated and original axis counts/offsets (axis %u has full_count %u and "
-                    "offset %u vs computed full_count %u and offset %u)",
-                    i_axis, full_count, offset, counts[i_axis], offsets[i_axis]);
         counts[i_axis] = full_count;
         offsets[i_axis] = offset;
     }
@@ -234,11 +193,6 @@ static void boundary_mass_row_axis_counts(const constraint_boundary_mass_spec_t 
             offset = skip;
             full_count = full_count > skip ? full_count - skip : 0u;
         }
-        // Check this is the same as the original calculation
-        CUTL_ASSERT(counts[i_axis] == full_count && offsets[i_axis] == offset,
-                    "Mismatch between calculated and original axis counts/offsets (axis %u has full_count %u and "
-                    "offset %u vs computed full_count %u and offset %u)",
-                    i_axis, full_count, offset, counts[i_axis], offsets[i_axis]);
         counts[i_axis] = full_count;
         offsets[i_axis] = offset;
     }
@@ -277,8 +231,7 @@ static void boundary_mass_row_values(const constraint_boundary_mass_spec_t *cons
     const unsigned bdim = spec->bdim;
     if (bdim == 0)
     {
-        // A zero-dimensional boundary has one scalar test DoF sampled at the
-        // single empty-tensor-product point; there are no iterator axes.
+        // A zero-dimensional boundary has one scalar DoF at the single empty-tensor point; no iterator axes.
         work->row_values[0] = 1.0;
         return;
     }
@@ -336,9 +289,8 @@ static void boundary_mass_row_values(const constraint_boundary_mass_spec_t *cons
 /**
  * @brief Build the trace value sources of the element's axes.
  *
- * Free axes read the element basis sets evaluated at the mapped common rules,
- * mirrored when the orientation reverses the axis; fixed normal axes read
- * their endpoint values at the signed end.
+ * Free axes read the element basis sets at the mapped common rules, mirrored when the orientation reverses the
+ * axis; fixed normal axes read their endpoint values at the signed end.
  */
 static void boundary_mass_axis_descriptors(const constraint_boundary_mass_spec_t *const spec,
                                            const constraint_boundary_mass_request_t *const request,
@@ -383,11 +335,9 @@ static void boundary_mass_axis_descriptors(const constraint_boundary_mass_spec_t
 /**
  * @brief Compute the dense shape of one element's boundary mass matrix.
  *
- * One combination-iterator pass over the common boundary components fills the
- * mapped component table and both offset tables: row offsets are per-component
- * starts with the total row count at `work->row_offsets[component_count]`;
- * column offsets are the mapped component block starts with the total column
- * count at `work->col_offsets[component_count]`.
+ * One combination-iterator pass fills the mapped component table and both offset tables: row offsets are
+ * per-component starts with the total at `work->row_offsets[component_count]`, column offsets the mapped block
+ * starts with the total at `work->col_offsets[component_count]`.
  */
 static void boundary_mass_shape(const constraint_boundary_mass_spec_t *const spec,
                                 constraint_boundary_mass_work_t *work, size_t *const out_rows, size_t *const out_cols)
@@ -397,8 +347,7 @@ static void boundary_mass_shape(const constraint_boundary_mass_spec_t *const spe
     const unsigned order = spec->order;
     if (order > spec->bdim)
     {
-        // A k-form of order past the boundary dimension has no trace
-        // components at all.
+        // A k-form of order past the boundary dimension has no trace components.
         work->row_offsets[0] = 0;
         work->col_offsets[0] = 0;
         *out_rows = 0;
@@ -460,6 +409,7 @@ void constraint_boundary_mass_layout(const constraint_boundary_mass_spec_t *cons
     *out_entry_count = entries;
 }
 
+// TODO: This should not allocate memory! Either pass it in, or find another way!
 void constraint_boundary_mass_work_size(const constraint_boundary_mass_spec_t *const spec,
                                         constraint_boundary_mass_work_sizes_t *const out_sizes)
 {
@@ -467,8 +417,7 @@ void constraint_boundary_mass_work_size(const constraint_boundary_mass_spec_t *c
     const constraint_element_side_t side = {
         .ndim = spec->ndim, .basis_specs = spec->element_spec->basis, .orientation = spec->orientation};
 
-    // The sizing pass needs one iterator plus per-axis and mapped-axis
-    // scratch; all bounded by `bdim` and `order`.
+    // The sizing pass needs one iterator plus per-axis and mapped-axis scratch, all bounded by `bdim` and `order`.
     combination_iterator_t *iter;
     unsigned *counts;
     unsigned *offsets;
@@ -482,8 +431,7 @@ void constraint_boundary_mass_work_size(const constraint_boundary_mass_spec_t *c
                                  {}});
     if (mem == NULL)
     {
-        // A failed sizing pass reports zero buffers; the caller cannot
-        // assemble without them anyway.
+        // A failed sizing pass reports zero buffers; the caller cannot assemble without them anyway.
         *out_sizes = (constraint_boundary_mass_work_sizes_t){};
         return;
     }
@@ -573,8 +521,7 @@ void constraint_boundary_mass_assemble(const constraint_boundary_mass_request_t 
         .ndim = spec->ndim, .basis_specs = spec->element_spec->basis, .orientation = spec->orientation};
     if (physical)
     {
-        // Physical pairing walks every mapped component: the blocks iterator
-        // must be a valid (bdim, order) enumeration before unranking.
+        // Physical pairing walks every mapped component: the blocks iterator must be a valid (bdim, order) enumeration.
         combination_iterator_init(work->blocks, (uint8_t)spec->bdim, (uint8_t)order);
     }
     combination_iterator_reset(work->components);
@@ -599,9 +546,8 @@ void constraint_boundary_mass_assemble(const constraint_boundary_mass_request_t 
             CUTL_ASSERT(block < component_count, "Block index exceeded the boundary component count.");
             if (col_dofs == 0)
                 continue;
-            // The element axes of the block's mapped component: reference
-            // pairing maps the row component itself, physical pairing walks
-            // every mapped component through the same orientation.
+            // Element axes of the block's mapped component: reference pairing maps the row component itself,
+            // physical pairing walks every mapped component through the same orientation.
             if (physical)
             {
                 combination_iterator_set_to_index(work->blocks, block);
@@ -615,10 +561,9 @@ void constraint_boundary_mass_assemble(const constraint_boundary_mass_request_t 
             kform_component_basis_values(spec->ndim, spec->element_spec->basis, order, work->mapped_axes, work->axes,
                                          work->point_iter, point_count, work->col_values);
 
-            // The pullback tables hold each side's own covector image, so the
-            // physical pairing is frame-free; only reference pairing needs the
-            // orientation sign to express the row component in the element's
-            // covector basis.
+            // The pullback tables hold each side's own covector image, so physical pairing is frame-free; only
+            // reference pairing needs the orientation sign to express the row component in the element's covector
+            // basis.
             const double block_sign = (double)(physical ? 1 : work->element_signs[block]) * request->factor;
             for (size_t point = 0; point < point_count; ++point)
             {
@@ -693,9 +638,8 @@ fdg_result_t constrain_elements_on_boundary_prepare(const constrain_elements_on_
     const unsigned bdim = request->bdim;
     const unsigned ndim = request->ndim;
     const unsigned nelem = request->nelem;
-    // Assert preconditions shared with the common space merge. A zero-dimensional
-    // boundary is allowed for scalar (order zero) traces: point rows pair the
-    // elements' vertex value functionals through the endpoint tables.
+    // Preconditions shared with the common space merge. A zero-dimensional boundary is allowed for scalar (order
+    // zero) traces: point rows pair the elements' vertex value functionals through the endpoint tables.
     CUTL_ASSERT(request->nforms > 0, "At least one k-form is required.");
     CUTL_ASSERT(nelem > 0, "At least one element is required for boundary common space.");
     CUTL_ASSERT(ndim > 0, "Space must be at least 1D.");
@@ -710,8 +654,7 @@ fdg_result_t constrain_elements_on_boundary_prepare(const constrain_elements_on_
     plan->boundary_basis = out_basis;
     plan->boundary_integration = out_integration;
     plan->total_values = 0;
-    // NULL-fill every reference slot so a failed prepare still releases
-    // cleanly.
+    // NULL-fill every reference slot so a failed prepare still releases cleanly.
     for (size_t reference = 0; reference < (size_t)request->nforms * bdim; ++reference)
     {
         plan->rules[reference] = NULL;
@@ -750,8 +693,8 @@ fdg_result_t constrain_elements_on_boundary_prepare(const constrain_elements_on_
         basis_spec_t *const form_lower = plan->boundary_lower_specs + (size_t)iform * bdim;
         for (unsigned idim = 0; idim < bdim; ++idim)
         {
-            // Order-zero axes cannot lose another degree; no component reads
-            // their lower table because the matching components have no rows.
+            // Order-zero axes cannot lose another degree; no component reads their lower table (its components
+            // have no rows).
             form_lower[idim] = (basis_spec_t){.type = BASIS_LEGENDRE,
                                               .order = form_basis[idim].order > 0 ? form_basis[idim].order - 1u : 0u};
         }
@@ -783,8 +726,7 @@ fdg_result_t constrain_elements_on_boundary_prepare(const constrain_elements_on_
         {
             const boundary_element_space_t *const element = views + ie;
             const size_t item = (size_t)iform * nelem + ie;
-            // Classify every element axis as fixed normal axis or free axis,
-            // recording the canonical face slot of free axes.
+            // Classify every element axis as fixed or free, recording free axes' canonical face slots.
             for (unsigned axis = 0; axis < ndim; ++axis)
             {
                 work->axis_fixed[axis] = false;
@@ -802,8 +744,7 @@ fdg_result_t constrain_elements_on_boundary_prepare(const constrain_elements_on_
             }
             for (unsigned axis = 0; axis < ndim; ++axis)
             {
-                // A zero-dimensional boundary has no boundary rules: every
-                // axis is fixed and only the endpoint tables are read.
+                // A zero-dimensional boundary has no boundary rules: every axis is fixed, only endpoints are read.
                 work->element_rules[axis] =
                     bdim > 0 ? plan->rules[form + (work->axis_fixed[axis] ? 0 : work->axis_slot[axis])] : NULL;
             }
@@ -939,8 +880,7 @@ void constrain_elements_on_boundary_assemble(const constrain_elements_on_boundar
         {
             const boundary_element_space_t *const element = views + ie;
             const size_t item = (size_t)iform * plan->nelem + ie;
-            // Classify every element axis as fixed normal axis or free axis,
-            // recording the canonical face slot of free axes.
+            // Classify every element axis as fixed or free, recording free axes' canonical face slots.
             for (unsigned axis = 0; axis < ndim; ++axis)
             {
                 work->axis_fixed[axis] = false;
@@ -993,12 +933,9 @@ void constrain_elements_on_boundary_assemble(const constrain_elements_on_boundar
             constraint_boundary_mass_assemble(&mass_request);
         }
 
-        // Debug guard: every incident side samples the same physical face,
-        // so the integrated surface measure - and, for k-forms, every
-        // pullback moment - must agree across sides regardless of each
-        // side's local orientation. A mismatch flags a wrong canonical
-        // point mapping (mirrored or permuted axes) before the values are
-        // packed into rows.
+        // Debug guard: every incident side samples the same physical face, so the integrated surface measure (and
+        // each pullback moment) must agree across sides regardless of local orientation. A mismatch flags a wrong
+        // canonical point mapping (mirrored or permuted axes) before packing.
         if (!request->c1_continuous && request->shared_face_guard && request->surface_weights != NULL)
         {
             const size_t face_points = integration_specs_total_points(bdim, form_integration);
@@ -1018,8 +955,7 @@ void constrain_elements_on_boundary_assemble(const constrain_elements_on_boundar
                 const double deviation = fabs(measure - reference_measure);
                 if (deviation > 1e-9 * (1.0 + fabs(reference_measure)))
                 {
-                    // Debug diagnostics: dump both sides' sampled weights so
-                    // the mis-mapped canonical point is visible.
+                    // Dump both sides' sampled weights so the mis-mapped canonical point is visible.
                     fprintf(stderr, "surface measure mismatch on side %u: %g vs %g over %zu points\n", ie, measure,
                             reference_measure, face_points);
                     for (size_t point = 0; point < face_points; ++point)
@@ -1143,13 +1079,10 @@ void constraint_physical_side_load(const kform_spec_t *const test_spec, const co
     const unsigned order = test_spec->order;
     const kform_spec_t element_spec = {.ndim = side->ndim, .order = order, .basis = side->basis_specs};
     const size_t point_count = element_table->point_count;
-    // The datum is an element-frame k-form with k = test_spec->order + 1, given
-    // as its C(n, k) physical components sampled at the canonical face points:
-    // datum_values[component * point_count + point]. For each face (k-1)-form
-    // component J with element-frame axes J_e, the paired datum component is
-    // I = J_e U {fixed_axis} and the sign carries the count of J_e axes below
-    // the fixed normal axis; at k = n this reduces to the previous
-    // sigma_out = side * (-1)^a formula.
+    // The datum is an element-frame k-form (k = test_spec->order + 1) given as its C(n, k) physical components at
+    // the canonical face points: datum_values[component * point_count + point]. Each face (k-1)-form component J with
+    // element-frame axes J_e pairs with datum component I = J_e U {fixed_axis}; the sign counts J_e axes below the
+    // fixed normal axis (at k = n this is the sigma_out = side * (-1)^a formula).
     const int8_t fixed_mapping = side->orientation[0];
     const unsigned fixed_axis = (unsigned)(fixed_mapping < 0 ? -fixed_mapping : fixed_mapping) - 1;
     const bool side_sign = fixed_mapping < 0;
@@ -1251,8 +1184,7 @@ size_t constraint_face_point_to_source(const unsigned element_dim, const unsigne
     return source_point;
 }
 
-// Combination index of the sorted copy of @p axes: the row of a component
-// within the face map's own ascending-axis transform table.
+// Combination index of the sorted copy of @p axes: the component's row in the face map's transform table.
 static unsigned sorted_row(const unsigned face_dim, const unsigned order,
                            uint8_t axes[const static order == 0 ? 1 : order])
 {
@@ -1307,17 +1239,15 @@ void constraint_trace_pullback_build(const constraint_trace_pullback_build_t *co
 
     const constraint_element_side_t side = {
         .ndim = request->element_dim, .basis_specs = NULL, .orientation = request->orientation};
-    // The canonical to source point map is component independent: derive the
-    // loop-invariant per-axis decode data once, then decode every point with
-    // one divide-modulo pair per axis.
+    // The canonical-to-source point map is component independent: derive the loop-invariant per-axis decode data
+    // once, then decode every point with one divide-modulo pair per axis.
     const unsigned fixed_count = request->element_dim - request->face_dim;
     unsigned *const axis_source_slots = work->axis_source_slots;
     unsigned *const axis_orders = work->axis_orders;
     size_t *const axis_source_strides = work->axis_source_strides;
     size_t *const axis_canonical_strides = work->axis_canonical_strides;
     int *const axis_mirrored = work->axis_mirrored;
-    // Rank of every element axis among the free axes (the face map's own
-    // axis order) and whether the axis is free at all.
+    // Rank of every element axis among the free axes (the face map's own order), and whether the axis is free.
     bool *const element_axis_free = work->element_axis_free;
     unsigned *const element_source_rank = work->element_source_rank;
     for (unsigned axis = 0; axis < request->element_dim; ++axis)
@@ -1335,11 +1265,9 @@ void constraint_trace_pullback_build(const constraint_trace_pullback_build_t *co
         element_axis_free[element_axis] = true;
         element_source_rank[element_axis] = axis_source_slots[face_axis];
     }
-    // Face component indexing enumerates the canonical boundary form's
-    // components and writes each mapped element component's block from the
-    // face component's transform rows. Element component indexing instead
-    // enumerates the element k-form's own components, reading each one's
-    // transform rows from the inverse-mapped face component.
+    // Face component indexing enumerates the canonical boundary form's components, writing each mapped element
+    // component's block from the face component's transform rows; element component indexing enumerates the element
+    // k-form's own components, reading each one's rows from the inverse-mapped face component.
     unsigned *const element_to_face = work->element_to_face;
     const unsigned element_total =
         (unsigned)combination_total_count((uint8_t)request->element_dim, (uint8_t)request->order);
@@ -1360,9 +1288,8 @@ void constraint_trace_pullback_build(const constraint_trace_pullback_build_t *co
             element_to_face[element_component] = (unsigned)face_component;
         }
     }
-    // The mode selects the enumerated space: element components read their
-    // face counterpart through the map, canonical and plain modes enumerate
-    // the canonical boundary form's components directly.
+    // The mode selects the enumerated space: element components read their face counterpart through the map;
+    // canonical and plain modes enumerate the canonical boundary form's components directly.
     const bool element_mode = request->element_components;
     combination_iterator_init(work->components, (uint8_t)(element_mode ? request->element_dim : request->face_dim),
                               (uint8_t)request->order);
@@ -1373,9 +1300,8 @@ void constraint_trace_pullback_build(const constraint_trace_pullback_build_t *co
         const unsigned face_component = element_mode ? element_to_face[component] : (unsigned)component;
         if (element_mode && !request->canonical_components && face_component > face_component_count)
         {
-            // A component whose covectors lie entirely on the fixed normal
-            // axes has no tangential face counterpart; the engine's block
-            // enumeration never reads its block. Zero it for hygiene.
+            // A component whose covectors all lie on the fixed normal axes has no tangential face counterpart; the
+            // engine never reads its block. Zero it for hygiene.
             for (unsigned physical_component = 0; physical_component < physical_component_count; ++physical_component)
             {
                 double *const target =
@@ -1393,8 +1319,7 @@ void constraint_trace_pullback_build(const constraint_trace_pullback_build_t *co
         }
         else if (request->canonical_components)
         {
-            // The canonical boundary form's components index their own
-            // transform rows directly; no element-side mapping applies.
+            // The canonical boundary form's components index their own transform rows; no element-side mapping.
             element_component = (unsigned)component;
         }
         else
@@ -1402,15 +1327,11 @@ void constraint_trace_pullback_build(const constraint_trace_pullback_build_t *co
             mapped_component(&side, request->face_dim, request->order, component_axes, work->mapped_axes,
                              &element_component);
         }
-        // The transform rows follow the face map's own free-axis order, so a
-        // component whose axis order differs from that order must read the
-        // row of its axes' ranks: canonical axes map through the orientation,
-        // element axes are already the map's own axes. Canonical rows carry
-        // the covector orientation: every mirrored axis flips its covector
-        // and the sort of the mapped axes flips once per transposition, so
-        // the table holds the canonical covector's physical image. Element
-        // rows stay the element's own image; consumers pair the two physical
-        // images without further orientation signs.
+        // Transform rows follow the face map's free-axis order, so a component with a different axis order reads the
+        // row of its axes' ranks (canonical axes via the orientation, element axes directly). Canonical rows carry the
+        // covector orientation — every mirrored axis flips it and the mapped-axis sort once per transposition — so
+        // the table holds the canonical covector's physical image; element rows stay the element's own image.
+        // Consumers pair the two physical images without further orientation signs.
         uint8_t *const source_axes = work->source_axes;
         unsigned source_row = face_component;
         int value_sign = 1;
@@ -1503,9 +1424,8 @@ void boundary_space_map_resample(const boundary_space_map_resample_request_t *co
     {
         const unsigned n_out = request->target_rules[axis]->spec.order + 1u;
         const unsigned n_in = request->source_rules[axis]->spec.order + 1u;
-        // Interpolation matrix from the source nodes to the target nodes:
-        // entry (in, out) holds the target-node value of the source node's
-        // Lagrange polynomial.
+        // Interpolation matrix from source to target nodes: entry (in, out) holds the target-node value of the
+        // source node's Lagrange polynomial.
         lagrange_polynomial_values_transposed_2(n_out, integration_rule_nodes_const(request->target_rules[axis]), n_in,
                                                 integration_rule_nodes_const(request->source_rules[axis]),
                                                 request->axis_matrices + offset);

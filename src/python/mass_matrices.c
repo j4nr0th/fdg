@@ -24,11 +24,8 @@ PyDoc_STRVAR(
     "space_out : FunctionSpace\n"
     "    Function space for the output functions.\n"
     "integration : IntegrationSpace or SpaceMap\n"
-    "    Integration space used to compute the mass matrix or a space mapping.\n"
-    "    If the integration space is provided, the integration is done on the\n"
-    "    reference domain. If the mapping is defined instead, the integration\n"
-    "    space of the mapping is used, along with the integration being done\n"
-    "    on the mapped domain instead.\n"
+    "    Integration space or space mapping. An IntegrationSpace integrates on the reference\n"
+    "    domain; a SpaceMap uses the mapping's integration space on the mapped domain.\n"
     "integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY\n"
     "    Registry used to retrieve the integration rules.\n"
     "basis_registry : BasisRegistry, default: DEFAULT_BASIS_REGISTRY\n"
@@ -37,8 +34,8 @@ PyDoc_STRVAR(
     "Returns\n"
     "-------\n"
     "array\n"
-    "    Mass matrix as a 2D array, which maps the primal degress of freedom of the input\n"
-    "    function space to dual degrees of freedom of the output function space.\n");
+    "    Mass matrix as a 2D array mapping the input space's primal degrees of freedom to the\n"
+    "    output space's dual degrees of freedom.\n");
 
 typedef struct
 {
@@ -120,10 +117,9 @@ static int function_spaces_match(const function_space_object *space_in, const fu
 /**
  * @brief Build the point-major table of one space's tensor-product values.
  *
- * Fills `table[point * dof_total + dof]` with the tensor product of the
- * axis basis functions of the DoF over the shared integration points (last
- * axis fastest). A non-negative `derivative_axis` reads that axis's
- * derivatives instead of its values.
+ * Fills `table[point * dof_total + dof]` with the tensor product of the DoF's axis basis functions over the shared
+ * integration points (last axis fastest). A non-negative `derivative_axis` reads that axis's derivatives instead of
+ * its values.
  *
  * @param space Function space that owns the DoF enumeration.
  * @param iterator DoF iterator over `space`, reset by this function.
@@ -296,8 +292,7 @@ static PyObject *compute_mass_matrix(PyObject *module, PyObject *const *args, co
     // Matrix is symmetric if spaces match
     const int is_symmetric = function_spaces_match(space_in, space_out);
 
-    // Table engine: evaluate every axis basis once at the shared points,
-    // then accumulate the whole matrix in a single inner-product block.
+    // Table engine: evaluate every axis basis once at the shared points, then accumulate in one inner-product block.
     size_t point_count = 1;
     for (unsigned i = 0; i < n_space_dim; ++i)
         point_count *= (size_t)p_int_specs[i].order + 1u;
@@ -461,8 +456,7 @@ static PyObject *compute_gradient_mass_matrix(PyObject *module, PyObject *const 
         return NULL;
     }
 
-    // Quick check. If there's no space map (p_det = NULL) and idx_in != idx_out,
-    // then every entry is zero and we do a quick return.
+    // Quick return: with no space map (p_det == NULL) and idx_in != idx_out every entry is zero.
     if (p_det == NULL && idx_in != idx_out)
     {
         // Compute input and output space sizes
@@ -498,9 +492,8 @@ static PyObject *compute_gradient_mass_matrix(PyObject *module, PyObject *const 
     // Matrix is symmetric if spaces match
     const int is_symmetric = function_spaces_match(space_in, space_out);
 
-    // Table engine: the output side reads plain values, the input side the
-    // derivative along idx_in; the weights carry the determinant and the
-    // inverse-map factor d xi_in / d x_out.
+    // Table engine: output reads plain values, input the derivative along idx_in; weights carry the determinant
+    // and the inverse-map factor d xi_in / d x_out.
     size_t point_count = 1;
     for (unsigned i = 0; i < n_space_dim; ++i)
         point_count *= (size_t)p_int_specs[i].order + 1u;
@@ -560,21 +553,17 @@ PyDoc_STRVAR(compute_gradient_mass_matrix_docstring,
              "    Function space for the input functions.\n"
              "\n"
              "idx_in : int\n"
-             "    Index of the dimension that input space is to be differentiated along.\n"
+             "    Dimension along which the input space is differentiated.\n"
              "\n"
              "space_out : FunctionSpace\n"
              "    Function space for the output functions.\n"
              "\n"
              "idx_out : int\n"
-             "    Index of the dimension that output space is to be differentiated along.\n"
+             "    Dimension along which the output space is differentiated.\n"
              "\n"
              "integration : IntegrationSpace or SpaceMap\n"
-             "    Integration space used to compute the mass matrix or a space mapping.\n"
-             "    If the integration space is provided, the integration is done on the\n"
-             "    reference domain. If the mapping is defined instead, the integration\n"
-             "    space of the mapping is used, along with the integration being done\n"
-             "    on the mapped domain instead.\n"
-             "\n"
+             "    Integration space or space mapping. An IntegrationSpace integrates on the reference\n"
+             "    domain; a SpaceMap uses the mapping's integration space on the mapped domain.\n"
              "\n"
              "integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY\n"
              "    Registry used to retrieve the integration rules.\n"
@@ -611,10 +600,10 @@ PyDoc_STRVAR(
     "Parameters\n"
     "----------\n"
     "smap : SpaceMap\n"
-    "    Mapping of the space in which this is to be computed.\n"
+    "    Space in which the matrix is computed.\n"
     "\n"
     "order : int\n"
-    "    Order of the k-form for which this is to be done.\n"
+    "    Order of the k-form.\n"
     "\n"
     "left_bases : FunctionSpace\n"
     "    Function space of 0-forms used as test forms.\n"
@@ -810,11 +799,10 @@ static PyObject *compute_kform_mass_matrix(PyObject *module, PyObject *const *ar
         }
     }
 
-    // Calculate the required space for storing intermediate integration weights for each k-form component.
+    // Space for the intermediate integration weights of each k-form component.
     const unsigned int_pts_cnt = integration_specs_total_points(n, space_map->int_specs);
 
-    // NOTE: we could try exploiting the symmetry of the matrix, but first we should check how critical this is
-    // (probably quite significant).
+    // NOTE: we could exploit the matrix symmetry, pending a check of how critical that is (probably significant).
     //
     const int symmetric = function_spaces_match(fn_left, fn_right);
 
@@ -1098,13 +1086,8 @@ static void compute_interior_product_component_weights(
     const double *const restrict transform_array_right, // [const restrict static int_pts],
     const double vector_field_components[const restrict static n_maps * int_pts], const int negate)
 {
-    // Special cases:
-    // - k is 1:
-    //   + left transform is all 1 (transform_array_left is NULL)
-    //   + there is only 1 left component
-    // - k is n:
-    //   + right transform is all 1 / determinant (transform_array_right is NULL)
-    //   + there is only 1 right component
+    // Special cases: k == 1 → left transform is all 1 (transform_array_left NULL), one left component;
+    // k == n → right transform is all 1 / determinant (transform_array_right NULL), one right component.
     if (k == 1)
     {
         // TODO: check for special case when n and k are both 1
@@ -1347,7 +1330,7 @@ static PyObject *compute_kform_interior_product_matrix(PyObject *module, PyObjec
         }
     }
 
-    // Calculate the required space for storing intermediate integration weights for each k-form component.
+    // Space for the intermediate integration weights of each k-form component.
     const unsigned int_pts_cnt = integration_specs_total_points(n, space_map->int_specs);
 
     // Compute needed space
@@ -1399,7 +1382,7 @@ static PyObject *compute_kform_interior_product_matrix(PyObject *module, PyObjec
 
     const double *const restrict vector_components_data = PyArray_DATA(vector_components);
 
-    // Might as well prepare the integration point iterator now
+    // Prepare the integration point iterator now
     for (unsigned i = 0; i < n; ++i)
         multidim_iterator_init_dim(iter_int_pts, i, space_map->int_specs[i].order + 1);
 
@@ -1630,10 +1613,10 @@ PyDoc_STRVAR(
     "Parameters\n"
     "----------\n"
     "smap : SpaceMap\n"
-    "    Mapping of the space in which this is to be computed.\n"
+    "    Space in which the matrix is computed.\n"
     "\n"
     "order : int\n"
-    "    Order of the k-form for which this is to be done.\n"
+    "    Order of the k-form.\n"
     "\n"
     "left_bases : FunctionSpace\n"
     "    Function space of 0-forms used as test forms.\n"
@@ -1653,8 +1636,8 @@ PyDoc_STRVAR(
     "Returns\n"
     "-------\n"
     "array\n"
-    "    Mass matrix for inner product of two k-forms, where the right one has the interior\n"
-    "    product with the vector field applied to it.\n");
+    "    Inner-product mass matrix of two k-forms, the right one with the interior product by\n"
+    "    the vector field applied.\n");
 
 PyMethodDef mass_matrices_methods[] = {
     {

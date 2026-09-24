@@ -2,19 +2,12 @@
  * @file constraints.h
  * @brief Reference and physical trace constraints for continuous k-forms.
  *
- * Assembly uses one canonical face coordinate system. Element-side
- * orientations map that system to signed, one-based element axes; the face
- * helpers in this header keep that mapping and its alternating k-form sign
- * in one place. All routines are plain C: they return void, their
- * preconditions are documented here and checked only by debug asserts, and
- * every sizing question is answered by the layout functions. Assemblers
- * write flat parallel output arrays in the packed-row contract described on
- * each function.
- *
- * Dimensions and component indices use the canonical axis order expected by
- * the combination iterator. Basis functions are evaluated on the canonical
- * face coordinates, and every routine trusts the documented preconditions
- * outside debug builds.
+ * Assembly uses one canonical face coordinate system; element-side orientations map it to signed, one-based element
+ * axes, and the face helpers here keep that mapping and the alternating k-form sign in one place. Routines return
+ * void, document preconditions checked only by debug asserts, size storage through the `*_layout`/`*_work_size`
+ * functions, and write flat parallel arrays in each function's packed-row contract. Dimensions and component indices
+ * follow the combination iterator's canonical axis order; basis functions are evaluated on canonical face
+ * coordinates.
  */
 #pragma once
 
@@ -31,11 +24,9 @@
 /**
  * @brief Specification of one higher-dimensional element side.
  *
- * `orientation` is a signed one-based permutation of the element axes: entry
- * `i` maps canonical axis `i` of the side description to element axis
- * `|orientation[i]| - 1`, with a negative sign reversing that axis. The fixed
- * normal axes occupy the first entries and their absolute values increase, so
- * the endpoint prefix has a deterministic orientation convention.
+ * `orientation` is a signed one-based permutation: entry `i` maps the side's canonical axis `i` to element axis
+ * `|orientation[i]| - 1`, a negative sign reversing that axis. Fixed normal axes come first with increasing
+ * absolute values, giving the endpoint prefix a deterministic convention.
  */
 typedef struct
 {
@@ -47,10 +38,8 @@ typedef struct
 /**
  * @brief One incident element's view of a shared boundary object.
  *
- * `basis` holds one specification per element axis. For k-form continuity it
- * is the k-form spec's per-axis basis array; the boundary merge only reads
- * per-axis orders and families, so both scalar and k-form trace spaces pass
- * through the same request.
+ * `basis` holds one spec per element axis (the k-form spec's per-axis array for k-form continuity). The boundary
+ * merge reads only per-axis orders and families, so scalar and k-form trace spaces share one request type.
  */
 typedef struct
 {
@@ -156,18 +145,15 @@ typedef struct constraint_trace_pullback_build_work_t_
 /**
  * @brief Shape of one element's boundary mass matrix.
  *
- * The matrix maps the element's face trace DoFs to the common boundary test
- * space: row blocks follow the common Legendre k-form components, column
- * blocks the mapped element components in canonical boundary order. Rows are
- * component-local tensors whose per-axis function counts are
+ * Maps the element's face trace DoFs to the common boundary test space: row blocks follow the common Legendre
+ * k-form components, column blocks the mapped element components in canonical boundary order. Rows are
+ * component-local tensors with per-axis counts
  *
  * - active covector axis: the order-1 basis (`order` functions),
- * - inactive axis: the full basis with the first `axis_skip[axis]` functions
- *   removed (`order + 1 - axis_skip[axis]` functions).
+ * - inactive axis: full basis minus the first `axis_skip[axis]` functions (`order + 1 - axis_skip[axis]`).
  *
- * The skip replaces the old order-minus-two test-space reduction: lower
- * dimensional boundary objects already enforce continuity there, and skipping
- * the lowest Legendre degrees keeps the enforced test functions high order.
+ * The skip replaces the old order-minus-two reduction: lower-dimensional boundary objects already enforce continuity
+ * there, and skipping the lowest Legendre degrees keeps the enforced test functions high order.
  */
 typedef struct
 {
@@ -207,12 +193,9 @@ void constraint_boundary_mass_work_size(const constraint_boundary_mass_spec_t *s
 /**
  * @brief Caller-provided scratch memory of one element's boundary mass matrix.
  *
- * Every member is a caller-allocated array whose length is fixed by the
- * specification: `bdim` entries for the per-axis arrays, `ndim` for the axis
- * descriptors, and `component_count + 1` (from
- * #constraint_boundary_mass_work_sizes_t) for the component tables. The
- * assemble, layout, and pack routines use the arrays as scratch and may
- * overwrite their contents.
+ * All members are caller-allocated arrays with lengths fixed by the spec: `bdim` per-axis entries, `ndim` axis
+ * descriptors, `component_count + 1` (#constraint_boundary_mass_work_sizes_t) component tables. The assemble,
+ * layout, and pack routines use them as scratch and may overwrite the contents.
  */
 typedef struct
 {
@@ -265,10 +248,9 @@ typedef struct
  * @brief Compute the dense shape of one element's boundary mass matrix.
  *
  * @param spec Filled matrix specification.
- * @param work Caller-provided scratch; the per-axis, component-table, and
- *        iterator members are used and overwritten.
- * @param physical Non-zero when physical pullback factors will couple every
- *        mapped component pair; reference pairing is component-diagonal.
+ * @param work Caller-provided scratch; per-axis, component-table, and iterator members are used and overwritten.
+ * @param physical Non-zero: physical pullbacks couple every mapped component pair; reference pairing is
+ *        component-diagonal.
  * @param out_row_count Receives the common test DoF count.
  * @param out_col_count Receives the mapped element trace DoF count.
  * @param out_entry_count Receives the packed entry count of the COO form.
@@ -280,12 +262,10 @@ void constraint_boundary_mass_layout(const constraint_boundary_mass_spec_t *spec
 /**
  * @brief Assemble one element's boundary mass matrix.
  *
- * Coefficients carry the orientation sign of the mapped components and
- * #constraint_boundary_mass_request_t::factor, the quadrature weights, the
- * optional surface measure, and the optional physical pullback dot product.
- * With reference pairing (no pullbacks) each test component couples only its
- * mapped element component; with pullbacks every mapped component pair
- * couples. The matrix is zero-initialized first.
+ * Coefficients carry the mapped components' orientation sign and #constraint_boundary_mass_request_t::factor, the
+ * quadrature weights, the optional surface measure, and the optional physical pullback dot product. Reference
+ * pairing (no pullbacks) couples each test component only with its mapped element component; pullbacks couple every
+ * mapped pair. The matrix is zero-initialized first.
  *
  * @param request Filled request; `out_matrix` written on return.
  */
@@ -294,16 +274,13 @@ void constraint_boundary_mass_assemble(const constraint_boundary_mass_request_t 
 /**
  * @brief Pack a dense boundary mass matrix into the COO contract.
  *
- * Rows follow the packed-row contract: components with rows in canonical
- * order, then component-local test DoF. Reference pairing emits each row's
- * mapped component block; physical pairing emits every mapped component
- * block. Coefficients are read verbatim from the matrix and multiplied by
- * @p factor (e.g. the constraint side sign); `out_row_offsets` has
- * `row_count + 1` entries starting at zero.
+ * Rows follow the packed-row contract: components in canonical order, then component-local test DoF. Reference
+ * pairing emits each row's mapped component block; physical pairing every mapped block. Coefficients are read
+ * verbatim and multiplied by @p factor (e.g. the constraint side sign); `out_row_offsets` has `row_count + 1`
+ * entries starting at zero.
  *
  * @param spec Specification the matrix was assembled with.
- * @param work Caller-provided scratch; the component-table and iterator
- *        members are used and overwritten.
+ * @param work Caller-provided scratch; component-table and iterator members are used and overwritten.
  * @param physical Must match the assembly's pairing mode.
  * @param matrix Dense row-major matrix of `row_count * row_stride` entries.
  * @param row_stride Column stride of the matrix, at least `col_count`.
@@ -345,14 +322,11 @@ typedef struct
 /**
  * @brief Intermediates of one boundary constraint batch.
  *
- * Every member is a caller-allocated array whose length is fixed by the
- * request: `nforms * bdim` for the per-form boundary arrays, `nforms * nelem *
- * ndim` for the per-item element arrays, and `nforms * nelem` (`+ 1` for the
- * offsets) for the matrix layout. #constrain_elements_on_boundary_prepare
- * fills the arrays with the merged common spaces, registry references, and
- * matrix layout; #constrain_elements_on_boundary_assemble reads them; and
- * #constrain_elements_on_boundary_plan_release returns the registry
- * references. The borrowed request and output pointers must outlive the plan.
+ * Caller-allocated arrays sized from the request: `nforms * bdim` per-form boundary, `nforms * nelem * ndim`
+ * per-item element, `nforms * nelem` (`+ 1` offsets) matrix layout.
+ * #constrain_elements_on_boundary_prepare fills them, #constrain_elements_on_boundary_assemble reads them,
+ * #constrain_elements_on_boundary_plan_release returns the registry references. Borrowed request and output pointers
+ * must outlive the plan.
  */
 typedef struct
 {
@@ -382,10 +356,9 @@ typedef struct
 /**
  * @brief Caller-provided scratch memory of one boundary constraint batch.
  *
- * Array lengths are fixed by the request (`ndim`, `bdim`), the maximum common
- * rule point count, and the maximum per-item value table sizes; the latter
- * two are reported by #constrain_elements_on_boundary_work_size. The
- * assembler overwrites the contents freely.
+ * Array lengths follow from the request (`ndim`, `bdim`), the maximum common rule point count, and the maximum
+ * per-item value table sizes (the latter two from #constrain_elements_on_boundary_work_size). The assembler
+ * overwrites the contents freely.
  */
 typedef struct
 {
@@ -399,19 +372,17 @@ typedef struct
 /**
  * @brief Compute the per-item intermediates of one boundary constraint batch.
  *
- * Per form, the common boundary space is merged from all incident elements
- * into @p out_basis and @p out_integration, the boundary and element basis
- * tables are pulled from the registries into @p plan, and every item's matrix
- * layout is recorded. All plan arrays are sized a priori from the request;
- * the value table sizes follow from #constrain_elements_on_boundary_work_size.
+ * Per form, merge the common boundary space from all incident elements into @p out_basis and @p out_integration,
+ * pull the boundary and element basis tables from the registries into @p plan, and record every item's matrix
+ * layout. All plan arrays are sized a priori from the request; value table sizes follow from
+ * #constrain_elements_on_boundary_work_size.
  *
  * @param request Filled request; read-only.
  * @param work Caller-provided scratch; the layout step overwrites it.
  * @param out_basis [nforms * bdim] Per-form common boundary basis.
  * @param out_integration [nforms * bdim] Per-form common boundary rules.
  * @param plan Caller-provided plan; filled on return.
- * @return FDG_SUCCESS on success, or a registry allocation error. On failure
- *         the plan must still be released.
+ * @return FDG_SUCCESS or a registry allocation error; the plan must be released on failure too.
  */
 fdg_result_t constrain_elements_on_boundary_prepare(const constrain_elements_on_boundary_request_t *request,
                                                     constrain_elements_on_boundary_work_t *work,
@@ -424,12 +395,9 @@ fdg_result_t constrain_elements_on_boundary_prepare(const constrain_elements_on_
  *
  * @param request Filled request; read-only.
  * @param plan Prepared plan; read-only.
- * @param out_weights Receives the doubles of the largest form's tensor
- *        quadrature weights.
- * @param out_row_values Receives the doubles of the largest per-item test
- *        component tables.
- * @param out_col_values Receives the doubles of the largest per-item element
- *        component tables.
+ * @param out_weights Receives the doubles of the largest form's tensor quadrature weights.
+ * @param out_row_values Receives the doubles of the largest per-item test component tables.
+ * @param out_col_values Receives the doubles of the largest per-item element component tables.
  */
 void constrain_elements_on_boundary_work_size(const constrain_elements_on_boundary_request_t *request,
                                               const constrain_elements_on_boundary_plan_t *plan, size_t *out_weights,
@@ -438,12 +406,9 @@ void constrain_elements_on_boundary_work_size(const constrain_elements_on_bounda
 /**
  * @brief Assemble the prepared boundary constraint mass matrices.
  *
- * Every element's mass matrix against its form's common space is assembled
- * into its slice of @p out_values (`plan->item_offsets[item]` bytes of offset,
- * `item_rows[item] * item_cols[item]` entries). Coefficients carry the
- * orientation signs but no side signs; the store combining the element
- * matrices applies those. The routine performs no allocation and touches no
- * registry.
+ * Assembles every element's mass matrix against its form's common space into its slice of @p out_values (offset
+ * `plan->item_offsets[item]`, `item_rows[item] * item_cols[item]` entries). Coefficients carry orientation signs
+ * but no side signs; the combining store applies those. No allocation, no registry access.
  *
  * @param request Filled request; read-only.
  * @param plan Prepared plan; read-only.
@@ -462,15 +427,12 @@ void constrain_elements_on_boundary_assemble(const constrain_elements_on_boundar
 void constrain_elements_on_boundary_plan_release(constrain_elements_on_boundary_plan_t *plan);
 
 /**
- * @brief Resampled coordinate derivatives of one element's face on the common
- *        boundary grid.
+ * @brief Resampled coordinate derivatives of one element's face on the common boundary grid.
  *
- * This is the minimal common SpaceMap payload the boundary constraints
- * consume: the face immersion's determinant (surface measure) and backward
- * derivatives at the common boundary integration points, interpolated from
- * the face-restricted map of any one incident element. A C1 continuous space
- * mapping needs no geometry at all, since reference-space continuity then
- * implies physical continuity.
+ * The minimal SpaceMap payload the boundary constraints consume: the face immersion's determinant (surface measure)
+ * and backward derivatives at the common boundary integration points, interpolated from any one incident element's
+ * face-restricted map. A C1 continuous space mapping needs no geometry — reference-space continuity then implies
+ * physical continuity.
  */
 typedef struct
 {
@@ -495,10 +457,9 @@ typedef struct
 /**
  * @brief Interpolate a face-restricted space map onto the common boundary grid.
  *
- * Per axis, the face map's sampled values and gradients are interpolated to
- * the common rule nodes with the Lagrange interpolant through the source
- * nodes, then inverted per point. Exact whenever the source sampling resolves
- * the map's polynomial degree along every axis.
+ * Per axis, interpolate the face map's sampled values and gradients to the common rule nodes with the Lagrange
+ * interpolant through the source nodes, then invert per point. Exact when the source sampling resolves the map's
+ * polynomial degree along every axis.
  *
  * @param request Filled request; outputs written on return.
  */
@@ -515,9 +476,8 @@ void boundary_space_map_resample(const boundary_space_map_resample_request_t *re
  * @param out_positions Receives the doubles for the interpolated positions.
  * @param out_jacobian Receives the doubles for the Jacobian scratch.
  * @param out_q Receives the doubles for the inversion scratch.
- * @param out_scratch_bytes Receives the bytes for the per-axis work arrays of
- *                          the request's `target_orders`, `source_orders`,
- *                          `axis_matrix_rows`, and `target_specs` fields.
+ * @param out_scratch_bytes Receives the bytes for the request's per-axis work arrays (`target_orders`,
+ *        `source_orders`, `axis_matrix_rows`, `target_specs`).
  */
 void boundary_space_map_resample_work_size(unsigned bdim, unsigned coords,
                                            const integration_rule_t *const *source_rules,
@@ -551,11 +511,9 @@ void constraint_physical_side_load_work_size(const kform_spec_t *test_spec, size
 /**
  * @brief Assemble a boundary load from sampled element-frame k-form data.
  *
- * For each traced component, this selects the datum component containing the
- * fixed normal axis, applies the wedge insertion sign, and accumulates its
- * quadrature pairing with every element trace basis function. The accumulator
- * is intentionally not cleared so multiple faces can contribute to one load.
- * The side must describe a codimension-one face (`side->ndim ==
+ * For each traced component, select the datum component containing the fixed normal axis, apply the wedge
+ * insertion sign, and accumulate its quadrature pairing with every element trace basis function. The accumulator is
+ * not cleared, so multiple faces can contribute to one load. The side must be codimension one (`side->ndim ==
  * test_spec->ndim + 1`).
  *
  * @param test_spec Face test-space specification of degree one below the datum.
@@ -576,8 +534,7 @@ void constraint_physical_side_load(const kform_spec_t *test_spec, const constrai
 /**
  * @brief Map an element axis to its canonical face position.
  *
- * Counts the non-fixed element axes below `element_axis`; the fixed normal
- * axes are given by the signed prefix of the orientation record.
+ * Counts the non-fixed element axes below `element_axis`; fixed normal axes are the orientation's signed prefix.
  *
  * @param element_dim Element dimension.
  * @param face_dim Canonical face dimension.
@@ -591,9 +548,8 @@ unsigned constraint_face_source_axis(unsigned element_dim, unsigned face_dim,
 /**
  * @brief Choose the canonical-face spec of every test-space face axis.
  *
- * Test-space face axis `a` is mapped by the orientation to an element axis;
- * the output spec is the source-frame spec at that element axis's canonical
- * face position.
+ * Test-space face axis `a` maps through the orientation to an element axis; the output spec is the source-frame
+ * spec at that element axis's canonical face position.
  *
  * @param element_dim Element dimension.
  * @param face_dim Canonical face dimension.
@@ -609,9 +565,8 @@ void constraint_face_canonical_specs(unsigned element_dim, unsigned face_dim,
 /**
  * @brief Map a canonical face point to its source-frame tensor index.
  *
- * The canonical digit of face axis `a` is decoded with `canonical_strides`;
- * negative orientations mirror the digit in the source frame. The mapped
- * digits are re-encoded with the row-major `source_strides`.
+ * Decodes face axis `a`'s canonical digit with `canonical_strides` (negative orientations mirror it in the source
+ * frame) and re-encodes the mapped digits with the row-major `source_strides`.
  *
  * @param element_dim Element dimension.
  * @param face_dim Canonical face dimension.
@@ -633,11 +588,9 @@ size_t constraint_face_point_to_source(unsigned element_dim, unsigned face_dim,
 /**
  * @brief Build a sampled trace pullback from a mapped face transform.
  *
- * Fills `request->out` by permuting the source-frame transform samples into
- * the canonical frame: entry
- * `out[(element_component * physical_component_count + physical_component) *
- * canonical_point_count + canonical_point]` receives the transform value at
- * the mapped source point. For order zero the output is zero-filled.
+ * Fills `request->out` by permuting source-frame transform samples into the canonical frame: entry
+ * `out[(element_component * physical_component_count + physical_component) * canonical_point_count +
+ * canonical_point]` receives the transform value at the mapped source point. Order zero zero-fills.
  *
  * @param request Fully populated pullback build parameters.
  */

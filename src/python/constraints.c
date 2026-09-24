@@ -84,8 +84,8 @@ int make_boundary_face_setup(const interplib_module_state_t *state, const space_
                              boundary_face_setup_t *setup)
 {
     *setup = (boundary_face_setup_t){};
-    // Restrict the volume map to the face in one values-level pass: the orientation
-    // prefix holds the fixed normal axes, the tail the surviving face axes.
+    // Restrict the volume map to the face in one values-level pass: the orientation prefix holds the fixed normal
+    // axes, the tail the surviving face axes.
     const unsigned fixed_count = element_dim - face_dim;
     space_map_object *const face = space_map_boundary_oriented_impl(state, element_map, fixed_count, orientation);
     if (!face)
@@ -96,8 +96,7 @@ int make_boundary_face_setup(const interplib_module_state_t *state, const space_
     setup->face_map = face;
 
     const integration_spec_t *const face_specs = setup->face_map->int_specs;
-    // The canonical specs are a pure reordering of the face specs, so the
-    // tensor point count follows from the mapped face rules directly.
+    // Canonical specs are a pure reordering of the face specs, so the point count follows from the mapped rules.
     size_t weight_count = 1;
     for (unsigned face_axis = 0; face_axis < face_dim; ++face_axis)
     {
@@ -177,10 +176,9 @@ static void release_trace_basis_table(trace_basis_table_t *const table)
 /**
  * @brief Build one trace basis table on the canonical face points.
  *
- * The test table evaluates the face test space directly in the canonical
- * frame; the element table evaluates the element trace bases with fixed axes
- * at their signed endpoints and negative orientations reading mirrored node
- * indices (exact for the symmetric Gauss rules used by this library).
+ * The test table evaluates the face test space in the canonical frame; the element table evaluates the element trace
+ * bases with fixed axes at their signed endpoints, negative orientations reading mirrored node indices (exact for the
+ * symmetric Gauss rules used here).
  */
 static int make_trace_basis_table(const unsigned element_dim, const unsigned face_dim, const unsigned order,
                                   const basis_spec_t *basis_specs, const int8_t *orientation,
@@ -246,8 +244,8 @@ static int make_trace_basis_table(const unsigned element_dim, const unsigned fac
         for (unsigned axis = 0; axis < ndim; ++axis)
         {
             lower_specs[axis] = basis_specs[axis];
-            // Order-zero axes cannot lose another degree; no component reads
-            // their lowered table because the matching components have no DoFs.
+            // Order-zero axes cannot lose another degree; no component reads their lowered table (matching
+            // components have no DoFs).
             if (lower_specs[axis].order > 0)
                 lower_specs[axis].order -= 1;
         }
@@ -285,9 +283,8 @@ static int make_trace_basis_table(const unsigned element_dim, const unsigned fac
         }
     }
 
-    // Describe every axis of the table: fixed normal axes read endpoint
-    // values; free axes read the canonical rule nodes, mirrored when the
-    // orientation reverses the axis.
+    // Describe every axis: fixed normal axes read endpoint values; free axes read the canonical rule nodes, mirrored
+    // when the orientation reverses the axis.
     if (element_table)
     {
         const unsigned fixed_count = element_dim - face_dim;
@@ -830,9 +827,8 @@ static int parse_orientation_sequence(PyObject *object, const unsigned ndim, int
 /**
  * @brief Shared assembly core for the boundary mass bindings.
  *
- * Both the inter-element batch route (two or more sides) and the prescribed
- * trace-moments route (one side) run this core; the caller's `nelem_min`
- * states its contract.
+ * Both the inter-element batch route (two or more sides) and the prescribed trace-moments route (one side) run this
+ * core; the caller's `nelem_min` states its contract.
  */
 static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args, const Py_ssize_t nargs,
                                         const PyObject *kwnames, const Py_ssize_t nelem_min)
@@ -955,13 +951,11 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
             }
         }
     }
-    // Live from the prepare call onwards; declared before any failure jump so
-    // the cleanup path never reads an uninitialized flag.
+    // Declared before any failure jump so cleanup never reads an uninitialized flag; live from the prepare call.
     int plan_live = 0;
 
-    // Physical factors per element: face setups, sampled surface weights and
-    // k-form pullbacks. The setup and transform arrays carry per-element
-    // release work and stay separate; every plain buffer shares one group.
+    // Physical factors per element: face setups, sampled surface weights, k-form pullbacks. Setup and transform
+    // arrays carry per-element release work and stay separate; every plain buffer shares one group.
     boundary_face_setup_t *setups = physical ? PyMem_Calloc(nelem, sizeof(*setups)) : NULL;
     PyArrayObject **transforms = physical ? PyMem_Calloc(nelem, sizeof(*transforms)) : NULL;
     constraint_trace_pullback_t *pullbacks = physical ? PyMem_Calloc(nelem, sizeof(*pullbacks)) : NULL;
@@ -977,9 +971,8 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
     const constraint_trace_pullback_t **element_pullback_pointers = NULL;
     const double **surface_rows = NULL;
 
-    // Plan and work arrays. Every plain buffer shares one allocation group so
-    // the cleanup path releases them with a single dealloc; the plan itself is
-    // live from the prepare call onwards.
+    // Plan and work arrays: every plain buffer shares one allocation group so cleanup releases them with a single
+    // dealloc; the plan itself is live from the prepare call onwards.
     const size_t axis_items = nelem * ndim;
     const size_t component_count = combination_total_count((uint8_t)bdim, (uint8_t)order);
     const size_t order_storage = order == 0 ? 1u : order;
@@ -1094,9 +1087,8 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
                                                     .integration = element_integrations + element * ndim};
     }
 
-    // Physical mode: restrict each element map to its face and adopt the
-    // face's canonical sampling as the element's integration rules. Fixed
-    // normal axes read endpoint values only, so they keep the given rules.
+    // Physical mode: restrict each element map to its face and adopt the face's canonical sampling as the element's
+    // integration rules. Fixed normal axes read endpoint values only, so they keep the given rules.
     double *surface_block = NULL;
     double *pullback_block = NULL;
     if (physical)
@@ -1122,9 +1114,8 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
                 element_integrations[element * ndim + element_axis] = setups[element].canonical_specs[slot];
             }
         }
-        // The per-element surface weights and pullback tables share one
-        // arena; both variants of a pullback write one row per element and
-        // canonical component, so the element count sizes both.
+        // The per-element surface weights and pullback tables share one arena; both pullback variants write one row
+        // per element and canonical component, so the element count sizes both.
         rows_memory = cutl_alloc_group(
             &PYTHON_ALLOCATOR,
             (const cutl_alloc_info_t[]){{sizeof(*surface_block) * surface_total, (void **)&surface_block},
@@ -1193,8 +1184,7 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
     Py_BEGIN_ALLOW_THREADS;
     res = constrain_elements_on_boundary_prepare(&request, &work, out_basis, out_integration, &plan);
     Py_END_ALLOW_THREADS;
-    // The prepare call NULL-fills the plan's reference slots before any
-    // registry fetch, so the plan is releasable from here on.
+    // Prepare NULL-fills the plan's reference slots before any registry fetch, so the plan is releasable from here.
     plan_live = 1;
     if (res != FDG_SUCCESS)
     {
@@ -1203,11 +1193,9 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
         goto fail_memory;
     }
 
-    // Physical factors at the common frame: the surface measure and the
-    // k-form pullback of each face. All faces must share one geometry
-    // sampling order so the merged common rules resolve them exactly. A form
-    // of order past the object dimension has no trace components and yields
-    // no rows, so nothing is sampled for it.
+    // Physical factors at the common frame: each face's surface measure and k-form pullback. All faces must share
+    // one geometry sampling order so the merged common rules resolve them exactly. A form of order past the object
+    // dimension yields no rows, so nothing is sampled for it.
     if (physical && order <= bdim)
     {
         for (size_t element = 0; element < nelem; ++element)
@@ -1224,8 +1212,7 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
             }
         }
         const unsigned physical_component_count = (unsigned)combination_total_count((uint8_t)ndim, (uint8_t)order);
-        // One shared work per build variant: the sizes depend only on the
-        // dimensions and the component indexing mode, not on the element.
+        // One shared work per build variant: sizes depend only on the dimensions and component indexing mode.
         const constraint_trace_pullback_build_t canonical_template = {
             .element_dim = ndim, .face_dim = bdim, .order = order, .canonical_components = true};
         const constraint_trace_pullback_build_t element_template = {
@@ -1301,10 +1288,8 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
             }
             if (order > 0)
             {
-                // Both pullback variants share one sizing: the element
-                // variant writes one row per element component, the
-                // canonical variant one per face component, and the element
-                // count is the larger.
+                // Both pullback variants share one sizing: the element variant writes one row per element
+                // component, the canonical one per face component, and the element count is the larger.
                 const size_t pullback_values_size = (size_t)combination_total_count((uint8_t)ndim, (uint8_t)order) *
                                                     physical_component_count * setup->point_count;
                 transforms[element] = compute_basis_transform_impl(face_map, (Py_ssize_t)order);
@@ -1378,8 +1363,7 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
     if (!arena)
         goto fail_memory;
 
-    // Value tables sized after prepare: their sizes depend on the merged
-    // common rules.
+    // Value tables sized after prepare: their sizes depend on the merged common rules.
     size_t weights_size;
     size_t row_values_size;
     size_t col_values_size;
@@ -1401,9 +1385,8 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
     constrain_elements_on_boundary_assemble(&request, &plan, &work, (double *)PyArray_DATA(arena));
     Py_END_ALLOW_THREADS;
 
-    // Common boundary space as Python objects. A form of order past the
-    // object dimension has no trace on the boundary and no representable
-    // common specs, so the pair is returned as None.
+    // Common boundary space as Python objects. A form of order past the object dimension has no boundary trace and
+    // no representable common specs, so the pair is returned as None.
     function_space_object *const common_space =
         function_space_object_create(state->function_space_type, bdim, out_basis);
     PyObject *common_specs = (order <= bdim && common_space)
@@ -1517,8 +1500,8 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
         }
     }
 
-    // The plan's registry references live in the core group's arrays, so
-    // release them before any group buffer goes away.
+    // The plan's registry references live in the core group's arrays, so release them before any group buffer goes
+    // away.
     Py_BEGIN_ALLOW_THREADS;
     constrain_elements_on_boundary_plan_release(&plan);
     Py_END_ALLOW_THREADS;
@@ -1589,16 +1572,14 @@ fail_memory:
 static PyObject *compute_kform_boundary_mass_matrices(PyObject *module, PyObject *const *args, const Py_ssize_t nargs,
                                                       const PyObject *kwnames)
 {
-    // Inter-element route: two or more incident sides pair against one
-    // common boundary space.
+    // Inter-element route: two or more incident sides pair against one common boundary space.
     return boundary_mass_assemble(module, args, nargs, kwnames, 2);
 }
 
 static PyObject *compute_kform_boundary_trace_moments(PyObject *module, PyObject *const *args, const Py_ssize_t nargs,
                                                       const PyObject *kwnames)
 {
-    // Prescribed-data route: one element's trace rows against the common
-    // boundary space; the caller binds its own right-hand side.
+    // Prescribed-data route: one element's trace rows against the common boundary space; the caller binds the RHS.
     return boundary_mass_assemble(module, args, nargs, kwnames, 1);
 }
 

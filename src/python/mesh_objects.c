@@ -688,17 +688,12 @@ typedef struct
 /**
  * @brief Assemble one shared object's constraint rows on the table engine.
  *
- * The incident elements are linked to the lowest-ID anchor element through
- * star rows: one row per non-anchor element and common test DoF carries
- * that element's trace moments with a -1 side and the anchor's with a +1
- * side. The common Legendre boundary space takes the lowest per-axis order
- * among the incident elements (an element boundary cannot be constrained
- * to a higher-order boundary solution), with order-1 test tables on active
- * covector axes and the full tables minus the two lowest functions on
- * inactive axes, so only the object's own block is constrained. Mapped
- * meshes sample each face's surface measure and k-form pullback at the
- * element's own face grid, which the merge reproduces exactly when all
- * faces share one geometry sampling order.
+ * Star rows link every non-anchor element to the lowest-ID anchor: one row per (non-anchor element, common test
+ * DoF) carries that element's trace moments with side -1 and the anchor's with +1. The common Legendre space takes
+ * the lowest per-axis order among the incident elements (an element boundary cannot be constrained to a
+ * higher-order boundary solution): order-1 test tables on active covector axes, full tables minus the two lowest
+ * functions on inactive axes, so only the object's own block is constrained. Mapped meshes sample each face's
+ * surface measure and pullback on the element's own face grid, exact when all faces share one sampling order.
  */
 static int mesh_continuity_assemble_object(mesh_continuity_context_t *const context, const unsigned bdim,
                                            const uint64_t element_count, const uint64_t *const element_ids,
@@ -746,12 +741,10 @@ static int mesh_continuity_assemble_object(mesh_continuity_context_t *const cont
     ASSERT(bdim < ndim, "Shared-object dimension must stay below the element dimension.");
     if (order > bdim)
     {
-        // A form of order past the object dimension has no trace components
-        // and yields no rows.
+        // A form of order past the object dimension has no trace components and yields no rows.
         return 0;
     }
-    // Plain per-element arrays share one allocation group; arrays whose
-    // cleanup dereferences possibly-unfilled slots stay separately zeroed.
+    // Plain per-element arrays share one group; arrays whose cleanup may read unfilled slots stay separately zeroed.
     CUTL_ASSERT(nelem > 1 && nelem <= UINT8_MAX, "Shared objects need two or more incident elements.");
     factors = PyMem_Calloc(nelem, sizeof(*factors));
     transforms = PyMem_Calloc(nelem, sizeof(*transforms));
@@ -791,13 +784,10 @@ static int mesh_continuity_assemble_object(mesh_continuity_context_t *const cont
 
     if (bdim == 0)
     {
-        // Point objects: scalar continuity degenerates to pairing the
-        // elements' corner value functionals. The endpoint sets hold the
-        // reference basis values at the interval ends, and the orientation
-        // record selects the shared vertex's corner per element. No
-        // geometry enters: reference-space corner coupling matches the
-        // historical row semantics. Star rows link every non-anchor
-        // element to the anchor.
+        // Point objects: scalar continuity degenerates to pairing the elements' corner value functionals. The
+        // endpoint sets hold the reference basis values at the interval ends and the orientation record selects the
+        // shared vertex's corner per element; no geometry enters — reference-space corner coupling matches the
+        // historical row semantics. Star rows link every non-anchor element to the anchor.
         // TODO: should be a parameter, not the global default.
         basis_set_registry_t *const basis_registry = ((basis_registry_object *)state->registry_basis)->registry;
         const basis_endpoint_set_t **endpoints = PyMem_Malloc((size_t)nelem * ndim * sizeof(*endpoints));
@@ -916,20 +906,16 @@ static int mesh_continuity_assemble_object(mesh_continuity_context_t *const cont
         PyErr_NoMemory();
         goto out;
     }
-    // Own-block windows: inactive axes drop their two lowest test
-    // functions, the endpoint functionals owned by the lower-dimensional
-    // subobjects whose constraints already tie them. An order-one axis
-    // therefore empties and the component's row block drops out — at the
-    // lowest order only objects with an active axis of their exact form
-    // order keep rows. Active axes ignore the skip and read the
-    // order-minus-one basis.
+    // Own-block windows: inactive axes drop their two lowest test functions — the endpoint functionals owned by the
+    // lower-dimensional subobjects whose constraints already tie them. An order-one axis therefore empties and the
+    // component's row block drops out; at the lowest order only objects with an active axis of their exact form
+    // order keep rows. Active axes ignore the skip and read the order-minus-one basis.
     for (unsigned slot = 0; slot < bdim; ++slot)
     {
         axis_skip[slot] = 2;
     }
 
-    // Per-element views: mapped meshes integrate at each face's own grid,
-    // C1 meshes at a reference rule exact for the traced products.
+    // Per-element views: mapped meshes integrate at each face's own grid, C1 meshes at an exact reference rule.
     for (unsigned e = 0; e < nelem; ++e)
     {
         if (physical)
@@ -953,13 +939,10 @@ static int mesh_continuity_assemble_object(mesh_continuity_context_t *const cont
         }
         else
         {
-            // The C1 reference rule must resolve the traced test products:
-            // row test functions reach the merged basis degree and element
-            // traces the element degree, so order the rule one above the
-            // largest involved basis order. Tying it to the form order
-            // under-integrates: a form order 1 rule vanishes the degree-2
-            // Legendre test functions at its nodes and emits quadrature null
-            // rows.
+            // The C1 reference rule must resolve the traced test products: row test functions reach the merged basis
+            // degree and element traces the element degree, so order the rule one above the largest involved basis
+            // order. Tying it to the form order under-integrates: a form order 1 rule vanishes the degree-2 Legendre
+            // test functions at its nodes and emits quadrature null rows.
             unsigned slot_orders[UINT8_MAX];
             for (unsigned slot = 0; slot < bdim; ++slot)
             {
@@ -1023,10 +1006,8 @@ static int mesh_continuity_assemble_object(mesh_continuity_context_t *const cont
     }
     plan_live = 1;
 
-    // Physical factors at the common frame: the surface measure and the
-    // k-form pullback of each face. Both faces must share one geometry
-    // sampling order so their sampled factors permute onto the merged
-    // rules exactly.
+    // Physical factors at the common frame: each face's surface measure and k-form pullback. All faces must share
+    // one geometry sampling order so their sampled factors permute onto the merged rules exactly.
     if (physical)
     {
         for (unsigned e = 0; e < nelem; ++e)
@@ -1046,8 +1027,7 @@ static int mesh_continuity_assemble_object(mesh_continuity_context_t *const cont
             (unsigned)combination_total_count((uint8_t)Py_SIZE(context->element_maps[element_ids[0]]), (uint8_t)order);
         const size_t pullback_row =
             (size_t)combination_total_count((uint8_t)ndim, (uint8_t)order) * physical_component_count;
-        // One shared work per build variant: the sizes depend only on the
-        // dimensions and the component indexing mode, not on the element.
+        // One shared work per build variant: sizes depend only on the dimensions and component indexing mode.
         const constraint_trace_pullback_build_t canonical_template = {
             .element_dim = ndim, .face_dim = bdim, .order = order, .canonical_components = true};
         const constraint_trace_pullback_build_t element_template = {
@@ -1224,9 +1204,8 @@ static int mesh_continuity_assemble_object(mesh_continuity_context_t *const cont
 
     constrain_elements_on_boundary_assemble(&request, &plan, &work, arena);
 
-    // Pack both element matrices with the alternating side signs, then emit
-    // ONE builder row per common test DoF holding side 0's entries followed
-    // by side 1's.
+    // Pack both element matrices with the alternating side signs, then emit ONE builder row per common test DoF
+    // holding side 0's entries followed by side 1's.
     const int coupled = physical && order > 0;
     size_t rows = 0;
     for (unsigned e = 0; e < nelem; ++e)
@@ -1267,8 +1246,7 @@ static int mesh_continuity_assemble_object(mesh_continuity_context_t *const cont
         }
     }
     CUTL_ASSERT(plan.item_rows[0] == rows, "The prepared row count disagrees with the packed rows.");
-    // Star rows: one builder row per (test DoF, non-anchor element) linking
-    // that element's trace moments to the anchor's.
+    // Star rows: one builder row per (test DoF, non-anchor element) linking its trace moments to the anchor's.
     for (size_t row = 0; row < rows; ++row)
     {
         for (unsigned side = 1; side < nelem; ++side)
@@ -1570,8 +1548,7 @@ static PyObject *mesh_compute_kform_continuity_constraints(PyObject *self, PyTyp
         }
     }
 
-    // The engine derives one common Legendre boundary space per object, so
-    // only the Legendre family override is meaningful here.
+    // The engine derives one common Legendre boundary space per object, so only a Legendre override is meaningful.
     {
         basis_set_type_t type_override = BASIS_INVALID;
         if (mesh_parse_basis_type(basis_type_object, &type_override) < 0)
@@ -1670,11 +1647,10 @@ static PyObject *mesh_compute_kform_global_constraints(PyObject *self, PyTypeObj
 PyDoc_STRVAR(mesh_docstring, "Mesh()\n"
                              "    Topological mesh built from connected hypercube elements.\n"
                              "\n"
-                             "    The mesh holds the complete topology of a set of hypercube elements: the\n"
-                             "    collections of all topological objects of every dimension and their\n"
-                             "    immersion information, but no geometry. Its primary use is the generation\n"
-                             "    of continuity constraints between neighboring elements, see\n"
-                             "    ``compute_kform_continuity_constraints``.\n"
+                             "    The mesh holds the full topology of a set of hypercube elements — object\n"
+                             "    collections per dimension plus immersion information, but no geometry. Its\n"
+                             "    main use is generating continuity constraints between neighboring elements,\n"
+                             "    see ``compute_kform_continuity_constraints``.\n"
                              "\n"
                              "    The type cannot be instantiated directly; use ``from_corners`` or\n"
                              "    ``from_collections``.\n");
