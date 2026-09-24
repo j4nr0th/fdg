@@ -50,10 +50,12 @@ Common test space
 
 The rows of every returned matrix come from one common test space: on each
 free axis the common basis order is the lowest order of the incident
-elements, and an axis that carries no covector of a k-form component reads
-only the first ``axis_skip[axis]`` basis functions.  The weak
-boundary-condition assembly uses ``axis_skip = 2`` on every axis, so traces
-of higher-order neighbours never over-constrain the shared object.  Because
+elements, and an axis that carries no covector of a k-form component drops
+its two highest basis functions (``SKIPPED_BASIS = 2``), reading the leading
+ones.  Each constraint then pairs the trace against exactly the low-degree
+functions the lower-order space can represent — the L2 projection of the
+(higher-order) boundary solution onto that space — so traces of
+higher-order neighbours never over-constrain the shared object.  Because
 both incident elements pair their traces against the same rows, equal traces
 produce equal pairing values.
 

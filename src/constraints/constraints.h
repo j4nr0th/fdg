@@ -143,17 +143,28 @@ typedef struct constraint_trace_pullback_build_work_t_
 } constraint_trace_pullback_build_work_t;
 
 /**
+ * @brief Highest Legendre functions dropped from every inactive axis of a common boundary test space.
+ *
+ * The window keeps the leading functions of the full basis on each axis that carries no covector of a k-form
+ * component: pairing the (possibly higher-order) trace against the retained low degrees is exactly the L2
+ * projection of the boundary solution onto the lower-order space they span. An axis whose full basis has at most
+ * #SKIPPED_BASIS functions contributes an empty row block.
+ */
+enum
+{
+    SKIPPED_BASIS = 2, ///< Functions dropped from the high end of every inactive axis.
+};
+
+/**
  * @brief Shape of one element's boundary mass matrix.
  *
  * Maps the element's face trace DoFs to the common boundary test space: row blocks follow the common Legendre
  * k-form components, column blocks the mapped element components in canonical boundary order. Rows are
  * component-local tensors with per-axis counts
  *
- * - active covector axis: the order-1 basis (`order` functions),
- * - inactive axis: full basis minus the first `axis_skip[axis]` functions (`order + 1 - axis_skip[axis]`).
- *
- * The skip replaces the old order-minus-two reduction: lower-dimensional boundary objects already enforce continuity
- * there, and skipping the lowest Legendre degrees keeps the enforced test functions high order.
+ * - active covector axis: the order-1 basis (`order` functions, offset zero),
+ * - inactive axis: the full basis (`order + 1` functions) windowed to its first `order + 1 - SKIPPED_BASIS`
+ *   functions — the last #SKIPPED_BASIS (highest-degree) functions are dropped, floored at a zero count.
  */
 typedef struct
 {
@@ -164,7 +175,6 @@ typedef struct
     const basis_spec_t *boundary_basis;             ///< [bdim] Common boundary Legendre basis.
     const integration_spec_t *boundary_integration; ///< [bdim] Common boundary rules.
     const int8_t *orientation;                      ///< [ndim] This element's signed axis mapping.
-    const uint8_t *axis_skip;                       ///< [bdim] Skipped test functions on inactive axes, NULL = none.
 } constraint_boundary_mass_spec_t;
 
 /**
@@ -182,20 +192,12 @@ typedef struct
 } constraint_boundary_mass_work_sizes_t;
 
 /**
- * @brief Compute the work buffer sizes of one element's boundary mass matrix.
- *
- * @param spec Filled matrix specification.
- * @param out_sizes Receives the allocation sizes.
- */
-void constraint_boundary_mass_work_size(const constraint_boundary_mass_spec_t *spec,
-                                        constraint_boundary_mass_work_sizes_t *out_sizes);
-
-/**
  * @brief Caller-provided scratch memory of one element's boundary mass matrix.
  *
  * All members are caller-allocated arrays with lengths fixed by the spec: `bdim` per-axis entries, `ndim` axis
  * descriptors, `component_count + 1` (#constraint_boundary_mass_work_sizes_t) component tables. The assemble,
- * layout, and pack routines use them as scratch and may overwrite the contents.
+ * layout, and pack routines use them as scratch and may overwrite the contents. #constraint_boundary_mass_work_init
+ * assigns every member from one block of #constraint_boundary_mass_work_memory bytes.
  */
 typedef struct
 {
@@ -207,7 +209,6 @@ typedef struct
     int *element_signs;                 ///< [component_count] Mapped covector signs.
     kform_trace_axis_t *axes;           ///< [ndim] Element axis trace descriptors.
     unsigned *counts;                   ///< [bdim] Per-axis test function counts.
-    unsigned *offsets;                  ///< [bdim] Per-axis test function offsets.
     const basis_set_t **axis_sets;      ///< [bdim] Per-axis selected basis tables.
     const double **axis_tables;         ///< [bdim] Per-axis basis value tables.
     multidim_iterator_t *dof_iter;      ///< `multidim_iterator_needed_memory(bdim)`; component-local DoF digits.
@@ -220,6 +221,58 @@ typedef struct
     double *col_values;                 ///< [col_values] Element component value tables.
     double *point_factors;              ///< [point_factors] Per-point factor buffer.
 } constraint_boundary_mass_work_t;
+
+/**
+ * @brief Compute the work buffer sizes of one element's boundary mass matrix.
+ *
+ * Does not allocate: the sizing pass runs on the caller-provided work scratch.
+ *
+ * @param spec Filled matrix specification.
+ * @param work Caller-provided scratch; only `counts` (`bdim`), `mapped_axes`
+ *             (`max(order, 1)`), and `components` (`combination_iterator_required_memory(order)` bytes) must be
+ *             valid — all sized a priori from the spec, e.g. by #constraint_boundary_mass_work_init. The contents
+ *             are overwritten; the value table members are not read.
+ * @param out_sizes Receives the allocation sizes.
+ */
+void constraint_boundary_mass_work_size(const constraint_boundary_mass_spec_t *spec,
+                                        constraint_boundary_mass_work_t *work,
+                                        constraint_boundary_mass_work_sizes_t *out_sizes);
+
+/**
+ * @brief Total bytes of one element's boundary mass work buffers.
+ *
+ * Single-block convenience around #constraint_boundary_mass_work_size: this tells the allocation size,
+ * #constraint_boundary_mass_work_init wires every member of #constraint_boundary_mass_work_t into that one block,
+ * and the sizing scratch runs from a first small block:
+ *
+ *     constraint_boundary_mass_work_init(&work, &spec, NULL,
+ *                                        malloc(constraint_boundary_mass_work_memory(&spec, NULL)));
+ *     constraint_boundary_mass_work_size(&spec, &work, &sizes);
+ *     constraint_boundary_mass_work_init(&work, &spec, &sizes,
+ *                                        malloc(constraint_boundary_mass_work_memory(&spec, &sizes)));
+ *
+ * (Free the first block after the second init.)
+ *
+ * @param spec Filled matrix specification.
+ * @param sizes Work sizes from #constraint_boundary_mass_work_size, or NULL for the sizing scratch alone (the
+ *              `counts`, `mapped_axes`, and `components` members the sizing pass reads, plus every
+ *              other a-priori-sized member; the value table members stay NULL).
+ * @return Total bytes for one block holding every member the call initializes.
+ */
+size_t constraint_boundary_mass_work_memory(const constraint_boundary_mass_spec_t *spec,
+                                            const constraint_boundary_mass_work_sizes_t *sizes);
+
+/**
+ * @brief Point every member of one boundary mass work struct into one memory block.
+ *
+ * @param work Work struct filled on return; previously held pointers are not freed.
+ * @param spec Filled matrix specification.
+ * @param sizes Work sizes as in #constraint_boundary_mass_work_memory.
+ * @param memory Block of #constraint_boundary_mass_work_memory bytes.
+ */
+void constraint_boundary_mass_work_init(constraint_boundary_mass_work_t *work,
+                                        const constraint_boundary_mass_spec_t *spec,
+                                        const constraint_boundary_mass_work_sizes_t *sizes, void *memory);
 
 /**
  * @brief Inputs and outputs of one element's boundary mass matrix assembly.
@@ -303,15 +356,14 @@ void constraint_boundary_mass_pack(const constraint_boundary_mass_spec_t *spec, 
  */
 typedef struct
 {
-    unsigned ndim;                            ///< Element dimension, at least 2.
-    unsigned bdim;                            ///< Boundary dimension, in `[1, ndim)`.
-    unsigned nforms;                          ///< Traced k-form count, at least 1.
-    unsigned nelem;                           ///< Incident element count, at least 1.
-    const boundary_element_space_t *elements; ///< [nforms * nelem] Form-major element views.
-    const uint8_t *axis_skip;                 ///< [nforms * bdim] Per-form skipped test functions, NULL = none.
-    bool c1_continuous;                       ///< Reference-space pairing; pullback inputs may be NULL.
-    const double *const *surface_weights;     ///< [nforms * nelem] Optional per-item face measure rows.
-    const constraint_trace_pullback_t *const *test_pullbacks;    ///< [nforms * nelem] Optional per-item pullbacks.
+    unsigned ndim;                                            ///< Element dimension, at least 2.
+    unsigned bdim;                                            ///< Boundary dimension, in `[1, ndim)`.
+    unsigned nforms;                                          ///< Traced k-form count, at least 1.
+    unsigned nelem;                                           ///< Incident element count, at least 1.
+    const boundary_element_space_t *elements;                 ///< [nforms * nelem] Form-major element views.
+    bool c1_continuous;                                       ///< Reference-space pairing; pullback inputs may be NULL.
+    const double *const *surface_weights;                     ///< [nforms * nelem] Optional per-item face measure rows.
+    const constraint_trace_pullback_t *const *test_pullbacks; ///< [nforms * nelem] Optional per-item pullbacks.
     const constraint_trace_pullback_t *const *element_pullbacks; ///< [nforms * nelem] Optional per-item pullbacks.
     basis_set_registry_t *basis_registry;                        ///< Registry for basis and endpoint tables.
     integration_rule_registry_t *integration_registry;           ///< Registry for quadrature rules.
@@ -393,12 +445,15 @@ fdg_result_t constrain_elements_on_boundary_prepare(const constrain_elements_on_
  *
  * @param request Filled request; read-only.
  * @param plan Prepared plan; read-only.
+ * @param work Caller-provided scratch; only the nested `mass` members #constraint_boundary_mass_work_size reads are
+ *             required (sized a priori from the spec, e.g. by #constrain_elements_on_boundary_work_init).
  * @param out_weights Receives the doubles of the largest form's tensor quadrature weights.
  * @param out_row_values Receives the doubles of the largest per-item test component tables.
  * @param out_col_values Receives the doubles of the largest per-item element component tables.
  */
 void constrain_elements_on_boundary_work_size(const constrain_elements_on_boundary_request_t *request,
-                                              const constrain_elements_on_boundary_plan_t *plan, size_t *out_weights,
+                                              const constrain_elements_on_boundary_plan_t *plan,
+                                              constrain_elements_on_boundary_work_t *work, size_t *out_weights,
                                               size_t *out_row_values, size_t *out_col_values);
 
 /**

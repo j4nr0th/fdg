@@ -491,7 +491,6 @@ def test_kform_boundary_constraints_strong_weak_solve(ndim: int) -> None:
                 [maps[e].integration_space for e in ids],
                 element_maps=[maps[e] for e in ids],
                 boundary_dimension=mdim,
-                axis_skip=(2,) * mdim,
                 packed=True,
             )
             del common, _object_id
@@ -512,7 +511,6 @@ def test_kform_boundary_constraints_strong_weak_solve(ndim: int) -> None:
                 [maps[element_id].integration_space],
                 element_maps=[maps[element_id]],
                 boundary_dimension=mdim,
-                axis_skip=(2,) * mdim,
                 packed=True,
             )
             t = _expand_mass_rows(packed[0], specs_q)

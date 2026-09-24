@@ -121,7 +121,8 @@ def test_scalar_mass_matrix_matches_quadrature() -> None:
                 endpoint[normal] * block
             )
 
-    np.testing.assert_allclose(matrices[0], expected, atol=1e-13)
+    # Inactive axes keep the full basis minus the two highest functions.
+    np.testing.assert_allclose(matrices[0], expected[:-2], atol=1e-13)
 
 
 def test_mirrored_orientation_matches_quadrature() -> None:
@@ -151,7 +152,8 @@ def test_mirrored_orientation_matches_quadrature() -> None:
                     (legendre[:, row] * weights) @ lagrange[:, tangential]
                 )
 
-    np.testing.assert_allclose(matrices[0], expected, atol=1e-13)
+    # Inactive axes keep the full basis minus the two highest functions.
+    np.testing.assert_allclose(matrices[0], expected[:-2], atol=1e-13)
 
 
 def test_one_form_uses_lower_basis_and_orientation_sign() -> None:
@@ -193,23 +195,23 @@ def test_one_form_uses_lower_basis_and_orientation_sign() -> None:
     assert matrices[0].shape == (order, order * (order + 1))
 
 
-def test_axis_skip_removes_lowest_legendre_rows() -> None:
-    """Skipping two test functions drops the lowest Legendre degrees."""
-    order = 3
-    specs = [_element_spec(order), _element_spec(order)]
-    orientations = [_orientation_record(1, 2), _orientation_record(-1, 2)]
-    integrations = [_integrations((5, 5))] * 2
+def test_basis_skip_drops_highest_rows_by_order() -> None:
+    """Inactive axes keep only the full basis minus the two highest functions.
 
-    _, _, matrices, _ = compute_kform_boundary_mass_matrices(
-        specs, orientations, integrations
-    )
-    _, _, skipped, _ = compute_kform_boundary_mass_matrices(
-        specs, orientations, integrations, axis_skip=[2]
-    )
+    Scalar components have no active covector axis, so every axis is
+    windowed: the per-axis row count is ``order + 1 - 2``, floored at zero.
+    """
+    counts = []
+    for order in range(4):
+        specs = [_element_spec(order), _element_spec(order)]
+        orientations = [_orientation_record(1, 2), _orientation_record(-1, 2)]
+        integrations = [_integrations((5, 5))] * 2
 
-    assert skipped[0].shape[0] == matrices[0].shape[0] - 2
-    np.testing.assert_allclose(skipped[0], matrices[0][2:, :], atol=1e-13)
-    np.testing.assert_allclose(skipped[1], matrices[1][2:, :], atol=1e-13)
+        _, _, matrices, _ = compute_kform_boundary_mass_matrices(
+            specs, orientations, integrations
+        )
+        counts.append(int(matrices[0].shape[0]))
+    assert counts == [0, 0, 1, 2]
 
 
 def test_packed_rows_match_dense_matrix() -> None:
@@ -250,7 +252,9 @@ def test_three_dimensional_face_component_blocks() -> None:
     )
 
     matrix = matrices[0]
-    component_rows = order * (order + 1)
+    # Active axes keep `order` functions, inactive axes the full basis minus
+    # the two highest.
+    component_rows = order * (order + 1 - 2)
     component_cols = order * (order + 1) ** 2
     assert matrix.shape == (2 * component_rows, 2 * component_cols)
     # Reference pairing is component-diagonal.

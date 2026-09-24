@@ -365,7 +365,7 @@ def _ground_truth_matrix(
                 }
                 # The mass rows read the merged per-axis minimum Legendre
                 # basis: active covector axes keep the leading `min_order`
-                # functions; inactive axes drop their two lowest functions.
+                # functions; inactive axes drop their two highest functions.
                 common_space = FunctionSpace(
                     *(
                         BasisSpecs(BasisType.LEGENDRE, axis_orders_by_axis[a])
@@ -391,7 +391,7 @@ def _ground_truth_matrix(
                     kept_axes.append(
                         list(range(min_order))
                         if a in common_wedge
-                        else list(range(2, columns))
+                        else list(range(columns - 2))  # drop the two highest
                     )
                 strides = np.ones(bdim, dtype=int)
                 for local_axis in range(bdim - 2, -1, -1):
@@ -467,21 +467,21 @@ def assert_continuity_exact(
 
 
 @pytest.mark.parametrize(
-    ("ndim", "family", "order"),
+    ("ndim", "family", "order", "form_order"),
     (
-        (ndim, family, order)
+        (ndim, family, order, form_order)
         for ndim in (2, 3)
         for family in (BasisType.LEGENDRE, BasisType.LAGRANGE_GAUSS_LOBATTO)
         for order in (1, 2, 3)
+        for form_order in (0, 1, 2, 3)
+        # A k-form's order cannot exceed the element dimension.
+        if form_order <= ndim
     ),
 )
-@pytest.mark.parametrize("form_order", (0, 1, 2, 3))
 def test_continuity_matches_ground_truth_all_configs(
     ndim: int, family: BasisType, order: int, form_order: int
 ) -> None:
     """Produced rows span exactly the trace-continuity functionals."""
-    if form_order > ndim:
-        pytest.skip("form order exceeds dimension")
     mesh = make_mesh(ndim)
     maps = make_element_maps(ndim, order + 1)
     base_space = FunctionSpace(*(BasisSpecs(family, order) for _ in range(ndim)))

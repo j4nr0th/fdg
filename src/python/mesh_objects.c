@@ -693,7 +693,7 @@ typedef struct
  * Star rows link every non-anchor element to the lowest-ID anchor: one row per (non-anchor element, common test
  * DoF) carries that element's trace moments with side -1 and the anchor's with +1. The common Legendre space takes
  * the lowest per-axis order among the incident elements (an element boundary cannot be constrained to a
- * higher-order boundary solution): order-1 test tables on active covector axes, full tables minus the two lowest
+ * higher-order boundary solution): order-1 test tables on active covector axes, full tables minus the two highest
  * functions on inactive axes, so only the object's own block is constrained. Mapped meshes sample each face's
  * surface measure and pullback on the element's own face grid, exact when all faces share one sampling order.
  */
@@ -864,14 +864,12 @@ static int mesh_continuity_assemble_object(mesh_continuity_context_t *const cont
     const size_t order_storage = order == 0 ? 1u : order;
     const size_t axis_items = (size_t)nelem * ndim;
 
-    uint8_t *axis_skip;
     basis_spec_t *out_basis;
     integration_spec_t *out_integration;
     void *const core_memory = cutl_alloc_group(
         &PYTHON_ALLOCATOR,
         (const cutl_alloc_info_t[]){
             {sizeof(*element_integrations) * axis_items, (void **)&element_integrations},
-            {sizeof(*axis_skip) * bdim, (void **)&axis_skip},
             {sizeof(*out_basis) * bdim, (void **)&out_basis},
             {sizeof(*out_integration) * bdim, (void **)&out_integration},
             {sizeof(*work.axis_fixed) * ndim, (void **)&work.axis_fixed},
@@ -884,7 +882,6 @@ static int mesh_continuity_assemble_object(mesh_continuity_context_t *const cont
             {sizeof(*work.mass.element_signs) * component_count, (void **)&work.mass.element_signs},
             {sizeof(*work.mass.axes) * ndim, (void **)&work.mass.axes},
             {sizeof(*work.mass.counts) * bdim, (void **)&work.mass.counts},
-            {sizeof(*work.mass.offsets) * bdim, (void **)&work.mass.offsets},
             {sizeof(*work.mass.axis_sets) * bdim, (void **)&work.mass.axis_sets},
             {multidim_iterator_needed_memory(bdim), (void **)&work.mass.dof_iter},
             {sizeof(*work.mass.point_digits) * bdim, (void **)&work.mass.point_digits},
@@ -911,14 +908,10 @@ static int mesh_continuity_assemble_object(mesh_continuity_context_t *const cont
         PyErr_NoMemory();
         goto out;
     }
-    // Own-block windows: inactive axes drop their two lowest test functions — the endpoint functionals owned by the
-    // lower-dimensional subobjects whose constraints already tie them. An order-one axis therefore empties and the
-    // component's row block drops out; at the lowest order only objects with an active axis of their exact form
-    // order keep rows. Active axes ignore the skip and read the order-minus-one basis.
-    for (unsigned slot = 0; slot < bdim; ++slot)
-    {
-        axis_skip[slot] = 2;
-    }
+    // Own-block windows: inactive axes drop their two highest test functions, leaving the low degrees whose pairing
+    // with the trace is the L2 projection onto the lower-order common space. An order-one axis therefore empties
+    // and the component's row block drops out; at the lowest order only objects with an active axis of their exact
+    // form order keep rows. Active axes ignore the window and read the order-minus-one basis.
 
     // Per-element views: mapped meshes integrate at each face's own grid, C1 meshes at an exact reference rule.
     for (unsigned e = 0; e < nelem; ++e)
@@ -993,7 +986,6 @@ static int mesh_continuity_assemble_object(mesh_continuity_context_t *const cont
                                                         .nforms = 1,
                                                         .nelem = nelem,
                                                         .elements = views,
-                                                        .axis_skip = axis_skip,
                                                         .c1_continuous = context->c1_continuous,
                                                         .surface_weights = NULL,
                                                         .test_pullbacks = NULL,
@@ -1186,7 +1178,7 @@ static int mesh_continuity_assemble_object(mesh_continuity_context_t *const cont
     size_t weights_size;
     size_t row_values_size;
     size_t col_values_size;
-    constrain_elements_on_boundary_work_size(&request, &plan, &weights_size, &row_values_size, &col_values_size);
+    constrain_elements_on_boundary_work_size(&request, &plan, &work, &weights_size, &row_values_size, &col_values_size);
     weights_memory = cutl_alloc_group(
         &PYTHON_ALLOCATOR, (const cutl_alloc_info_t[]){
                                {sizeof(*work.weights) * weights_size, (void **)&work.weights},
@@ -1221,8 +1213,7 @@ static int mesh_continuity_assemble_object(mesh_continuity_context_t *const cont
                                                       .element_spec = &element_descriptor,
                                                       .boundary_basis = out_basis,
                                                       .boundary_integration = out_integration,
-                                                      .orientation = orientations[e],
-                                                      .axis_skip = axis_skip};
+                                                      .orientation = orientations[e]};
         size_t rows_e;
         size_t cols_e;
         size_t entries;

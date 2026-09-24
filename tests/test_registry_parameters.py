@@ -195,7 +195,6 @@ def test_boundary_trace_moments_use_given_registries() -> None:
             [maps[0].integration_space],
             element_maps=[maps[0]],
             boundary_dimension=1,
-            axis_skip=(2,),
             packed=True,
             **kwargs,
         )
@@ -378,7 +377,6 @@ def _entry_points() -> Sequence[tuple[str, Call]]:
                 [maps[0].integration_space],
                 element_maps=[maps[0]],
                 boundary_dimension=1,
-                axis_skip=(2,),
                 packed=True,
                 **kw,
             ),

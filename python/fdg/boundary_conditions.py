@@ -31,10 +31,10 @@ if TYPE_CHECKING:
 
 from fdg.enum_type import BasisType
 
-#: Number of lowest-order Legendre functions dropped on windowed axes whose
-#: covector is inactive in a component; mirrors the C ``axis_skip`` input of
-#: the continuity assembly.
-AXIS_SKIP = 2
+#: Number of highest-order Legendre functions dropped on windowed axes whose
+#: covector is inactive in a component; mirrors the C ``SKIPPED_BASIS``
+#: window of the continuity assembly.
+BASIS_SKIP = 2
 
 BoundaryCallable = Callable[..., npt.ArrayLike]
 BoundaryData = BoundaryCallable | Sequence[BoundaryCallable]
@@ -656,15 +656,15 @@ def _windowed_row_count(
     """Per-axis row counts of one component's windowed test block.
 
     Active covector axes keep the order-minus-one basis (``order``
-    functions); inactive axes drop their :data:`AXIS_SKIP` lowest functions,
-    mirroring the C boundary mass assembly.
+    functions); inactive axes drop their :data:`BASIS_SKIP` highest
+    functions, mirroring the C boundary mass assembly.
     """
     counts = []
     for axis, minimum in enumerate(orders):
         if axis in component_axes:
             counts.append(int(minimum))
         else:
-            counts.append(max(int(minimum) + 1 - AXIS_SKIP, 0))
+            counts.append(max(int(minimum) + 1 - BASIS_SKIP, 0))
     return tuple(counts)
 
 
@@ -698,12 +698,14 @@ def _windowed_component_basis(
             ).get_component_function_space(0)
             axis_tables.append(np.asarray(space.evaluate(nodes[axis])))
         else:
-            if minimum + 1 <= AXIS_SKIP:
+            if minimum + 1 <= BASIS_SKIP:
                 return None
             space = KFormSpecs(
                 0, FunctionSpace(BasisSpecs(BasisType.LEGENDRE, minimum))
             ).get_component_function_space(0)
-            axis_tables.append(np.asarray(space.evaluate(nodes[axis]))[:, AXIS_SKIP:])
+            axis_tables.append(
+                np.asarray(space.evaluate(nodes[axis]))[:, : minimum + 1 - BASIS_SKIP]
+            )
     value = axis_tables[0]
     for table in axis_tables[1:]:
         value = value[..., None, None] * table[None, None, :, :]
@@ -860,7 +862,6 @@ def _append_boundary_rows(
                 [maps[element_id].integration_space],
                 element_maps=[maps[element_id]],
                 boundary_dimension=mdim,
-                axis_skip=(AXIS_SKIP,) * mdim,
                 packed=True,
                 integration_registry=integration_registry,
                 basis_registry=basis_registry,
@@ -983,7 +984,6 @@ def _append_periodic_rows(
             ],
             element_maps=[maps[left_element], maps[right_element]],
             boundary_dimension=mdim,
-            axis_skip=(AXIS_SKIP,) * mdim,
             packed=True,
             integration_registry=integration_registry,
             basis_registry=basis_registry,

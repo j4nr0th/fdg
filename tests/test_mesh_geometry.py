@@ -237,7 +237,6 @@ def test_geometry_maps_feed_boundary_constraints(
         [space_map.integration_space for space_map in stored_maps],
         element_maps=stored_maps,
         boundary_dimension=1,
-        axis_skip=(2,),
     )
     manual_result = compute_kform_boundary_mass_matrices(
         [element_specs for _ in element_ids],
@@ -245,7 +244,6 @@ def test_geometry_maps_feed_boundary_constraints(
         [space_map.integration_space for space_map in manual_maps],
         element_maps=manual_maps,
         boundary_dimension=1,
-        axis_skip=(2,),
     )
     for expected, actual in zip(manual_result[2], stored_result[2]):
         np.testing.assert_array_equal(actual, expected)

@@ -96,19 +96,27 @@ void kform_inner_product_block(const size_t point_count, const size_t dofs_left,
                                const double weights[restrict], const size_t row0, const size_t col0,
                                const size_t row_stride, double matrix[restrict])
 {
+    // Left-outer sweep, SIMD over the right loop: one matrix row accumulates every point while it stays
+    // cache-resident, and the first point initializes the row in place of a separate zeroing pass. This beat both
+    // point-outer layouts: SIMD over the point loop gathers with column strides (measured ~4.8x slower), and the
+    // point-outer sweep re-streams the whole matrix per point (measured ~1.5x slower).
     for (size_t left = 0; left < dofs_left; ++left)
-        for (size_t right = 0; right < dofs_right; ++right)
-            matrix[(row0 + left) * row_stride + col0 + right] = 0.0;
-
-    for (size_t point = 0; point < point_count; ++point)
     {
-        const double *const values_left = basis_values_left + point * dofs_left;
-        const double *const values_right = basis_values_right + point * dofs_right;
-        const double weight = weights[point];
-        for (size_t left = 0; left < dofs_left; ++left)
+        double *const matrix_row = matrix + (row0 + left) * row_stride + col0;
+        if (point_count == 0)
         {
-            double *const matrix_row = matrix + (row0 + left) * row_stride + col0;
-            const double weighted_left = weight * values_left[left];
+            for (size_t right = 0; right < dofs_right; ++right)
+                matrix_row[right] = 0.0;
+            continue;
+        }
+        double weighted_left = weights[0] * basis_values_left[left];
+#pragma omp simd
+        for (size_t right = 0; right < dofs_right; ++right)
+            matrix_row[right] = weighted_left * basis_values_right[right];
+        for (size_t point = 1; point < point_count; ++point)
+        {
+            const double *const values_right = basis_values_right + point * dofs_right;
+            weighted_left = weights[point] * basis_values_left[point * dofs_left + left];
 #pragma omp simd
             for (size_t right = 0; right < dofs_right; ++right)
                 matrix_row[right] += weighted_left * values_right[right];

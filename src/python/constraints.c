@@ -851,7 +851,6 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
     PyObject *specs_object;
     PyObject *orientations_object;
     PyObject *integrations_object;
-    PyObject *axis_skip_object = Py_None;
     PyObject *maps_object = Py_None;
     Py_ssize_t boundary_dim = -1;
     int c1_continuous = 0;
@@ -863,11 +862,6 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
                 {.type = CPYARG_TYPE_PYTHON, .p_val = &specs_object},
                 {.type = CPYARG_TYPE_PYTHON, .p_val = &orientations_object},
                 {.type = CPYARG_TYPE_PYTHON, .p_val = &integrations_object},
-                {.type = CPYARG_TYPE_PYTHON,
-                 .p_val = &axis_skip_object,
-                 .kwname = "axis_skip",
-                 .optional = 1,
-                 .kw_only = 1},
                 {.type = CPYARG_TYPE_PYTHON,
                  .p_val = &maps_object,
                  .kwname = "element_maps",
@@ -1018,7 +1012,6 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
     const basis_endpoint_set_t **plan_element_endpoints_lower;
     basis_spec_t *plan_element_lower_specs;
     constrain_elements_on_boundary_work_t work = {0};
-    uint8_t *axis_skip;
     integration_spec_t *element_integrations;
     void *const core_memory = cutl_alloc_group(
         &PYTHON_ALLOCATOR,
@@ -1049,7 +1042,6 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
             {sizeof(*work.mass.element_signs) * component_count, (void **)&work.mass.element_signs},
             {sizeof(*work.mass.axes) * ndim, (void **)&work.mass.axes},
             {sizeof(*work.mass.counts) * bdim, (void **)&work.mass.counts},
-            {sizeof(*work.mass.offsets) * bdim, (void **)&work.mass.offsets},
             {sizeof(*work.mass.axis_sets) * bdim, (void **)&work.mass.axis_sets},
             {multidim_iterator_needed_memory(bdim), (void **)&work.mass.dof_iter},
             {sizeof(*work.mass.point_digits) * bdim, (void **)&work.mass.point_digits},
@@ -1058,7 +1050,6 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
             {sizeof(*work.mass.mapped_axes) * order_storage, (void **)&work.mass.mapped_axes},
             {iterator_memory, (void **)&work.mass.components},
             {iterator_memory, (void **)&work.mass.blocks},
-            {sizeof(*axis_skip) * bdim, (void **)&axis_skip},
             {sizeof(*element_integrations) * nelem * ndim, (void **)&element_integrations},
             {}});
     if (!core_memory)
@@ -1159,37 +1150,11 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
         }
     }
 
-    uint8_t *const request_axis_skip = axis_skip_object != Py_None ? axis_skip : NULL;
-    if (axis_skip_object != Py_None)
-    {
-        PyObject *const skip_seq = PySequence_Fast(axis_skip_object, "axis_skip must be a sequence of integers.");
-        if (!skip_seq)
-            goto fail_memory;
-        if (PySequence_Fast_GET_SIZE(skip_seq) != (Py_ssize_t)bdim)
-        {
-            PyErr_Format(PyExc_ValueError, "axis_skip must contain %u entries.", bdim);
-            Py_DECREF(skip_seq);
-            goto fail_memory;
-        }
-        for (unsigned axis = 0; axis < bdim; ++axis)
-        {
-            const long value = PyLong_AsLong(PySequence_Fast_GET_ITEM(skip_seq, (Py_ssize_t)axis));
-            if (value == -1 && PyErr_Occurred())
-            {
-                Py_DECREF(skip_seq);
-                goto fail_memory;
-            }
-            axis_skip[axis] = (uint8_t)value;
-        }
-        Py_DECREF(skip_seq);
-    }
-
     constrain_elements_on_boundary_request_t request = {.ndim = ndim,
                                                         .bdim = bdim,
                                                         .nforms = 1,
                                                         .nelem = (unsigned)nelem,
                                                         .elements = views,
-                                                        .axis_skip = request_axis_skip,
                                                         .c1_continuous = c1_continuous != 0,
                                                         .surface_weights = NULL,
                                                         .test_pullbacks = NULL,
@@ -1396,7 +1361,7 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
     size_t weights_size;
     size_t row_values_size;
     size_t col_values_size;
-    constrain_elements_on_boundary_work_size(&request, &plan, &weights_size, &row_values_size, &col_values_size);
+    constrain_elements_on_boundary_work_size(&request, &plan, &work, &weights_size, &row_values_size, &col_values_size);
     weights_memory = cutl_alloc_group(
         &PYTHON_ALLOCATOR, (const cutl_alloc_info_t[]){
                                {sizeof(*work.weights) * weights_size, (void **)&work.weights},
@@ -1477,8 +1442,7 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
                                                           .element_spec = &element_spec,
                                                           .boundary_basis = out_basis,
                                                           .boundary_integration = out_integration,
-                                                          .orientation = views[element].orientation,
-                                                          .axis_skip = request_axis_skip};
+                                                          .orientation = views[element].orientation};
             size_t rows;
             size_t cols;
             size_t entries;
@@ -1793,13 +1757,13 @@ PyMethodDef constraint_methods[] = {
         .ml_meth = (void *)compute_kform_boundary_mass_matrices,
         .ml_flags = METH_FASTCALL | METH_KEYWORDS,
         .ml_doc = "compute_kform_boundary_mass_matrices(element_specs, orientations, element_integrations, "
-                  "axis_skip=None, element_maps=None, *, boundary_dimension=None, "
+                  "element_maps=None, *, boundary_dimension=None, "
                   "c1_continuous=False, packed=False, integration_registry=DEFAULT_INTEGRATION_REGISTRY, "
                   "basis_registry=DEFAULT_BASIS_REGISTRY) -> tuple\n"
                   "Assemble at least two incident elements' mass matrices against the common boundary space of one "
                   "shared object. Returns (common KFormSpecs, common IntegrationSpace, per-element dense matrices, "
                   "per-element packed COO tuples or None). Rows are the common Legendre k-form test space with "
-                  "axis_skip[axis] lowest functions removed on inactive axes; columns are the mapped element trace "
+                  "the two highest functions removed on inactive axes; columns are the mapped element trace "
                   "DoFs. boundary_dimension may be zero for scalar traces: point rows pair vertex value "
                   "functionals through the endpoint tables. Coefficients carry the orientation signs but no "
                   "side signs. With element_maps (one "
@@ -1811,7 +1775,7 @@ PyMethodDef constraint_methods[] = {
         .ml_meth = (void *)compute_kform_boundary_trace_moments,
         .ml_flags = METH_FASTCALL | METH_KEYWORDS,
         .ml_doc = "compute_kform_boundary_trace_moments(element_specs, orientations, element_integrations, "
-                  "axis_skip=None, element_maps=None, *, boundary_dimension=None, "
+                  "element_maps=None, *, boundary_dimension=None, "
                   "c1_continuous=False, packed=False, integration_registry=DEFAULT_INTEGRATION_REGISTRY, "
                   "basis_registry=DEFAULT_BASIS_REGISTRY) -> tuple\n"
                   "Assemble one element's trace mass rows against the common boundary space: the explicit "

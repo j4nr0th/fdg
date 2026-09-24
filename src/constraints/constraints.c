@@ -12,28 +12,10 @@
 
 #include <limits.h>
 
-#include <cutl/allocators.h>
 #include <cutl/iterators/combination_iterator.h>
 
 #include "../operations/map_transforms.h"
 #include "../polynomials/lagrange.h"
-
-/**
- * @brief Test whether a component contains one active covector axis.
- *
- * The active axes are sorted, but a linear scan keeps the helper independent of the combination representation and
- * is negligible beside quadrature work.
- */
-static bool component_has_axis(const unsigned order, const uint8_t axes[const static order == 0 ? 1 : order],
-                               const unsigned axis)
-{
-    for (unsigned i = 0; i < order; ++i)
-    {
-        if (axes[i] == axis)
-            return true;
-    }
-    return false;
-}
 
 /**
  * @brief Map a face component's axes into element axes and a sign.
@@ -145,19 +127,20 @@ static void boundary_common_space_merge(unsigned ndim, unsigned bdim, unsigned n
 /**
  * @brief Per-axis test function counts of one boundary component's row block.
  *
- * Active covector axes read the order-1 basis (`order` functions); inactive axes read the full basis minus the first
- * `axis_skip[axis]` functions, offsets carrying the matching start index. `counts`/`offsets` are caller-provided
- * `[bdim]` arrays.
+ * Active covector axes read the order-1 basis (`order` functions); inactive axes read the leading
+ * `order + 1 - SKIPPED_BASIS` functions of the full basis (floored at zero). The window keeps the low-degree
+ * functions of the common space, so pairing the (higher-order) trace against them is its L2 projection onto that
+ * space (see #SKIPPED_BASIS and #constraint_boundary_mass_spec_t). An inactive axis windowed to a zero count
+ * contributes an empty row block, which callers drop. `counts` is a caller-provided `[bdim]` array.
  */
 static void boundary_mass_row_axis_counts(const constraint_boundary_mass_spec_t *const spec,
                                           const uint8_t component_axes[const static spec->order == 0 ? 1 : spec->order],
-                                          unsigned counts[spec->bdim], unsigned offsets[spec->bdim])
+                                          unsigned counts[spec->bdim])
 {
     unsigned i_axis, i_active;
     for (i_axis = 0, i_active = 0; i_active < spec->order; ++i_axis)
     {
         unsigned full_count = spec->boundary_basis[i_axis].order;
-        unsigned offset = 0;
         if (component_axes[i_active] == i_axis)
         {
             // The axis is active
@@ -165,35 +148,18 @@ static void boundary_mass_row_axis_counts(const constraint_boundary_mass_spec_t 
         }
         else
         {
-            // The axis is inactive
+            // The axis is inactive: drop the highest functions of its full basis.
             full_count += 1u;
-            if (spec->axis_skip != NULL)
-            {
-                // Apply the axis's skip.
-                const unsigned skip = spec->axis_skip[i_axis];
-                offset = skip;
-                full_count = full_count > skip ? full_count - skip : 0u;
-            }
+            full_count = full_count > SKIPPED_BASIS ? full_count - SKIPPED_BASIS : 0u;
         }
         counts[i_axis] = full_count;
-        offsets[i_axis] = offset;
     }
 
     // Now everything else is just inactive axes
     for (; i_axis < spec->bdim; ++i_axis)
     {
-        unsigned full_count = spec->boundary_basis[i_axis].order + 1u;
-        unsigned offset = 0;
-        // The axis is inactive
-        if (spec->axis_skip != NULL)
-        {
-            // We have to potentially skip the axis
-            const unsigned skip = spec->axis_skip[i_axis];
-            offset = skip;
-            full_count = full_count > skip ? full_count - skip : 0u;
-        }
-        counts[i_axis] = full_count;
-        offsets[i_axis] = offset;
+        const unsigned full_count = spec->boundary_basis[i_axis].order + 1u;
+        counts[i_axis] = full_count > SKIPPED_BASIS ? full_count - SKIPPED_BASIS : 0u;
     }
 }
 
@@ -214,7 +180,8 @@ static size_t boundary_mass_row_dofs(const constraint_boundary_mass_spec_t *cons
 /**
  * @brief Sample one boundary component's test functions at the common points.
  *
- * Point-major layout, axis 0 the slowest DoF digit; skipped functions shift each axis's read window by its offset.
+ * Point-major layout, axis 0 the slowest DoF digit; digits index into the per-axis window chosen by the counting
+ * pass.
  * DoF digits run through the work buffer's multidim iterator; tensor points through a last-axis-fastest odometer with
  * a prefix cache of intermediate products (#outer_product_pair_iterator_t style).
  *
@@ -226,7 +193,7 @@ static void boundary_mass_row_values(const constraint_boundary_mass_spec_t *cons
                                      const uint8_t component_axes[const static spec->order == 0 ? 1 : spec->order],
                                      const size_t point_count, constraint_boundary_mass_work_t *work)
 {
-    boundary_mass_row_axis_counts(spec, component_axes, work->counts, work->offsets);
+    boundary_mass_row_axis_counts(spec, component_axes, work->counts);
     const unsigned bdim = spec->bdim;
     if (bdim == 0)
     {
@@ -238,9 +205,13 @@ static void boundary_mass_row_values(const constraint_boundary_mass_spec_t *cons
     multidim_iterator_t *const dof_iter = work->dof_iter;
     const double **const rows = work->axis_tables;
     size_t tensor_points = 1;
+    // Merge walk over the sorted component axes (like mapped_axes_and_sign): each axis consumes its next active
+    // entry, so no per-axis rescan of the component is needed.
+    unsigned i_active = 0;
     for (unsigned axis = 0; axis < bdim; ++axis)
     {
-        const bool active = component_has_axis(spec->order, component_axes, axis);
+        const bool active = i_active < spec->order && component_axes[i_active] == axis;
+        i_active += active ? 1u : 0u;
         work->axis_sets[axis] = active ? basis_sets_lower[axis] : basis_sets[axis];
         CUTL_ASSERT(work->axis_sets[axis]->integration_spec.order == spec->boundary_integration[axis].order,
                     "Axis %u reads a basis set built at foreign integration nodes.", axis);
@@ -259,7 +230,7 @@ static void boundary_mass_row_values(const constraint_boundary_mass_spec_t *cons
         // Select this DoF's rows, restart the odometer, seed the prefix cache at point 0 (all digits zero).
         for (unsigned axis = 0; axis < bdim; ++axis)
         {
-            rows[axis] = basis_set_basis_values(work->axis_sets[axis], work->offsets[axis] + (unsigned)digits[axis]);
+            rows[axis] = basis_set_basis_values(work->axis_sets[axis], (unsigned)digits[axis]);
             point_digits[axis] = 0;
             prefix[axis] = (axis == 0 ? 1.0 : prefix[axis - 1]) * rows[axis][0];
         }
@@ -360,7 +331,7 @@ static void boundary_mass_shape(const constraint_boundary_mass_spec_t *const spe
          combination_iterator_next(work->components), ++component)
     {
         const uint8_t *const component_axes = combination_iterator_current(work->components);
-        boundary_mass_row_axis_counts(spec, component_axes, work->counts, work->offsets);
+        boundary_mass_row_axis_counts(spec, component_axes, work->counts);
         work->row_offsets[component] = rows;
         rows += boundary_mass_row_dofs(spec, work->counts);
         work->element_signs[component] =
@@ -408,46 +379,107 @@ void constraint_boundary_mass_layout(const constraint_boundary_mass_spec_t *cons
     *out_entry_count = entries;
 }
 
-// TODO: This should not allocate memory! Either pass it in, or find another way!
+/**
+ * @brief Place every boundary mass work member into one block, optionally assigning the pointers.
+ *
+ * Single source of truth for #constraint_boundary_mass_work_memory and #constraint_boundary_mass_work_init: with
+ * @p work NULL only the byte total accumulates (the alignment padding included). @p sizes NULL places the sizing
+ * scratch alone — every a-priori-sized member, with the value table members unset.
+ *
+ * @return Total bytes for one block.
+ */
+static size_t boundary_mass_work_layout(const constraint_boundary_mass_spec_t *const spec,
+                                        const constraint_boundary_mass_work_sizes_t *const sizes,
+                                        constraint_boundary_mass_work_t *const work, void *const memory)
+{
+    size_t cursor = 0;
+    const size_t align = _Alignof(max_align_t);
+#define BOUNDARY_MASS_TAKE(member, bytes)                                                                              \
+    do                                                                                                                 \
+    {                                                                                                                  \
+        const size_t take_bytes = (bytes);                                                                             \
+        cursor = (cursor + align - 1u) & ~(align - 1u);                                                                \
+        if (work != NULL)                                                                                              \
+        {                                                                                                              \
+            work->member = (void *)((unsigned char *)memory + cursor);                                                 \
+        }                                                                                                              \
+        cursor += take_bytes;                                                                                          \
+    } while (false)
+
+    const size_t component_count =
+        spec->order > spec->bdim ? 0 : combination_total_count((uint8_t)spec->bdim, (uint8_t)spec->order);
+    const size_t iterator_memory = combination_iterator_required_memory((uint8_t)spec->order);
+    const size_t order_storage = spec->order == 0 ? 1u : spec->order;
+    BOUNDARY_MASS_TAKE(point_iter, multidim_iterator_needed_memory(spec->ndim));
+    BOUNDARY_MASS_TAKE(row_offsets, sizeof(size_t) * (component_count + 1u));
+    BOUNDARY_MASS_TAKE(col_offsets, sizeof(size_t) * (component_count + 1u));
+    BOUNDARY_MASS_TAKE(element_components, sizeof(unsigned) * component_count);
+    BOUNDARY_MASS_TAKE(element_signs, sizeof(int) * component_count);
+    BOUNDARY_MASS_TAKE(axes, sizeof(kform_trace_axis_t) * spec->ndim);
+    BOUNDARY_MASS_TAKE(counts, sizeof(unsigned) * spec->bdim);
+    BOUNDARY_MASS_TAKE(axis_sets, sizeof(const basis_set_t *) * spec->bdim);
+    BOUNDARY_MASS_TAKE(axis_tables, sizeof(const double *) * spec->bdim);
+    BOUNDARY_MASS_TAKE(dof_iter, multidim_iterator_needed_memory(spec->bdim));
+    BOUNDARY_MASS_TAKE(point_digits, sizeof(unsigned) * spec->bdim);
+    BOUNDARY_MASS_TAKE(point_prefix, sizeof(double) * spec->bdim);
+    BOUNDARY_MASS_TAKE(mapped_axes, sizeof(uint8_t) * order_storage);
+    BOUNDARY_MASS_TAKE(components, iterator_memory);
+    BOUNDARY_MASS_TAKE(blocks, iterator_memory);
+    if (sizes != NULL)
+    {
+        BOUNDARY_MASS_TAKE(row_values, sizeof(double) * sizes->row_values);
+        BOUNDARY_MASS_TAKE(col_values, sizeof(double) * sizes->col_values);
+        BOUNDARY_MASS_TAKE(point_factors, sizeof(double) * sizes->point_factors);
+    }
+    else if (work != NULL)
+    {
+        work->row_values = NULL;
+        work->col_values = NULL;
+        work->point_factors = NULL;
+    }
+#undef BOUNDARY_MASS_TAKE
+    return cursor;
+}
+
+size_t constraint_boundary_mass_work_memory(const constraint_boundary_mass_spec_t *const spec,
+                                            const constraint_boundary_mass_work_sizes_t *const sizes)
+{
+    return boundary_mass_work_layout(spec, sizes, NULL, NULL);
+}
+
+void constraint_boundary_mass_work_init(constraint_boundary_mass_work_t *const work,
+                                        const constraint_boundary_mass_spec_t *const spec,
+                                        const constraint_boundary_mass_work_sizes_t *const sizes, void *const memory)
+{
+    (void)boundary_mass_work_layout(spec, sizes, work, memory);
+}
+
 void constraint_boundary_mass_work_size(const constraint_boundary_mass_spec_t *const spec,
+                                        constraint_boundary_mass_work_t *const work,
                                         constraint_boundary_mass_work_sizes_t *const out_sizes)
 {
     const size_t point_count = integration_specs_total_points(spec->bdim, spec->boundary_integration);
-    const constraint_element_side_t side = {
-        .ndim = spec->ndim, .basis_specs = spec->element_spec->basis, .orientation = spec->orientation};
-
-    // The sizing pass needs one iterator plus per-axis and mapped-axis scratch, all bounded by `bdim` and `order`.
-    combination_iterator_t *iter;
-    unsigned *counts;
-    unsigned *offsets;
-    uint8_t *mapped_axes;
-    void *const mem = cutl_alloc_group(
-        &CUTL_STD_ALLOCATOR, (const cutl_alloc_info_t[]){
-                                 {combination_iterator_required_memory((uint8_t)spec->order), (void **)&iter},
-                                 {sizeof(*counts) * spec->bdim, (void **)&counts},
-                                 {sizeof(*offsets) * spec->bdim, (void **)&offsets},
-                                 {(spec->order == 0 ? 1u : spec->order) * sizeof(*mapped_axes), (void **)&mapped_axes},
-                                 {}});
-    if (mem == NULL)
-    {
-        // A failed sizing pass reports zero buffers; the caller cannot assemble without them anyway.
-        *out_sizes = (constraint_boundary_mass_work_sizes_t){};
-        return;
-    }
-
     if (spec->order > spec->bdim)
     {
-        cutl_dealloc(&CUTL_STD_ALLOCATOR, mem);
         *out_sizes = (constraint_boundary_mass_work_sizes_t){.point_factors = point_count};
         return;
     }
+    const constraint_element_side_t side = {
+        .ndim = spec->ndim, .basis_specs = spec->element_spec->basis, .orientation = spec->orientation};
+
+    // The sizing pass runs entirely on caller-provided scratch: one iterator plus per-axis and mapped-axis buffers,
+    // all sized a priori from the spec (see constraint_boundary_mass_work_init).
+    combination_iterator_t *const iter = work->components;
+    unsigned *const counts = work->counts;
+    uint8_t *const mapped_axes = work->mapped_axes;
+
     combination_iterator_init(iter, (uint8_t)spec->bdim, (uint8_t)spec->order);
     size_t max_row_dofs = 0;
     size_t max_col_dofs = 0;
-    for (; !combination_iterator_is_done(iter); combination_iterator_next(iter))
+    for (const uint8_t *const component_axes = combination_iterator_current(iter); !combination_iterator_is_done(iter);
+         combination_iterator_next(iter))
     {
-        const uint8_t *const component_axes = combination_iterator_current(iter);
-        boundary_mass_row_axis_counts(spec, component_axes, counts, offsets);
+        boundary_mass_row_axis_counts(spec, component_axes, counts);
         const size_t row_dofs = boundary_mass_row_dofs(spec, counts);
         (void)mapped_axes_and_sign(&side, spec->bdim, spec->order, component_axes, mapped_axes);
         const unsigned element_component = combination_get_index(spec->ndim, spec->order, mapped_axes);
@@ -455,7 +487,6 @@ void constraint_boundary_mass_work_size(const constraint_boundary_mass_spec_t *c
         max_row_dofs = max_row_dofs > row_dofs ? max_row_dofs : row_dofs;
         max_col_dofs = max_col_dofs > col_dofs ? max_col_dofs : col_dofs;
     }
-    cutl_dealloc(&CUTL_STD_ALLOCATOR, mem);
 
     *out_sizes = (constraint_boundary_mass_work_sizes_t){
         .row_values = max_row_dofs * point_count,
@@ -464,40 +495,20 @@ void constraint_boundary_mass_work_size(const constraint_boundary_mass_spec_t *c
         .component_count = combination_total_count((uint8_t)spec->bdim, (uint8_t)spec->order)};
 }
 
-/**
- * @brief Physical dot product of one test and one element pullback component.
- */
-static double boundary_mass_pullback_dot(const constraint_trace_pullback_t *const test_pullback,
-                                         const unsigned test_component,
-                                         const constraint_trace_pullback_t *const element_pullback,
-                                         const unsigned element_component, const size_t point_count, const size_t point)
-{
-    CUTL_ASSERT(test_pullback->physical_component_count == element_pullback->physical_component_count,
-                "Pullbacks disagree on the physical component count.");
-    const double *const test_values =
-        test_pullback->values +
-        ((size_t)test_component * test_pullback->physical_component_count * point_count + point);
-    const double *const element_values =
-        element_pullback->values +
-        ((size_t)element_component * element_pullback->physical_component_count * point_count + point);
-    double result = 0.0;
-    for (unsigned physical_component = 0; physical_component < test_pullback->physical_component_count;
-         ++physical_component)
-    {
-        result += test_values[(size_t)physical_component * point_count] *
-                  element_values[(size_t)physical_component * point_count];
-    }
-    return result;
-}
-
 void constraint_boundary_mass_assemble(const constraint_boundary_mass_request_t *const request)
 {
     const constraint_boundary_mass_spec_t *const spec = request->spec;
     constraint_boundary_mass_work_t *const work = request->work;
     const unsigned order = spec->order;
-    const size_t component_count = combination_total_count((uint8_t)spec->bdim, (uint8_t)order);
+    CUTL_ASSERT(order <= spec->bdim, "Traced order %u exceeds the boundary dimension %u; that order has no trace.",
+                order, spec->bdim);
     CUTL_ASSERT((request->test_pullback == NULL) == (request->element_pullback == NULL),
                 "Physical pullbacks must be given for both test and element sides.");
+    const bool physical = request->test_pullback != NULL;
+    CUTL_ASSERT(!physical || request->test_pullback->physical_component_count ==
+                                 request->element_pullback->physical_component_count,
+                "Pullbacks disagree on the physical component count.");
+    const size_t component_count = combination_total_count((uint8_t)spec->bdim, (uint8_t)order);
 
     const size_t point_count = integration_specs_total_points(spec->bdim, spec->boundary_integration);
 
@@ -508,14 +519,9 @@ void constraint_boundary_mass_assemble(const constraint_boundary_mass_request_t 
     {
         request->out_matrix[value] = 0.0;
     }
-    if (order > spec->bdim)
-    {
-        return;
-    }
 
     boundary_mass_axis_descriptors(spec, request, work);
 
-    const bool physical = request->test_pullback != NULL;
     const constraint_element_side_t side = {
         .ndim = spec->ndim, .basis_specs = spec->element_spec->basis, .orientation = spec->orientation};
     if (physical)
@@ -562,22 +568,72 @@ void constraint_boundary_mass_assemble(const constraint_boundary_mass_request_t 
 
             // The pullback tables hold each side's own covector image, so physical pairing is frame-free; only
             // reference pairing needs the orientation sign to express the row component in the element's covector
-            // basis.
+            // basis. The factor sweep vectorizes over points: physical pairing accumulates one contiguous row per
+            // physical component, then a single contiguous pass folds in the weights (and optional face measure),
+            // preserving the original `((sign * weight) * measure) * dot` rounding order.
             const double block_sign = (double)(physical ? 1 : work->element_signs[block]) * request->factor;
-            for (size_t point = 0; point < point_count; ++point)
+            double *const point_factors = work->point_factors;
+            if (!physical)
             {
-                double point_factor = block_sign * request->point_weights[point];
-                if (request->surface_weights != NULL)
+                if (request->surface_weights == NULL)
                 {
-                    point_factor *= request->surface_weights[point];
+#pragma omp simd
+                    for (size_t point = 0; point < point_count; ++point)
+                    {
+                        point_factors[point] = block_sign * request->point_weights[point];
+                    }
                 }
-                if (physical)
+                else
                 {
-                    point_factor *= boundary_mass_pullback_dot(request->test_pullback, (unsigned)component,
-                                                               request->element_pullback,
-                                                               work->element_components[block], point_count, point);
+                    const double *const surface = request->surface_weights;
+#pragma omp simd
+                    for (size_t point = 0; point < point_count; ++point)
+                    {
+                        point_factors[point] = (block_sign * request->point_weights[point]) * surface[point];
+                    }
                 }
-                work->point_factors[point] = point_factor;
+            }
+            else
+            {
+                const size_t pullback_components = request->test_pullback->physical_component_count;
+                const double *const test_values =
+                    request->test_pullback->values + (size_t)component * pullback_components * point_count;
+                const double *const element_values =
+                    request->element_pullback->values +
+                    (size_t)work->element_components[block] * pullback_components * point_count;
+#pragma omp simd
+                for (size_t point = 0; point < point_count; ++point)
+                {
+                    point_factors[point] = 0.0;
+                }
+                for (unsigned physical_component = 0; physical_component < pullback_components; ++physical_component)
+                {
+                    const double *const test_row = test_values + (size_t)physical_component * point_count;
+                    const double *const element_row = element_values + (size_t)physical_component * point_count;
+#pragma omp simd
+                    for (size_t point = 0; point < point_count; ++point)
+                    {
+                        point_factors[point] += test_row[point] * element_row[point];
+                    }
+                }
+                if (request->surface_weights == NULL)
+                {
+#pragma omp simd
+                    for (size_t point = 0; point < point_count; ++point)
+                    {
+                        point_factors[point] = (block_sign * request->point_weights[point]) * point_factors[point];
+                    }
+                }
+                else
+                {
+                    const double *const surface = request->surface_weights;
+#pragma omp simd
+                    for (size_t point = 0; point < point_count; ++point)
+                    {
+                        point_factors[point] =
+                            ((block_sign * request->point_weights[point]) * surface[point]) * point_factors[point];
+                    }
+                }
             }
             kform_inner_product_block(point_count, row_dofs, col_dofs, work->row_values, work->col_values,
                                       work->point_factors, work->row_offsets[component], work->col_offsets[block], cols,
@@ -795,15 +851,13 @@ fdg_result_t constrain_elements_on_boundary_prepare(const constrain_elements_on_
             }
 
             const kform_spec_t element_spec = {.ndim = ndim, .order = order, .basis = element->basis};
-            const constraint_boundary_mass_spec_t spec = {
-                .ndim = ndim,
-                .bdim = bdim,
-                .order = order,
-                .element_spec = &element_spec,
-                .boundary_basis = form_basis,
-                .boundary_integration = form_integration,
-                .orientation = element->orientation,
-                .axis_skip = request->axis_skip != NULL ? request->axis_skip + (size_t)iform * bdim : NULL};
+            const constraint_boundary_mass_spec_t spec = {.ndim = ndim,
+                                                          .bdim = bdim,
+                                                          .order = order,
+                                                          .element_spec = &element_spec,
+                                                          .boundary_basis = form_basis,
+                                                          .boundary_integration = form_integration,
+                                                          .orientation = element->orientation};
             const bool physical =
                 !request->c1_continuous && request->test_pullbacks != NULL && request->test_pullbacks[item] != NULL;
             size_t rows;
@@ -822,6 +876,7 @@ fdg_result_t constrain_elements_on_boundary_prepare(const constrain_elements_on_
 
 void constrain_elements_on_boundary_work_size(const constrain_elements_on_boundary_request_t *const request,
                                               const constrain_elements_on_boundary_plan_t *const plan,
+                                              constrain_elements_on_boundary_work_t *const work,
                                               size_t *const out_weights, size_t *const out_row_values,
                                               size_t *const out_col_values)
 {
@@ -834,8 +889,6 @@ void constrain_elements_on_boundary_work_size(const constrain_elements_on_bounda
         const unsigned order = views[0].order;
         const basis_spec_t *const form_basis = plan->boundary_basis + (size_t)iform * request->bdim;
         const integration_spec_t *const form_integration = plan->boundary_integration + (size_t)iform * request->bdim;
-        const uint8_t *const form_skip =
-            request->axis_skip != NULL ? request->axis_skip + (size_t)iform * request->bdim : NULL;
         const size_t point_count = integration_specs_total_points(request->bdim, form_integration);
         max_weights = max_weights > point_count ? max_weights : point_count;
         for (unsigned ie = 0; ie < request->nelem; ++ie)
@@ -847,10 +900,9 @@ void constrain_elements_on_boundary_work_size(const constrain_elements_on_bounda
                                                           .element_spec = &element_spec,
                                                           .boundary_basis = form_basis,
                                                           .boundary_integration = form_integration,
-                                                          .orientation = views[ie].orientation,
-                                                          .axis_skip = form_skip};
+                                                          .orientation = views[ie].orientation};
             constraint_boundary_mass_work_sizes_t sizes;
-            constraint_boundary_mass_work_size(&spec, &sizes);
+            constraint_boundary_mass_work_size(&spec, &work->mass, &sizes);
             max_row_values = max_row_values > sizes.row_values ? max_row_values : sizes.row_values;
             max_col_values = max_col_values > sizes.col_values ? max_col_values : sizes.col_values;
         }
@@ -870,6 +922,11 @@ void constrain_elements_on_boundary_assemble(const constrain_elements_on_boundar
     {
         const boundary_element_space_t *const views = request->elements + (size_t)iform * plan->nelem;
         const unsigned order = views[0].order;
+        if (order > bdim)
+        {
+            // No trace components past the boundary dimension: prepare recorded empty item slices for this form.
+            continue;
+        }
         const size_t form = (size_t)iform * bdim;
         const basis_spec_t *const form_basis = plan->boundary_basis + form;
         const integration_spec_t *const form_integration = plan->boundary_integration + form;
@@ -901,15 +958,13 @@ void constrain_elements_on_boundary_assemble(const constrain_elements_on_boundar
             }
 
             const kform_spec_t element_spec = {.ndim = ndim, .order = order, .basis = element->basis};
-            const constraint_boundary_mass_spec_t spec = {
-                .ndim = ndim,
-                .bdim = bdim,
-                .order = order,
-                .element_spec = &element_spec,
-                .boundary_basis = form_basis,
-                .boundary_integration = form_integration,
-                .orientation = element->orientation,
-                .axis_skip = request->axis_skip != NULL ? request->axis_skip + (size_t)iform * bdim : NULL};
+            const constraint_boundary_mass_spec_t spec = {.ndim = ndim,
+                                                          .bdim = bdim,
+                                                          .order = order,
+                                                          .element_spec = &element_spec,
+                                                          .boundary_basis = form_basis,
+                                                          .boundary_integration = form_integration,
+                                                          .orientation = element->orientation};
             const constraint_boundary_mass_request_t mass_request = {
                 .spec = &spec,
                 .boundary_basis_sets = plan->boundary_sets + form,

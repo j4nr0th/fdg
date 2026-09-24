@@ -275,7 +275,6 @@ def test_kform_boundary_trace_moments_packed_scalar() -> None:
         [element_map.integration_space],
         element_maps=[element_map],
         boundary_dimension=1,
-        axis_skip=(2,),
         packed=True,
     )
     row_offsets, sides, components, local_dofs, coefficients = packed[0]
@@ -388,7 +387,6 @@ def test_kform_boundary_mass_matrices_three_dimensional_line() -> None:
         [space_map.integration_space],
         element_maps=[space_map],
         boundary_dimension=1,
-        axis_skip=(2,),
         packed=True,
     )
     row_offsets, _, components, local_dofs, coefficients = packed[0]
@@ -425,7 +423,6 @@ def test_boundary_mass_matrices_trace_continuity() -> None:
                 [maps[int(e)].integration_space for e in element_ids],
                 element_maps=[maps[int(e)] for e in element_ids],
                 boundary_dimension=mdim,
-                axis_skip=(2,) * mdim,
             )
             del common, object_id
             moments = [matrices[i] @ values for i in range(len(element_ids))]

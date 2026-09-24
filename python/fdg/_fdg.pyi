@@ -2001,7 +2001,6 @@ def compute_kform_boundary_mass_matrices(
     element_specs: Sequence[KFormSpecs],
     orientations: Sequence[Sequence[int]],
     element_integrations: Sequence[IntegrationSpace],
-    axis_skip: Sequence[int] | None = None,
     element_maps: Sequence[SpaceMap] | None = None,
     *,
     boundary_dimension: int | None = None,
@@ -2022,7 +2021,7 @@ def compute_kform_boundary_mass_matrices(
     permutation of the element axes whose first ``ndim - boundary_dimension``
     entries name the fixed normal axes and whose tail maps the free
     canonical boundary axes. Rows are the windowed common Legendre test
-    space of the shared object (``axis_skip[axis]`` lowest functions removed
+    space of the shared object (the two highest functions removed
     on axes inactive in a component); columns span each element's flat DoF
     numbering. With ``element_maps`` (one SpaceMap per element) the assembly
     samples each face's surface measure and k-form pullback on its own
@@ -2040,7 +2039,6 @@ def compute_kform_boundary_trace_moments(
     element_specs: Sequence[KFormSpecs],
     orientations: Sequence[Sequence[int]],
     element_integrations: Sequence[IntegrationSpace],
-    axis_skip: Sequence[int] | None = None,
     element_maps: Sequence[SpaceMap] | None = None,
     *,
     boundary_dimension: int | None = None,

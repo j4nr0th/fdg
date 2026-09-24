@@ -12,8 +12,8 @@ Each row of a boundary mass matrix is a trace inner product,
 
 where :math:`v_i` are the windowed common Legendre test functions of the
 shared face: the per-axis minimum order of the incident elements, reduced by
-two on every axis that carries no covector of the k-form component
-(``axis_skip=2``).  The columns pair with the element's trace degrees of
+two on every axis that carries no covector of the k-form component.
+The columns pair with the element's trace degrees of
 freedom, so one matrix collects the boundary geometry and metric factors of
 one element trace in a single per-object operator.
 
@@ -125,7 +125,6 @@ def boundary_mass_matrices(
             specs,
             orientations,
             [element_map.integration_space for element_map in maps],
-            axis_skip=(2,) * boundary_dimension,
             boundary_dimension=boundary_dimension,
             packed=True,
         )
