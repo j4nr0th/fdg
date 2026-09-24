@@ -1144,7 +1144,7 @@ PyType_Spec degrees_of_freedom_type_spec = {
              {
                  .ml_name = "reconstruct_at_integration_points",
                  .ml_meth = (void *)dof_reconstruct_at_integration_points,
-                 .ml_flags = METH_FASTCALL | METH_KEYWORDS | METH_METHOD,
+                 .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
                  .ml_doc = (void *)dof_reconstruct_at_integration_points_docstring,
              },
              {

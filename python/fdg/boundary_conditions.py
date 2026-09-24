@@ -12,8 +12,12 @@ import numpy as np
 import numpy.typing as npt
 
 from fdg._fdg import (
+    DEFAULT_BASIS_REGISTRY,
+    DEFAULT_INTEGRATION_REGISTRY,
+    BasisRegistry,
     BasisSpecs,
     FunctionSpace,
+    IntegrationRegistry,
     IntegrationSpace,
     KFormSpecs,
     SpaceMap,
@@ -346,7 +350,12 @@ def _select_periodic_object_relations(
 
 
 def _restrict_map(
-    element_map: SpaceMap, orientation: npt.NDArray[np.int8], ndim: int, mdim: int
+    element_map: SpaceMap,
+    orientation: npt.NDArray[np.int8],
+    ndim: int,
+    mdim: int,
+    *,
+    integration_registry: IntegrationRegistry,
 ) -> SpaceMap:
     """Restrict an element map to an oriented boundary object.
 
@@ -362,6 +371,8 @@ def _restrict_map(
         Dimension of the element reference domain.
     mdim : int
         Dimension of the resulting boundary map.
+    integration_registry : IntegrationRegistry
+        Registry supplying the quadrature rules of every restriction pass.
 
     Returns
     -------
@@ -372,7 +383,9 @@ def _restrict_map(
     result = element_map
     for fixed_orientation in orientation[: ndim - mdim][::-1]:
         result = result.boundary(
-            abs(int(fixed_orientation)) - 1, int(fixed_orientation) > 0
+            abs(int(fixed_orientation)) - 1,
+            int(fixed_orientation) > 0,
+            integration_registry=integration_registry,
         )
     return result
 
@@ -659,6 +672,8 @@ def _windowed_component_basis(
     common: KFormSpecs,
     integration: IntegrationSpace,
     component_axes: tuple[int, ...],
+    *,
+    integration_registry: IntegrationRegistry,
 ) -> np.ndarray | None:
     """Windowed test table of one common component on the shared grid.
 
@@ -668,7 +683,10 @@ def _windowed_component_basis(
     ``None`` when the component's row block drops out.
     """
     mdim = len(common.base_space.orders)
-    nodes = [np.asarray(specs.nodes()) for specs in integration.integration_specs]
+    nodes = [
+        np.asarray(specs.nodes(integration_registry))
+        for specs in integration.integration_specs
+    ]
     axis_tables = []
     for axis, minimum in enumerate(common.base_space.orders):
         minimum = int(minimum)
@@ -710,6 +728,8 @@ def _windowed_dual_values(
     integration: IntegrationSpace,
     ndim: int,
     mdim: int,
+    *,
+    integration_registry: IntegrationRegistry,
 ) -> list[np.ndarray]:
     """Assemble prescribed data into windowed test-space dual moments.
 
@@ -722,12 +742,14 @@ def _windowed_dual_values(
         # A vertex traces one scalar value: the single dual moment is the
         # point value itself; no window or quadrature is involved.
         return [np.asarray(physical_values[0].reshape(-1)[0], dtype=np.double).reshape(1)]
-    weights = np.asarray(integration.weights()) * np.abs(
+    weights = np.asarray(integration.weights(integration_registry)) * np.abs(
         np.asarray(boundary_map.determinant)
     )
     result: list[np.ndarray] = []
     for component, axes in enumerate(combinations(range(mdim), order)):
-        basis = _windowed_component_basis(common, integration, axes)
+        basis = _windowed_component_basis(
+            common, integration, axes, integration_registry=integration_registry
+        )
         if basis is None:
             result.append(np.zeros(0, dtype=np.double))
             continue
@@ -778,6 +800,9 @@ def _append_boundary_rows(
     ],
     rows: list[list[tuple[int, int, int, float]]],
     rhs: list[float],
+    *,
+    integration_registry: IntegrationRegistry,
+    basis_registry: BasisRegistry,
 ) -> None:
     """Append prescribed-boundary rows for selected objects.
 
@@ -796,6 +821,8 @@ def _append_boundary_rows(
     rows, rhs : list
         Mutable output lists receiving packed-row entries and right-hand-side
         values. Existing shared and periodic rows are preserved.
+    integration_registry, basis_registry : Registry
+        Registries supplying the quadrature rules and trace basis tables.
 
     Notes
     -----
@@ -819,7 +846,13 @@ def _append_boundary_rows(
             continue
         element_ids, orientations = records[key]
         element_id = int(element_ids[0])
-        boundary_map = _restrict_map(maps[element_id], orientations[0], ndim, mdim)
+        boundary_map = _restrict_map(
+            maps[element_id],
+            orientations[0],
+            ndim,
+            mdim,
+            integration_registry=integration_registry,
+        )
         common, common_integration, _matrices, packed = (
             compute_kform_boundary_trace_moments(
                 [element_specs[element_id]],
@@ -829,12 +862,20 @@ def _append_boundary_rows(
                 boundary_dimension=mdim,
                 axis_skip=(AXIS_SKIP,) * mdim,
                 packed=True,
+                integration_registry=integration_registry,
+                basis_registry=basis_registry,
             )
         )
         row_offsets, _sides, components, local_dofs, coefficients = packed[0]
         candidates = [
             _windowed_dual_values(
-                data, common, boundary_map, common_integration, ndim, mdim
+                data,
+                common,
+                boundary_map,
+                common_integration,
+                ndim,
+                mdim,
+                integration_registry=integration_registry,
             )
             for data in object_sources
         ]
@@ -882,6 +923,9 @@ def _append_periodic_rows(
     ],
     rows: list[list[tuple[int, int, int, float]]],
     rhs: list[float],
+    *,
+    integration_registry: IntegrationRegistry,
+    basis_registry: BasisRegistry,
 ) -> None:
     """Append acyclic periodic rows for related boundary objects.
 
@@ -900,6 +944,8 @@ def _append_periodic_rows(
     rows, rhs : list
         Mutable output lists receiving periodic rows and zero right-hand
         sides.
+    integration_registry, basis_registry : Registry
+        Registries supplying the quadrature rules and trace basis tables.
 
     Notes
     -----
@@ -938,8 +984,9 @@ def _append_periodic_rows(
             element_maps=[maps[left_element], maps[right_element]],
             boundary_dimension=mdim,
             axis_skip=(AXIS_SKIP,) * mdim,
-            shared_face=False,
             packed=True,
+            integration_registry=integration_registry,
+            basis_registry=basis_registry,
         )
         left_packed, right_packed = packed
         counts_per_axis = [int(value) for value in common.base_space.orders]
@@ -1000,6 +1047,8 @@ def _compute_kform_global_constraints(
     *,
     basis_type: BasisType | None = None,
     c1_continuous: bool = False,
+    integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
+    basis_registry: BasisRegistry = DEFAULT_BASIS_REGISTRY,
 ) -> tuple[PackedRows, npt.NDArray[np.double]]:
     """Assemble shared, prescribed, and periodic global trace constraints.
 
@@ -1024,6 +1073,8 @@ def _compute_kform_global_constraints(
         Impose continuity in reference space without geometry factors;
         ``element_maps`` may be omitted in that case unless boundary data or
         periodic pairs require them.
+    integration_registry, basis_registry : Registry
+        Registries supplying the quadrature rules and trace basis tables.
 
     Returns
     -------
@@ -1051,6 +1102,8 @@ def _compute_kform_global_constraints(
         element_maps,
         basis_type=basis_type,
         c1_continuous=c1_continuous,
+        integration_registry=integration_registry,
+        basis_registry=basis_registry,
     )
     rows = _unpack(shared)
     rhs = [0.0] * len(rows)
@@ -1105,8 +1158,28 @@ def _compute_kform_global_constraints(
         )
 
     maps: Sequence[SpaceMap] = element_maps if element_maps is not None else []
-    _append_boundary_rows(mesh, maps, element_specs, sources, records, rows, rhs)
-    _append_periodic_rows(mesh, maps, element_specs, relations, records, rows, rhs)
+    _append_boundary_rows(
+        mesh,
+        maps,
+        element_specs,
+        sources,
+        records,
+        rows,
+        rhs,
+        integration_registry=integration_registry,
+        basis_registry=basis_registry,
+    )
+    _append_periodic_rows(
+        mesh,
+        maps,
+        element_specs,
+        relations,
+        records,
+        rows,
+        rhs,
+        integration_registry=integration_registry,
+        basis_registry=basis_registry,
+    )
     return _pack(rows, rhs)
 
 
@@ -1121,6 +1194,8 @@ def compute_kform_global_constraints(
     *,
     basis_type: BasisType | None = None,
     c1_continuous: bool = False,
+    integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
+    basis_registry: BasisRegistry = DEFAULT_BASIS_REGISTRY,
 ) -> tuple[PackedRows, npt.NDArray[np.double]]:
     """Assemble global shared, prescribed, and periodic trace rows.
 
@@ -1142,6 +1217,10 @@ def compute_kform_global_constraints(
         Basis family forced onto every derived boundary test space.
     c1_continuous : bool
         Impose continuity in reference space without geometry factors.
+    integration_registry : IntegrationRegistry, optional
+        Registry supplying every quadrature rule of the assembly.
+    basis_registry : BasisRegistry, optional
+        Registry supplying every trace basis table of the assembly.
 
     Returns
     -------
@@ -1157,4 +1236,6 @@ def compute_kform_global_constraints(
         periodic_pairs,
         basis_type=basis_type,
         c1_continuous=c1_continuous,
+        integration_registry=integration_registry,
+        basis_registry=basis_registry,
     )

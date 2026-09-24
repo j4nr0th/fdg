@@ -492,7 +492,6 @@ def test_kform_boundary_constraints_strong_weak_solve(ndim: int) -> None:
                 element_maps=[maps[e] for e in ids],
                 boundary_dimension=mdim,
                 axis_skip=(2,) * mdim,
-                shared_face=False,
                 packed=True,
             )
             del common, _object_id

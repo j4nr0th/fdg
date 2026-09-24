@@ -376,7 +376,7 @@ PyType_Spec kform_spec_type_spec = {
              {
                  .ml_name = "get_component_slice",
                  .ml_meth = (void *)kform_specs_get_component_slice,
-                 .ml_flags = METH_FASTCALL | METH_KEYWORDS | METH_METHOD,
+                 .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
                  .ml_doc = kform_specs_get_component_slice_docstring,
              },
              {},
@@ -705,13 +705,13 @@ PyType_Spec kform_type_spec = {
              {
                  .ml_name = "get_component_dofs",
                  .ml_meth = (void *)kform_get_component_dofs,
-                 .ml_flags = METH_FASTCALL | METH_KEYWORDS | METH_METHOD,
+                 .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
                  .ml_doc = kform_get_component_dofs_docstring,
              },
              {
                  .ml_name = "get_component",
                  .ml_meth = (void *)kform_get_component_dof_object,
-                 .ml_flags = METH_FASTCALL | METH_KEYWORDS | METH_METHOD,
+                 .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
                  .ml_doc = kform_get_component_dof_object_docstring,
              },
              {},

@@ -533,7 +533,7 @@ PyType_Spec covector_basis_type_spec = {
                  {
                      .ml_name = "normalize",
                      .ml_meth = (void *)covector_basis_normalize,
-                     .ml_flags = METH_FASTCALL | METH_METHOD | METH_KEYWORDS,
+                     .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
                      .ml_doc = covector_basis_normalize_docstring,
                  },
                  {},

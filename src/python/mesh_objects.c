@@ -662,6 +662,8 @@ typedef struct
     unsigned order;
     kform_spec_object **element_specs;
     space_map_object **element_maps;
+    integration_registry_object *integration_registry;
+    basis_registry_object *basis_registry;
     int c1_continuous;
     int failed;
     mesh_continuity_builder_t builder;
@@ -727,6 +729,7 @@ static int mesh_continuity_assemble_object(mesh_continuity_context_t *const cont
     size_t **pack_dofs = NULL;
     double **pack_coefficients = NULL;
     size_t **pack_offsets = NULL;
+    void **pack_memory = NULL;
     double *arena = NULL;
     double *surface_block = NULL;
     double *pullback_block = NULL;
@@ -744,20 +747,8 @@ static int mesh_continuity_assemble_object(mesh_continuity_context_t *const cont
         // A form of order past the object dimension has no trace components and yields no rows.
         return 0;
     }
-    // Plain per-element arrays share one group; arrays whose cleanup may read unfilled slots stay separately zeroed.
+    // Everything per-element shares one group; the cleanup-walked slot arrays are zeroed right after allocation.
     CUTL_ASSERT(nelem > 1 && nelem <= UINT8_MAX, "Shared objects need two or more incident elements.");
-    factors = PyMem_Calloc(nelem, sizeof(*factors));
-    transforms = PyMem_Calloc(nelem, sizeof(*transforms));
-    pullback_values = PyMem_Calloc(nelem, sizeof(*pullback_values));
-    element_pullback_values = PyMem_Calloc(nelem, sizeof(*element_pullback_values));
-    surface_weights = PyMem_Calloc(nelem, sizeof(*surface_weights));
-    pullbacks = PyMem_Calloc(nelem, sizeof(*pullbacks));
-    element_pullbacks = PyMem_Calloc(nelem, sizeof(*element_pullbacks));
-    pack_sides = PyMem_Calloc(nelem, sizeof(*pack_sides));
-    pack_components = PyMem_Calloc(nelem, sizeof(*pack_components));
-    pack_dofs = PyMem_Calloc(nelem, sizeof(*pack_dofs));
-    pack_coefficients = PyMem_Calloc(nelem, sizeof(*pack_coefficients));
-    pack_offsets = PyMem_Calloc(nelem, sizeof(*pack_offsets));
     void *const head_memory = cutl_alloc_group(
         &PYTHON_ALLOCATOR,
         (const cutl_alloc_info_t[]){{sizeof(*orientations) * nelem, (void **)&orientations},
@@ -767,14 +758,29 @@ static int mesh_continuity_assemble_object(mesh_continuity_context_t *const cont
                                     {sizeof(*surface_rows) * nelem, (void **)&surface_rows},
                                     {sizeof(*test_pullback_pointers) * nelem, (void **)&test_pullback_pointers},
                                     {sizeof(*element_pullback_pointers) * nelem, (void **)&element_pullback_pointers},
+                                    {sizeof(*factors) * nelem, (void **)&factors},
+                                    {sizeof(*transforms) * nelem, (void **)&transforms},
+                                    {sizeof(*pullback_values) * nelem, (void **)&pullback_values},
+                                    {sizeof(*element_pullback_values) * nelem, (void **)&element_pullback_values},
+                                    {sizeof(*surface_weights) * nelem, (void **)&surface_weights},
+                                    {sizeof(*pullbacks) * nelem, (void **)&pullbacks},
+                                    {sizeof(*element_pullbacks) * nelem, (void **)&element_pullbacks},
+                                    {sizeof(*pack_sides) * nelem, (void **)&pack_sides},
+                                    {sizeof(*pack_components) * nelem, (void **)&pack_components},
+                                    {sizeof(*pack_dofs) * nelem, (void **)&pack_dofs},
+                                    {sizeof(*pack_coefficients) * nelem, (void **)&pack_coefficients},
+                                    {sizeof(*pack_offsets) * nelem, (void **)&pack_offsets},
+                                    {sizeof(*pack_memory) * nelem, (void **)&pack_memory},
                                     {}});
-    if (!head_memory || !factors || !transforms || !pullback_values || !element_pullback_values || !surface_weights ||
-        !pullbacks || !element_pullbacks || !pack_sides || !pack_components || !pack_dofs || !pack_coefficients ||
-        !pack_offsets)
+    if (!head_memory)
     {
         PyErr_NoMemory();
         goto out;
     }
+    // Failure paths read these slots before the filling loops run; zero them.
+    memset(factors, 0, sizeof(*factors) * nelem);
+    memset(transforms, 0, sizeof(*transforms) * nelem);
+    memset(pack_memory, 0, sizeof(*pack_memory) * nelem);
     for (unsigned e = 0; e < nelem; ++e)
     {
         orientations[e] = element_orientations + (size_t)e * ndim;
@@ -788,8 +794,7 @@ static int mesh_continuity_assemble_object(mesh_continuity_context_t *const cont
         // endpoint sets hold the reference basis values at the interval ends and the orientation record selects the
         // shared vertex's corner per element; no geometry enters — reference-space corner coupling matches the
         // historical row semantics. Star rows link every non-anchor element to the anchor.
-        // TODO: should be a parameter, not the global default.
-        basis_set_registry_t *const basis_registry = ((basis_registry_object *)state->registry_basis)->registry;
+        basis_set_registry_t *const basis_registry = context->basis_registry->registry;
         const basis_endpoint_set_t **endpoints = PyMem_Malloc((size_t)nelem * ndim * sizeof(*endpoints));
         if (!endpoints)
         {
@@ -920,8 +925,8 @@ static int mesh_continuity_assemble_object(mesh_continuity_context_t *const cont
     {
         if (physical)
         {
-            if (make_boundary_face_setup(state, context->element_maps[element_ids[e]], orientations[e], ndim, bdim,
-                                         &factors[e].setup) < 0)
+            if (make_boundary_face_setup(state, context->integration_registry, context->element_maps[element_ids[e]],
+                                         orientations[e], ndim, bdim, &factors[e].setup) < 0)
                 goto out;
             const integration_spec_t *const canonical_specs = factors[e].setup.canonical_specs;
             for (unsigned slot = 0; slot < bdim; ++slot)
@@ -983,20 +988,19 @@ static int mesh_continuity_assemble_object(mesh_continuity_context_t *const cont
                                               .integration = element_integrations + e * ndim};
     }
 
-    constrain_elements_on_boundary_request_t request = {
-        .ndim = ndim,
-        .bdim = bdim,
-        .nforms = 1,
-        .nelem = nelem,
-        .elements = views,
-        .axis_skip = axis_skip,
-        .c1_continuous = context->c1_continuous,
-        .shared_face_guard = true,
-        .surface_weights = NULL,
-        .test_pullbacks = NULL,
-        .element_pullbacks = NULL,
-        .basis_registry = ((basis_registry_object *)state->registry_basis)->registry,
-        .integration_registry = ((integration_registry_object *)state->registry_integration)->registry};
+    constrain_elements_on_boundary_request_t request = {.ndim = ndim,
+                                                        .bdim = bdim,
+                                                        .nforms = 1,
+                                                        .nelem = nelem,
+                                                        .elements = views,
+                                                        .axis_skip = axis_skip,
+                                                        .c1_continuous = context->c1_continuous,
+                                                        .surface_weights = NULL,
+                                                        .test_pullbacks = NULL,
+                                                        .element_pullbacks = NULL,
+                                                        .basis_registry = context->basis_registry->registry,
+                                                        .integration_registry =
+                                                            context->integration_registry->registry};
     fdg_result_t res = constrain_elements_on_boundary_prepare(&request, &work, out_basis, out_integration, &plan);
     if (res != FDG_SUCCESS)
     {
@@ -1223,12 +1227,15 @@ static int mesh_continuity_assemble_object(mesh_continuity_context_t *const cont
         size_t cols_e;
         size_t entries;
         constraint_boundary_mass_layout(&spec, &work.mass, coupled, &rows_e, &cols_e, &entries);
-        pack_sides[e] = PyMem_Malloc(entries * sizeof(*pack_sides[e]));
-        pack_components[e] = PyMem_Malloc(entries * sizeof(*pack_components[e]));
-        pack_dofs[e] = PyMem_Malloc(entries * sizeof(*pack_dofs[e]));
-        pack_coefficients[e] = PyMem_Malloc(entries * sizeof(*pack_coefficients[e]));
-        pack_offsets[e] = PyMem_Malloc((rows_e + 1) * sizeof(*pack_offsets[e]));
-        if (!pack_sides[e] || !pack_components[e] || !pack_dofs[e] || !pack_coefficients[e] || !pack_offsets[e])
+        pack_memory[e] = cutl_alloc_group(
+            &PYTHON_ALLOCATOR,
+            (const cutl_alloc_info_t[]){{entries * sizeof(*pack_sides[e]), (void **)&pack_sides[e]},
+                                        {entries * sizeof(*pack_components[e]), (void **)&pack_components[e]},
+                                        {entries * sizeof(*pack_dofs[e]), (void **)&pack_dofs[e]},
+                                        {entries * sizeof(*pack_coefficients[e]), (void **)&pack_coefficients[e]},
+                                        {(rows_e + 1) * sizeof(*pack_offsets[e]), (void **)&pack_offsets[e]},
+                                        {}});
+        if (!pack_memory[e])
         {
             PyErr_NoMemory();
             goto out;
@@ -1273,40 +1280,25 @@ out:
     {
         constrain_elements_on_boundary_plan_release(&plan);
     }
-    for (unsigned e = 0; e < nelem; ++e)
+    // The head group hands out its slots only on success; they stay NULL when it never allocated.
+    if (head_memory)
     {
-        Py_XDECREF(transforms[e]);
-        if (physical && factors[e].setup.face_object != NULL)
+        for (unsigned e = 0; e < nelem; ++e)
         {
-            release_boundary_face_setup(state, bdim, &factors[e].setup);
+            Py_XDECREF(transforms[e]);
+            if (physical && factors[e].setup.face_object != NULL)
+            {
+                release_boundary_face_setup(context->integration_registry, bdim, &factors[e].setup);
+            }
+            cutl_dealloc(&PYTHON_ALLOCATOR, pack_memory[e]);
         }
-        // TODO: again, I recon we can allocate and deallocate these as a group!
-        PyMem_Free(pack_sides[e]);
-        PyMem_Free(pack_components[e]);
-        PyMem_Free(pack_dofs[e]);
-        PyMem_Free(pack_coefficients[e]);
-        PyMem_Free(pack_offsets[e]);
     }
-    // TODO: ALL these pointers get freed together using PyMem_Free. Why not just allocate them together using
-    // cult_alloc_group?
     PyMem_Free(arena);
     cutl_dealloc(&PYTHON_ALLOCATOR, weights_memory);
     cutl_dealloc(&PYTHON_ALLOCATOR, build_memory);
     cutl_dealloc(&PYTHON_ALLOCATOR, rows_memory);
     cutl_dealloc(&PYTHON_ALLOCATOR, core_memory);
     cutl_dealloc(&PYTHON_ALLOCATOR, head_memory);
-    PyMem_Free(pack_offsets);
-    PyMem_Free(pack_coefficients);
-    PyMem_Free(pack_dofs);
-    PyMem_Free(pack_components);
-    PyMem_Free(pack_sides);
-    PyMem_Free(element_pullbacks);
-    PyMem_Free(pullbacks);
-    PyMem_Free(surface_weights);
-    PyMem_Free(element_pullback_values);
-    PyMem_Free(pullback_values);
-    PyMem_Free(transforms);
-    PyMem_Free(factors);
     return failed ? -1 : 0;
 }
 
@@ -1457,6 +1449,8 @@ static PyObject *mesh_compute_kform_continuity_constraints(PyObject *self, PyTyp
     PyObject *element_maps_object = Py_None;
     PyObject *basis_type_object = Py_None;
     int c1_continuous = 0;
+    integration_registry_object *integration_registry = (integration_registry_object *)state->registry_integration;
+    basis_registry_object *basis_registry = (basis_registry_object *)state->registry_basis;
     if (parse_arguments_check(
             (cpyutl_argument_t[]){{.type = CPYARG_TYPE_PYTHON, .p_val = &element_specs_object},
                                   {.type = CPYARG_TYPE_PYTHON, .p_val = &element_maps_object, .optional = 1},
@@ -1468,6 +1462,18 @@ static PyObject *mesh_compute_kform_continuity_constraints(PyObject *self, PyTyp
                                   {.type = CPYARG_TYPE_BOOL,
                                    .p_val = &c1_continuous,
                                    .kwname = "c1_continuous",
+                                   .optional = 1,
+                                   .kw_only = 1},
+                                  {.type = CPYARG_TYPE_PYTHON,
+                                   .p_val = &integration_registry,
+                                   .type_check = state->integration_registry_type,
+                                   .kwname = "integration_registry",
+                                   .optional = 1,
+                                   .kw_only = 1},
+                                  {.type = CPYARG_TYPE_PYTHON,
+                                   .p_val = &basis_registry,
+                                   .type_check = state->basis_registry_type,
+                                   .kwname = "basis_registry",
                                    .optional = 1,
                                    .kw_only = 1},
                                   {}},
@@ -1500,7 +1506,11 @@ static PyObject *mesh_compute_kform_continuity_constraints(PyObject *self, PyTyp
         return NULL;
     }
 
-    mesh_continuity_context_t context = {.state = state, .ndim = ndim, .c1_continuous = c1_continuous};
+    mesh_continuity_context_t context = {.state = state,
+                                         .ndim = ndim,
+                                         .integration_registry = integration_registry,
+                                         .basis_registry = basis_registry,
+                                         .c1_continuous = c1_continuous};
     if (PySequence_Fast_GET_SIZE(element_specs_seq) != (Py_ssize_t)mesh->element_count ||
         (have_maps && PySequence_Fast_GET_SIZE(element_maps_seq) != (Py_ssize_t)mesh->element_count))
     {
@@ -1591,13 +1601,18 @@ fail:
 static PyObject *mesh_compute_kform_global_constraints(PyObject *self, PyTypeObject *defining_class,
                                                        PyObject *const *args, const Py_ssize_t nargs, PyObject *kwnames)
 {
-    (void)defining_class;
+    const interplib_module_state_t *const state =
+        defining_class ? PyType_GetModuleState(defining_class) : interplib_get_module_state(Py_TYPE(self));
+    if (!state)
+        return NULL;
     PyObject *element_specs = Py_None;
     PyObject *element_maps = Py_None;
     PyObject *boundary_conditions = Py_None;
     PyObject *periodic_pairs = Py_None;
     PyObject *basis_type = Py_None;
     int c1_continuous = 0;
+    integration_registry_object *integration_registry = (integration_registry_object *)state->registry_integration;
+    basis_registry_object *basis_registry = (basis_registry_object *)state->registry_basis;
     if (parse_arguments_check(
             (cpyutl_argument_t[]){
                 {.type = CPYARG_TYPE_PYTHON, .p_val = &element_specs},
@@ -1608,6 +1623,18 @@ static PyObject *mesh_compute_kform_global_constraints(PyObject *self, PyTypeObj
                 {.type = CPYARG_TYPE_BOOL,
                  .p_val = &c1_continuous,
                  .kwname = "c1_continuous",
+                 .optional = 1,
+                 .kw_only = 1},
+                {.type = CPYARG_TYPE_PYTHON,
+                 .p_val = &integration_registry,
+                 .type_check = state->integration_registry_type,
+                 .kwname = "integration_registry",
+                 .optional = 1,
+                 .kw_only = 1},
+                {.type = CPYARG_TYPE_PYTHON,
+                 .p_val = &basis_registry,
+                 .type_check = state->basis_registry_type,
+                 .kwname = "basis_registry",
                  .optional = 1,
                  .kw_only = 1},
                 {}},
@@ -1631,7 +1658,9 @@ static PyObject *mesh_compute_kform_global_constraints(PyObject *self, PyTypeObj
     PyTuple_SET_ITEM(call_args, 2, Py_NewRef(element_maps));
     PyTuple_SET_ITEM(call_args, 3, Py_NewRef(boundary_conditions));
     PyTuple_SET_ITEM(call_args, 4, Py_NewRef(periodic_pairs));
-    PyObject *const call_kwargs = Py_BuildValue("{s:O,s:i}", "basis_type", basis_type, "c1_continuous", c1_continuous);
+    PyObject *const call_kwargs =
+        Py_BuildValue("{s:O,s:i,s:O,s:O}", "basis_type", basis_type, "c1_continuous", c1_continuous,
+                      "integration_registry", integration_registry, "basis_registry", basis_registry);
     if (!call_kwargs)
     {
         Py_DECREF(call_args);
@@ -1720,7 +1749,8 @@ static PyMethodDef mesh_methods[] = {
         .ml_meth = (void *)mesh_compute_kform_continuity_constraints,
         .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
         .ml_doc = "compute_kform_continuity_constraints(element_specs, element_maps=None, /, *, basis_type=None, "
-                  "c1_continuous=False) -> tuple[numpy.ndarray, ...]\n"
+                  "c1_continuous=False, integration_registry=DEFAULT_INTEGRATION_REGISTRY, "
+                  "basis_registry=DEFAULT_BASIS_REGISTRY) -> tuple[numpy.ndarray, ...]\n"
                   "Assemble k-form continuity rows between the consecutive elements of every shared object,\n"
                   "from shared faces down to points. Boundary test spaces are derived automatically: each\n"
                   "component takes the lowest incident element order per axis, reduced by two on axes\n"
@@ -1733,7 +1763,8 @@ static PyMethodDef mesh_methods[] = {
         .ml_meth = (void *)mesh_compute_kform_global_constraints,
         .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
         .ml_doc = "compute_kform_global_constraints(element_specs, element_maps=None, boundary_conditions=None, "
-                  "periodic_pairs=None, /, *, basis_type=None, c1_continuous=False) -> "
+                  "periodic_pairs=None, /, *, basis_type=None, c1_continuous=False, "
+                  "integration_registry=DEFAULT_INTEGRATION_REGISTRY, basis_registry=DEFAULT_BASIS_REGISTRY) -> "
                   "tuple[tuple[numpy.ndarray, ...], numpy.ndarray]\n"
                   "Assemble shared, prescribed-boundary, and signed-axis periodic k-form trace rows.\n"
                   "Boundary test spaces are derived automatically; boundary data are physical k-form\n"

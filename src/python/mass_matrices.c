@@ -298,14 +298,17 @@ static PyObject *compute_mass_matrix(PyObject *module, PyObject *const *args, co
         point_count *= (size_t)p_int_specs[i].order + 1u;
     size_t point_strides[UINT8_MAX];
     integration_spec_point_strides(n_space_dim, p_int_specs, point_strides);
-    double *const table_out = PyMem_Malloc((size_t)dims[0] * point_count * sizeof(*table_out));
-    double *const table_in = PyMem_Malloc((size_t)dims[1] * point_count * sizeof(*table_in));
-    double *const weights = PyMem_Malloc(point_count * sizeof(*weights));
-    if (!table_out || !table_in || !weights)
+    double *table_out = NULL;
+    double *table_in = NULL;
+    double *weights = NULL;
+    void *const table_memory = cutl_alloc_group(
+        &PYTHON_ALLOCATOR,
+        (const cutl_alloc_info_t[]){{(size_t)dims[0] * point_count * sizeof(*table_out), (void **)&table_out},
+                                    {(size_t)dims[1] * point_count * sizeof(*table_in), (void **)&table_in},
+                                    {point_count * sizeof(*weights), (void **)&weights},
+                                    {}});
+    if (!table_memory)
     {
-        PyMem_Free(weights);
-        PyMem_Free(table_in);
-        PyMem_Free(table_out);
         mass_matrix_release_resources(&resources, integration_registry->registry, basis_registry->registry);
         return PyErr_NoMemory();
     }
@@ -316,9 +319,7 @@ static PyObject *compute_mass_matrix(PyObject *module, PyObject *const *args, co
     mass_matrix_point_weights(n_space_dim, resources.rules, resources.determinant, point_count, weights);
     kform_inner_product_block(point_count, (size_t)dims[0], (size_t)dims[1], table_out, table_in, weights, 0, 0,
                               (size_t)dims[1], p_out);
-    PyMem_Free(weights);
-    PyMem_Free(table_in);
-    PyMem_Free(table_out);
+    cutl_dealloc(&PYTHON_ALLOCATOR, table_memory);
 
     // If we're symmetric, we have to fill up the upper diagonal part
     if (is_symmetric)
@@ -499,14 +500,17 @@ static PyObject *compute_gradient_mass_matrix(PyObject *module, PyObject *const 
         point_count *= (size_t)p_int_specs[i].order + 1u;
     size_t point_strides[UINT8_MAX];
     integration_spec_point_strides(n_space_dim, p_int_specs, point_strides);
-    double *const table_out = PyMem_Malloc((size_t)dims[0] * point_count * sizeof(*table_out));
-    double *const table_in = PyMem_Malloc((size_t)dims[1] * point_count * sizeof(*table_in));
-    double *const weights = PyMem_Malloc(point_count * sizeof(*weights));
-    if (!table_out || !table_in || !weights)
+    double *table_out = NULL;
+    double *table_in = NULL;
+    double *weights = NULL;
+    void *const table_memory = cutl_alloc_group(
+        &PYTHON_ALLOCATOR,
+        (const cutl_alloc_info_t[]){{(size_t)dims[0] * point_count * sizeof(*table_out), (void **)&table_out},
+                                    {(size_t)dims[1] * point_count * sizeof(*table_in), (void **)&table_in},
+                                    {point_count * sizeof(*weights), (void **)&weights},
+                                    {}});
+    if (!table_memory)
     {
-        PyMem_Free(weights);
-        PyMem_Free(table_in);
-        PyMem_Free(table_out);
         mass_matrix_release_resources(&resources, integration_registry->registry, basis_registry->registry);
         return PyErr_NoMemory();
     }
@@ -520,9 +524,7 @@ static PyObject *compute_gradient_mass_matrix(PyObject *module, PyObject *const 
             weights[point] *= inverse_map[point * inv_map_stride + (size_t)idx_in * n_coords + (size_t)idx_out];
     kform_inner_product_block(point_count, (size_t)dims[0], (size_t)dims[1], table_out, table_in, weights, 0, 0,
                               (size_t)dims[1], p_out);
-    PyMem_Free(weights);
-    PyMem_Free(table_in);
-    PyMem_Free(table_out);
+    cutl_dealloc(&PYTHON_ALLOCATOR, table_memory);
 
     // If we're symmetric, we have to fill up the upper diagonal part
     if (is_symmetric)
@@ -576,20 +578,6 @@ PyDoc_STRVAR(compute_gradient_mass_matrix_docstring,
              "array\n"
              "    Mass matrix as a 2D array, which maps the primal degrees of freedom of the input\n"
              "    function space to dual degrees of freedom of the output function space.\n");
-
-/*
-def compute_kfrom_mass_matrix(
-    smap: SpaceMap,
-    order: int,
-    left_bases: FunctionSpace,
-    right_bases: FunctionSpace,
-    basis_registry: BasisRegistry,
-    int_registry: IntegrationRegistry,
-) -> npt.NDArray[np.double]:
-    """
-    """
-    ...
- */
 
 PyDoc_STRVAR(
     compute_kform_mass_matrix_docstring,

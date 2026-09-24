@@ -1452,6 +1452,8 @@ class Mesh:
         *,
         basis_type: _BasisTypeHint | None = None,
         c1_continuous: bool = False,
+        integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
+        basis_registry: BasisRegistry = DEFAULT_BASIS_REGISTRY,
     ) -> tuple[
         npt.NDArray[np.uintp],
         npt.NDArray[np.uint64],
@@ -1495,6 +1497,12 @@ class Mesh:
             flag set, reference-domain continuity is imposed and
             ``element_maps`` may be omitted.
 
+        integration_registry : IntegrationRegistry, optional
+            Registry to get the quadrature rules from.
+
+        basis_registry : BasisRegistry, optional
+            Registry to get the basis endpoint values from.
+
         Returns
         -------
         row_offsets : ndarray[uintp]
@@ -1529,6 +1537,8 @@ class Mesh:
         *,
         basis_type: _BasisTypeHint | None = None,
         c1_continuous: bool = False,
+        integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
+        basis_registry: BasisRegistry = DEFAULT_BASIS_REGISTRY,
     ) -> tuple[
         tuple[
             npt.NDArray[np.uintp],
@@ -1733,8 +1743,9 @@ class SpaceMap:
         self,
         idim: int,
         end: bool = False,
-        integration_space: IntegrationSpace | None = None,
-        /,
+        integration_space: IntegrationSpace = ...,
+        *,
+        integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
     ) -> SpaceMap:
         """Extract a space map restricted to a reference-space boundary.
 
@@ -1747,9 +1758,12 @@ class SpaceMap:
             Select the upper boundary at ``+1`` when true; otherwise select the lower
             boundary at ``-1``.
 
-        integration_space : IntegrationSpace, optional
+        integration_space : IntegrationSpace, default: the element space
             Face integration space used to sample the extracted map. When omitted,
             the volume integration space with the fixed axis removed is used.
+
+        integration_registry : IntegrationRegistry, optional
+            Registry to get the element and face quadrature rules from.
 
         Returns
         -------
@@ -1991,9 +2005,10 @@ def compute_kform_boundary_mass_matrices(
     element_maps: Sequence[SpaceMap] | None = None,
     *,
     boundary_dimension: int | None = None,
-    shared_face: bool = True,
     c1_continuous: bool = False,
     packed: bool = False,
+    integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
+    basis_registry: BasisRegistry = DEFAULT_BASIS_REGISTRY,
 ) -> tuple[
     KFormSpecs,
     IntegrationSpace,
@@ -2012,9 +2027,6 @@ def compute_kform_boundary_mass_matrices(
     numbering. With ``element_maps`` (one SpaceMap per element) the assembly
     samples each face's surface measure and k-form pullback on its own
     canonical grid; C1-continuous requests ignore the maps.
-    ``shared_face=False`` skips the debug surface-measure and pullback-moment
-    agreement guard for sides that are distinct physical faces (periodic
-    pairs).
 
     Returns ``(common_specs, common_integration, matrices, packed)``: the
     merged common k-form specification and integration space, one dense
@@ -2032,9 +2044,10 @@ def compute_kform_boundary_trace_moments(
     element_maps: Sequence[SpaceMap] | None = None,
     *,
     boundary_dimension: int | None = None,
-    shared_face: bool = True,
     c1_continuous: bool = False,
     packed: bool = False,
+    integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
+    basis_registry: BasisRegistry = DEFAULT_BASIS_REGISTRY,
 ) -> tuple[
     KFormSpecs,
     IntegrationSpace,
@@ -2063,6 +2076,10 @@ def compute_kform_boundary_load(
     element_id: int,
     boundary_id: int,
     data: Callable[..., npt.ArrayLike] | Sequence[Callable[..., npt.ArrayLike]],
+    surface_measure: bool = False,
+    *,
+    integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
+    basis_registry: BasisRegistry = DEFAULT_BASIS_REGISTRY,
 ) -> npt.NDArray[np.double]:
     """Assemble the physical boundary load of one element face.
 
@@ -2126,11 +2143,66 @@ def compute_kform_boundary_load(
         the ``data`` evaluations against other sample sets must match by
         position, not assume a particular index order.
 
+    surface_measure : bool, optional
+        Integrate the data with the mapped face Jacobian (physical surface
+        measure) instead of the metric-free chain integral.
+
+    integration_registry : IntegrationRegistry, optional
+        Registry to get the face quadrature rules from.
+
+    basis_registry : BasisRegistry, optional
+        Registry to get the traced basis table from.
+
     Returns
     -------
     numpy.ndarray
         Dense load vector over the flattened element (k-1)-form degrees of
         freedom.
+    """
+    ...
+
+def compute_boundary_space_map_factors(
+    space_map: SpaceMap,
+    orientation: Sequence[int],
+    common_integration: IntegrationSpace,
+    /,
+    *,
+    integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
+) -> tuple[npt.NDArray[np.double], npt.NDArray[np.double]]:
+    """Interpolate a face-restricted space map onto a common boundary grid.
+
+    The volume map is restricted to the oriented face and resampled at the
+    points of ``common_integration``. Exact whenever the element rule order
+    is at least the face-map order along every axis.
+
+    Parameters
+    ----------
+    space_map : SpaceMap
+        Volume map to restrict to the boundary.
+
+    orientation : Sequence[int]
+        Signed one-based orientation record of the boundary, one entry per
+        dimension of ``space_map``: a permutation of the element axes whose
+        first ``space_map.input_dimensions - common_integration.dimension``
+        entries name the fixed normal axes and whose tail maps the surviving
+        face axes.
+
+    common_integration : IntegrationSpace
+        Target boundary integration space whose points receive the sampled
+        factors.
+
+    integration_registry : IntegrationRegistry, optional
+        Registry to get the element and face quadrature rules from.
+
+    Returns
+    -------
+    determinant : numpy.ndarray
+        Surface measure of the face immersion at the common boundary points,
+        shape ``(points,)``.
+
+    inverse_maps : numpy.ndarray
+        Inverse Jacobians of the face immersion at the common points, shape
+        ``(points, boundary_dim, coords)``.
     """
     ...
 

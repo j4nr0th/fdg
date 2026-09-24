@@ -79,15 +79,17 @@ static int make_boundary_topology(PyObject *const collections_object, const unsi
     return 0;
 }
 
-int make_boundary_face_setup(const interplib_module_state_t *state, const space_map_object *element_map,
-                             const int8_t *orientation, const unsigned element_dim, const unsigned face_dim,
-                             boundary_face_setup_t *setup)
+int make_boundary_face_setup(const interplib_module_state_t *state,
+                             integration_registry_object *const integration_registry,
+                             const space_map_object *element_map, const int8_t *orientation, const unsigned element_dim,
+                             const unsigned face_dim, boundary_face_setup_t *setup)
 {
     *setup = (boundary_face_setup_t){};
     // Restrict the volume map to the face in one values-level pass: the orientation prefix holds the fixed normal
     // axes, the tail the surviving face axes.
     const unsigned fixed_count = element_dim - face_dim;
-    space_map_object *const face = space_map_boundary_oriented_impl(state, element_map, fixed_count, orientation);
+    space_map_object *const face =
+        space_map_boundary_oriented_impl(state, integration_registry, element_map, fixed_count, orientation);
     if (!face)
     {
         goto fail;
@@ -122,8 +124,6 @@ int make_boundary_face_setup(const interplib_module_state_t *state, const space_
     memset(setup->canonical_rules, 0, sizeof(*setup->canonical_rules) * slot_count);
     setup->point_count = weight_count;
 
-    integration_registry_object *const integration_registry =
-        (integration_registry_object *)state->registry_integration;
     setup->source_rules = python_integration_rules_get(face_dim, face_specs, integration_registry->registry);
     if (!setup->source_rules)
         goto fail;
@@ -139,16 +139,15 @@ int make_boundary_face_setup(const interplib_module_state_t *state, const space_
     integration_rule_tensor_weights(face_dim, setup->canonical_rules, setup->point_weights);
     return 0;
 fail:
-    release_boundary_face_setup(state, face_dim, setup);
+    release_boundary_face_setup(integration_registry, face_dim, setup);
     return -1;
 }
 
-void release_boundary_face_setup(const interplib_module_state_t *state, const unsigned face_dim,
+void release_boundary_face_setup(integration_registry_object *const integration_registry, const unsigned face_dim,
                                  boundary_face_setup_t *setup)
 {
     if (setup->source_rules)
-        python_integration_rules_release(face_dim, setup->source_rules,
-                                         ((integration_registry_object *)state->registry_integration)->registry);
+        python_integration_rules_release(face_dim, setup->source_rules, integration_registry->registry);
     Py_XDECREF(setup->face_object);
     cutl_dealloc(&PYTHON_ALLOCATOR, setup->memory);
     *setup = (boundary_face_setup_t){};
@@ -521,7 +520,6 @@ static PyObject *packed_kform_constraints_to_csr(PyObject *module, PyObject *con
     return result;
 }
 
-/** Packs the five reference constraint arrays into the returned tuple. */
 static PyObject *compute_kform_boundary_load(PyObject *module, PyObject *const *args, const Py_ssize_t nargs,
                                              const PyObject *kwnames)
 {
@@ -537,6 +535,8 @@ static PyObject *compute_kform_boundary_load(PyObject *module, PyObject *const *
     Py_ssize_t element_id;
     Py_ssize_t boundary_id;
     int weighted = 0;
+    integration_registry_object *integration_registry = (integration_registry_object *)state->registry_integration;
+    basis_registry_object *basis_registry = (basis_registry_object *)state->registry_basis;
     if (parse_arguments_check(
             (cpyutl_argument_t[]){
                 {.type = CPYARG_TYPE_PYTHON, .p_val = &test_object, .type_check = state->kform_specs_type},
@@ -548,6 +548,18 @@ static PyObject *compute_kform_boundary_load(PyObject *module, PyObject *const *
                 {.type = CPYARG_TYPE_SSIZE, .p_val = &boundary_id},
                 {.type = CPYARG_TYPE_PYTHON, .p_val = &data_object},
                 {.type = CPYARG_TYPE_BOOL, .p_val = &weighted, .kwname = "surface_measure", .optional = 1},
+                {.type = CPYARG_TYPE_PYTHON,
+                 .p_val = &integration_registry,
+                 .type_check = state->integration_registry_type,
+                 .kwname = "integration_registry",
+                 .optional = 1,
+                 .kw_only = 1},
+                {.type = CPYARG_TYPE_PYTHON,
+                 .p_val = &basis_registry,
+                 .type_check = state->basis_registry_type,
+                 .kwname = "basis_registry",
+                 .optional = 1,
+                 .kw_only = 1},
                 {},
             },
             args, nargs, kwnames) < 0)
@@ -646,7 +658,8 @@ static PyObject *compute_kform_boundary_load(PyObject *module, PyObject *const *
 
     const int8_t *const orientation = topology.orientation;
     boundary_face_setup_t setup;
-    if (make_boundary_face_setup(state, element_map, topology.orientation, element_dim, face_dim, &setup) < 0)
+    if (make_boundary_face_setup(state, integration_registry, element_map, topology.orientation, element_dim, face_dim,
+                                 &setup) < 0)
     {
         release_boundary_topology(element_dim, &topology);
         cutl_dealloc(&PYTHON_ALLOCATOR, callables_memory);
@@ -762,7 +775,6 @@ static PyObject *compute_kform_boundary_load(PyObject *module, PyObject *const *
     result = (PyObject *)PyArray_ZEROS(1, &(npy_intp){(npy_intp)value_count}, NPY_DOUBLE, 0);
     if (!result)
         goto load_fail;
-    basis_registry_object *const basis_registry = (basis_registry_object *)state->registry_basis;
     if (make_trace_basis_table(element_dim, face_dim, order, element_spec->function_space->specs, orientation,
                                setup.canonical_specs, setup.canonical_rules, basis_registry, true, setup.point_count,
                                &element_table) < 0)
@@ -772,7 +784,7 @@ static PyObject *compute_kform_boundary_load(PyObject *module, PyObject *const *
                                   (double *)PyArray_DATA((PyArrayObject *)result));
     cutl_dealloc(&PYTHON_ALLOCATOR, load_memory);
     release_trace_basis_table(&element_table);
-    release_boundary_face_setup(state, face_dim, &setup);
+    release_boundary_face_setup(integration_registry, face_dim, &setup);
     release_boundary_topology(element_dim, &topology);
     cutl_dealloc(&PYTHON_ALLOCATOR, callables_memory);
     return result;
@@ -782,7 +794,7 @@ load_fail:
     Py_XDECREF(result);
     cutl_dealloc(&PYTHON_ALLOCATOR, load_memory);
     release_trace_basis_table(&element_table);
-    release_boundary_face_setup(state, face_dim, &setup);
+    release_boundary_face_setup(integration_registry, face_dim, &setup);
     release_boundary_topology(element_dim, &topology);
     cutl_dealloc(&PYTHON_ALLOCATOR, callables_memory);
     return NULL;
@@ -842,9 +854,10 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
     PyObject *axis_skip_object = Py_None;
     PyObject *maps_object = Py_None;
     Py_ssize_t boundary_dim = -1;
-    int shared_face = 1;
     int c1_continuous = 0;
     int packed = 0;
+    integration_registry_object *integration_registry = (integration_registry_object *)state->registry_integration;
+    basis_registry_object *basis_registry = (basis_registry_object *)state->registry_basis;
     if (parse_arguments_check(
             (cpyutl_argument_t[]){
                 {.type = CPYARG_TYPE_PYTHON, .p_val = &specs_object},
@@ -865,13 +878,24 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
                  .kwname = "boundary_dimension",
                  .optional = 1,
                  .kw_only = 1},
-                {.type = CPYARG_TYPE_BOOL, .p_val = &shared_face, .kwname = "shared_face", .optional = 1, .kw_only = 1},
                 {.type = CPYARG_TYPE_BOOL,
                  .p_val = &c1_continuous,
                  .kwname = "c1_continuous",
                  .optional = 1,
                  .kw_only = 1},
                 {.type = CPYARG_TYPE_BOOL, .p_val = &packed, .kwname = "packed", .optional = 1, .kw_only = 1},
+                {.type = CPYARG_TYPE_PYTHON,
+                 .p_val = &integration_registry,
+                 .type_check = state->integration_registry_type,
+                 .kwname = "integration_registry",
+                 .optional = 1,
+                 .kw_only = 1},
+                {.type = CPYARG_TYPE_PYTHON,
+                 .p_val = &basis_registry,
+                 .type_check = state->basis_registry_type,
+                 .kwname = "basis_registry",
+                 .optional = 1,
+                 .kw_only = 1},
                 {}},
             args, nargs, kwnames) < 0)
         return NULL;
@@ -954,12 +978,12 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
     // Declared before any failure jump so cleanup never reads an uninitialized flag; live from the prepare call.
     int plan_live = 0;
 
-    // Physical factors per element: face setups, sampled surface weights, k-form pullbacks. Setup and transform
-    // arrays carry per-element release work and stay separate; every plain buffer shares one group.
-    boundary_face_setup_t *setups = physical ? PyMem_Calloc(nelem, sizeof(*setups)) : NULL;
-    PyArrayObject **transforms = physical ? PyMem_Calloc(nelem, sizeof(*transforms)) : NULL;
-    constraint_trace_pullback_t *pullbacks = physical ? PyMem_Calloc(nelem, sizeof(*pullbacks)) : NULL;
-    constraint_trace_pullback_t *element_pullbacks = physical ? PyMem_Calloc(nelem, sizeof(*element_pullbacks)) : NULL;
+    // Physical factors per element: face setups, sampled surface weights, k-form pullbacks; all plain buffers
+    // share one group. The setup and transform slots carry per-element release work done before the dealloc.
+    boundary_face_setup_t *setups = NULL;
+    PyArrayObject **transforms = NULL;
+    constraint_trace_pullback_t *pullbacks = NULL;
+    constraint_trace_pullback_t *element_pullbacks = NULL;
     void *physical_memory = NULL;
     void *rows_memory = NULL;
     void *build_memory = NULL;
@@ -1037,7 +1061,7 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
             {sizeof(*axis_skip) * bdim, (void **)&axis_skip},
             {sizeof(*element_integrations) * nelem * ndim, (void **)&element_integrations},
             {}});
-    if (!core_memory || (physical && (!setups || !transforms || !pullbacks || !element_pullbacks)))
+    if (!core_memory)
     {
         PyErr_NoMemory();
         goto fail_memory;
@@ -1046,6 +1070,10 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
     {
         physical_memory = cutl_alloc_group(
             &PYTHON_ALLOCATOR, (const cutl_alloc_info_t[]){
+                                   {sizeof(*setups) * nelem, (void **)&setups},
+                                   {sizeof(*transforms) * nelem, (void **)&transforms},
+                                   {sizeof(*pullbacks) * nelem, (void **)&pullbacks},
+                                   {sizeof(*element_pullbacks) * nelem, (void **)&element_pullbacks},
                                    {sizeof(*pullback_values) * nelem, (void **)&pullback_values},
                                    {sizeof(*element_pullback_values) * nelem, (void **)&element_pullback_values},
                                    {sizeof(*surface_weights) * nelem, (void **)&surface_weights},
@@ -1058,6 +1086,9 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
             PyErr_NoMemory();
             goto fail_memory;
         }
+        // Failure paths walk the setup and transform slots before the filling loop; zero them.
+        memset(setups, 0, sizeof(*setups) * nelem);
+        memset(transforms, 0, sizeof(*transforms) * nelem);
     }
     for (size_t element = 0; element < nelem; ++element)
     {
@@ -1099,7 +1130,7 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
                                     (size_t)combination_total_count((uint8_t)ndim, (uint8_t)order);
         for (size_t element = 0; element < nelem; ++element)
         {
-            if (make_boundary_face_setup(state,
+            if (make_boundary_face_setup(state, integration_registry,
                                          (space_map_object *)PySequence_Fast_GET_ITEM(maps_seq, (Py_ssize_t)element),
                                          orientations + element * ndim, ndim, bdim, &setups[element]) < 0)
             {
@@ -1153,20 +1184,18 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
         Py_DECREF(skip_seq);
     }
 
-    constrain_elements_on_boundary_request_t request = {
-        .ndim = ndim,
-        .bdim = bdim,
-        .nforms = 1,
-        .nelem = (unsigned)nelem,
-        .elements = views,
-        .axis_skip = request_axis_skip,
-        .c1_continuous = c1_continuous != 0,
-        .shared_face_guard = shared_face != 0,
-        .surface_weights = NULL,
-        .test_pullbacks = NULL,
-        .element_pullbacks = NULL,
-        .basis_registry = ((basis_registry_object *)state->registry_basis)->registry,
-        .integration_registry = ((integration_registry_object *)state->registry_integration)->registry};
+    constrain_elements_on_boundary_request_t request = {.ndim = ndim,
+                                                        .bdim = bdim,
+                                                        .nforms = 1,
+                                                        .nelem = (unsigned)nelem,
+                                                        .elements = views,
+                                                        .axis_skip = request_axis_skip,
+                                                        .c1_continuous = c1_continuous != 0,
+                                                        .surface_weights = NULL,
+                                                        .test_pullbacks = NULL,
+                                                        .element_pullbacks = NULL,
+                                                        .basis_registry = basis_registry->registry,
+                                                        .integration_registry = integration_registry->registry};
     constrain_elements_on_boundary_plan_t plan;
     plan.rules = plan_rules;
     plan.boundary_sets = plan_boundary_sets;
@@ -1509,17 +1538,13 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
     {
         for (size_t element = 0; element < nelem; ++element)
         {
-            release_boundary_face_setup(state, bdim, &setups[element]);
+            release_boundary_face_setup(integration_registry, bdim, &setups[element]);
             Py_XDECREF(transforms[element]);
         }
         cutl_dealloc(&PYTHON_ALLOCATOR, rows_memory);
         cutl_dealloc(&PYTHON_ALLOCATOR, build_memory);
         cutl_dealloc(&PYTHON_ALLOCATOR, weights_memory);
         cutl_dealloc(&PYTHON_ALLOCATOR, physical_memory);
-        PyMem_Free(pullbacks);
-        PyMem_Free(element_pullbacks);
-        PyMem_Free(transforms);
-        PyMem_Free(setups);
         Py_DECREF(maps_seq);
     }
     cutl_dealloc(&PYTHON_ALLOCATOR, core_memory);
@@ -1544,22 +1569,22 @@ fail_memory:
     }
     if (physical)
     {
-        for (size_t element = 0; element < nelem; ++element)
+        // The group hands out its slots only on success; they stay NULL when it never allocated.
+        if (physical_memory)
         {
-            if (setups[element].face_object)
+            for (size_t element = 0; element < nelem; ++element)
             {
-                release_boundary_face_setup(state, bdim, &setups[element]);
+                if (setups[element].face_object)
+                {
+                    release_boundary_face_setup(integration_registry, bdim, &setups[element]);
+                }
+                Py_XDECREF(transforms[element]);
             }
-            Py_XDECREF(transforms[element]);
         }
         cutl_dealloc(&PYTHON_ALLOCATOR, rows_memory);
         cutl_dealloc(&PYTHON_ALLOCATOR, build_memory);
         cutl_dealloc(&PYTHON_ALLOCATOR, weights_memory);
         cutl_dealloc(&PYTHON_ALLOCATOR, physical_memory);
-        PyMem_Free(pullbacks);
-        PyMem_Free(element_pullbacks);
-        PyMem_Free(transforms);
-        PyMem_Free(setups);
         Py_DECREF(maps_seq);
     }
     cutl_dealloc(&PYTHON_ALLOCATOR, core_memory);
@@ -1592,11 +1617,18 @@ static PyObject *compute_boundary_space_map_factors(PyObject *module, PyObject *
     PyObject *map_object;
     PyObject *orientation_object;
     PyObject *common_object;
+    integration_registry_object *integration_registry = (integration_registry_object *)state->registry_integration;
     if (parse_arguments_check(
             (cpyutl_argument_t[]){
                 {.type = CPYARG_TYPE_PYTHON, .p_val = &map_object, .type_check = state->space_mapping_type},
                 {.type = CPYARG_TYPE_PYTHON, .p_val = &orientation_object},
                 {.type = CPYARG_TYPE_PYTHON, .p_val = &common_object, .type_check = state->integration_space_type},
+                {.type = CPYARG_TYPE_PYTHON,
+                 .p_val = &integration_registry,
+                 .type_check = state->integration_registry_type,
+                 .kwname = "integration_registry",
+                 .optional = 1,
+                 .kw_only = 1},
                 {}},
             args, nargs, kwnames) < 0)
         return NULL;
@@ -1621,7 +1653,8 @@ static PyObject *compute_boundary_space_map_factors(PyObject *module, PyObject *
         return NULL;
     }
 
-    space_map_object *const face_map = space_map_boundary_oriented_impl(state, map, fixed_count, orientation);
+    space_map_object *const face_map =
+        space_map_boundary_oriented_impl(state, integration_registry, map, fixed_count, orientation);
     PyMem_Free(orientation);
     if (!face_map)
         return NULL;
@@ -1632,8 +1665,7 @@ static PyObject *compute_boundary_space_map_factors(PyObject *module, PyObject *
         return NULL;
     }
 
-    integration_rule_registry_t *const registry =
-        ((integration_registry_object *)state->registry_integration)->registry;
+    integration_rule_registry_t *const registry = integration_registry->registry;
     const integration_rule_t **const source_rules = python_integration_rules_get(bdim, face_map->int_specs, registry);
     const integration_rule_t **const target_rules = python_integration_rules_get(bdim, common->specs, registry);
     if (!source_rules || !target_rules)
@@ -1746,7 +1778,9 @@ PyMethodDef constraint_methods[] = {
         .ml_meth = (void *)compute_kform_boundary_load,
         .ml_flags = METH_FASTCALL | METH_KEYWORDS,
         .ml_doc = "compute_kform_boundary_load(test_specs, element_spec, element_map, collections, npts, "
-                  "element_id, boundary_id, data, surface_measure=False) -> numpy.ndarray\nCompute the boundary "
+                  "element_id, boundary_id, data, surface_measure=False, *, "
+                  "integration_registry=DEFAULT_INTEGRATION_REGISTRY, basis_registry=DEFAULT_BASIS_REGISTRY) -> "
+                  "numpy.ndarray\nCompute the boundary "
                   "load of one element face: the pairing of the trace of the element (k-1)-form basis against "
                   "the components of a k-form datum, where k = element_spec.order + 1. Provide one callable "
                   "per element-frame k-form component (each called with the physical coordinates of the "
@@ -1759,16 +1793,16 @@ PyMethodDef constraint_methods[] = {
         .ml_meth = (void *)compute_kform_boundary_mass_matrices,
         .ml_flags = METH_FASTCALL | METH_KEYWORDS,
         .ml_doc = "compute_kform_boundary_mass_matrices(element_specs, orientations, element_integrations, "
-                  "axis_skip=None, element_maps=None, *, boundary_dimension=None, shared_face=True, "
-                  "c1_continuous=False, packed=False) -> tuple\n"
+                  "axis_skip=None, element_maps=None, *, boundary_dimension=None, "
+                  "c1_continuous=False, packed=False, integration_registry=DEFAULT_INTEGRATION_REGISTRY, "
+                  "basis_registry=DEFAULT_BASIS_REGISTRY) -> tuple\n"
                   "Assemble at least two incident elements' mass matrices against the common boundary space of one "
                   "shared object. Returns (common KFormSpecs, common IntegrationSpace, per-element dense matrices, "
                   "per-element packed COO tuples or None). Rows are the common Legendre k-form test space with "
                   "axis_skip[axis] lowest functions removed on inactive axes; columns are the mapped element trace "
                   "DoFs. boundary_dimension may be zero for scalar traces: point rows pair vertex value "
-                  "functionals through the endpoint tables. shared_face=False skips the debug surface-measure "
-                  "and pullback-moment agreement guard for sides that are distinct physical faces (periodic "
-                  "pairs). Coefficients carry the orientation signs but no side signs. With element_maps (one "
+                  "functionals through the endpoint tables. Coefficients carry the orientation signs but no "
+                  "side signs. With element_maps (one "
                   "SpaceMap per element) the assembly samples each face's surface measure and k-form "
                   "pullback on its own canonical grid; C1-continuous requests ignore the maps.",
     },
@@ -1777,8 +1811,9 @@ PyMethodDef constraint_methods[] = {
         .ml_meth = (void *)compute_kform_boundary_trace_moments,
         .ml_flags = METH_FASTCALL | METH_KEYWORDS,
         .ml_doc = "compute_kform_boundary_trace_moments(element_specs, orientations, element_integrations, "
-                  "axis_skip=None, element_maps=None, *, boundary_dimension=None, shared_face=True, "
-                  "c1_continuous=False, packed=False) -> tuple\n"
+                  "axis_skip=None, element_maps=None, *, boundary_dimension=None, "
+                  "c1_continuous=False, packed=False, integration_registry=DEFAULT_INTEGRATION_REGISTRY, "
+                  "basis_registry=DEFAULT_BASIS_REGISTRY) -> tuple\n"
                   "Assemble one element's trace mass rows against the common boundary space: the explicit "
                   "prescribed-data interface behind strong boundary conditions. Returns (common KFormSpecs, "
                   "common IntegrationSpace, dense matrix, packed COO tuple or None) with the same row and "
@@ -1789,7 +1824,8 @@ PyMethodDef constraint_methods[] = {
         .ml_name = "compute_boundary_space_map_factors",
         .ml_meth = (void *)compute_boundary_space_map_factors,
         .ml_flags = METH_FASTCALL | METH_KEYWORDS,
-        .ml_doc = "compute_boundary_space_map_factors(space_map, orientation, common_integration) -> tuple\n"
+        .ml_doc = "compute_boundary_space_map_factors(space_map, orientation, common_integration, /, *, "
+                  "integration_registry=DEFAULT_INTEGRATION_REGISTRY) -> tuple\n"
                   "Interpolate a face-restricted space map onto the common boundary integration grid. Returns "
                   "(determinant, inverse_maps) sampled at the common boundary points, where the determinant is the "
                   "surface measure of the face immersion and inverse_maps has shape (points, boundary_dim, coords).",

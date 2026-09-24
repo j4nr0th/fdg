@@ -11,7 +11,6 @@
 #include "constraints.h"
 
 #include <limits.h>
-#include <math.h>
 
 #include <cutl/allocators.h>
 #include <cutl/iterators/combination_iterator.h>
@@ -931,74 +930,6 @@ void constrain_elements_on_boundary_assemble(const constrain_elements_on_boundar
                 .out_matrix = out_values + plan->item_offsets[item],
             };
             constraint_boundary_mass_assemble(&mass_request);
-        }
-
-        // Debug guard: every incident side samples the same physical face, so the integrated surface measure (and
-        // each pullback moment) must agree across sides regardless of local orientation. A mismatch flags a wrong
-        // canonical point mapping (mirrored or permuted axes) before packing.
-        if (!request->c1_continuous && request->shared_face_guard && request->surface_weights != NULL)
-        {
-            const size_t face_points = integration_specs_total_points(bdim, form_integration);
-            const double *const *const surfaces = request->surface_weights + (size_t)iform * plan->nelem;
-            double reference_measure = 0.0;
-            for (size_t point = 0; point < face_points; ++point)
-            {
-                reference_measure += work->weights[point] * surfaces[0][point];
-            }
-            for (unsigned ie = 1; ie < plan->nelem; ++ie)
-            {
-                double measure = 0.0;
-                for (size_t point = 0; point < face_points; ++point)
-                {
-                    measure += work->weights[point] * surfaces[ie][point];
-                }
-                const double deviation = fabs(measure - reference_measure);
-                if (deviation > 1e-9 * (1.0 + fabs(reference_measure)))
-                {
-                    // Dump both sides' sampled weights so the mis-mapped canonical point is visible.
-                    fprintf(stderr, "surface measure mismatch on side %u: %g vs %g over %zu points\n", ie, measure,
-                            reference_measure, face_points);
-                    for (size_t point = 0; point < face_points; ++point)
-                    {
-                        fprintf(stderr, "  point %zu: anchor %g side %g\n", point, surfaces[0][point],
-                                surfaces[ie][point]);
-                    }
-                }
-                CUTL_ASSERT(deviation <= 1e-9 * (1.0 + fabs(reference_measure)),
-                            "Incident sides disagree on the shared face's integrated surface measure.");
-            }
-            if (request->test_pullbacks != NULL)
-            {
-                const constraint_trace_pullback_t *const reference =
-                    request->test_pullbacks[(size_t)iform * plan->nelem];
-                const unsigned face_components =
-                    (unsigned)combination_total_count((uint8_t)bdim, (uint8_t)views[0].order);
-                const size_t component_blocks = (size_t)face_components * reference->physical_component_count;
-                for (unsigned ie = 1; ie < plan->nelem; ++ie)
-                {
-                    const constraint_trace_pullback_t *const other =
-                        request->test_pullbacks[(size_t)iform * plan->nelem + ie];
-                    CUTL_ASSERT(other->physical_component_count == reference->physical_component_count &&
-                                    other->point_count == reference->point_count,
-                                "Incident sides disagree on the trace pullback layout.");
-                    for (size_t block = 0; block < component_blocks; ++block)
-                    {
-                        double moment_reference = 0.0;
-                        double moment = 0.0;
-                        for (size_t point = 0; point < face_points; ++point)
-                        {
-                            const size_t index = block * reference->point_count + point;
-                            moment_reference += work->weights[point] * surfaces[0][point] * reference->values[index];
-                            moment += work->weights[point] * surfaces[ie][point] * other->values[index];
-                        }
-                        // Sides may carry opposite covector signs from mirrored
-                        // axes, but the moment's magnitude is side independent.
-                        CUTL_ASSERT(fabs(fabs(moment) - fabs(moment_reference)) <=
-                                        1e-9 * (1.0 + fabs(moment_reference)),
-                                    "Incident sides disagree on a shared face's pullback moment.");
-                    }
-                }
-            }
         }
     }
 }

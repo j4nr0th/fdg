@@ -61,6 +61,7 @@ space_map_object *space_map_object_create(PyTypeObject *subtype, unsigned n_maps
  * integration order is at least the dof order along every axis.
  *
  * @param state Interpreter module state.
+ * @param integration_registry Registry supplying the element and face rules.
  * @param map Space map to restrict; must have `map->ndim >= 1` and
  *            `idim < map->ndim`.
  * @param idim Index of the fixed dimension.
@@ -70,8 +71,10 @@ space_map_object *space_map_object_create(PyTypeObject *subtype, unsigned n_maps
  * @return The restricted space map, or NULL with a Python exception set.
  */
 FDG_INTERNAL
-space_map_object *space_map_boundary_impl(const interplib_module_state_t *state, const space_map_object *map,
-                                          unsigned idim, int end, integration_space_object *provided_face_space);
+space_map_object *space_map_boundary_impl(const interplib_module_state_t *state,
+                                          integration_registry_object *integration_registry,
+                                          const space_map_object *map, unsigned idim, int end,
+                                          integration_space_object *provided_face_space);
 
 /**
  * Restrict a space map to the boundary given by a full orientation array in a
@@ -85,14 +88,17 @@ space_map_object *space_map_boundary_impl(const interplib_module_state_t *state,
  * every value block (values and gradients) of the coordinate maps.
  *
  * @param state Interpreter module state.
+ * @param integration_registry Registry supplying the element and face rules.
  * @param map Space map to restrict.
  * @param bdim Number of dimensions of the boundary, `1 <= bdim <= map->ndim`.
  * @param orientation Full element-dimension orientation of the boundary.
  * @return The restricted space map, or NULL with a Python exception set.
  */
 FDG_INTERNAL
-space_map_object *space_map_boundary_oriented_impl(const interplib_module_state_t *state, const space_map_object *map,
-                                                   unsigned bdim, const int8_t *orientation);
+space_map_object *space_map_boundary_oriented_impl(const interplib_module_state_t *state,
+                                                   integration_registry_object *integration_registry,
+                                                   const space_map_object *map, unsigned bdim,
+                                                   const int8_t *orientation);
 
 /**
  * Retrieves the pointer to the start of the inverse mapping data at a specific

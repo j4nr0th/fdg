@@ -51,12 +51,14 @@ PyDoc_STRVAR(mesh_geometry_docstring, "MeshGeometry()\n"
                                       "Per-element geometry is retrieved as a regular :class:`SpaceMap` with\n"
                                       ":meth:`space_map`.\n");
 
-static int mesh_geometry_ensure_state(PyObject *self, const interplib_module_state_t **p_state,
-                                      mesh_geometry_object **p_this)
+static int mesh_geometry_ensure_state(PyObject *self, PyTypeObject *defining_class,
+                                      const interplib_module_state_t **p_state, mesh_geometry_object **p_this)
 {
-    *p_state = interplib_get_module_state(Py_TYPE(self));
-    if (!*p_state)
+    const interplib_module_state_t *const state =
+        defining_class ? PyType_GetModuleState(defining_class) : interplib_get_module_state(Py_TYPE(self));
+    if (!state)
         return -1;
+    *p_state = state;
     *p_this = (mesh_geometry_object *)self;
     return 0;
 }
@@ -213,12 +215,12 @@ static int mesh_geometry_add_element_impl(mesh_geometry_object *this, const inte
     return 0;
 }
 
-static PyObject *mesh_geometry_add_element_method(PyObject *self, PyObject *const *args, const Py_ssize_t nargs,
-                                                  PyObject *kwnames)
+static PyObject *mesh_geometry_add_element_method(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
+                                                  const Py_ssize_t nargs, PyObject *kwnames)
 {
     const interplib_module_state_t *state;
     mesh_geometry_object *this;
-    if (mesh_geometry_ensure_state(self, &state, &this) < 0)
+    if (mesh_geometry_ensure_state(self, defining_class, &state, &this) < 0)
         return NULL;
     if (kwnames && PyTuple_GET_SIZE(kwnames))
     {
@@ -488,12 +490,12 @@ static int mesh_geometry_check_element(mesh_geometry_object *this, const Py_ssiz
     return 0;
 }
 
-static PyObject *mesh_geometry_space_map_method(PyObject *self, PyObject *const *args, const Py_ssize_t nargs,
-                                                PyObject *kwnames)
+static PyObject *mesh_geometry_space_map_method(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
+                                                const Py_ssize_t nargs, PyObject *kwnames)
 {
     const interplib_module_state_t *state;
     mesh_geometry_object *this;
-    if (mesh_geometry_ensure_state(self, &state, &this) < 0)
+    if (mesh_geometry_ensure_state(self, defining_class, &state, &this) < 0)
         return NULL;
     Py_ssize_t element_id;
     if (parse_arguments_check((cpyutl_argument_t[]){{.type = CPYARG_TYPE_SSIZE, .p_val = &element_id}, {}}, args, nargs,
@@ -557,12 +559,12 @@ PyDoc_STRVAR(mesh_geometry_option_docstring, "option(index, /) -> tuple[Function
                                              "tuple[FunctionSpace, IntegrationSpace]\n"
                                              "    Function and integration space of the option.\n");
 
-static PyObject *mesh_geometry_option_method(PyObject *self, PyObject *const *args, const Py_ssize_t nargs,
-                                             PyObject *kwnames)
+static PyObject *mesh_geometry_option_method(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
+                                             const Py_ssize_t nargs, PyObject *kwnames)
 {
     const interplib_module_state_t *state;
     mesh_geometry_object *this;
-    if (mesh_geometry_ensure_state(self, &state, &this) < 0)
+    if (mesh_geometry_ensure_state(self, defining_class, &state, &this) < 0)
         return NULL;
     Py_ssize_t index;
     if (parse_arguments_check((cpyutl_argument_t[]){{.type = CPYARG_TYPE_SSIZE, .p_val = &index}, {}}, args, nargs,
@@ -596,12 +598,13 @@ PyDoc_STRVAR(mesh_geometry_set_element_values_docstring,
              "values : array_like\n"
              "    Flat array with as many entries as the element's option stores.\n");
 
-static PyObject *mesh_geometry_set_element_values_method(PyObject *self, PyObject *const *args, const Py_ssize_t nargs,
+static PyObject *mesh_geometry_set_element_values_method(PyObject *self, PyTypeObject *defining_class,
+                                                         PyObject *const *args, const Py_ssize_t nargs,
                                                          PyObject *kwnames)
 {
     const interplib_module_state_t *state;
     mesh_geometry_object *this;
-    if (mesh_geometry_ensure_state(self, &state, &this) < 0)
+    if (mesh_geometry_ensure_state(self, defining_class, &state, &this) < 0)
         return NULL;
     Py_ssize_t element_id;
     PyObject *values_object;
@@ -735,7 +738,7 @@ static void mesh_geometry_dealloc(mesh_geometry_object *self)
 static PyMethodDef mesh_geometry_methods[] = {
     {.ml_name = "add_element",
      .ml_meth = (void *)mesh_geometry_add_element_method,
-     .ml_flags = METH_FASTCALL | METH_KEYWORDS,
+     .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
      .ml_doc = (void *)mesh_geometry_add_element_docstring},
     {.ml_name = "from_elements",
      .ml_meth = (void *)mesh_geometry_from_elements,
@@ -747,15 +750,15 @@ static PyMethodDef mesh_geometry_methods[] = {
      .ml_doc = (void *)mesh_geometry_from_mesh_points_docstring},
     {.ml_name = "space_map",
      .ml_meth = (void *)mesh_geometry_space_map_method,
-     .ml_flags = METH_FASTCALL | METH_KEYWORDS,
+     .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
      .ml_doc = (void *)mesh_geometry_space_map_docstring},
     {.ml_name = "option",
      .ml_meth = (void *)mesh_geometry_option_method,
-     .ml_flags = METH_FASTCALL | METH_KEYWORDS,
+     .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
      .ml_doc = (void *)mesh_geometry_option_docstring},
     {.ml_name = "set_element_values",
      .ml_meth = (void *)mesh_geometry_set_element_values_method,
-     .ml_flags = METH_FASTCALL | METH_KEYWORDS,
+     .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
      .ml_doc = (void *)mesh_geometry_set_element_values_docstring},
     {},
 };
@@ -817,12 +820,14 @@ PyDoc_STRVAR(element_kforms_docstring, "ElementKForms(ndim, /, **fields: int)\n"
                                        "existing elements can still be overwritten with\n"
                                        ":meth:`set_field_values`.\n");
 
-static int element_kforms_ensure_state(PyObject *self, const interplib_module_state_t **p_state,
-                                       element_kforms_object **p_this)
+static int element_kforms_ensure_state(PyObject *self, PyTypeObject *defining_class,
+                                       const interplib_module_state_t **p_state, element_kforms_object **p_this)
 {
-    *p_state = interplib_get_module_state(Py_TYPE(self));
-    if (!*p_state)
+    const interplib_module_state_t *const state =
+        defining_class ? PyType_GetModuleState(defining_class) : interplib_get_module_state(Py_TYPE(self));
+    if (!state)
         return -1;
+    *p_state = state;
     *p_this = (element_kforms_object *)self;
     return 0;
 }
@@ -1158,12 +1163,12 @@ static int element_kforms_check_group(element_kforms_object *this, const interpl
     return 0;
 }
 
-static PyObject *element_kforms_add_element_method(PyObject *self, PyObject *const *args, const Py_ssize_t nargs,
-                                                   PyObject *kwnames)
+static PyObject *element_kforms_add_element_method(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
+                                                   const Py_ssize_t nargs, PyObject *kwnames)
 {
     const interplib_module_state_t *state;
     element_kforms_object *this;
-    if (element_kforms_ensure_state(self, &state, &this) < 0)
+    if (element_kforms_ensure_state(self, defining_class, &state, &this) < 0)
         return NULL;
     (void)parse_arguments_check((cpyutl_argument_t[]){{}, {}}, args, nargs, kwnames);
     if (this->frozen)
@@ -1291,7 +1296,7 @@ static PyObject *element_kforms_from_elements(PyObject *cls, PyObject *const *ar
             Py_DECREF(self);
             return NULL;
         }
-        PyObject *const result = element_kforms_add_element_method(self, PySequence_Fast_ITEMS(group),
+        PyObject *const result = element_kforms_add_element_method(self, NULL, PySequence_Fast_ITEMS(group),
                                                                    PySequence_Fast_GET_SIZE(group), NULL);
         Py_DECREF(group);
         if (!result)
@@ -1585,12 +1590,12 @@ PyDoc_STRVAR(element_kforms_kform_docstring, "kform(element_id, label, /) -> KFo
                                              "KForm\n"
                                              "    K-form holding the stored values of the field.\n");
 
-static PyObject *element_kforms_kform_method(PyObject *self, PyObject *const *args, const Py_ssize_t nargs,
-                                             PyObject *kwnames)
+static PyObject *element_kforms_kform_method(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
+                                             const Py_ssize_t nargs, PyObject *kwnames)
 {
     const interplib_module_state_t *state;
     element_kforms_object *this;
-    if (element_kforms_ensure_state(self, &state, &this) < 0)
+    if (element_kforms_ensure_state(self, defining_class, &state, &this) < 0)
         return NULL;
     Py_ssize_t element_id;
     PyObject *label_object;
@@ -1636,12 +1641,12 @@ PyDoc_STRVAR(element_kforms_kforms_docstring, "kforms(element_id, /) -> tuple[KF
                                               "tuple[KForm, ...]\n"
                                               "    One k-form per field, in field order.\n");
 
-static PyObject *element_kforms_kforms_method(PyObject *self, PyObject *const *args, const Py_ssize_t nargs,
-                                              PyObject *kwnames)
+static PyObject *element_kforms_kforms_method(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
+                                              const Py_ssize_t nargs, PyObject *kwnames)
 {
     const interplib_module_state_t *state;
     element_kforms_object *this;
-    if (element_kforms_ensure_state(self, &state, &this) < 0)
+    if (element_kforms_ensure_state(self, defining_class, &state, &this) < 0)
         return NULL;
     Py_ssize_t element_id;
     if (parse_arguments_check((cpyutl_argument_t[]){{.type = CPYARG_TYPE_SSIZE, .p_val = &element_id}, {}}, args, nargs,
@@ -1663,7 +1668,7 @@ static PyObject *element_kforms_kforms_method(PyObject *self, PyObject *const *a
             return NULL;
         }
         PyObject *const kform_args[2] = {PyLong_FromSsize_t(element_id), label_object};
-        PyObject *const kform = element_kforms_kform_method(self, kform_args, 2, NULL);
+        PyObject *const kform = element_kforms_kform_method(self, defining_class, kform_args, 2, NULL);
         Py_DECREF(label_object);
         Py_DECREF(kform_args[0]);
         if (!kform)
@@ -1694,12 +1699,12 @@ PyDoc_STRVAR(element_kforms_specs_docstring, "specs(element_id, label, /) -> KFo
                                              "    Specifications of the field, derived from the element's base\n"
                                              "    function space.\n");
 
-static PyObject *element_kforms_specs_method(PyObject *self, PyObject *const *args, const Py_ssize_t nargs,
-                                             PyObject *kwnames)
+static PyObject *element_kforms_specs_method(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
+                                             const Py_ssize_t nargs, PyObject *kwnames)
 {
     const interplib_module_state_t *state;
     element_kforms_object *this;
-    if (element_kforms_ensure_state(self, &state, &this) < 0)
+    if (element_kforms_ensure_state(self, defining_class, &state, &this) < 0)
         return NULL;
     Py_ssize_t element_id;
     PyObject *label_object;
@@ -1738,12 +1743,13 @@ PyDoc_STRVAR(element_kforms_set_field_values_docstring,
              "values : array_like\n"
              "    Flat array with as many entries as the field stores per element.\n");
 
-static PyObject *element_kforms_set_field_values_method(PyObject *self, PyObject *const *args, const Py_ssize_t nargs,
+static PyObject *element_kforms_set_field_values_method(PyObject *self, PyTypeObject *defining_class,
+                                                        PyObject *const *args, const Py_ssize_t nargs,
                                                         PyObject *kwnames)
 {
     const interplib_module_state_t *state;
     element_kforms_object *this;
-    if (element_kforms_ensure_state(self, &state, &this) < 0)
+    if (element_kforms_ensure_state(self, defining_class, &state, &this) < 0)
         return NULL;
     Py_ssize_t element_id;
     PyObject *label_object;
@@ -1795,12 +1801,12 @@ PyDoc_STRVAR(element_kforms_values_docstring, "values(label, /) -> numpy.typing.
                                               "array\n"
                                               "    One block of field values per element.\n");
 
-static PyObject *element_kforms_values_method(PyObject *self, PyObject *const *args, const Py_ssize_t nargs,
-                                              PyObject *kwnames)
+static PyObject *element_kforms_values_method(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
+                                              const Py_ssize_t nargs, PyObject *kwnames)
 {
     element_kforms_object *this;
     const interplib_module_state_t *state;
-    if (element_kforms_ensure_state(self, &state, &this) < 0)
+    if (element_kforms_ensure_state(self, defining_class, &state, &this) < 0)
         return NULL;
     PyObject *label_object;
     if (parse_arguments_check((cpyutl_argument_t[]){{.type = CPYARG_TYPE_PYTHON, .p_val = &label_object}, {}}, args,
@@ -1830,12 +1836,12 @@ PyDoc_STRVAR(element_kforms_offsets_docstring, "offsets(label, /) -> numpy.typin
                                                "array\n"
                                                "    Array with ``element_count + 1`` offsets.\n");
 
-static PyObject *element_kforms_offsets_method(PyObject *self, PyObject *const *args, const Py_ssize_t nargs,
-                                               PyObject *kwnames)
+static PyObject *element_kforms_offsets_method(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
+                                               const Py_ssize_t nargs, PyObject *kwnames)
 {
     element_kforms_object *this;
     const interplib_module_state_t *state;
-    if (element_kforms_ensure_state(self, &state, &this) < 0)
+    if (element_kforms_ensure_state(self, defining_class, &state, &this) < 0)
         return NULL;
     PyObject *label_object;
     if (parse_arguments_check((cpyutl_argument_t[]){{.type = CPYARG_TYPE_PYTHON, .p_val = &label_object}, {}}, args,
@@ -1877,7 +1883,7 @@ static PyObject *element_kforms_get_labels(PyObject *self, void *Py_UNUSED(closu
 static PyMethodDef element_kforms_methods[] = {
     {.ml_name = "add_element",
      .ml_meth = (void *)element_kforms_add_element_method,
-     .ml_flags = METH_FASTCALL | METH_KEYWORDS,
+     .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
      .ml_doc = (void *)element_kforms_add_element_docstring},
     {.ml_name = "from_elements",
      .ml_meth = (void *)element_kforms_from_elements,
@@ -1893,27 +1899,27 @@ static PyMethodDef element_kforms_methods[] = {
      .ml_doc = (void *)element_kforms_zeros_from_options_docstring},
     {.ml_name = "kform",
      .ml_meth = (void *)element_kforms_kform_method,
-     .ml_flags = METH_FASTCALL | METH_KEYWORDS,
+     .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
      .ml_doc = (void *)element_kforms_kform_docstring},
     {.ml_name = "kforms",
      .ml_meth = (void *)element_kforms_kforms_method,
-     .ml_flags = METH_FASTCALL | METH_KEYWORDS,
+     .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
      .ml_doc = (void *)element_kforms_kforms_docstring},
     {.ml_name = "specs",
      .ml_meth = (void *)element_kforms_specs_method,
-     .ml_flags = METH_FASTCALL | METH_KEYWORDS,
+     .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
      .ml_doc = (void *)element_kforms_specs_docstring},
     {.ml_name = "set_field_values",
      .ml_meth = (void *)element_kforms_set_field_values_method,
-     .ml_flags = METH_FASTCALL | METH_KEYWORDS,
+     .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
      .ml_doc = (void *)element_kforms_set_field_values_docstring},
     {.ml_name = "values",
      .ml_meth = (void *)element_kforms_values_method,
-     .ml_flags = METH_FASTCALL | METH_KEYWORDS,
+     .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
      .ml_doc = (void *)element_kforms_values_docstring},
     {.ml_name = "offsets",
      .ml_meth = (void *)element_kforms_offsets_method,
-     .ml_flags = METH_FASTCALL | METH_KEYWORDS,
+     .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
      .ml_doc = (void *)element_kforms_offsets_docstring},
     {},
 };
@@ -1960,12 +1966,14 @@ PyDoc_STRVAR(element_dofs_docstring, "ElementDoFs()\n"
                                      ":meth:`set_element_values`. Per-element DoFs are retrieved as a regular\n"
                                      ":class:`DegreesOfFreedom` with :meth:`dofs`.\n");
 
-static int element_dofs_ensure_state(PyObject *self, const interplib_module_state_t **p_state,
-                                     element_dofs_object **p_this)
+static int element_dofs_ensure_state(PyObject *self, PyTypeObject *defining_class,
+                                     const interplib_module_state_t **p_state, element_dofs_object **p_this)
 {
-    *p_state = interplib_get_module_state(Py_TYPE(self));
-    if (!*p_state)
+    const interplib_module_state_t *const state =
+        defining_class ? PyType_GetModuleState(defining_class) : interplib_get_module_state(Py_TYPE(self));
+    if (!state)
         return -1;
+    *p_state = state;
     *p_this = (element_dofs_object *)self;
     return 0;
 }
@@ -2017,12 +2025,12 @@ PyDoc_STRVAR(element_dofs_add_element_docstring, "add_element(dofs, /) -> None\n
                                                  "dofs : DegreesOfFreedom\n"
                                                  "    Degrees of freedom of the element.\n");
 
-static PyObject *element_dofs_add_element_method(PyObject *self, PyObject *const *args, const Py_ssize_t nargs,
-                                                 PyObject *kwnames)
+static PyObject *element_dofs_add_element_method(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
+                                                 const Py_ssize_t nargs, PyObject *kwnames)
 {
     const interplib_module_state_t *state;
     element_dofs_object *this;
-    if (element_dofs_ensure_state(self, &state, &this) < 0)
+    if (element_dofs_ensure_state(self, defining_class, &state, &this) < 0)
         return NULL;
     PyObject *obj;
     if (parse_arguments_check((cpyutl_argument_t[]){{.type = CPYARG_TYPE_PYTHON, .p_val = &obj}, {}}, args, nargs,
@@ -2097,7 +2105,7 @@ static PyObject *element_dofs_from_elements(PyObject *cls, PyObject *const *args
     }
     for (Py_ssize_t i = 0; i < PySequence_Fast_GET_SIZE(seq); ++i)
     {
-        PyObject *const result = element_dofs_add_element_method(self, &PySequence_Fast_ITEMS(seq)[i], 1, NULL);
+        PyObject *const result = element_dofs_add_element_method(self, NULL, &PySequence_Fast_ITEMS(seq)[i], 1, NULL);
         if (!result)
         {
             Py_DECREF(seq);
@@ -2319,12 +2327,12 @@ PyDoc_STRVAR(element_dofs_dofs_docstring, "dofs(element_id, /) -> DegreesOfFreed
                                           "DegreesOfFreedom\n"
                                           "    Degrees of freedom holding the stored values of the element.\n");
 
-static PyObject *element_dofs_dofs_method(PyObject *self, PyObject *const *args, const Py_ssize_t nargs,
-                                          PyObject *kwnames)
+static PyObject *element_dofs_dofs_method(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
+                                          const Py_ssize_t nargs, PyObject *kwnames)
 {
     const interplib_module_state_t *state;
     element_dofs_object *this;
-    if (element_dofs_ensure_state(self, &state, &this) < 0)
+    if (element_dofs_ensure_state(self, defining_class, &state, &this) < 0)
         return NULL;
     Py_ssize_t element_id;
     if (parse_arguments_check((cpyutl_argument_t[]){{.type = CPYARG_TYPE_SSIZE, .p_val = &element_id}, {}}, args, nargs,
@@ -2358,12 +2366,12 @@ PyDoc_STRVAR(element_dofs_option_docstring, "option(index, /) -> FunctionSpace\n
                                             "FunctionSpace\n"
                                             "    Function space of the option.\n");
 
-static PyObject *element_dofs_option_method(PyObject *self, PyObject *const *args, const Py_ssize_t nargs,
-                                            PyObject *kwnames)
+static PyObject *element_dofs_option_method(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
+                                            const Py_ssize_t nargs, PyObject *kwnames)
 {
     const interplib_module_state_t *state;
     element_dofs_object *this;
-    if (element_dofs_ensure_state(self, &state, &this) < 0)
+    if (element_dofs_ensure_state(self, defining_class, &state, &this) < 0)
         return NULL;
     Py_ssize_t index;
     if (parse_arguments_check((cpyutl_argument_t[]){{.type = CPYARG_TYPE_SSIZE, .p_val = &index}, {}}, args, nargs,
@@ -2394,12 +2402,13 @@ PyDoc_STRVAR(element_dofs_set_element_values_docstring,
              "values : array_like\n"
              "    Flat array with as many entries as the element's option stores.\n");
 
-static PyObject *element_dofs_set_element_values_method(PyObject *self, PyObject *const *args, const Py_ssize_t nargs,
+static PyObject *element_dofs_set_element_values_method(PyObject *self, PyTypeObject *defining_class,
+                                                        PyObject *const *args, const Py_ssize_t nargs,
                                                         PyObject *kwnames)
 {
     const interplib_module_state_t *state;
     element_dofs_object *this;
-    if (element_dofs_ensure_state(self, &state, &this) < 0)
+    if (element_dofs_ensure_state(self, defining_class, &state, &this) < 0)
         return NULL;
     Py_ssize_t element_id;
     PyObject *values_object;
@@ -2533,7 +2542,7 @@ static void element_dofs_dealloc(element_dofs_object *self)
 static PyMethodDef element_dofs_methods[] = {
     {.ml_name = "add_element",
      .ml_meth = (void *)element_dofs_add_element_method,
-     .ml_flags = METH_FASTCALL | METH_KEYWORDS,
+     .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
      .ml_doc = (void *)element_dofs_add_element_docstring},
     {.ml_name = "from_elements",
      .ml_meth = (void *)element_dofs_from_elements,
@@ -2549,15 +2558,15 @@ static PyMethodDef element_dofs_methods[] = {
      .ml_doc = (void *)element_dofs_zeros_from_options_docstring},
     {.ml_name = "dofs",
      .ml_meth = (void *)element_dofs_dofs_method,
-     .ml_flags = METH_FASTCALL | METH_KEYWORDS,
+     .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
      .ml_doc = (void *)element_dofs_dofs_docstring},
     {.ml_name = "option",
      .ml_meth = (void *)element_dofs_option_method,
-     .ml_flags = METH_FASTCALL | METH_KEYWORDS,
+     .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
      .ml_doc = (void *)element_dofs_option_docstring},
     {.ml_name = "set_element_values",
      .ml_meth = (void *)element_dofs_set_element_values_method,
-     .ml_flags = METH_FASTCALL | METH_KEYWORDS,
+     .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
      .ml_doc = (void *)element_dofs_set_element_values_docstring},
     {},
 };

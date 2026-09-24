@@ -165,13 +165,13 @@ PyType_Spec integration_registry_type_spec = {
                  {
                      "usage",
                      (void *)integration_registry_usage,
-                     METH_METHOD | METH_KEYWORDS | METH_FASTCALL,
+                     METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
                      "usage() -> tuple[IntegrationSpecs, ...]\nReturns a list of currently stored rules.",
                  },
                  {
                      "clear",
                      (void *)integration_registry_clear,
-                     METH_METHOD | METH_KEYWORDS | METH_FASTCALL,
+                     METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
                      "clear() -> None\nClears all stored rules.",
                  },
                  {},
@@ -496,13 +496,13 @@ PyType_Spec integration_specs_type_spec = {
                  {
                      .ml_name = "nodes",
                      .ml_meth = (void *)integration_specs_nodes,
-                     .ml_flags = METH_METHOD | METH_KEYWORDS | METH_FASTCALL,
+                     .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
                      .ml_doc = integration_specs_nodes_docstring,
                  },
                  {
                      .ml_name = "weights",
                      .ml_meth = (void *)integration_specs_weights,
-                     .ml_flags = METH_METHOD | METH_KEYWORDS | METH_FASTCALL,
+                     .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
                      .ml_doc = integration_specs_weights_docstring,
                  },
                  {},

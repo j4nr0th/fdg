@@ -227,13 +227,13 @@ PyType_Spec basis_registry_type_specs = {
                  {
                      "usage",
                      (void *)basis_registry_usage,
-                     METH_METHOD | METH_KEYWORDS | METH_FASTCALL,
+                     METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
                      basis_registry_usage_docstring,
                  },
                  {
                      "clear",
                      (void *)basis_registry_clear,
-                     METH_METHOD | METH_KEYWORDS | METH_FASTCALL,
+                     METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
                      basis_registry_clear_docstring,
                  },
                  {},

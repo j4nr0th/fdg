@@ -11,6 +11,7 @@ from fdg._fdg import (
     CoordinateMap,
     DegreesOfFreedom,
     FunctionSpace,
+    IntegrationRegistry,
     IntegrationSpace,
     IntegrationSpecs,
     KFormSpecs,
@@ -75,6 +76,46 @@ def test_sample_space_map(
         coords = pos[..., i]
         dof_vals = dof.values.reshape(coords.shape)
         assert pytest.approx(coords) == dof_vals
+
+
+def _unit_interval_space_map() -> SpaceMap:
+    """Map the reference interval onto itself through an order-2 basis."""
+    space = FunctionSpace(BasisSpecs(BasisType.LAGRANGE_UNIFORM, 2))
+    dofs = DegreesOfFreedom(space, np.linspace(0.0, 1.0, 3))
+    return SpaceMap(CoordinateMap(dofs, IntegrationSpace(IntegrationSpecs(2))))
+
+
+def test_on_uniform_grid_takes_keywords_and_a_registry() -> None:
+    """on_uniform_grid accepts positional or keyword arguments throughout."""
+    space_map = _unit_interval_space_map()
+    orders = [4]
+    registry = IntegrationRegistry()
+    expected = SampledSpaceMap.on_uniform_grid(space_map, orders)
+
+    calls = (
+        SampledSpaceMap.on_uniform_grid(space_map, orders=orders),
+        SampledSpaceMap.on_uniform_grid(space_map=space_map, orders=orders),
+        SampledSpaceMap.on_uniform_grid(space_map, orders, registry),
+        SampledSpaceMap.on_uniform_grid(
+            space_map=space_map,
+            orders=orders,
+            integration_registry=registry,
+        ),
+    )
+    for sampled in calls:
+        np.testing.assert_array_equal(sampled.positions, expected.positions)
+
+
+def test_on_uniform_grid_rejects_mistyped_arguments() -> None:
+    """A missing, unknown, or mistyped argument raises TypeError."""
+    space_map = _unit_interval_space_map()
+
+    with pytest.raises(TypeError):
+        SampledSpaceMap.on_uniform_grid(space_map)  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        SampledSpaceMap.on_uniform_grid(space_map, [4], bogus=1)  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        SampledSpaceMap.on_uniform_grid(space_map, [4], 5)  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize("int_order", _TEST_ORDERS)
@@ -178,6 +219,36 @@ def test_space_map_boundary_provides_tangential_pullback() -> None:
     assert pullback.shape == (1, 2, 4)
     np.testing.assert_allclose(pullback[0, 0], 0.0)
     np.testing.assert_allclose(pullback[0, 1], 2.0)
+
+
+def test_space_map_boundary_takes_keywords_but_not_none() -> None:
+    """The documented signature is positional-or-keyword with no None default."""
+    volume_space = FunctionSpace(
+        BasisSpecs(BasisType.LAGRANGE_UNIFORM, 1),
+        BasisSpecs(BasisType.LAGRANGE_UNIFORM, 1),
+    )
+    x_dofs = DegreesOfFreedom(volume_space, [0.0, 0.0, 1.0, 1.0])
+    y_dofs = DegreesOfFreedom(volume_space, [0.0, 1.0, 0.0, 1.0])
+    integration = IntegrationSpace(
+        IntegrationSpecs(2, method="gauss"), IntegrationSpecs(2, method="gauss")
+    )
+    volume_map = SpaceMap(
+        CoordinateMap(x_dofs, integration), CoordinateMap(y_dofs, integration)
+    )
+
+    by_keyword = volume_map.boundary(idim=0, end=True)
+    by_position = volume_map.boundary(0, True)
+    np.testing.assert_allclose(
+        np.asarray(by_keyword.coordinate_map(0).values),
+        np.asarray(by_position.coordinate_map(0).values),
+    )
+
+    face_space = IntegrationSpace(IntegrationSpecs(3, method="gauss"))
+    custom = volume_map.boundary(0, False, face_space)
+    assert custom.integration_space.orders == (3,)
+    # The default comes from omitting the argument, not from passing None.
+    with pytest.raises(TypeError):
+        volume_map.boundary(0, False, None)  # type: ignore
 
 
 def test_kform_boundary_trace_moments_packed_scalar() -> None:
@@ -355,7 +426,6 @@ def test_boundary_mass_matrices_trace_continuity() -> None:
                 element_maps=[maps[int(e)] for e in element_ids],
                 boundary_dimension=mdim,
                 axis_skip=(2,) * mdim,
-                shared_face=False,
             )
             del common, object_id
             moments = [matrices[i] @ values for i in range(len(element_ids))]

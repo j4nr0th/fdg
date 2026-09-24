@@ -310,8 +310,6 @@ typedef struct
     const boundary_element_space_t *elements; ///< [nforms * nelem] Form-major element views.
     const uint8_t *axis_skip;                 ///< [nforms * bdim] Per-form skipped test functions, NULL = none.
     bool c1_continuous;                       ///< Reference-space pairing; pullback inputs may be NULL.
-    bool shared_face_guard;                   ///< Debug-guard incident sides against one shared physical face;
-                                              ///< disable when sides are distinct faces (periodic pairs).
     const double *const *surface_weights;     ///< [nforms * nelem] Optional per-item face measure rows.
     const constraint_trace_pullback_t *const *test_pullbacks;    ///< [nforms * nelem] Optional per-item pullbacks.
     const constraint_trace_pullback_t *const *element_pullbacks; ///< [nforms * nelem] Optional per-item pullbacks.

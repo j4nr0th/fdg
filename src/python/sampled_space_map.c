@@ -382,7 +382,8 @@ static PyObject *sampled_space_map_new(PyTypeObject *type, PyObject *args, PyObj
     return (PyObject *)res;
 }
 
-static PyObject *sampled_space_map_on_uniform_grid(PyObject *cls, PyObject *args, PyObject *kwds)
+static PyObject *sampled_space_map_on_uniform_grid(PyObject *cls, PyObject *const *args, const Py_ssize_t nargs,
+                                                   PyObject *kwnames)
 {
     const interplib_module_state_t *const state = interplib_get_module_state((PyTypeObject *)cls);
     if (!state)
@@ -390,10 +391,22 @@ static PyObject *sampled_space_map_on_uniform_grid(PyObject *cls, PyObject *args
 
     space_map_object *smap = NULL;
     PyObject *orders_obj = NULL;
-    integration_registry_object *const registry_obj = (integration_registry_object *)state->registry_integration;
-    if (!PyArg_ParseTupleAndKeywords(
-            args, kwds, "O!O|O!", (char *[]){"space_map", "orders", "integration_registry", NULL},
-            state->space_mapping_type, &smap, &orders_obj, state->integration_registry_type, &registry_obj))
+    integration_registry_object *registry_obj = (integration_registry_object *)state->registry_integration;
+    if (parse_arguments_check(
+            (cpyutl_argument_t[]){
+                {.type = CPYARG_TYPE_PYTHON,
+                 .type_check = state->space_mapping_type,
+                 .p_val = &smap,
+                 .kwname = "space_map"},
+                {.type = CPYARG_TYPE_PYTHON, .p_val = &orders_obj, .kwname = "orders"},
+                {.type = CPYARG_TYPE_PYTHON,
+                 .type_check = state->integration_registry_type,
+                 .p_val = &registry_obj,
+                 .kwname = "integration_registry",
+                 .optional = 1},
+                {},
+            },
+            args, nargs, kwnames) < 0)
         return NULL;
 
     unsigned *orders = NULL;
@@ -409,7 +422,7 @@ static PyMethodDef sampled_space_map_type_methods[] = {
     {
         .ml_name = "on_uniform_grid",
         .ml_meth = (void *)sampled_space_map_on_uniform_grid,
-        .ml_flags = METH_CLASS | METH_VARARGS | METH_KEYWORDS,
+        .ml_flags = METH_CLASS | METH_FASTCALL | METH_KEYWORDS,
         .ml_doc = sampled_space_map_uniform_doc,
     },
     {},

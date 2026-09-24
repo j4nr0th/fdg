@@ -809,9 +809,11 @@ PyDoc_STRVAR(space_map_basis_transform_docstring,
              "    Array with three axis. The first indexes over the input basis, the second\n"
              "    over output basis, and the last one over integration points.\n");
 
-PyDoc_STRVAR(space_map_boundary_docstring, "boundary(idim: int, end: bool = False, /) -> SpaceMap\n"
-                                           "Extract a space map restricted to a reference-space boundary.\n"
-                                           "The lower boundary is at -1 and the upper boundary is at +1.\n");
+PyDoc_STRVAR(space_map_boundary_docstring,
+             "boundary(idim: int, end: bool = False, integration_space: IntegrationSpace = ..., *,\n"
+             "         integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY) -> SpaceMap\n"
+             "Extract a space map restricted to a reference-space boundary.\n"
+             "The lower boundary is at -1 and the upper boundary is at +1.\n");
 
 /** Operator applied along one axis of an integration-point value tensor. */
 typedef struct
@@ -893,6 +895,7 @@ static void boundary_axis_apply(const boundary_axis_operator_t *op, const unsign
  * along every axis.
  *
  * @param state Interpreter module state.
+ * @param integration_registry Registry supplying the element and face rules.
  * @param map Space map to restrict.
  * @param bdim Number of dimensions of the boundary, `1 <= bdim <= map->ndim`.
  * @param orientation Full element-dimension orientation of the boundary; the
@@ -902,6 +905,7 @@ static void boundary_axis_apply(const boundary_axis_operator_t *op, const unsign
  * @return The restricted space map, or NULL with a Python exception set.
  */
 static space_map_object *space_map_boundary_grid_impl(const interplib_module_state_t *state,
+                                                      integration_registry_object *const integration_registry,
                                                       const space_map_object *map, const unsigned bdim,
                                                       const int8_t *orientation,
                                                       const integration_space_object *provided_face_space)
@@ -1027,7 +1031,6 @@ static space_map_object *space_map_boundary_grid_impl(const interplib_module_sta
             }
         }
     }
-    integration_registry_object *const registry = (integration_registry_object *)state->registry_integration;
     const integration_rule_t **element_rules = NULL;
     const integration_rule_t **face_rules = NULL;
     space_map_object *result = NULL;
@@ -1037,7 +1040,7 @@ static space_map_object *space_map_boundary_grid_impl(const interplib_module_sta
     Py_ssize_t n_created = 0;
     if (needs_element_nodes)
     {
-        element_rules = python_integration_rules_get(ndim, map->int_specs, registry->registry);
+        element_rules = python_integration_rules_get(ndim, map->int_specs, integration_registry->registry);
         if (!element_rules)
         {
             goto fail;
@@ -1045,7 +1048,7 @@ static space_map_object *space_map_boundary_grid_impl(const interplib_module_sta
     }
     if (needs_face_nodes)
     {
-        face_rules = python_integration_rules_get(face_ndim, face_specs, registry->registry);
+        face_rules = python_integration_rules_get(face_ndim, face_specs, integration_registry->registry);
         if (!face_rules)
         {
             goto fail;
@@ -1171,11 +1174,11 @@ static space_map_object *space_map_boundary_grid_impl(const interplib_module_sta
 fail:
     if (face_rules)
     {
-        python_integration_rules_release(face_ndim, face_rules, registry->registry);
+        python_integration_rules_release(face_ndim, face_rules, integration_registry->registry);
     }
     if (element_rules)
     {
-        python_integration_rules_release(ndim, element_rules, registry->registry);
+        python_integration_rules_release(ndim, element_rules, integration_registry->registry);
     }
     PyMem_Free(weights_block);
     PyMem_Free(scratch);
@@ -1187,14 +1190,17 @@ fail:
     return result;
 }
 
-space_map_object *space_map_boundary_oriented_impl(const interplib_module_state_t *state, const space_map_object *map,
-                                                   const unsigned bdim, const int8_t *orientation)
+space_map_object *space_map_boundary_oriented_impl(const interplib_module_state_t *state,
+                                                   integration_registry_object *const integration_registry,
+                                                   const space_map_object *map, const unsigned bdim,
+                                                   const int8_t *orientation)
 {
-    return space_map_boundary_grid_impl(state, map, bdim, orientation, NULL);
+    return space_map_boundary_grid_impl(state, integration_registry, map, bdim, orientation, NULL);
 }
 
-space_map_object *space_map_boundary_impl(const interplib_module_state_t *state, const space_map_object *map,
-                                          const unsigned idim, const int end,
+space_map_object *space_map_boundary_impl(const interplib_module_state_t *state,
+                                          integration_registry_object *const integration_registry,
+                                          const space_map_object *map, const unsigned idim, const int end,
                                           integration_space_object *provided_face_space)
 {
     // The restricted map follows from sampling the element grid: the fixed axis is
@@ -1211,7 +1217,7 @@ space_map_object *space_map_boundary_impl(const interplib_module_state_t *state,
             ++slot;
         }
     }
-    return space_map_boundary_grid_impl(state, map, 1, orientation, provided_face_space);
+    return space_map_boundary_grid_impl(state, integration_registry, map, 1, orientation, provided_face_space);
 }
 
 static PyObject *space_map_boundary(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
@@ -1225,6 +1231,7 @@ static PyObject *space_map_boundary(PyObject *self, PyTypeObject *defining_class
     Py_ssize_t idim;
     int end = 0;
     integration_space_object *provided_face_space = NULL;
+    integration_registry_object *integration_registry = (integration_registry_object *)state->registry_integration;
     if (parse_arguments_check(
             (cpyutl_argument_t[]){
                 {.type = CPYARG_TYPE_SSIZE, .p_val = &idim, .kwname = "idim"},
@@ -1234,6 +1241,12 @@ static PyObject *space_map_boundary(PyObject *self, PyTypeObject *defining_class
                  .type_check = state->integration_space_type,
                  .kwname = "integration_space",
                  .optional = 1},
+                {.type = CPYARG_TYPE_PYTHON,
+                 .p_val = &integration_registry,
+                 .type_check = state->integration_registry_type,
+                 .kwname = "integration_registry",
+                 .optional = 1,
+                 .kw_only = 1},
                 {},
             },
             args, nargs, kwnames) < 0)
@@ -1256,7 +1269,8 @@ static PyObject *space_map_boundary(PyObject *self, PyTypeObject *defining_class
         return NULL;
     }
 
-    return (PyObject *)space_map_boundary_impl(state, this, (unsigned)idim, end, provided_face_space);
+    return (PyObject *)space_map_boundary_impl(state, integration_registry, this, (unsigned)idim, end,
+                                               provided_face_space);
 }
 
 PyType_Spec space_map_type_spec = {
@@ -1305,19 +1319,19 @@ PyType_Spec space_map_type_spec = {
                  {
                      .ml_name = "coordinate_map",
                      .ml_meth = (void *)space_map_get_coordinate_map,
-                     .ml_flags = METH_FASTCALL | METH_KEYWORDS | METH_METHOD,
+                     .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
                      .ml_doc = space_map_get_coordinate_map_docstring,
                  },
                  {
                      .ml_name = "basis_transform",
                      .ml_meth = (void *)space_map_basis_transform,
-                     .ml_flags = METH_FASTCALL | METH_KEYWORDS | METH_METHOD,
+                     .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
                      .ml_doc = space_map_basis_transform_docstring,
                  },
                  {
                      .ml_name = "boundary",
                      .ml_meth = (void *)space_map_boundary,
-                     .ml_flags = METH_FASTCALL | METH_KEYWORDS | METH_METHOD,
+                     .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
                      .ml_doc = space_map_boundary_docstring,
                  },
                  {},

@@ -28,11 +28,11 @@ typedef struct
 } boundary_face_setup_t;
 
 FDG_INTERNAL
-int make_boundary_face_setup(const interplib_module_state_t *state, const space_map_object *element_map,
-                             const int8_t *orientation, const unsigned element_dim, const unsigned face_dim,
-                             boundary_face_setup_t *setup);
+int make_boundary_face_setup(const interplib_module_state_t *state, integration_registry_object *integration_registry,
+                             const space_map_object *element_map, const int8_t *orientation, const unsigned element_dim,
+                             const unsigned face_dim, boundary_face_setup_t *setup);
 FDG_INTERNAL
-void release_boundary_face_setup(const interplib_module_state_t *state, const unsigned face_dim,
+void release_boundary_face_setup(integration_registry_object *integration_registry, const unsigned face_dim,
                                  boundary_face_setup_t *setup);
 
 #endif // FDG_PYTHON_CONSTRAINTS_H
