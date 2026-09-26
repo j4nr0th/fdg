@@ -1450,7 +1450,7 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
             constraint_boundary_mass_layout(&spec, &work.mass, coupled, &rows, &cols, &entries);
             const npy_intp entry_dims[1] = {(npy_intp)entries};
             const npy_intp row_dims[1] = {(npy_intp)(rows + 1)};
-            PyArrayObject *const side_array = (PyArrayObject *)PyArray_SimpleNew(1, entry_dims, NPY_UINT8);
+            PyArrayObject *const side_array = (PyArrayObject *)PyArray_SimpleNew(1, entry_dims, NPY_UINT64);
             PyArrayObject *const component_array = (PyArrayObject *)PyArray_SimpleNew(1, entry_dims, NPY_UINT32);
             PyArrayObject *const dof_array = (PyArrayObject *)PyArray_SimpleNew(1, entry_dims, NPY_UINTP);
             PyArrayObject *const coefficient_array = (PyArrayObject *)PyArray_SimpleNew(1, entry_dims, NPY_DOUBLE);
@@ -1470,7 +1470,7 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
                 goto fail_memory;
             }
             constraint_boundary_mass_pack(&spec, &work.mass, coupled, (const double *)PyArray_DATA(matrix),
-                                          (size_t)cols, 1.0, (uint8_t)element, (uint8_t *)PyArray_DATA(side_array),
+                                          (size_t)cols, 1.0, (uint64_t)element, (uint64_t *)PyArray_DATA(side_array),
                                           (uint32_t *)PyArray_DATA(component_array), (size_t *)PyArray_DATA(dof_array),
                                           (double *)PyArray_DATA(coefficient_array), (size_t *)PyArray_DATA(row_array));
             PyObject *const item =
@@ -1572,6 +1572,55 @@ static PyObject *compute_kform_boundary_trace_moments(PyObject *module, PyObject
     return boundary_mass_assemble(module, args, nargs, kwnames, 1);
 }
 
+/**
+ * @brief Reorder and mirror one sampled face tensor into the canonical face frame.
+ *
+ * Canonical axis @p axis reads the source face axis `src_axis_of[axis]`, with its coordinate mirrored where the
+ * orientation tail entry is negative (node-index reversal; element face rules are symmetric). The destination holds
+ * the canonical axis order with row-major strides.
+ *
+ * @param bdim Face dimension.
+ * @param dims [bdim] Node counts of the source axes.
+ * @param src_strides [bdim] Row-major strides of the source tensor.
+ * @param src_axis_of [bdim] Source face axis feeding each canonical axis.
+ * @param mirror [bdim] Whether the canonical axis mirrors its source axis.
+ * @param scale Factor applied to every copied entry.
+ * @param src Source samples, row-major over the source axes.
+ * @param dst Destination samples, row-major over the canonical axes.
+ */
+static void face_tensor_remap(const unsigned bdim, const unsigned dims[static bdim],
+                              const size_t src_strides[static bdim], const unsigned src_axis_of[static bdim],
+                              const bool mirror[static bdim], const double scale, const double *const src,
+                              double *const dst)
+{
+    size_t total = 1;
+    for (unsigned axis = 0; axis < bdim; ++axis)
+    {
+        total *= dims[src_axis_of[axis]];
+    }
+    unsigned digits[UINT8_MAX] = {0};
+    for (size_t entry = 0; entry < total; ++entry)
+    {
+        size_t src_offset = 0;
+        for (unsigned axis = 0; axis < bdim; ++axis)
+        {
+            const unsigned nodes = dims[src_axis_of[axis]];
+            const unsigned digit = mirror[axis] ? nodes - 1 - digits[axis] : digits[axis];
+            src_offset += digit * src_strides[src_axis_of[axis]];
+        }
+        dst[entry] = scale * src[src_offset];
+        // Row-major: the last canonical axis advances fastest.
+        for (unsigned axis = bdim; axis-- > 0;)
+        {
+            const unsigned nodes = dims[src_axis_of[axis]];
+            if (++digits[axis] < nodes)
+                break;
+            digits[axis] = 0;
+        }
+    }
+}
+
+// TODO: check if we even need this.
 static PyObject *compute_boundary_space_map_factors(PyObject *module, PyObject *const *args, const Py_ssize_t nargs,
                                                     const PyObject *kwnames)
 {
@@ -1617,6 +1666,20 @@ static PyObject *compute_boundary_space_map_factors(PyObject *module, PyObject *
         return NULL;
     }
 
+    // Canonical face frame from the orientation tail: canonical axis face_axis samples the element axis the tail
+    // entry names, mirrored where that entry is negative (matching constraint_face_point_to_source).
+    unsigned source_axis_of[UINT8_MAX];
+    bool mirror_axis[UINT8_MAX];
+    bool face_frame_remap = false;
+    for (unsigned face_axis = 0; face_axis < bdim; ++face_axis)
+    {
+        const int8_t mapping = orientation[fixed_count + face_axis];
+        const unsigned element_axis = (unsigned)(mapping < 0 ? -mapping : mapping) - 1;
+        source_axis_of[face_axis] = constraint_face_source_axis(ndim, bdim, orientation, element_axis);
+        mirror_axis[face_axis] = mapping < 0;
+        face_frame_remap = face_frame_remap || mirror_axis[face_axis] || source_axis_of[face_axis] != face_axis;
+    }
+
     space_map_object *const face_map =
         space_map_boundary_oriented_impl(state, integration_registry, map, fixed_count, orientation);
     PyMem_Free(orientation);
@@ -1642,6 +1705,13 @@ static PyObject *compute_boundary_space_map_factors(PyObject *module, PyObject *
         return NULL;
     }
 
+    // The resample pairs canonical axis face_axis with the source rule of the axis the tail names.
+    const integration_rule_t *face_source_rules[UINT8_MAX];
+    for (unsigned face_axis = 0; face_axis < bdim; ++face_axis)
+    {
+        face_source_rules[face_axis] = source_rules[source_axis_of[face_axis]];
+    }
+
     const npy_intp point_count = (npy_intp)integration_specs_total_points(bdim, common->specs);
     PyArrayObject *const determinant = (PyArrayObject *)PyArray_SimpleNew(1, &point_count, NPY_DOUBLE);
     const npy_intp inverse_dims[3] = {point_count, (npy_intp)bdim, (npy_intp)coords};
@@ -1651,7 +1721,7 @@ static PyObject *compute_boundary_space_map_factors(PyObject *module, PyObject *
     size_t jacobian_size;
     size_t q_size;
     size_t scratch_bytes;
-    boundary_space_map_resample_work_size(bdim, coords, source_rules, target_rules, &axis_matrices_size,
+    boundary_space_map_resample_work_size(bdim, coords, face_source_rules, target_rules, &axis_matrices_size,
                                           &positions_size, &jacobian_size, &q_size, &scratch_bytes);
     double *axis_matrices;
     double *positions;
@@ -1683,23 +1753,73 @@ static PyObject *compute_boundary_space_map_factors(PyObject *module, PyObject *
         Py_DECREF((PyObject *)face_map);
         return PyErr_NoMemory();
     }
+    // Mirrored or reordered tails get face-map copies in the canonical frame before the resample consumes them.
+    const size_t source_points = integration_specs_total_points(bdim, face_map->int_specs);
+    double *face_values = NULL;
+    double *face_gradients = NULL;
+    if (face_frame_remap)
+    {
+        face_values = PyMem_Malloc(coords * source_points * sizeof(*face_values));
+        face_gradients = PyMem_Malloc(coords * (size_t)bdim * source_points * sizeof(*face_gradients));
+        if (!face_values || !face_gradients)
+        {
+            PyMem_Free(face_values);
+            PyMem_Free(face_gradients);
+            cutl_dealloc(&PYTHON_ALLOCATOR, work_memory);
+            python_integration_rules_release(bdim, source_rules, registry);
+            python_integration_rules_release(bdim, target_rules, registry);
+            Py_DECREF((PyObject *)face_map);
+            return PyErr_NoMemory();
+        }
+    }
     // Carve the scratch block into the request's per-axis work arrays.
     source_orders = (unsigned *)(void *)(target_orders + bdim);
     axis_matrix_rows = (const double **)(const void *)(source_orders + bdim);
     target_specs = (integration_spec_t *)(void *)(axis_matrix_rows + bdim);
+    unsigned source_nodes[UINT8_MAX];
+    size_t source_strides[UINT8_MAX];
+    if (face_frame_remap)
+    {
+        size_t stride = 1;
+        for (unsigned axis = bdim; axis-- > 0;)
+        {
+            source_nodes[axis] = face_map->int_specs[axis].order + 1u;
+            source_strides[axis] = stride;
+            stride *= source_nodes[axis];
+        }
+    }
     for (unsigned coordinate = 0; coordinate < coords; ++coordinate)
     {
-        coordinate_values[coordinate] = coordinate_map_values(face_map->maps[coordinate]);
-        for (unsigned axis = 0; axis < bdim; ++axis)
+        if (face_frame_remap)
         {
-            coordinate_gradients[(size_t)coordinate * bdim + axis] =
-                coordinate_map_gradient(face_map->maps[coordinate], axis);
+            double *const out_values = face_values + (size_t)coordinate * source_points;
+            face_tensor_remap(bdim, source_nodes, source_strides, source_axis_of, mirror_axis, 1.0,
+                              coordinate_map_values(face_map->maps[coordinate]), out_values);
+            coordinate_values[coordinate] = out_values;
+            for (unsigned axis = 0; axis < bdim; ++axis)
+            {
+                double *const out_gradient = face_gradients + ((size_t)coordinate * bdim + axis) * source_points;
+                // The canonical coordinate is the mirrored source coordinate, so its derivative flips the sign.
+                face_tensor_remap(
+                    bdim, source_nodes, source_strides, source_axis_of, mirror_axis, mirror_axis[axis] ? -1.0 : 1.0,
+                    coordinate_map_gradient(face_map->maps[coordinate], source_axis_of[axis]), out_gradient);
+                coordinate_gradients[(size_t)coordinate * bdim + axis] = out_gradient;
+            }
+        }
+        else
+        {
+            coordinate_values[coordinate] = coordinate_map_values(face_map->maps[coordinate]);
+            for (unsigned axis = 0; axis < bdim; ++axis)
+            {
+                coordinate_gradients[(size_t)coordinate * bdim + axis] =
+                    coordinate_map_gradient(face_map->maps[coordinate], axis);
+            }
         }
     }
 
     const boundary_space_map_resample_request_t request = {.bdim = bdim,
                                                            .coords = coords,
-                                                           .source_rules = source_rules,
+                                                           .source_rules = face_source_rules,
                                                            .target_rules = target_rules,
                                                            .coordinate_values = coordinate_values,
                                                            .coordinate_gradients = coordinate_gradients,
@@ -1717,6 +1837,8 @@ static PyObject *compute_boundary_space_map_factors(PyObject *module, PyObject *
     boundary_space_map_resample(&request);
     Py_END_ALLOW_THREADS;
 
+    PyMem_Free(face_values);
+    PyMem_Free(face_gradients);
     cutl_dealloc(&PYTHON_ALLOCATOR, work_memory);
     python_integration_rules_release(bdim, source_rules, registry);
     python_integration_rules_release(bdim, target_rules, registry);
@@ -1733,66 +1855,295 @@ PyMethodDef constraint_methods[] = {
         .ml_name = "packed_kform_constraints_to_csr",
         .ml_meth = (void *)packed_kform_constraints_to_csr,
         .ml_flags = METH_FASTCALL | METH_KEYWORDS,
-        .ml_doc =
-            "packed_kform_constraints_to_csr(packed, specs, element_count, /) -> "
-            "tuple[numpy.ndarray, ...]\nConvert packed global k-form rows to CSR data, indices, and indptr arrays.",
+        .ml_doc = "packed_kform_constraints_to_csr(packed, specs, element_count, /) -> "
+                  "tuple[numpy.typing.NDArray[numpy.double], numpy.typing.NDArray[numpy.intp], "
+                  "numpy.typing.NDArray[numpy.uintp]]\n"
+                  "\n"
+                  "Convert packed global k-form rows to CSR constructor arrays.\n"
+                  "\n"
+                  "Parameters\n"
+                  "----------\n"
+                  "packed : tuple of (array, array, array, array, array)\n"
+                  "    ``(row_offsets, element_ids, components, local_dofs, coefficients)``\n"
+                  "    with dtypes ``uintp``, ``uint64``, ``uint32``, ``uintp`` and ``float64``.\n"
+                  "    ``row_offsets`` starts at zero, is non-decreasing and ends at the entry\n"
+                  "    count; ``element_ids`` and ``components`` stay below ``element_count``\n"
+                  "    and the component count of ``specs``.\n"
+                  "\n"
+                  "specs : KFormSpecs\n"
+                  "    Element k-form specification that numbers the columns inside each\n"
+                  "    element.\n"
+                  "\n"
+                  "element_count : int\n"
+                  "    Number of elements referenced by ``element_ids``.\n"
+                  "\n"
+                  "Returns\n"
+                  "-------\n"
+                  "tuple of (array, array, array)\n"
+                  "    ``(data, indices, indptr)`` for direct use with\n"
+                  "    ``scipy.sparse.csr_matrix``. Columns are element-major:\n"
+                  "    ``element_id`` times the element's total DoF count, plus the\n"
+                  "    component's start inside the element, plus the local DoF.\n",
     },
     {
         .ml_name = "compute_kform_boundary_load",
         .ml_meth = (void *)compute_kform_boundary_load,
         .ml_flags = METH_FASTCALL | METH_KEYWORDS,
         .ml_doc = "compute_kform_boundary_load(test_specs, element_spec, element_map, collections, npts, "
-                  "element_id, boundary_id, data, surface_measure=False, *, "
+                  "element_id, boundary_id, data, /, surface_measure=False, *, "
                   "integration_registry=DEFAULT_INTEGRATION_REGISTRY, basis_registry=DEFAULT_BASIS_REGISTRY) -> "
-                  "numpy.ndarray\nCompute the boundary "
-                  "load of one element face: the pairing of the trace of the element (k-1)-form basis against "
-                  "the components of a k-form datum, where k = element_spec.order + 1. Provide one callable "
-                  "per element-frame k-form component (each called with the physical coordinates of the "
-                  "canonical face points); a bare callable is accepted when k equals the element dimension. "
-                  "With surface_measure=True the data is integrated with the mapped face Jacobian (physical "
-                  "surface measure); otherwise the metric-free chain integral is assembled.",
+                  "numpy.ndarray\n"
+                  "\n"
+                  "Assemble the physical boundary load of one element face.\n"
+                  "\n"
+                  "Computes the metric-free chain integral of the components of a k-form\n"
+                  "datum (element frame, ``k = element_spec.order + 1``) against the trace of\n"
+                  "the element (k-1)-form basis on a codimension-1 boundary face. For each\n"
+                  "traced face component with element-frame axes ``J_e`` and fixed normal\n"
+                  "axis ``a``, the only contributing datum component is ``J_e | {a}``:\n"
+                  "\n"
+                  "``b[j] = s * o * (-1)^{|{i in J_e : i < a}|} * sum_p w_p u_{J_e | {a}}(g_p) B_j(g_p)``\n"
+                  "\n"
+                  "where ``s`` and ``a`` are the side and index of the fixed normal axis of\n"
+                  "the face, ``o`` the orientation sign of the mapped component, ``w_p`` the\n"
+                  "reference face quadrature weights, ``u`` the sampled datum component and\n"
+                  "``B_j`` the element (k-1)-form basis of the traced component. When ``k``\n"
+                  "equals the element dimension (a single datum component) this reduces to\n"
+                  "the scalar chain integral ``s * o * (-1)^a * sum_p w_p data(g_p) B_j(g_p)``:\n"
+                  "the natural boundary term of the mixed formulation implementing the weak\n"
+                  "Dirichlet condition ``u = data``.\n"
+                  "\n"
+                  "Parameters\n"
+                  "----------\n"
+                  "test_specs : KFormSpecs\n"
+                  "    Test (k-1)-form specification on the canonical boundary space.\n"
+                  "\n"
+                  "element_spec : KFormSpecs\n"
+                  "    Volume k-form specification for the selected element. The datum order\n"
+                  "    is ``element_spec.order + 1``.\n"
+                  "\n"
+                  "element_map : SpaceMap\n"
+                  "    Volume map for the selected element. Its restricted face map provides the\n"
+                  "    face geometry and quadrature.\n"
+                  "\n"
+                  "collections : tuple of array_like\n"
+                  "    Boundary-ID arrays for mesh objects of dimensions 1 through N. The last\n"
+                  "    collection contains the N-dimensional elements.\n"
+                  "\n"
+                  "npts : int\n"
+                  "    Number of mesh points represented implicitly by point IDs.\n"
+                  "\n"
+                  "element_id : int\n"
+                  "    Element containing the selected boundary.\n"
+                  "\n"
+                  "boundary_id : int\n"
+                  "    Mesh boundary-object ID on the selected element.\n"
+                  "\n"
+                  "data : Callable or sequence of Callables\n"
+                  "    Datum components in element-frame component order: one callable per\n"
+                  "    ``k``-form component (``math.comb(element_spec.dimension, k)`` of\n"
+                  "    them), each called with one coordinate array per element dimension and\n"
+                  "    returning one value per face quadrature point (scalars broadcast). A\n"
+                  "    bare callable is accepted when ``k`` equals the element dimension (a\n"
+                  "    single component). 0-form data is not covered; impose it strongly\n"
+                  "    instead.\n"
+                  "\n"
+                  "    The quadrature points are the *canonical* face tensor-product nodes\n"
+                  "    of the restricted element map's rule, in canonical-face point order\n"
+                  "    (fixed normal axis first), mapped through the restricted element map.\n"
+                  "    They coincide with the restricted face map's integration points only\n"
+                  "    because the same rule and cardinality are used; consumers matching the\n"
+                  "    ``data`` evaluations against other sample sets must match by\n"
+                  "    position, not assume a particular index order.\n"
+                  "\n"
+                  "surface_measure : bool, default: False\n"
+                  "    Integrate the data with the mapped face Jacobian (physical surface\n"
+                  "    measure) instead of the metric-free chain integral.\n"
+                  "\n"
+                  "integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY\n"
+                  "    Registry to get the face quadrature rules from.\n"
+                  "\n"
+                  "basis_registry : BasisRegistry, default: DEFAULT_BASIS_REGISTRY\n"
+                  "    Registry to get the traced basis table from.\n"
+                  "\n"
+                  "Returns\n"
+                  "-------\n"
+                  "numpy.ndarray\n"
+                  "    Dense load vector over the flattened element (k-1)-form degrees of\n"
+                  "    freedom.\n",
     },
     {
         .ml_name = "compute_kform_boundary_mass_matrices",
         .ml_meth = (void *)compute_kform_boundary_mass_matrices,
         .ml_flags = METH_FASTCALL | METH_KEYWORDS,
-        .ml_doc = "compute_kform_boundary_mass_matrices(element_specs, orientations, element_integrations, "
-                  "element_maps=None, *, boundary_dimension=None, "
+        .ml_doc = "compute_kform_boundary_mass_matrices(element_specs, orientations, element_integrations, /, "
+                  "*, element_maps=None, "
+                  "boundary_dimension=None, "
                   "c1_continuous=False, packed=False, integration_registry=DEFAULT_INTEGRATION_REGISTRY, "
-                  "basis_registry=DEFAULT_BASIS_REGISTRY) -> tuple\n"
-                  "Assemble at least two incident elements' mass matrices against the common boundary space of one "
-                  "shared object. Returns (common KFormSpecs, common IntegrationSpace, per-element dense matrices, "
-                  "per-element packed COO tuples or None). Rows are the common Legendre k-form test space with "
-                  "the two highest functions removed on inactive axes; columns are the mapped element trace "
-                  "DoFs. boundary_dimension may be zero for scalar traces: point rows pair vertex value "
-                  "functionals through the endpoint tables. Coefficients carry the orientation signs but no "
-                  "side signs. With element_maps (one "
-                  "SpaceMap per element) the assembly samples each face's surface measure and k-form "
-                  "pullback on its own canonical grid; C1-continuous requests ignore the maps.",
+                  "basis_registry=DEFAULT_BASIS_REGISTRY) -> "
+                  "tuple[KFormSpecs | None, IntegrationSpace, tuple[numpy.typing.NDArray[numpy.double], ...], "
+                  "tuple[PackedRows, ...] | None]\n"
+                  "\n"
+                  "Assemble incident elements' mass matrices against one common boundary space.\n"
+                  "\n"
+                  "Requires two or more incident elements of one shared object. Each element\n"
+                  "provides one orientation record: a signed one-based permutation of the\n"
+                  "element axes whose first ``ndim - boundary_dimension`` entries name the fixed\n"
+                  "normal axes and whose tail maps the free canonical boundary axes. Rows are the\n"
+                  "windowed common Legendre test space of the shared object (the two highest\n"
+                  "functions removed on axes inactive in a component); columns are the mapped\n"
+                  "element trace DoFs, the element k-form DoF counts of the boundary components.\n"
+                  "With ``element_maps`` (one SpaceMap per element) the assembly samples each\n"
+                  "face's surface measure and k-form pullback on its own canonical grid;\n"
+                  "C1-continuous requests ignore the maps. A form order past the boundary\n"
+                  "dimension has no trace: ``common_specs`` is ``None`` and the matrices are\n"
+                  "empty.\n"
+                  "\n"
+                  "Parameters\n"
+                  "----------\n"
+                  "element_specs : Sequence[KFormSpecs]\n"
+                  "    Element k-form specification per incident element.\n"
+                  "\n"
+                  "orientations : Sequence[Sequence[int]]\n"
+                  "    Signed one-based permutation of the element axes per element.\n"
+                  "\n"
+                  "element_integrations : Sequence[IntegrationSpace]\n"
+                  "    Element integration space per element.\n"
+                  "\n"
+                  "element_maps : Sequence[SpaceMap], optional\n"
+                  "    One volume map per element; ignored when ``c1_continuous`` is set.\n"
+                  "\n"
+                  "boundary_dimension : int, optional\n"
+                  "    Boundary dimension, defaults to ``ndim - 1``. Zero is allowed for scalar\n"
+                  "    (order zero) traces: point rows pair vertex value functionals through the\n"
+                  "    endpoint tables.\n"
+                  "\n"
+                  "c1_continuous : bool, default: False\n"
+                  "    Reference-frame pairing; ``element_maps`` is ignored.\n"
+                  "\n"
+                  "packed : bool, default: False\n"
+                  "    Also return one packed row tuple per element.\n"
+                  "\n"
+                  "integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY\n"
+                  "    Registry to get the quadrature rules from.\n"
+                  "\n"
+                  "basis_registry : BasisRegistry, default: DEFAULT_BASIS_REGISTRY\n"
+                  "    Registry to get the traced basis tables from.\n"
+                  "\n"
+                  "Returns\n"
+                  "-------\n"
+                  "tuple\n"
+                  "    ``(common_specs, common_integration, matrices, packed)``: the merged\n"
+                  "    common k-form specification (``None`` when the form order exceeds the\n"
+                  "    boundary dimension), the common integration space, one dense matrix per\n"
+                  "    element, and — with ``packed=True`` — one packed row tuple per element\n"
+                  "    ``(row_offsets, sides, components, local_dofs, coefficients)``. ``sides``\n"
+                  "    holds the element's index in ``element_specs``; the coefficients are the\n"
+                  "    dense matrix entries in row-major order.\n",
     },
     {
         .ml_name = "compute_kform_boundary_trace_moments",
         .ml_meth = (void *)compute_kform_boundary_trace_moments,
         .ml_flags = METH_FASTCALL | METH_KEYWORDS,
-        .ml_doc = "compute_kform_boundary_trace_moments(element_specs, orientations, element_integrations, "
-                  "element_maps=None, *, boundary_dimension=None, "
+        .ml_doc = "compute_kform_boundary_trace_moments(element_specs, orientations, element_integrations, /, "
+                  "*, element_maps=None, "
+                  "boundary_dimension=None, "
                   "c1_continuous=False, packed=False, integration_registry=DEFAULT_INTEGRATION_REGISTRY, "
-                  "basis_registry=DEFAULT_BASIS_REGISTRY) -> tuple\n"
-                  "Assemble one element's trace mass rows against the common boundary space: the explicit "
-                  "prescribed-data interface behind strong boundary conditions. Returns (common KFormSpecs, "
-                  "common IntegrationSpace, dense matrix, packed COO tuple or None) with the same row and "
-                  "column conventions as compute_kform_boundary_mass_matrices; bind a right-hand side by "
-                  "multiplying the rows with the mapped data DoFs.",
+                  "basis_registry=DEFAULT_BASIS_REGISTRY) -> "
+                  "tuple[KFormSpecs | None, IntegrationSpace, tuple[numpy.typing.NDArray[numpy.double], ...], "
+                  "tuple[PackedRows, ...] | None]\n"
+                  "\n"
+                  "Assemble trace mass rows of one or more elements against the common boundary space.\n"
+                  "\n"
+                  "The prescribed-data interface behind strong boundary conditions: each\n"
+                  "element's trace pairing with the same row and column conventions as\n"
+                  ":func:`compute_kform_boundary_mass_matrices`. Requires at least one element\n"
+                  "and returns one dense matrix and one packed tuple per element. Bind a\n"
+                  "right-hand side by multiplying the rows with the mapped data degrees of\n"
+                  "freedom.\n"
+                  "\n"
+                  "Parameters\n"
+                  "----------\n"
+                  "element_specs : Sequence[KFormSpecs]\n"
+                  "    Element k-form specification per element; at least one.\n"
+                  "\n"
+                  "orientations : Sequence[Sequence[int]]\n"
+                  "    Signed one-based permutation of the element axes per element.\n"
+                  "\n"
+                  "element_integrations : Sequence[IntegrationSpace]\n"
+                  "    Element integration space per element.\n"
+                  "\n"
+                  "element_maps : Sequence[SpaceMap], optional\n"
+                  "    One volume map per element; ignored when ``c1_continuous`` is set.\n"
+                  "\n"
+                  "boundary_dimension : int, optional\n"
+                  "    Boundary dimension, defaults to ``ndim - 1``. Zero is allowed for scalar\n"
+                  "    (order zero) traces: point rows pair vertex value functionals through the\n"
+                  "    endpoint tables.\n"
+                  "\n"
+                  "c1_continuous : bool, default: False\n"
+                  "    Reference-frame pairing; ``element_maps`` is ignored.\n"
+                  "\n"
+                  "packed : bool, default: False\n"
+                  "    Also return one packed row tuple per element.\n"
+                  "\n"
+                  "integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY\n"
+                  "    Registry to get the quadrature rules from.\n"
+                  "\n"
+                  "basis_registry : BasisRegistry, default: DEFAULT_BASIS_REGISTRY\n"
+                  "    Registry to get the traced basis tables from.\n"
+                  "\n"
+                  "Returns\n"
+                  "-------\n"
+                  "tuple\n"
+                  "    ``(common_specs, common_integration, matrices, packed)`` with one dense\n"
+                  "    matrix and one packed row tuple per element; ``common_specs`` is ``None``\n"
+                  "    when the form order exceeds the boundary dimension. ``sides`` holds the\n"
+                  "    element's index in ``element_specs``; the coefficients are the dense\n"
+                  "    matrix entries in row-major order.\n",
     },
     {
         .ml_name = "compute_boundary_space_map_factors",
         .ml_meth = (void *)compute_boundary_space_map_factors,
         .ml_flags = METH_FASTCALL | METH_KEYWORDS,
         .ml_doc = "compute_boundary_space_map_factors(space_map, orientation, common_integration, /, *, "
-                  "integration_registry=DEFAULT_INTEGRATION_REGISTRY) -> tuple\n"
-                  "Interpolate a face-restricted space map onto the common boundary integration grid. Returns "
-                  "(determinant, inverse_maps) sampled at the common boundary points, where the determinant is the "
-                  "surface measure of the face immersion and inverse_maps has shape (points, boundary_dim, coords).",
+                  "integration_registry=DEFAULT_INTEGRATION_REGISTRY) -> "
+                  "tuple[numpy.typing.NDArray[numpy.double], numpy.typing.NDArray[numpy.double]]\n"
+                  "\n"
+                  "Interpolate a face-restricted space map onto a common boundary grid.\n"
+                  "\n"
+                  "The volume map is restricted to the oriented face and resampled at the\n"
+                  "points of ``common_integration``. Exact whenever the element rule order\n"
+                  "is at least the face-map order along every axis.\n"
+                  "\n"
+                  "Parameters\n"
+                  "----------\n"
+                  "space_map : SpaceMap\n"
+                  "    Volume map to restrict to the boundary.\n"
+                  "\n"
+                  "orientation : Sequence[int]\n"
+                  "    Signed one-based orientation record of the boundary, one entry per\n"
+                  "    dimension of ``space_map``: a permutation of the element axes whose\n"
+                  "    first ``space_map.input_dimensions - common_integration.dimension``\n"
+                  "    entries name the fixed normal axes and whose tail maps the surviving\n"
+                  "    face axes.\n"
+                  "\n"
+                  "common_integration : IntegrationSpace\n"
+                  "    Target boundary integration space whose points receive the sampled\n"
+                  "    factors.\n"
+                  "\n"
+                  "integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY\n"
+                  "    Registry to get the element and face quadrature rules from.\n"
+                  "\n"
+                  "Returns\n"
+                  "-------\n"
+                  "determinant : numpy.ndarray\n"
+                  "    Surface measure of the face immersion at the common boundary points,\n"
+                  "    shape ``(points,)``.\n"
+                  "\n"
+                  "inverse_maps : numpy.ndarray\n"
+                  "    Inverse Jacobians of the face immersion at the common points, shape\n"
+                  "    ``(points, boundary_dim, coords)``.\n",
     },
     {},
 };

@@ -645,7 +645,7 @@ void constraint_boundary_mass_assemble(const constraint_boundary_mass_request_t 
 void constraint_boundary_mass_pack(const constraint_boundary_mass_spec_t *const spec,
                                    constraint_boundary_mass_work_t *work, const bool physical,
                                    const double *const matrix, const size_t row_stride, const double factor,
-                                   const uint8_t side, uint8_t out_sides[], uint32_t out_components[],
+                                   const uint64_t side, uint64_t out_sides[], uint32_t out_components[],
                                    size_t out_local_dofs[], double out_coefficients[], size_t out_row_offsets[])
 {
     const size_t component_count = combination_total_count((uint8_t)spec->bdim, (uint8_t)spec->order);

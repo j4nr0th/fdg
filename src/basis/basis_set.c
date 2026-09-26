@@ -597,7 +597,7 @@ void basis_set_registry_release_unused_basis_sets(basis_set_registry_t *const th
             basis_bucket_itype_t *const second_bucket = first_bucket->buckets + j;
             for (unsigned k = 0; k < second_bucket->count; ++k)
             {
-                if (second_bucket->ref_counts[k] == 0 && this->should_cache == 0)
+                if (second_bucket->ref_counts[k] == 0)
                 {
                     cutl_dealloc(&this->allocator, second_bucket->basis_sets[k]);
                     second_bucket->basis_sets[k] = NULL;
@@ -618,7 +618,7 @@ void basis_set_registry_release_unused_basis_sets(basis_set_registry_t *const th
     }
     for (unsigned position = 0; position < this->endpoint_count;)
     {
-        if (this->endpoint_ref_counts[position] == 0 && this->should_cache == 0)
+        if (this->endpoint_ref_counts[position] == 0)
         {
             cutl_dealloc(&this->allocator, this->endpoint_sets[position]);
             for (unsigned i = position + 1; i < this->endpoint_count; ++i)

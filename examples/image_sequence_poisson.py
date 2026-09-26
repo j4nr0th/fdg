@@ -443,7 +443,6 @@ def solve(
     specs_q: KFormSpecs,
     specs_u: KFormSpecs,
     face_tests: list[KFormSpecs],
-    test_specs: list[list[list[KFormSpecs]]],
     source: FieldFunction,
     solution: FieldFunction,
 ) -> tuple[list[np.ndarray], list[np.ndarray], float, float]:
@@ -520,9 +519,6 @@ def solve(
     packed, constraint_rhs = mesh.compute_kform_global_constraints(
         [specs_q] * element_count,
         maps,
-        test_specs,
-        None,
-        None,
     )
     constraint_data, constraint_columns, constraint_offsets = (
         packed_kform_constraints_to_csr(packed, specs_q, element_count)
@@ -732,14 +728,13 @@ def run(
     )
     specs_q = KFormSpecs(2, base_space)
     specs_u = KFormSpecs(3, base_space)
-    face_tests, test_specs = face_test_specs(mesh, orders, cells)
+    face_tests, _ = face_test_specs(mesh, orders, cells)
     _, u_dofs, continuity_residual, error = solve(
         mesh,
         maps,
         specs_q,
         specs_u,
         face_tests,
-        test_specs,
         source,
         solution,
     )

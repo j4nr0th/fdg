@@ -133,6 +133,13 @@ static PyObject *kform_spec_get_component_function_space(PyObject *self, PyTypeO
         const basis_spec_t *const spec = this->function_space->specs + i;
         if (i_covector < k && covector_indices[i_covector] == i)
         {
+            // TODO: check if necessary, I think by construction we should never have a zero-order spec here.
+            if (spec->order == 0)
+            {
+                PyErr_Format(PyExc_ValueError, "Cannot lower order of dimension %u as it has order 0.", i);
+                cutl_dealloc(&PYTHON_ALLOCATOR, mem);
+                return NULL;
+            }
             out_specs[i] = (basis_spec_t){.type = spec->type, .order = spec->order - 1};
             i_covector += 1;
         }
@@ -266,7 +273,7 @@ static PyObject *kform_specs_get_component_slice(PyObject *self, PyTypeObject *d
 PyDoc_STRVAR(kform_spec_get_component_function_space_docstring,
              "get_component_function_space(idx: int) -> FunctionSpace\n"
              "Get the function space for a component.\n"
-             "        \n"
+             "\n"
              "Parameters\n"
              "----------\n"
              "idx : int\n"
@@ -296,7 +303,7 @@ PyDoc_STRVAR(kform_specs_get_component_slice_docstring,
              "Get the slice corresponding to degrees of freedom of a k-form component.\n"
              "\n"
              "The resulting slice can be used to index into the flattened array of degrees\n"
-             "of freedom to get the DoFs corresponding to a praticular component.\n"
+             "of freedom to get the DoFs corresponding to a particular component.\n"
              "\n"
              "Parameters\n"
              "----------\n"
@@ -518,6 +525,12 @@ static PyObject *kform_get_component_dofs(PyObject *self, PyTypeObject *defining
         unsigned ndof;
         if (i_covector < k && covector_indices[i_covector] == i)
         {
+            if (spec->order == 0)
+            {
+                PyErr_Format(PyExc_ValueError, "Cannot lower order of dimension %u as it has order 0.", i);
+                cutl_dealloc(&PYTHON_ALLOCATOR, mem);
+                return NULL;
+            }
             ndof = spec->order;
             i_covector += 1;
         }
@@ -586,6 +599,12 @@ static PyObject *kform_get_component_dof_object(PyObject *self, PyTypeObject *de
         out_specs[i] = *spec;
         if (i_covector < k && covector_indices[i_covector] == i)
         {
+            if (spec->order == 0)
+            {
+                PyErr_Format(PyExc_ValueError, "Cannot lower order of dimension %u as it has order 0.", i);
+                cutl_dealloc(&PYTHON_ALLOCATOR, mem);
+                return NULL;
+            }
             ndof = spec->order;
             out_specs[i].order -= 1;
             i_covector += 1;
@@ -669,7 +688,7 @@ PyDoc_STRVAR(kform_get_component_dof_object_docstring,
              "    specified k-form component.\n");
 
 PyDoc_STRVAR(kform_get_component_dofs_docstring,
-             "get_component_dofs(idx: int) -> numpy.tying.NDArray[numpy.double]\n"
+             "get_component_dofs(idx: int) -> numpy.typing.NDArray[numpy.double]\n"
              "Get the array containing the degrees of freedom for a k-form component.\n"
              "\n"
              "Parameters\n"

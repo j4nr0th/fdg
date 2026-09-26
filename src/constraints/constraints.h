@@ -346,8 +346,8 @@ void constraint_boundary_mass_assemble(const constraint_boundary_mass_request_t 
  * @param out_row_offsets [row_count + 1] Packed row offsets.
  */
 void constraint_boundary_mass_pack(const constraint_boundary_mass_spec_t *spec, constraint_boundary_mass_work_t *work,
-                                   bool physical, const double *matrix, size_t row_stride, double factor, uint8_t side,
-                                   uint8_t out_sides[], uint32_t out_components[], size_t out_local_dofs[],
+                                   bool physical, const double *matrix, size_t row_stride, double factor, uint64_t side,
+                                   uint64_t out_sides[], uint32_t out_components[], size_t out_local_dofs[],
                                    double out_coefficients[], size_t out_row_offsets[]);
 
 /**

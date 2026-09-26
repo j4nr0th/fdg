@@ -58,6 +58,8 @@ static const char *basis_type_string(const basis_set_type_t type)
         return "lagrange-gauss";
     case BASIS_LAGRANGE_GAUSS_LOBATTO:
         return "lagrange-gauss-lobatto";
+    case BASIS_LAGRANGE_CHEBYSHEV_GAUSS:
+        return "lagrange-chebyshev-gauss";
     case BASIS_LEGENDRE:
         return "legendre";
     case BASIS_BERNSTEIN:
@@ -114,13 +116,14 @@ static int ensure_basis_registry_and_state(PyObject *self, PyTypeObject *definin
 
 PyDoc_STRVAR(basis_registry_usage_docstring,
              "usage() -> tuple[tuple[BasisSpecs, IntegrationSpecs], ...]\n"
+             "\n"
              "Return the basis-integration pairs that are held by the registry.\n"
              "\n"
              "Returns\n"
              "-------\n"
              "tuple of (BasisSpecs, IntegrationSpecs)\n"
-             "    Tuple of basis-integration specifications pair for each of basis set\n"
-             "    held in the registry.\n");
+             "    One ``(BasisSpecs, IntegrationSpecs)`` pair for each basis set held in the\n"
+             "    registry.\n");
 
 static PyObject *basis_registry_usage(PyObject *self, PyTypeObject *defining_class, PyObject *const *Py_UNUSED(args),
                                       const Py_ssize_t nargs, const PyObject *kwnames)
@@ -185,8 +188,9 @@ static PyObject *basis_registry_usage(PyObject *self, PyTypeObject *defining_cla
     return (PyObject *)out;
 }
 
-PyDoc_STRVAR(basis_registry_clear_docstring,
-             "clear() -> None\nRelease all held basis sets to reduce the memory usage.\n");
+PyDoc_STRVAR(basis_registry_clear_docstring, "clear() -> None\n"
+                                             "\n"
+                                             "Release all held basis sets to reduce the memory usage.\n");
 
 static PyObject *basis_registry_clear(PyObject *self, PyTypeObject *defining_class, PyObject *const *Py_UNUSED(args),
                                       const Py_ssize_t nargs, const PyObject *kwnames)
@@ -263,7 +267,7 @@ static PyObject *basis_specs_new(PyTypeObject *subtype, PyObject *args, PyObject
 
     if (order < 0)
     {
-        PyErr_Format(PyExc_ValueError, "Order must be positive, but was given as %i.", order);
+        PyErr_Format(PyExc_ValueError, "Order must be non-negative, but was given as %i.", order);
         return NULL;
     }
 
@@ -293,7 +297,7 @@ static PyGetSetDef basis_getset[] = {
         "order",
         (getter)basis_specs_get_order,
         NULL,
-        "int : Order of the basis set.",
+        "int : Order of the basis in the set.",
         NULL,
     },
     {
@@ -306,8 +310,8 @@ static PyGetSetDef basis_getset[] = {
     {},
 };
 
-PyDoc_STRVAR(basis_specs_docstring, "BasisSpecs(basis_type: fdg.enum_type.BasisType, order: int)\n"
-                                    "Type that describes a set of basis functions.\n"
+PyDoc_STRVAR(basis_specs_docstring, "BasisSpecs(basis_type: fdg.enum_type.BasisType, order: int, /)\n"
+                                    "Type that describes specifications for a basis set.\n"
                                     "\n"
                                     "Parameters\n"
                                     "----------\n"
@@ -337,13 +341,14 @@ static int ensure_basis_specs_and_state(PyObject *self, PyTypeObject *defining_c
 }
 
 PyDoc_STRVAR(basis_specs_values_docstring,
-             "values(x: numpy.typing.ArrayLike, /) -> numpy.typing.NDArray[numpy.double]\n"
+             "values(x: numpy.typing.NDArray[numpy.double], /) -> numpy.typing.NDArray[numpy.double]\n"
              "Evaluate basis functions at given locations.\n"
              "\n"
              "Parameters\n"
              "----------\n"
-             "x : array_like\n"
-             "    Locations where the basis functions should be evaluated.\n"
+             "x : array\n"
+             "    Locations where the basis functions should be evaluated. Must be a\n"
+             "    C-contiguous ``float64`` array.\n"
              "\n"
              "Returns\n"
              "-------\n"
@@ -415,13 +420,14 @@ static PyObject *basis_specs_values(PyObject *self, PyTypeObject *defining_class
 }
 
 PyDoc_STRVAR(basis_specs_derivatives_docstring,
-             "derivatives(x: numpy.typing.ArrayLike, /) -> numpy.typing.NDArray[numpy.double]\n"
+             "derivatives(x: numpy.typing.NDArray[numpy.double], /) -> numpy.typing.NDArray[numpy.double]\n"
              "Evaluate basis function derivatives at given locations.\n"
              "\n"
              "Parameters\n"
              "----------\n"
-             "x : array_like\n"
-             "    Locations where the basis function derivatives should be evaluated.\n"
+             "x : array\n"
+             "    Locations where the basis function derivatives should be evaluated. Must be\n"
+             "    a C-contiguous ``float64`` array.\n"
              "\n"
              "Returns\n"
              "-------\n"
@@ -440,7 +446,7 @@ static PyObject *basis_specs_derivatives(PyObject *self, PyTypeObject *defining_
 
     if (nargs != 1 || kwnames != NULL)
     {
-        PyErr_SetString(PyExc_TypeError, "values() takes exactly one positional-only argument.");
+        PyErr_SetString(PyExc_TypeError, "derivatives() takes exactly one positional-only argument.");
         return NULL;
     }
 

@@ -397,7 +397,15 @@ static int ensure_basis_and_state(PyObject *self, PyTypeObject *defining_class, 
 }
 
 PyDoc_STRVAR(covector_basis_normalize_docstring,
-             "normalize() -> tuple[int, CovectorBasis]\nNormalize the basis by splitting the sign.\n");
+             "normalize() -> tuple[int, CovectorBasis]\n"
+             "\n"
+             "Normalize the basis by splitting the sign.\n"
+             "\n"
+             "Returns\n"
+             "-------\n"
+             "tuple of (int, CovectorBasis)\n"
+             "    Sign of the original basis (``-1`` or ``1``) and the same basis with a\n"
+             "    positive sign, so that their product reproduces the original basis.\n");
 
 static PyObject *covector_basis_normalize(PyObject *self, PyTypeObject *defining_class,
                                           PyObject *const *Py_UNUSED(args), const Py_ssize_t nargs,

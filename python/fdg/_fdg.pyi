@@ -1,3 +1,5 @@
+# TODO: "default: None" should be replaced with "optional"
+
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
@@ -31,8 +33,18 @@ class IntegrationRegistry:
     """
 
     def __new__(cls) -> Self: ...
-    def usage(self) -> tuple[IntegrationSpecs, ...]: ...
-    def clear(self) -> None: ...
+    def usage(self) -> tuple[IntegrationSpecs, ...]:
+        """Return the integration rules currently held by the registry.
+
+        Returns
+        -------
+        tuple of IntegrationSpecs
+            Integration specifications of every rule stored in the registry.
+        """
+        ...
+    def clear(self) -> None:
+        """Release all held integration rules that are not currently in use."""
+        ...
 
 DEFAULT_INTEGRATION_REGISTRY: IntegrationRegistry = ...
 
@@ -49,12 +61,7 @@ class IntegrationSpecs:
         Method used for integration.
     """
 
-    def __new__(
-        cls,
-        order: int,
-        /,
-        method: _IntegrationMethodHint = "gauss",
-    ) -> Self: ...
+    def __new__(cls, order: int, method: _IntegrationMethodHint = "gauss") -> Self: ...
     @property
     def order(self) -> int:
         """Order of the integration rule."""
@@ -71,7 +78,7 @@ class IntegrationSpecs:
         ...
 
     def nodes(
-        self, registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY
+        self, registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY, /
     ) -> npt.NDArray[np.double]:
         """Get the integration nodes.
 
@@ -88,7 +95,7 @@ class IntegrationSpecs:
         ...
 
     def weights(
-        self, registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY
+        self, registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY, /
     ) -> npt.NDArray[np.double]:
         """Get the integration weights.
 
@@ -106,7 +113,7 @@ class IntegrationSpecs:
 
 @final
 class BasisRegistry:
-    """Registry for basis specifications.
+    """Registry for basis sets.
 
     This registry contains all available basis sets and caches them for efficient
     retrieval.
@@ -119,8 +126,8 @@ class BasisRegistry:
         Returns
         -------
         tuple of (BasisSpecs, IntegrationSpecs)
-            Tuple of basis-integration specifications pair for each of basis set
-            held in the registry.
+            One ``(BasisSpecs, IntegrationSpecs)`` pair for each basis set held in the
+            registry.
         """
         ...
     def clear(self) -> None:
@@ -142,7 +149,7 @@ class CovectorBasis:
         Indices of basis present in the bundle. Should be sorted and non-repeating.
     """
 
-    def __new__(self, n: int, /, *idx: int): ...
+    def __new__(cls, n: int, /, *idx: int) -> Self: ...
     @property
     def ndim(self) -> int:
         """Number of dimensions of the space the basis are in."""
@@ -216,10 +223,16 @@ class CovectorBasis:
         ...
 
     def normalize(self) -> tuple[int, CovectorBasis]:
-        """Normalize the basis by splitting the sign."""
+        """Normalize the basis by splitting the sign.
+
+        Returns
+        -------
+        tuple of (int, CovectorBasis)
+            Sign of the original basis (``-1`` or ``1``) and the same basis with a
+            positive sign, so that their product reproduces the original basis.
+        """
         ...
 
-@final
 class BasisSpecs:
     """Type that describes specifications for a basis set.
 
@@ -234,7 +247,7 @@ class BasisSpecs:
 
     def __new__(cls, basis_type: _BasisTypeHint, order: int, /) -> Self: ...
     @property
-    def basis_type(self) -> _BasisTypeHint:
+    def type(self) -> _BasisTypeHint:
         """Type of the basis used for the set."""
         ...
 
@@ -243,13 +256,14 @@ class BasisSpecs:
         """Order of the basis in the set."""
         ...
 
-    def values(self, x: npt.ArrayLike, /) -> npt.NDArray[np.double]:
+    def values(self, x: npt.NDArray[np.double], /) -> npt.NDArray[np.double]:
         """Evaluate basis functions at given locations.
 
         Parameters
         ----------
-        x : array_like
-            Locations where the basis functions should be evaluated.
+        x : array
+            Locations where the basis functions should be evaluated. Must be a
+            C-contiguous ``float64`` array.
 
         Returns
         -------
@@ -260,13 +274,14 @@ class BasisSpecs:
         """
         ...
 
-    def derivatives(self, x: npt.ArrayLike, /) -> npt.NDArray[np.double]:
+    def derivatives(self, x: npt.NDArray[np.double], /) -> npt.NDArray[np.double]:
         """Evaluate basis function derivatives at given locations.
 
         Parameters
         ----------
-        x : array_like
-            Locations where the basis function derivatives should be evaluated.
+        x : array
+            Locations where the basis function derivatives should be evaluated. Must be
+            a C-contiguous ``float64`` array.
 
         Returns
         -------
@@ -316,14 +331,15 @@ class FunctionSpace:
             Each array corresponds to a dimension in the function space.
         out : array, optional
             Array where the results should be written to. If not given, a new one
-            will be created and returned. It should have the same shape as ``x``,
-            but with an extra dimension added, the length of which is the total
-            number of basis functions in the function space.
+            will be created and returned. It must have the shape of the input arrays
+            extended by one dimension per function space dimension, of size the order
+            of that dimension plus one.
 
         Returns
         -------
         array
-            Array of basis function values at the specified locations.
+            Array of basis function values at the specified locations, with one extra
+            dimension per dimension of the function space.
         """
         ...
 
@@ -343,11 +359,11 @@ class FunctionSpace:
         integration : IntegrationSpace
             Integration space, the nodes of which are used to evaluate basis at.
 
-        transpose : bool, defaul: False
+        transpose : bool, default: False
             Order the array so that axes indexing the integration points come before
             the ones indexing the bases.
 
-        integration_registry : IntegrationRegistry, defaul: DEFAULT_INTEGRATION_REGISTRY
+        integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY
             Registry used to obtain the integration rules from.
 
         basis_registry : BasisRegistry, default: DEFAULT_BASIS_REGISTRY
@@ -427,6 +443,8 @@ class IntegrationSpace:
     ) -> npt.NDArray[np.double]:
         """Get the integration nodes of the space.
 
+        Parameters
+        ----------
         registry : fdg.IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY
             Registry used to retrieve the integration rules.
 
@@ -442,6 +460,8 @@ class IntegrationSpace:
     ) -> npt.NDArray[np.double]:
         """Get the integration weights of the space.
 
+        Parameters
+        ----------
         registry : fdg.IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY
             Registry used to retrieve the integration rules.
 
@@ -528,7 +548,7 @@ class DegreesOfFreedom:
     def reconstruct_derivative_at_integration_points(
         self,
         integration_space: IntegrationSpace,
-        idim: Sequence[int],
+        idim: int | Sequence[int],
         integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
         basis_registry: BasisRegistry = DEFAULT_BASIS_REGISTRY,
         *,
@@ -540,9 +560,10 @@ class DegreesOfFreedom:
         ----------
         integration_space : IntegrationSpace
             Integration space where the function derivative should be reconstructed.
-        idim : Sequence[int]
-            Dimensions in which the derivative should be computed. All values
-            should appear at most once.
+        idim : int or Sequence[int]
+            Dimension in which the derivative should be computed, or the sequence of
+            dimensions in which it should be computed. All values in a sequence should
+            appear at most once.
         integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY
             Registry used to retrieve the integration rules.
         basis_registry : BasisRegistry, default: DEFAULT_BASIS_REGISTRY
@@ -613,7 +634,6 @@ class DegreesOfFreedom:
     def lagrange_projection(
         self,
         orders: npt.ArrayLike | None = None,
-        *,
         integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
         basis_registry: BasisRegistry = DEFAULT_BASIS_REGISTRY,
     ) -> DegreesOfFreedom:
@@ -626,10 +646,10 @@ class DegreesOfFreedom:
             same as needed to exactly represent the degrees of freedom.
 
         integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY
-            Registry used to retrieve the integration rules.
+            Registry used to obtain the integration rules from.
 
         basis_registry : BasisRegistry, default: DEFAULT_BASIS_REGISTRY
-            Registry used to retrieve the basis specifications.
+            Registry used to look up the basis specifications.
 
         Returns
         -------
@@ -647,10 +667,12 @@ class ElementDoFs:
     index into that table along with an offset into one large, flat array
     of values.
 
+    Data is added with :meth:`add_element` or :meth:`from_elements`.
     Accessing the array views :attr:`values`, :attr:`offsets` or
     :attr:`element_options` freezes the collection: no further elements can
     be added, but values of existing elements can still be overwritten with
-    :meth:`set_element_values`.
+    :meth:`set_element_values`. Per-element DoFs are retrieved as a regular
+    :class:`DegreesOfFreedom` with :meth:`dofs`.
     """
 
     def __new__(cls) -> Self: ...
@@ -780,7 +802,7 @@ class ElementDoFs:
 
 @final
 class ElementKForms:
-    """Batched k-form data: a fixed set of labeled k-form fields, grouped per element.
+    """Batched k-form data: a fixed set of labeled fields, values grouped per element.
 
     When setting up a finite element system one computes element matrices,
     so the k-forms of one element are needed together. Each keyword
@@ -791,14 +813,19 @@ class ElementKForms:
     :meth:`add_element` then stores the values of all fields, in field
     order.
 
-    The collection is created empty with :meth:`from_elements`, zero
-    initialized with :meth:`zeros` or :meth:`zeros_from_options`, or
-    filled field by field through the constructor.
-
-    Accessing the array views :meth:`values` or :meth:`offsets` freezes the
-    collection: no further elements can be added, but the values of
+    Accessing the array views :meth:`values` or :meth:`offsets` freezes
+    the collection: no further elements can be added, but the values of
     existing elements can still be overwritten with
     :meth:`set_field_values`.
+
+    Parameters
+    ----------
+    ndim : int
+        Number of reference dimensions, shared by all fields; must be positive.
+
+    **fields : int
+        One keyword argument per k-form field: the keyword is the unique
+        label of the field, the value its order, ``0 <= order <= ndim``.
     """
 
     def __new__(cls, ndim: int, /, **fields: int) -> Self: ...
@@ -1006,14 +1033,17 @@ class MeshGeometry:
 
     Elements of a mesh often share only a few distinct geometry
     specifications (function spaces and integration spaces). Instead of
-    storing one Python object per element, this type stores a small table
-    of distinct options and, per element, an index into that table along
-    with an offset into one large, flat array of coordinate values.
+    storing one Python object per element, this type stores a small table of
+    distinct options and, per element, an index into that table along with
+    an offset into one large, flat array of coordinate values.
 
-    Accessing the array views :attr:`values`, :attr:`offsets` or
-    :attr:`element_options` freezes the collection: no further elements can
-    be added, but values of existing elements can still be overwritten with
-    :meth:`set_element_values`.
+    Data is added with :meth:`add_element` or one of the constructors
+    :meth:`from_elements` and :meth:`from_mesh_points`. Accessing the array
+    views :attr:`values`, :attr:`offsets` or :attr:`element_options` freezes
+    the collection: no further elements can be added, but values of existing
+    elements can still be overwritten with :meth:`set_element_values`.
+    Per-element geometry is retrieved as a regular :class:`SpaceMap` with
+    :meth:`space_map`.
     """
 
     def __new__(cls) -> Self: ...
@@ -1208,7 +1238,7 @@ class KFormSpecs:
         """Get the slice corresponding to degrees of freedom of a k-form component.
 
         The resulting slice can be used to index into the flattened array of degrees
-        of freedom to get the DoFs corresponding to a praticular component.
+        of freedom to get the DoFs corresponding to a particular component.
 
         Parameters
         ----------
@@ -1296,8 +1326,13 @@ MeshSharedObject = tuple[int, int, npt.NDArray[np.uint64], npt.NDArray[np.int8]]
 class Mesh:
     """Topological mesh built from connected hypercube elements.
 
-    Parameters are given through the ``from_corners`` and ``from_collections``
-    class methods; the type itself cannot be instantiated directly.
+    The mesh holds the full topology of a set of hypercube elements — object
+    collections per dimension plus immersion information, but no geometry. Its
+    main use is generating continuity constraints between neighboring elements,
+    see ``compute_kform_continuity_constraints``.
+
+    The type cannot be instantiated directly; use ``from_corners`` or
+    ``from_collections``.
     """
 
     @classmethod
@@ -1366,9 +1401,10 @@ class Mesh:
 
     @property
     def collections(self) -> tuple[npt.NDArray[np.uint64], ...]:
-        """Boundary-ID arrays of the mesh objects of every dimension (copies)."""
+        """Boundary-ID arrays of the mesh objects of every dimension (uint64 copies)."""
         ...
 
+    # TODO: rework this signature to only take fixed axes and not need the varying ones.
     def element_object(self, element_id: int, axis: Sequence[int], /) -> int:
         """Look up the global ID of the object at a position within one element.
 
@@ -1380,7 +1416,7 @@ class Mesh:
         axis : sequence of int
             Axis specification of length ``ndim``; entry ``i`` is 0 for a free
             axis, or ``i + 1`` / ``-(i + 1)`` to fix the axis at its end / start
-            side.
+            side. At least one axis must be fixed.
 
         Returns
         -------
@@ -1396,7 +1432,7 @@ class Mesh:
         Parameters
         ----------
         mdim : int
-            Dimension of the objects.
+            Dimension of the objects, ``0 <= mdim < ndim``.
 
         Returns
         -------
@@ -1423,7 +1459,7 @@ class Mesh:
         Parameters
         ----------
         mdim : int
-            Dimension of the objects.
+            Dimension of the objects, ``0 <= mdim < ndim``.
 
         Returns
         -------
@@ -1444,6 +1480,7 @@ class Mesh:
         """
         ...
 
+    # TODO: remove the basis_type parameter
     def compute_kform_continuity_constraints(
         self,
         element_specs: Sequence[KFormSpecs],
@@ -1464,15 +1501,18 @@ class Mesh:
         """Assemble k-form continuity rows between neighboring elements.
 
         Shared objects are visited from the highest dimension down to points.
-        Consecutive elements in each object's ascending incident-element list
-        are paired, which avoids cycles while retaining one constraint path
-        through every shared object.
+        Every shared object contributes one row per test function, pairing the
+        first element of its ascending incident-element list (the anchor) with
+        each of its remaining elements, so the anchor links all of them
+        without introducing a cycle.
 
-        The trace test spaces are derived automatically: each canonical
-        component takes the lowest order of the incident elements on every
-        axis, reduced by two on axes that do not carry one of the component's
-        covector axes. Components whose reduced order would go negative are
-        skipped.
+        The trace test spaces are derived automatically. A component exists
+        only when all of its covector axes lie in the shared object (there are
+        ``mdim`` choose ``k`` of them). Each component reads ``order`` functions
+        of the common space — the per-axis minimum order of the incident
+        elements — on its covector axes and the leading ``order - 1``
+        functions on the remaining axes (floored at zero). A component with a
+        zero-function axis contributes no rows.
 
         Parameters
         ----------
@@ -1482,46 +1522,49 @@ class Mesh:
             must have the mesh dimension and the same k-form degree; their
             basis orders may differ.
 
-        element_maps : Sequence[SpaceMap], optional
+        element_maps : Sequence[SpaceMap], default: None
             One reference-to-physical map per mesh element supplying the
-            physical trace geometry. Required unless ``c1_continuous`` is
-            set.
+            physical trace geometry. Required unless ``c1_continuous`` is set.
 
-        basis_type : int, optional
-            Basis family forced onto every derived test space. Defaults to
-            the family of the incident element achieving the per-axis minimum
-            order.
+        basis_type : fdg.BasisType or str, default: None
+            Accepted as ``None`` or ``"legendre"`` only: the derived test
+            spaces always use the Legendre family, any other family raises
+            ``ValueError``.
 
-        c1_continuous : bool
+        c1_continuous : bool, default: False
             Pair reference-space traces without geometry factors. With this
             flag set, reference-domain continuity is imposed and
             ``element_maps`` may be omitted.
 
-        integration_registry : IntegrationRegistry, optional
+        integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY
             Registry to get the quadrature rules from.
 
-        basis_registry : BasisRegistry, optional
-            Registry to get the basis endpoint values from.
+        basis_registry : BasisRegistry, default: DEFAULT_BASIS_REGISTRY
+            Registry to get the basis tables and endpoint values from.
 
         Returns
         -------
-        row_offsets : ndarray[uintp]
-            CSR-like row boundaries of length ``number_of_rows + 1``. Entry
-            ``i`` belongs to ``[row_offsets[i], row_offsets[i + 1])``. Empty
-            output is represented by ``[0]``.
+        row_offsets : array
+            ``uintp`` CSR-like row boundaries of length
+            ``number_of_rows + 1``. Entry ``i`` belongs to
+            ``[row_offsets[i], row_offsets[i + 1])``. Empty output is
+            represented by ``[0]``.
 
-        element_ids : ndarray[uint64]
-            Global element ID for each packed entry.
+        element_ids : array
+            ``uint64`` global element ID for each packed entry.
 
-        components : ndarray[uint32]
-            Element-frame k-form component for each packed entry.
+        components : array
+            ``uint32`` element-frame k-form component for each packed entry.
 
-        local_dofs : ndarray[uintp]
-            Local DoF index within the component named by ``components``.
+        local_dofs : array
+            ``uintp`` local DoF index within the component named by
+            ``components``.
 
-        coefficients : ndarray[double]
-            Trace coefficient for each packed entry. The first side of every
-            pair has positive sign and the second side has negative sign.
+        coefficients : array
+            ``double`` trace coefficient of each packed entry: the side sign
+            (+1 for the anchor element, -1 for the paired one) times the basis
+            value of that element's own space at the shared end; with
+            ``c1_continuous`` only the side sign applies.
         """
         ...
 
@@ -1564,29 +1607,37 @@ class Mesh:
             One volume k-form specification per mesh element, exactly as for
             :meth:`compute_kform_continuity_constraints`.
 
-        element_maps : Sequence[SpaceMap], optional
+        element_maps : Sequence[SpaceMap], default: None
             One reference-to-physical map per mesh element. Required whenever
             boundary data or periodic pairs are given, and whenever
             ``c1_continuous`` is not set.
 
-        boundary_conditions : mapping or sequence, optional
+        boundary_conditions : mapping or sequence, default: None
             Prescribed boundary data; see the :mod:`fdg.boundary_conditions`
             documentation for the accepted forms.
 
-        periodic_pairs : sequence of BoundaryPair or BoundaryPairGroup, optional
+        periodic_pairs : sequence of BoundaryPair or BoundaryPairGroup, default: None
             Explicit pairs of outer faces, or ordered groups of equal-length
             face collections. Each group is expanded to corresponding lower
             strata; ``axis_map`` is a signed permutation of canonical boundary
             axes, allowing reversals and axis permutations. Duplicate
             lower-stratum relations are reduced to an acyclic forest.
 
-        basis_type : int, optional
-            Basis family forced onto every derived test space.
+        basis_type : fdg.BasisType or str, default: None
+            Accepted as ``None`` or ``"legendre"`` only: the derived test
+            spaces always use the Legendre family, any other family raises
+            ``ValueError``.
 
-        c1_continuous : bool
+        c1_continuous : bool, default: False
             Impose continuity in reference space without geometry factors;
             ``element_maps`` may be omitted in that case unless boundary data
             or periodic pairs require them.
+
+        integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY
+            Registry to get the quadrature rules from.
+
+        basis_registry : BasisRegistry, default: DEFAULT_BASIS_REGISTRY
+            Registry to get the trace basis tables from.
 
         Returns
         -------
@@ -1594,9 +1645,9 @@ class Mesh:
             ``(row_offsets, element_ids, components, local_dofs, coefficients)``
             in the global packed-row format.
 
-        rhs : ndarray[double]
-            One prescribed value per packed constraint row. Shared and periodic
-            rows have zero right-hand side.
+        rhs : array
+            ``double`` prescribed value per packed constraint row. Shared and
+            periodic rows have zero right-hand side.
         """
         ...
 
@@ -1604,10 +1655,11 @@ class Mesh:
 class CoordinateMap:
     """Mapping between reference and physical coordinates.
 
-    This is type is a glorified wrapper around
-    :meth:`DegreesOfFreedom.reconstruct_at_integration_points()`
-    that represents a coordinate mapping for one dimension. In N-dimensional space,
-    N such maps are used to represent the full mapping.
+    This type wraps :meth:`DegreesOfFreedom.reconstruct_at_integration_points()`
+    and :meth:`DegreesOfFreedom.reconstruct_derivative_at_integration_points()`;
+    one coordinate map evaluates a single coordinate together with all of its
+    first derivatives at every integration point. In N-dimensional space, N such
+    maps are used to represent the full mapping.
 
     Parameters
     ----------
@@ -1627,7 +1679,6 @@ class CoordinateMap:
         integration_space: IntegrationSpace,
         integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
         basis_registry: BasisRegistry = DEFAULT_BASIS_REGISTRY,
-        /,
     ) -> Self: ...
     @property
     def dimension(self) -> int:
@@ -1651,7 +1702,19 @@ class CoordinateMap:
         ...
 
     def gradient(self, idim: int, /) -> npt.NDArray[np.double]:
-        """Retrieve the gradient of the coordinate map in given dimension."""
+        """Retrieve the gradient of the coordinate map for the given dimension.
+
+        Parameters
+        ----------
+        idim : int
+            Index of the dimension, in range ``[0, dimension)``.
+
+        Returns
+        -------
+        array
+            Derivative of the mapped coordinate with respect to that dimension,
+            sampled at the integration points of the map.
+        """
         ...
 
 @final
@@ -1677,7 +1740,7 @@ class SpaceMap:
         Parameters
         ----------
         idx : int
-            Index of the dimension for which the map shoudl be returned.
+            Index of the dimension for which the map should be returned.
 
         Returns
         -------
@@ -1688,7 +1751,7 @@ class SpaceMap:
 
     @property
     def integration_space(self) -> IntegrationSpace:
-        """Integration space used by the map."""
+        """Integration space used by the mapping."""
         ...
 
     @property
@@ -1712,7 +1775,7 @@ class SpaceMap:
 
         This array contains inverse mapping matrix, which is used
         for the contravarying components. When the dimension of the
-        mapping space (as counted by :meth:`SpaceMap.output_dimensions`)
+        mapping space (as counted by :attr:`SpaceMap.output_dimensions`)
         is greater than the dimension of the reference space, this is a
         rectangular matrix, such that it maps the (rectangular) Jacobian
         to the identity matrix.
@@ -1729,12 +1792,13 @@ class SpaceMap:
         Parameters
         ----------
         order : int
-            Order of the k-form for which this is to be done.
+            Order of the k-form for which this is to be done, in range
+            ``(0, input_dimensions]``.
 
         Returns
         -------
         array
-            Array with three axis. The first indexes over the input basis, the second
+            Array with three axes. The first indexes over the input basis, the second
             over output basis, and the last one over integration points.
         """
         ...
@@ -1762,7 +1826,7 @@ class SpaceMap:
             Face integration space used to sample the extracted map. When omitted,
             the volume integration space with the fixed axis removed is used.
 
-        integration_registry : IntegrationRegistry, optional
+        integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY
             Registry to get the element and face quadrature rules from.
 
         Returns
@@ -1774,39 +1838,36 @@ class SpaceMap:
         """
         ...
 
-@final
 class SampledSpaceMap:
     """Mapping between reference space and target space, sampled from a SpaceMap.
 
     A mapping from the reference space to the target space, which maps the
     :math:`N`-dimensional reference space to an :math:`M`-dimensional
     physical space. The purpose of this mapping is to provide easier
-    visualization with VTK and other tools that want uniformly sampled data.
+    visualization with VTK and other tools that want sampled data.
 
     As such, it cannot be used for integration, only mapping k-forms to the
     target space. It can however be reused for multiple k-forms, as long as
-    they are reconstructed on the appropriate uniform grid.
+    they are reconstructed on the same tensor grid.
 
-    Note that due to how the interpolation works, if the orders are lower than
-    the orders of the actual coordinate map, the resulting sampled map will
-    not be accurate. Otherwise, the accuracy of the sampled map is almost
-    machine precision, since coordinate maps are defined with polynomial basis.
+    The samples need not be uniformly spaced. If the sample orders are lower
+    than the orders of the actual coordinate map, the resulting sampled map
+    will not be accurate. Otherwise, the accuracy is almost machine precision,
+    since coordinate maps are defined with polynomial basis.
 
     Parameters
     ----------
     space_map : SpaceMap
         Mapping of the space in which we sample.
 
-    samples : Sequence[Sequence[float] | _array_like]
-        Samples for each dimension at which the mapping is evaluated.
-        The number of sample arrays must match the number of input dimensions of the
-        input :class:`SpaceMap`.
-        It is recommended, the sample values be in the range [-1, 1] and monotonically
-        increasing, but if you know what you are doing, go ham.
+    samples : Sequence[Sequence[float] | array_like]
+        One-dimensional sample coordinates for each reference dimension. The
+        number of sample arrays must match the input dimension of the space map.
+        The arrays define the tensor grid, may have different lengths, and must
+        not be empty.
 
-    integration_registry : IntegrationRegistry, optional
-        Registry to get the integration rules from. When omitted, the default
-        registry is used.
+    integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY
+        Registry to get the integration rules from.
     """
 
     def __new__(
@@ -1833,14 +1894,13 @@ class SampledSpaceMap:
             Orders of the sampling in each dimension. The number of orders must match
             the number of input dimensions of the space map. Must not be negative.
 
-        integration_registry : IntegrationRegistry, optional
-            Registry to get the integration rules from. When omitted, the default
-            registry is used.
+        integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY
+            Registry to get the integration rules from.
 
         Returns
         -------
-        Self
-            SampledSpaceMap object with the specified uniform sampling.
+        SampledSpaceMap
+            Sampled map evaluated on the requested uniform tensor grid.
         """
         ...
     @property
@@ -1873,7 +1933,7 @@ class SampledSpaceMap:
 
         This array contains inverse mapping matrix, which is used
         for the contravarying components. When the dimension of the
-        mapping space (as counted by :meth:`SpaceMap.output_dimensions`)
+        mapping space (as counted by :attr:`SpaceMap.output_dimensions`)
         is greater than the dimension of the reference space, this is a
         rectangular matrix, such that it maps the (rectangular) Jacobian
         to the identity matrix.
@@ -1898,8 +1958,8 @@ def _scale_array_boundary(arr: npt.ArrayLike, /) -> npt.NDArray[np.double]:
 def compute_kform_mass_matrix(
     smap: SpaceMap,
     order: int,
-    left_bases: FunctionSpace,
-    right_bases: FunctionSpace,
+    basis_left: FunctionSpace,
+    basis_right: FunctionSpace,
     *,
     integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
     basis_registry: BasisRegistry = DEFAULT_BASIS_REGISTRY,
@@ -1914,22 +1974,23 @@ def compute_kform_mass_matrix(
     order : int
         Order of the k-form for which this is to be done.
 
-    left_bases : FunctionSpace
+    basis_left : FunctionSpace
         Function space of 0-forms used as test forms.
 
-    right_bases : FunctionSpace
+    basis_right : FunctionSpace
         Function space of 0-forms used as trial forms.
 
-    integration_registry : IntegrationRegistry, optional
+    integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY
         Registry to get the integration rules from.
 
-    basis_registry : BasisRegistry, optional
+    basis_registry : BasisRegistry, default: DEFAULT_BASIS_REGISTRY
         Registry to get the basis from.
 
     Returns
     -------
     array
-        Mass matrix for inner product of two k-forms.
+        Mass matrix for the inner product of two k-forms; rows span the degrees of
+        freedom of ``basis_left`` and columns those of ``basis_right``.
     """
     ...
 
@@ -1957,8 +2018,8 @@ def compute_kform_incidence_matrix(
 def compute_kform_interior_product_matrix(
     smap: SpaceMap,
     order: int,
-    left_bases: FunctionSpace,
-    right_bases: FunctionSpace,
+    basis_left: FunctionSpace,
+    basis_right: FunctionSpace,
     vector_field_components: npt.NDArray[np.double],
     *,
     integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
@@ -1972,28 +2033,34 @@ def compute_kform_interior_product_matrix(
         Mapping of the space in which this is to be computed.
 
     order : int
-        Order of the k-form for which this is to be done.
+        Order of the k-form for which this is to be done; the left test form has
+        order ``order - 1``.
 
-    left_bases : FunctionSpace
+    basis_left : FunctionSpace
         Function space of 0-forms used as test forms.
 
-    right_bases : FunctionSpace
+    basis_right : FunctionSpace
         Function space of 0-forms used as trial forms.
 
     vector_field_components : array
-        Vector field components involved in the interior product.
+        Vector field components involved in the interior product, sampled at the
+        integration points of the map: shape ``(space_map.output_dimensions,
+        npts_0, ..., npts_k)`` where ``npts_i`` is the number of integration
+        points along axis ``i``.
 
-    int_registry : IntegrationRegistry, optional
+    integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY
         Registry to get the integration rules from.
 
-    basis_registry : BasisRegistry, optional
+    basis_registry : BasisRegistry, default: DEFAULT_BASIS_REGISTRY
         Registry to get the basis from.
 
     Returns
     -------
     array
-        Mass matrix for inner product of two k-forms, where the right one has the interior
-        product with the vector field applied to it.
+        Mass matrix mapping the degrees of freedom of the k-form built from
+        ``basis_right`` to those of the (k - 1)-form built from ``basis_left``,
+        pairing each test form with the interior product of the trial form and
+        the vector field.
     """
     ...
 
@@ -2001,37 +2068,76 @@ def compute_kform_boundary_mass_matrices(
     element_specs: Sequence[KFormSpecs],
     orientations: Sequence[Sequence[int]],
     element_integrations: Sequence[IntegrationSpace],
-    element_maps: Sequence[SpaceMap] | None = None,
+    /,
     *,
+    element_maps: Sequence[SpaceMap] | None = None,
     boundary_dimension: int | None = None,
     c1_continuous: bool = False,
     packed: bool = False,
     integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
     basis_registry: BasisRegistry = DEFAULT_BASIS_REGISTRY,
 ) -> tuple[
-    KFormSpecs,
+    KFormSpecs | None,
     IntegrationSpace,
     tuple[npt.NDArray[np.double], ...],
     tuple[PackedRows, ...] | None,
 ]:
     """Assemble incident elements' mass matrices against one common boundary space.
 
-    Requires two or more incident elements (one inter-element constraint
-    route). Each element provides one orientation record: a signed one-based
-    permutation of the element axes whose first ``ndim - boundary_dimension``
-    entries name the fixed normal axes and whose tail maps the free
-    canonical boundary axes. Rows are the windowed common Legendre test
-    space of the shared object (the two highest functions removed
-    on axes inactive in a component); columns span each element's flat DoF
-    numbering. With ``element_maps`` (one SpaceMap per element) the assembly
-    samples each face's surface measure and k-form pullback on its own
-    canonical grid; C1-continuous requests ignore the maps.
+    Requires two or more incident elements of one shared object. Each element
+    provides one orientation record: a signed one-based permutation of the
+    element axes whose first ``ndim - boundary_dimension`` entries name the fixed
+    normal axes and whose tail maps the free canonical boundary axes. Rows are the
+    windowed common Legendre test space of the shared object (the two highest
+    functions removed on axes inactive in a component); columns are the mapped
+    element trace DoFs, the element k-form DoF counts of the boundary components.
+    With ``element_maps`` (one SpaceMap per element) the assembly samples each
+    face's surface measure and k-form pullback on its own canonical grid;
+    C1-continuous requests ignore the maps. A form order past the boundary
+    dimension has no trace: ``common_specs`` is ``None`` and the matrices are
+    empty.
 
-    Returns ``(common_specs, common_integration, matrices, packed)``: the
-    merged common k-form specification and integration space, one dense
-    matrix per element, and — with ``packed=True`` — one packed row tuple
-    per element with fields ``(row_offsets, sides, components, local_dofs,
-    coefficients)``.
+    Parameters
+    ----------
+    element_specs : Sequence[KFormSpecs]
+        Element k-form specification per incident element.
+
+    orientations : Sequence[Sequence[int]]
+        Signed one-based permutation of the element axes per element.
+
+    element_integrations : Sequence[IntegrationSpace]
+        Element integration space per element.
+
+    element_maps : Sequence[SpaceMap], optional
+        One volume map per element; ignored when ``c1_continuous`` is set.
+
+    boundary_dimension : int, optional
+        Boundary dimension, defaults to ``ndim - 1``. Zero is allowed for scalar
+        (order zero) traces: point rows pair vertex value functionals through the
+        endpoint tables.
+
+    c1_continuous : bool, default: False
+        Reference-frame pairing; ``element_maps`` is ignored.
+
+    packed : bool, default: False
+        Also return one packed row tuple per element.
+
+    integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY
+        Registry to get the quadrature rules from.
+
+    basis_registry : BasisRegistry, default: DEFAULT_BASIS_REGISTRY
+        Registry to get the traced basis tables from.
+
+    Returns
+    -------
+    tuple
+        ``(common_specs, common_integration, matrices, packed)``: the merged
+        common k-form specification (``None`` when the form order exceeds the
+        boundary dimension), the common integration space, one dense matrix per
+        element, and — with ``packed=True`` — one packed row tuple per element
+        ``(row_offsets, sides, components, local_dofs, coefficients)``. ``sides``
+        holds the element's index in ``element_specs``; the coefficients are the
+        dense matrix entries in row-major order.
     """
     ...
 
@@ -2039,29 +2145,68 @@ def compute_kform_boundary_trace_moments(
     element_specs: Sequence[KFormSpecs],
     orientations: Sequence[Sequence[int]],
     element_integrations: Sequence[IntegrationSpace],
-    element_maps: Sequence[SpaceMap] | None = None,
+    /,
     *,
+    element_maps: Sequence[SpaceMap] | None = None,
     boundary_dimension: int | None = None,
     c1_continuous: bool = False,
     packed: bool = False,
     integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
     basis_registry: BasisRegistry = DEFAULT_BASIS_REGISTRY,
 ) -> tuple[
-    KFormSpecs,
+    KFormSpecs | None,
     IntegrationSpace,
     tuple[npt.NDArray[np.double], ...],
     tuple[PackedRows, ...] | None,
 ]:
-    """Assemble one element's trace mass rows against the common boundary space.
+    """Assemble trace mass rows of one or more elements against the common boundary space.
 
-    The prescribed-data interface behind strong boundary conditions: a
-    single element's trace pairing with the same row and column conventions
-    as :func:`compute_kform_boundary_mass_matrices`. Bind a right-hand side
-    by multiplying the rows with the mapped data degrees of freedom.
+    The prescribed-data interface behind strong boundary conditions: each
+    element's trace pairing with the same row and column conventions as
+    :func:`compute_kform_boundary_mass_matrices`. Requires at least one element
+    and returns one dense matrix and one packed tuple per element. Bind a
+    right-hand side by multiplying the rows with the mapped data degrees of
+    freedom.
 
-    Returns ``(common_specs, common_integration, matrices, packed)`` with
-    one dense matrix and, with ``packed=True``, one packed row tuple
-    ``(row_offsets, sides, components, local_dofs, coefficients)``.
+    Parameters
+    ----------
+    element_specs : Sequence[KFormSpecs]
+        Element k-form specification per element; at least one.
+
+    orientations : Sequence[Sequence[int]]
+        Signed one-based permutation of the element axes per element.
+
+    element_integrations : Sequence[IntegrationSpace]
+        Element integration space per element.
+
+    element_maps : Sequence[SpaceMap], optional
+        One volume map per element; ignored when ``c1_continuous`` is set.
+
+    boundary_dimension : int, optional
+        Boundary dimension, defaults to ``ndim - 1``. Zero is allowed for scalar
+        (order zero) traces: point rows pair vertex value functionals through the
+        endpoint tables.
+
+    c1_continuous : bool, default: False
+        Reference-frame pairing; ``element_maps`` is ignored.
+
+    packed : bool, default: False
+        Also return one packed row tuple per element.
+
+    integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY
+        Registry to get the quadrature rules from.
+
+    basis_registry : BasisRegistry, default: DEFAULT_BASIS_REGISTRY
+        Registry to get the traced basis tables from.
+
+    Returns
+    -------
+    tuple
+        ``(common_specs, common_integration, matrices, packed)`` with one dense
+        matrix and one packed row tuple per element; ``common_specs`` is ``None``
+        when the form order exceeds the boundary dimension. ``sides`` holds the
+        element's index in ``element_specs``; the coefficients are the dense
+        matrix entries in row-major order.
     """
     ...
 
@@ -2074,6 +2219,7 @@ def compute_kform_boundary_load(
     element_id: int,
     boundary_id: int,
     data: Callable[..., npt.ArrayLike] | Sequence[Callable[..., npt.ArrayLike]],
+    /,
     surface_measure: bool = False,
     *,
     integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
@@ -2094,7 +2240,7 @@ def compute_kform_boundary_load(
     reference face quadrature weights, ``u`` the sampled datum component and
     ``B_j`` the element (k-1)-form basis of the traced component. When ``k``
     equals the element dimension (a single datum component) this reduces to
-    the scalar chain integral ``s * (-1)^a * sum_p w_p data(g_p) B_j(g_p)``:
+    the scalar chain integral ``s * o * (-1)^a * sum_p w_p data(g_p) B_j(g_p)``:
     the natural boundary term of the mixed formulation implementing the weak
     Dirichlet condition ``u = data``.
 
@@ -2129,26 +2275,26 @@ def compute_kform_boundary_load(
         ``k``-form component (``math.comb(element_spec.dimension, k)`` of
         them), each called with one coordinate array per element dimension and
         returning one value per face quadrature point (scalars broadcast). A
-        bare callable is accepted when ``k`` equals the element dimension
-        (a single component). 0-form data is not covered; impose it strongly
+        bare callable is accepted when ``k`` equals the element dimension (a
+        single component). 0-form data is not covered; impose it strongly
         instead.
 
         The quadrature points are the *canonical* face tensor-product nodes
         of the restricted element map's rule, in canonical-face point order
         (fixed normal axis first), mapped through the restricted element map.
         They coincide with the restricted face map's integration points only
-        because the same rule and cardinality are used; consumers matching
-        the ``data`` evaluations against other sample sets must match by
+        because the same rule and cardinality are used; consumers matching the
+        ``data`` evaluations against other sample sets must match by
         position, not assume a particular index order.
 
-    surface_measure : bool, optional
+    surface_measure : bool, default: False
         Integrate the data with the mapped face Jacobian (physical surface
         measure) instead of the metric-free chain integral.
 
-    integration_registry : IntegrationRegistry, optional
+    integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY
         Registry to get the face quadrature rules from.
 
-    basis_registry : BasisRegistry, optional
+    basis_registry : BasisRegistry, default: DEFAULT_BASIS_REGISTRY
         Registry to get the traced basis table from.
 
     Returns
@@ -2189,7 +2335,7 @@ def compute_boundary_space_map_factors(
         Target boundary integration space whose points receive the sampled
         factors.
 
-    integration_registry : IntegrationRegistry, optional
+    integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY
         Registry to get the element and face quadrature rules from.
 
     Returns
@@ -2220,69 +2366,79 @@ def incidence_kform_operator(
         Specifications of the input k-form on which this operator is to be applied on.
 
     values : array
-        Array which contains the degrees of freedom of all components flattened along the
-        last axis. Treated as a row-major matrix or a vector, depending if 1D or 2D.
+        Degrees of freedom of all components of the input, flattened into one axis.
+        A 1D array is a single set of DoFs; in a 2D array that axis is the first one
+        when applying from the left (default) and the last one when ``right`` is set,
+        the other axis repeating the operator.
 
     transpose : bool, default: False
         Apply the transpose of the incidence operator instead.
 
     right : bool, default: False
-        Apply the incidence operator from the right side. This is equivalent to the
-        transpose of the operator to the left to the transpose of the input, then
-        transposing the result back.
+        Apply the incidence operator from the right side: the input is multiplied by
+        the operator on the right. This is equivalent to applying the transposed
+        operator from the left to the transposed input, then transposing the result
+        back.
 
     out : array, optional
-        Array to which the result is written to. The first axis must have the same size
-        as the number of output degrees of freedom of the resulting k-form. If the input
-        was 2D, this must be as well, with the last axis matching the input's last axis.
+        Array to which the result is written. Its degree-of-freedom axis must have
+        the size of the output degrees of freedom: the first axis when applying
+        from the left, the last axis when ``right`` is set. A 2D input requires a
+        2D output whose repetition axis matches the input's.
 
     Returns
     -------
     array
-        Values of the degrees of freedom of the derivative of the input k-form. When an
-        output array is specified through the parameters, another reference to it is
-        returned, otherwise a new array is created to hold the result and returned.
+        Degrees of freedom of the image of the input under the incidence operator:
+        by default the (k + 1)-form derivative of the input k-form; with exactly one
+        of ``transpose`` or ``right`` the operator runs from the (k + 1)-form space
+        to the k-form space. When ``out`` is given it is returned, otherwise a new
+        array holds the result.
     """
     ...
 
-def incidence_matrix(specs: BasisSpecs) -> npt.NDArray[np.double]:
+def incidence_matrix(basis_specs: BasisSpecs) -> npt.NDArray[np.double]:
     """Return the incidence matrix to transfer derivative degrees of freedom.
 
     Parameters
     ----------
-    specs : BasisSpecs
+    basis_specs : BasisSpecs
         Basis specs for which this incidence matrix should be computed.
 
     Returns
     -------
     array
-        One dimensional incidence matrix. It transfers primal degrees of freedom
-        for a derivative to a function space one order less than the original.
+        Incidence matrix of shape ``(order, order + 1)`` (``order`` the basis order
+        of ``basis_specs``): maps the primal degrees of freedom of that space to the
+        degrees of freedom of its derivative, which lies in the space one order
+        less.
     """
     ...
 
 def incidence_operator(
-    val: npt.ArrayLike, /, specs: BasisSpecs, axis: int = 0
+    x: npt.ArrayLike, specs: BasisSpecs, axis: int = 0
 ) -> npt.NDArray[np.double]:
     """Apply the incidence operator to an array of degrees of freedom along an axis.
 
     Parameters
     ----------
-    val : array_like
-        Array of degrees of freedom to apply the incidence operator to.
+    x : array_like
+        Array of degrees of freedom to apply the incidence operator to. The axis
+        selected by ``axis`` must have size ``specs.order + 1``.
 
     specs : BasisSpecs
         Specifications for basis that determine what set of polynomial is used to take
         the derivative.
 
     axis : int, default: 0
-        Axis along which to apply the incidence operator along.
+        Axis along which to apply the incidence operator.
 
     Returns
     -------
     array
-        Array of degrees of freedom that is the result of applying the incidence operator,
-        along the specified axis.
+        Array of degrees of freedom that is the result of applying the incidence
+        operator along the specified axis; that axis shrinks from
+        ``specs.order + 1`` to ``specs.order``.
     """
     ...
 
@@ -2304,9 +2460,29 @@ def packed_kform_constraints_to_csr(
 ]:
     """Convert packed global k-form rows to CSR constructor arrays.
 
-    Returns ``(data, indices, indptr)`` for direct use with
-    ``scipy.sparse.csr_matrix``. Columns use element-major numbering derived
-    from ``specs`` and ``element_count``.
+    Parameters
+    ----------
+    packed : tuple of (array, array, array, array, array)
+        ``(row_offsets, element_ids, components, local_dofs, coefficients)``
+        with dtypes ``uintp``, ``uint64``, ``uint32``, ``uintp`` and ``float64``.
+        ``row_offsets`` starts at zero, is non-decreasing and ends at the entry
+        count; ``element_ids`` and ``components`` stay below ``element_count``
+        and the component count of ``specs``.
+
+    specs : KFormSpecs
+        Element k-form specification that numbers the columns inside each
+        element.
+
+    element_count : int
+        Number of elements referenced by ``element_ids``.
+
+    Returns
+    -------
+    tuple of (array, array, array)
+        ``(data, indices, indptr)`` for direct use with
+        ``scipy.sparse.csr_matrix``. Columns are element-major:
+        ``element_id`` times the element's total DoF count, plus the
+        component's start inside the element, plus the local DoF.
     """
     ...
 
@@ -2345,7 +2521,7 @@ def compute_mass_matrix(
     Returns
     -------
     array
-        Mass matrix as a 2D array, which maps the primal degress of freedom of the input
+        Mass matrix as a 2D array, which maps the primal degrees of freedom of the input
         function space to dual degrees of freedom of the output function space.
     """
     ...
@@ -2355,8 +2531,8 @@ def compute_gradient_mass_matrix(
     space_out: FunctionSpace,
     integration: IntegrationSpace | SpaceMap,
     /,
-    idim_in: int,
-    idim_out: int,
+    idx_in: int,
+    idx_out: int,
     *,
     integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
     basis_registry: BasisRegistry = DEFAULT_BASIS_REGISTRY,
@@ -2375,13 +2551,6 @@ def compute_gradient_mass_matrix(
     space_out : FunctionSpace
         Function space for the output functions.
 
-    idim_im : int
-        Index of the dimension to take the derivative of the input space on.
-
-    idim_out : int
-        Index of the output space on which the component of the derivative should
-        be returned on.
-
     integration : IntegrationSpace or SpaceMap
         Integration space used to compute the mass matrix or a space mapping.
         If the integration space is provided, the integration is done on the
@@ -2389,6 +2558,13 @@ def compute_gradient_mass_matrix(
         space of the mapping is used, along with the integration being done
         on the mapped domain instead.
 
+    idx_in : int
+        Index of the reference-space dimension along which the input functions are
+        differentiated.
+
+    idx_out : int
+        Index of the output-space dimension on which the derivative component is
+        returned. Without a space map only ``idx_in == idx_out`` is non-zero.
 
     integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY
         Registry used to retrieve the integration rules.
@@ -2423,11 +2599,12 @@ def transform_contravariant_to_target(
         components.
 
     components : array_like
-        Array where the first dimension indexes the components in the reference space. All
-        other dimensions will be treated as if flattened.
+        Array whose first dimension indexes the components in the reference space and
+        has length ``input_dimensions``. The remaining dimensions must match the
+        integration grid of the space map (``order + 1`` nodes per reference dimension).
 
     out : array, optional
-        Array to used to write the resulting transformed components to. If it is not
+        Array to use to write the resulting transformed components to. If it is not
         specified, a new array is created.
 
     Returns
@@ -2454,11 +2631,12 @@ def transform_covariant_to_target(
         components.
 
     components : array_like
-        Array where the first dimension indexes the components in the reference space. All
-        other dimensions will be treated as if flattened.
+        Array whose first dimension indexes the components in the reference space and
+        has length ``input_dimensions``. The remaining dimensions must match the
+        integration grid of the space map (``order + 1`` nodes per reference dimension).
 
     out : array, optional
-        Array to used to write the resulting transformed components to. If it is not
+        Array to use to write the resulting transformed components to. If it is not
         specified, a new array is created.
 
     Returns
@@ -2554,8 +2732,10 @@ def transform_kform_component_to_target(
         Mapping between the reference and target domain to use.
 
     component : array_like
-        Values of component in the reference domain at integration points associated
-        with the space mapping.
+        Values of the component in the reference domain at the integration points
+        of the space map. Leading dimensions are batch dimensions; the trailing
+        dimensions must match the integration grid and the batch dimensions are
+        preserved in the output.
 
     index : int
         Index of the component that is to be computed.

@@ -724,7 +724,7 @@ static int mesh_continuity_assemble_object(mesh_continuity_context_t *const cont
     const double **surface_rows = NULL;
     const constraint_trace_pullback_t **test_pullback_pointers = NULL;
     const constraint_trace_pullback_t **element_pullback_pointers = NULL;
-    uint8_t **pack_sides = NULL;
+    uint64_t **pack_sides = NULL;
     uint32_t **pack_components = NULL;
     size_t **pack_dofs = NULL;
     double **pack_coefficients = NULL;
@@ -748,7 +748,7 @@ static int mesh_continuity_assemble_object(mesh_continuity_context_t *const cont
         return 0;
     }
     // Everything per-element shares one group; the cleanup-walked slot arrays are zeroed right after allocation.
-    CUTL_ASSERT(nelem > 1 && nelem <= UINT8_MAX, "Shared objects need two or more incident elements.");
+    CUTL_ASSERT(nelem > 1, "Shared objects need two or more incident elements.");
     void *const head_memory = cutl_alloc_group(
         &PYTHON_ALLOCATOR,
         (const cutl_alloc_info_t[]){{sizeof(*orientations) * nelem, (void **)&orientations},
@@ -1232,7 +1232,7 @@ static int mesh_continuity_assemble_object(mesh_continuity_context_t *const cont
             goto out;
         }
         constraint_boundary_mass_pack(&spec, &work.mass, coupled, arena + plan.item_offsets[e], plan.item_cols[e],
-                                      side_signs[e], (uint8_t)e, pack_sides[e], pack_components[e], pack_dofs[e],
+                                      side_signs[e], (uint64_t)e, pack_sides[e], pack_components[e], pack_dofs[e],
                                       pack_coefficients[e], pack_offsets[e]);
         if (e == 0)
         {
@@ -1681,7 +1681,7 @@ static PyGetSetDef mesh_getset[] = {
     {.name = "element_count", .get = (getter)mesh_get_element_count, .doc = "Number of elements of the mesh."},
     {.name = "collections",
      .get = (getter)mesh_get_collections,
-     .doc = "Collections of topological objects of the mesh, one uint64 array per dimension (copies)."},
+     .doc = "Boundary-ID arrays of the mesh objects of every dimension (uint64 copies)."},
     {},
 };
 
@@ -1691,49 +1691,130 @@ static PyMethodDef mesh_methods[] = {
         .ml_meth = (void *)mesh_from_corners,
         .ml_flags = METH_CLASS | METH_FASTCALL | METH_KEYWORDS,
         .ml_doc = "from_corners(ndim, corners, /) -> Mesh\n"
-                  "Create a mesh from the corner point IDs of every hypercube element.",
+                  "Create a mesh from the corner point IDs of every hypercube element.\n"
+                  "\n"
+                  "Parameters\n"
+                  "----------\n"
+                  "ndim : int\n"
+                  "    Number of dimensions of the mesh.\n"
+                  "\n"
+                  "corners : array_like\n"
+                  "    Corner point IDs of every hypercube element, ``2**ndim`` entries per\n"
+                  "    element; the same point IDs name shared points.\n"
+                  "\n"
+                  "Returns\n"
+                  "-------\n"
+                  "Mesh\n"
+                  "    Mesh built from the given corners.\n",
     },
     {
         .ml_name = "from_collections",
         .ml_meth = (void *)mesh_from_collections,
         .ml_flags = METH_CLASS | METH_FASTCALL | METH_KEYWORDS,
         .ml_doc = "from_collections(ndim, point_count, collections, /) -> Mesh\n"
-                  "Create a mesh from the collections of topological objects.",
+                  "Create a mesh from the collections of topological objects.\n"
+                  "\n"
+                  "Parameters\n"
+                  "----------\n"
+                  "ndim : int\n"
+                  "    Number of dimensions of the mesh.\n"
+                  "\n"
+                  "point_count : int\n"
+                  "    Number of mesh points represented implicitly by point IDs.\n"
+                  "\n"
+                  "collections : tuple of array_like\n"
+                  "    Boundary-ID arrays for mesh objects of dimensions 1 through N. The\n"
+                  "    last collection contains the N-dimensional elements.\n"
+                  "\n"
+                  "Returns\n"
+                  "-------\n"
+                  "Mesh\n"
+                  "    Mesh built from the given collections.\n",
     },
     {
         .ml_name = "element_object",
         .ml_meth = (void *)mesh_element_object,
         .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
         .ml_doc = "element_object(element_id, axis, /) -> int\n"
-                  "Look up the global ID of the object at the given position within one element.",
+                  "Look up the global ID of the object at a position within one element.\n"
+                  "\n"
+                  "Parameters\n"
+                  "----------\n"
+                  "element_id : int\n"
+                  "    ID of the element.\n"
+                  "\n"
+                  "axis : sequence of int\n"
+                  "    Axis specification of length ``ndim``; entry ``i`` is 0 for a free\n"
+                  "    axis, or ``i + 1`` / ``-(i + 1)`` to fix the axis at its end / start\n"
+                  "    side. At least one axis must be fixed.\n"
+                  "\n"
+                  "Returns\n"
+                  "-------\n"
+                  "int\n"
+                  "    Global object ID: a point ID for objects of dimension 0, otherwise\n"
+                  "    an index into the corresponding collection.\n",
     },
     {
         .ml_name = "iterate_shared",
         .ml_meth = (void *)mesh_iterate_shared,
         .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
-        .ml_doc = "iterate_shared(mdim, /) -> list[tuple]\n"
-                  "Iterate over all objects of one dimension shared by at least two elements.",
+        .ml_doc = "iterate_shared(mdim, /) -> list[MeshSharedObject]\n"
+                  "Iterate over all objects of one dimension shared by at least two elements.\n"
+                  "\n"
+                  "Parameters\n"
+                  "----------\n"
+                  "mdim : int\n"
+                  "    Dimension of the objects, ``0 <= mdim < ndim``.\n"
+                  "\n"
+                  "Returns\n"
+                  "-------\n"
+                  "list of tuple\n"
+                  "    One ``(mdim, object_id, element_ids, orientations)`` tuple per\n"
+                  "    shared object.\n",
     },
     {
         .ml_name = "iterate_shared_all",
         .ml_meth = (void *)mesh_iterate_shared_all,
         .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
-        .ml_doc = "iterate_shared_all() -> list[tuple]\n"
-                  "Iterate over all shared objects, from dimension ndim - 1 down to 0.",
+        .ml_doc = "iterate_shared_all() -> list[MeshSharedObject]\n"
+                  "Iterate over all shared objects, from dimension ``ndim - 1`` down to 0.\n"
+                  "\n"
+                  "Returns\n"
+                  "-------\n"
+                  "list of tuple\n"
+                  "    One ``(mdim, object_id, element_ids, orientations)`` tuple per\n"
+                  "    shared object.\n",
     },
     {
         .ml_name = "iterate_boundary",
         .ml_meth = (void *)mesh_iterate_boundary,
         .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
-        .ml_doc = "iterate_boundary(mdim, /) -> list[tuple]\n"
-                  "Iterate over all objects of one dimension on the outer boundary of the mesh.",
+        .ml_doc = "iterate_boundary(mdim, /) -> list[MeshSharedObject]\n"
+                  "Iterate over all objects of one dimension on the outer boundary of the mesh.\n"
+                  "\n"
+                  "Parameters\n"
+                  "----------\n"
+                  "mdim : int\n"
+                  "    Dimension of the objects, ``0 <= mdim < ndim``.\n"
+                  "\n"
+                  "Returns\n"
+                  "-------\n"
+                  "list of tuple\n"
+                  "    One ``(mdim, object_id, element_ids, orientations)`` tuple per\n"
+                  "    boundary object.\n",
     },
     {
         .ml_name = "iterate_boundary_all",
         .ml_meth = (void *)mesh_iterate_boundary_all,
         .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
-        .ml_doc = "iterate_boundary_all() -> list[tuple]\n"
-                  "Iterate over all boundary objects, from dimension ndim - 1 down to 0.",
+        .ml_doc = "iterate_boundary_all() -> list[MeshSharedObject]\n"
+                  "Iterate over all boundary objects, from dimension ``ndim - 1`` down to 0.\n"
+                  "\n"
+                  "Returns\n"
+                  "-------\n"
+                  "list of tuple\n"
+                  "    One ``(mdim, object_id, element_ids, orientations)`` tuple per\n"
+                  "    boundary object.\n",
     },
     {
         .ml_name = "compute_kform_continuity_constraints",
@@ -1741,13 +1822,76 @@ static PyMethodDef mesh_methods[] = {
         .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
         .ml_doc = "compute_kform_continuity_constraints(element_specs, element_maps=None, /, *, basis_type=None, "
                   "c1_continuous=False, integration_registry=DEFAULT_INTEGRATION_REGISTRY, "
-                  "basis_registry=DEFAULT_BASIS_REGISTRY) -> tuple[numpy.ndarray, ...]\n"
-                  "Assemble k-form continuity rows between the consecutive elements of every shared object,\n"
-                  "from shared faces down to points. Boundary test spaces are derived automatically: each\n"
-                  "component takes the lowest incident element order per axis, reduced by two on axes\n"
-                  "without its covector. With c1_continuous the rows pair reference spaces and element_maps\n"
-                  "may be omitted; otherwise they pair physical traces and maps are required.\n"
-                  "Returns five packed one-dimensional arrays; empty output has row_offsets=[0].",
+                  "basis_registry=DEFAULT_BASIS_REGISTRY) -> tuple[numpy.typing.NDArray[numpy.uintp], "
+                  "numpy.typing.NDArray[numpy.uint64], numpy.typing.NDArray[numpy.uint32], "
+                  "numpy.typing.NDArray[numpy.uintp], numpy.typing.NDArray[numpy.double]]\n"
+                  "Assemble k-form continuity rows between neighboring elements.\n"
+                  "\n"
+                  "Shared objects are visited from the highest dimension down to points.\n"
+                  "Every shared object contributes one row per test function, pairing the\n"
+                  "first element of its ascending incident-element list (the anchor) with\n"
+                  "each of its remaining elements, so the anchor links all of them\n"
+                  "without introducing a cycle.\n"
+                  "\n"
+                  "The trace test spaces are derived automatically. A component exists\n"
+                  "only when all of its covector axes lie in the shared object (there are\n"
+                  "``mdim`` choose ``k`` of them). Each component reads ``order`` functions\n"
+                  "of the common space — the per-axis minimum order of the incident\n"
+                  "elements — on its covector axes and the leading ``order - 1``\n"
+                  "functions on the remaining axes (floored at zero). A component with a\n"
+                  "zero-function axis contributes no rows.\n"
+                  "\n"
+                  "Parameters\n"
+                  "----------\n"
+                  "element_specs : Sequence[KFormSpecs]\n"
+                  "    One volume k-form specification per mesh element. The sequence\n"
+                  "    must contain exactly ``element_count`` entries. All specifications\n"
+                  "    must have the mesh dimension and the same k-form degree; their\n"
+                  "    basis orders may differ.\n"
+                  "\n"
+                  "element_maps : Sequence[SpaceMap], default: None\n"
+                  "    One reference-to-physical map per mesh element supplying the\n"
+                  "    physical trace geometry. Required unless ``c1_continuous`` is set.\n"
+                  "\n"
+                  "basis_type : fdg.BasisType or str, default: None\n"
+                  "    Accepted as ``None`` or ``\"legendre\"`` only: the derived test\n"
+                  "    spaces always use the Legendre family, any other family raises\n"
+                  "    ``ValueError``.\n"
+                  "\n"
+                  "c1_continuous : bool, default: False\n"
+                  "    Pair reference-space traces without geometry factors. With this\n"
+                  "    flag set, reference-domain continuity is imposed and\n"
+                  "    ``element_maps`` may be omitted.\n"
+                  "\n"
+                  "integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY\n"
+                  "    Registry to get the quadrature rules from.\n"
+                  "\n"
+                  "basis_registry : BasisRegistry, default: DEFAULT_BASIS_REGISTRY\n"
+                  "    Registry to get the basis tables and endpoint values from.\n"
+                  "\n"
+                  "Returns\n"
+                  "-------\n"
+                  "row_offsets : array\n"
+                  "    ``uintp`` CSR-like row boundaries of length\n"
+                  "    ``number_of_rows + 1``. Entry ``i`` belongs to\n"
+                  "    ``[row_offsets[i], row_offsets[i + 1])``. Empty output is\n"
+                  "    represented by ``[0]``.\n"
+                  "\n"
+                  "element_ids : array\n"
+                  "    ``uint64`` global element ID for each packed entry.\n"
+                  "\n"
+                  "components : array\n"
+                  "    ``uint32`` element-frame k-form component for each packed entry.\n"
+                  "\n"
+                  "local_dofs : array\n"
+                  "    ``uintp`` local DoF index within the component named by\n"
+                  "    ``components``.\n"
+                  "\n"
+                  "coefficients : array\n"
+                  "    ``double`` trace coefficient of each packed entry: the side sign\n"
+                  "    (+1 for the anchor element, -1 for the paired one) times the basis\n"
+                  "    value of that element's own space at the shared end; with\n"
+                  "    ``c1_continuous`` only the side sign applies.\n",
     },
     {
         .ml_name = "compute_kform_global_constraints",
@@ -1756,11 +1900,65 @@ static PyMethodDef mesh_methods[] = {
         .ml_doc = "compute_kform_global_constraints(element_specs, element_maps=None, boundary_conditions=None, "
                   "periodic_pairs=None, /, *, basis_type=None, c1_continuous=False, "
                   "integration_registry=DEFAULT_INTEGRATION_REGISTRY, basis_registry=DEFAULT_BASIS_REGISTRY) -> "
-                  "tuple[tuple[numpy.ndarray, ...], numpy.ndarray]\n"
-                  "Assemble shared, prescribed-boundary, and signed-axis periodic k-form trace rows.\n"
-                  "Boundary test spaces are derived automatically; boundary data are physical k-form\n"
-                  "callables, and pair descriptors define boundary face mappings.\n"
-                  "Returns five packed row arrays and one right-hand-side array.",
+                  "tuple[tuple[numpy.typing.NDArray[numpy.uintp], numpy.typing.NDArray[numpy.uint64], "
+                  "numpy.typing.NDArray[numpy.uint32], numpy.typing.NDArray[numpy.uintp], "
+                  "numpy.typing.NDArray[numpy.double]], numpy.typing.NDArray[numpy.double]]\n"
+                  "Assemble global k-form trace constraints and their right-hand side.\n"
+                  "\n"
+                  "Automatically derived shared-object continuity rows are augmented by\n"
+                  "optional physical boundary data and explicit periodic or transformed\n"
+                  "boundary pairs. Boundary face data are propagated to all\n"
+                  "lower-dimensional descendants and imposed once on a deterministic\n"
+                  "owner element, so adjacent prescribed faces do not duplicate edge or\n"
+                  "point equations.\n"
+                  "\n"
+                  "Parameters\n"
+                  "----------\n"
+                  "element_specs : Sequence[KFormSpecs]\n"
+                  "    One volume k-form specification per mesh element, exactly as for\n"
+                  "    :meth:`compute_kform_continuity_constraints`.\n"
+                  "\n"
+                  "element_maps : Sequence[SpaceMap], default: None\n"
+                  "    One reference-to-physical map per mesh element. Required whenever\n"
+                  "    boundary data or periodic pairs are given, and whenever\n"
+                  "    ``c1_continuous`` is not set.\n"
+                  "\n"
+                  "boundary_conditions : mapping or sequence, default: None\n"
+                  "    Prescribed boundary data; see the :mod:`fdg.boundary_conditions`\n"
+                  "    documentation for the accepted forms.\n"
+                  "\n"
+                  "periodic_pairs : sequence of BoundaryPair or BoundaryPairGroup, default: None\n"
+                  "    Explicit pairs of outer faces, or ordered groups of equal-length\n"
+                  "    face collections. Each group is expanded to corresponding lower\n"
+                  "    strata; ``axis_map`` is a signed permutation of canonical boundary\n"
+                  "    axes, allowing reversals and axis permutations. Duplicate\n"
+                  "    lower-stratum relations are reduced to an acyclic forest.\n"
+                  "\n"
+                  "basis_type : fdg.BasisType or str, default: None\n"
+                  "    Accepted as ``None`` or ``\"legendre\"`` only: the derived test\n"
+                  "    spaces always use the Legendre family, any other family raises\n"
+                  "    ``ValueError``.\n"
+                  "\n"
+                  "c1_continuous : bool, default: False\n"
+                  "    Impose continuity in reference space without geometry factors;\n"
+                  "    ``element_maps`` may be omitted in that case unless boundary data\n"
+                  "    or periodic pairs require them.\n"
+                  "\n"
+                  "integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY\n"
+                  "    Registry to get the quadrature rules from.\n"
+                  "\n"
+                  "basis_registry : BasisRegistry, default: DEFAULT_BASIS_REGISTRY\n"
+                  "    Registry to get the trace basis tables from.\n"
+                  "\n"
+                  "Returns\n"
+                  "-------\n"
+                  "rows : tuple of arrays\n"
+                  "    ``(row_offsets, element_ids, components, local_dofs, coefficients)``\n"
+                  "    in the global packed-row format.\n"
+                  "\n"
+                  "rhs : array\n"
+                  "    ``double`` prescribed value per packed constraint row. Shared and\n"
+                  "    periodic rows have zero right-hand side.\n",
     },
     {},
 };

@@ -320,5 +320,63 @@ def test_curved_face_surface_measure() -> None:
     assert inverse_maps.shape == (len(nodes_face), 1, 2)
 
 
+@pytest.mark.parametrize(
+    ("orientation", "v_axis", "v_sign", "w_axis", "w_sign"),
+    [
+        pytest.param((1, 2, 3), 0, 1.0, 1, 1.0, id="ascending-tail"),
+        pytest.param((1, 3, 2), 1, 1.0, 0, 1.0, id="swapped-tail"),
+        pytest.param((1, -2, 3), 0, -1.0, 1, 1.0, id="mirrored-v"),
+        pytest.param((1, -3, 2), 1, 1.0, 0, -1.0, id="mirrored-w"),
+    ],
+)
+def test_face_factors_honour_orientation_tail(
+    orientation: tuple[int, ...],
+    v_axis: int,
+    v_sign: float,
+    w_axis: int,
+    w_sign: float,
+) -> None:
+    """Face factors evaluate on the canonical grid the orientation tail defines.
+
+    On the ``u`` face of ``F = (u, 2v + 0.3w, 5w + 0.3vw**2)`` the surface measure is
+    ``10 + 1.2vw - 0.09w**2``, so a permuted or mirrored tail must move the
+    determinant array accordingly.
+    """
+    geometry_order = 3
+    nodes = np.linspace(-1.0, 1.0, geometry_order + 1)
+    grid_u, grid_v, grid_w = np.meshgrid(nodes, nodes, nodes, indexing="ij")
+    geometry_space = FunctionSpace(
+        *(BasisSpecs(BasisType.LAGRANGE_UNIFORM, geometry_order) for _ in range(3))
+    )
+    int_space = _integrations((5, 5, 5))
+    map_x = CoordinateMap(DegreesOfFreedom(geometry_space, grid_u.ravel()), int_space)
+    map_y = CoordinateMap(
+        DegreesOfFreedom(geometry_space, (2.0 * grid_v + 0.3 * grid_w).ravel()),
+        int_space,
+    )
+    map_z = CoordinateMap(
+        DegreesOfFreedom(
+            geometry_space, (5.0 * grid_w + 0.3 * grid_v * grid_w**2).ravel()
+        ),
+        int_space,
+    )
+    space_map = SpaceMap(map_x, map_y, map_z)
+
+    common = IntegrationSpace(
+        IntegrationSpecs(4, IntegrationMethod.GAUSS),
+        IntegrationSpecs(3, IntegrationMethod.GAUSS),
+    )
+    determinant, inverse_maps = compute_boundary_space_map_factors(
+        space_map, list(orientation), common
+    )
+
+    z0, z1 = common.nodes()
+    v_value = v_sign * (z0 if v_axis == 0 else z1)
+    w_value = w_sign * (z0 if w_axis == 0 else z1)
+    expected = (10.0 + 1.2 * v_value * w_value - 0.09 * w_value**2).ravel()
+    np.testing.assert_allclose(determinant, expected, rtol=1e-10, atol=1e-10)
+    assert inverse_maps.shape == (expected.size, 2, 3)
+
+
 if __name__ == "__main__":
     pytest.main([__file__])

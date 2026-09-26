@@ -112,7 +112,7 @@ static PyObject *dof_new(PyTypeObject *subtype, PyObject *args, PyObject *kwds)
 }
 
 PyDoc_STRVAR(dof_docstring,
-             "DegreesOfFreedom(function_space : FunctionSpace, values : numpy.typing.ArrayLike | None = None)\n"
+             "DegreesOfFreedom(function_space: FunctionSpace, values: numpy.typing.ArrayLike | None = None)\n"
              "Degrees of freedom associated with a function space.\n"
              "\n"
              "Parameters\n"
@@ -206,8 +206,8 @@ static int dof_set_values(PyObject *self, PyObject *value, void *Py_UNUSED(closu
     if (array_has_shape(arr, this->n_dims, this->basis_specs) == 0 && PyArray_SIZE(arr) != Py_SIZE(self))
     {
         PyErr_Format(PyExc_ValueError,
-                     "Values must either be flat with %u elements or have exact correct %u-dimensional shape.",
-                     (unsigned)Py_SIZE(arr), this->n_dims);
+                     "Values must either be flat with %zd elements or have exact correct %u-dimensional shape.",
+                     Py_SIZE(self), this->n_dims);
         Py_DECREF(arr);
         return -1;
     }
@@ -222,7 +222,7 @@ static int dof_set_values(PyObject *self, PyObject *value, void *Py_UNUSED(closu
 PyDoc_STRVAR(dof_reconstruct_at_integration_points_docstring,
              "reconstruct_at_integration_points(integration_space: IntegrationSpace, integration_registry: "
              "IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY, basis_registry: BasisRegistry = "
-             "DEFAULT_BASIS_REGISTRY, *, out: numpy.typing.NDArray[numpy.double] | None = None, ) -> "
+             "DEFAULT_BASIS_REGISTRY, *, out: numpy.typing.NDArray[numpy.double] | None = None) -> "
              "numpy.typing.NDArray[numpy.double]\n"
              "Reconstruct the function at the integration points of the given space.\n"
              "\n"
@@ -536,7 +536,8 @@ int *reconstruction_derivative_indices(const unsigned ndim, PyObject *py_indices
 }
 
 PyDoc_STRVAR(dof_reconstruct_derivative_at_integration_points_docstring,
-             "reconstruct_derivative_at_integration_points(integration_space: IntegrationSpace, idim: Sequence[int], "
+             "reconstruct_derivative_at_integration_points(integration_space: IntegrationSpace, idim: int | "
+             "Sequence[int], "
              "integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY, basis_registry: BasisRegistry "
              "= DEFAULT_BASIS_REGISTRY, *, out: numpy.typing.NDArray[numpy.double] | None = None) -> "
              "numpy.typing.NDArray[numpy.double]\n"
@@ -546,9 +547,10 @@ PyDoc_STRVAR(dof_reconstruct_derivative_at_integration_points_docstring,
              "----------\n"
              "integration_space : IntegrationSpace\n"
              "    Integration space where the function derivative should be reconstructed.\n"
-             "idim : Sequence[int]\n"
-             "    Dimensions in which the derivative should be computed. All values\n"
-             "    should appear at most once.\n"
+             "idim : int or Sequence[int]\n"
+             "    Dimension in which the derivative should be computed, or the sequence of\n"
+             "    dimensions in which it should be computed. All values in a sequence should\n"
+             "    appear at most once.\n"
              "integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY\n"
              "    Registry used to retrieve the integration rules.\n"
              "basis_registry : BasisRegistry, default: DEFAULT_BASIS_REGISTRY\n"
@@ -861,7 +863,7 @@ PyObject *dof_at_boundary(PyObject *self, PyTypeObject *defining_class, PyObject
     if (parse_arguments_check(
             (cpyutl_argument_t[]){
                 {.type = CPYARG_TYPE_SSIZE, .p_val = &idim, .kwname = "idim"},
-                {.type = CPYARG_TYPE_DOUBLE, .p_val = &value, .kwname = "x", .optional = 1},
+                {.type = CPYARG_TYPE_DOUBLE, .p_val = &value, .kwname = "x"},
                 {},
             },
             args, nargs, kwnames) < 0)
@@ -929,7 +931,7 @@ PyObject *dof_reverse_orientation(PyObject *self, PyTypeObject *defining_class, 
 
 PyDoc_STRVAR(
     dof_lagrange_projection_docstring,
-    "lagrange_projection(orders: npt.ArrayLike | None = None, *, integration_registry: IntegrationRegistry = "
+    "lagrange_projection(orders: numpy.typing.ArrayLike | None = None, integration_registry: IntegrationRegistry = "
     "DEFAULT_INTEGRATION_REGISTRY, basis_registry: BasisRegistry = DEFAULT_BASIS_REGISTRY) -> DegreesOfFreedom\n"
     "Compute projection of degrees of freedom with Lagrange basis.\n"
     "\n"
@@ -1135,7 +1137,13 @@ PyType_Spec degrees_of_freedom_type_spec = {
                  .name = "values",
                  .get = dof_get_values,
                  .set = dof_set_values,
-                 .doc = "numpy.typing.NDArray[numpy.double] : Values of the degrees of freedom.",
+                 .doc = "numpy.typing.NDArray[numpy.double] : Coefficient values of the degrees of freedom.\n"
+                        "\n"
+                        "These are the expansion coefficients of the discrete function, not\n"
+                        "sampled function values. Do not confuse them with\n"
+                        ":attr:`CoordinateMap.values`, which holds the mapped coordinates\n"
+                        "evaluated at the integration points of the map's own integration\n"
+                        "space.\n",
              },
              {},
          }},

@@ -1,3 +1,5 @@
+// TODO: consider removing this file
+
 #include "general.h"
 
 typedef struct
@@ -51,7 +53,8 @@ static void scale_array_boundary_iterative(const unsigned ndim, const npy_intp d
                 {
                     out_array[new_offset + i * stride] /= new_level;
                 }
-                out_array[new_offset + (dim - 1) * stride] /= (new_level + 1.0);
+                if (dim > 1)
+                    out_array[new_offset + (dim - 1) * stride] /= (new_level + 1.0);
             }
         }
     }
@@ -83,6 +86,11 @@ static PyObject *fdg_scale_array_boundary(PyObject *mod, PyObject *const *args, 
     const unsigned ndims = (unsigned)PyArray_NDIM(array);
     const npy_intp *const dims = PyArray_DIMS(array);
 
+    // Arrays with fewer than 2 axes or without elements lie on at most one
+    // boundary per entry, so there is nothing to scale.
+    if (ndims < 2 || PyArray_SIZE(array) == 0)
+        return (PyObject *)array;
+
     // Allocate counters
     loop_state_t *work_stack;
     npy_intp *strides;
@@ -112,7 +120,7 @@ static PyObject *fdg_scale_array_boundary(PyObject *mod, PyObject *const *args, 
 }
 
 PyDoc_STRVAR(fdg_scale_array_boundary_docstring,
-             "_scale_array_boundry(arr: numpy.typing.ArrayLike, /) -> numpy.typing.NDArray[numpy.double]\n"
+             "_scale_array_boundary(arr: numpy.typing.ArrayLike, /) -> numpy.typing.NDArray[numpy.double]\n"
              "Scale the array based on how many N-dimensional boundaries an entry appears.\n"
              "\n"
              "Parameters\n"

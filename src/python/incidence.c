@@ -587,19 +587,21 @@ static PyObject *incidence_matrix(PyObject *mod, PyObject *const *args, const Py
 }
 
 PyDoc_STRVAR(incidence_matrix_docstring,
-             "incidence_matrix(basis_specs : BasisSpecs) -> numpy.typing.NDArray[numpy.double]\n"
+             "incidence_matrix(basis_specs: BasisSpecs) -> numpy.typing.NDArray[numpy.double]\n"
              "Return the incidence matrix to transfer derivative degrees of freedom.\n"
              "\n"
              "Parameters\n"
              "----------\n"
-             "specs : BasisSpecs\n"
+             "basis_specs : BasisSpecs\n"
              "    Basis specs for which this incidence matrix should be computed.\n"
              "\n"
              "Returns\n"
              "-------\n"
              "array\n"
-             "    One dimensional incidence matrix. It transfers primal degrees of freedom\n"
-             "    for a derivative to a function space one order less than the original.\n");
+             "    Incidence matrix of shape ``(order, order + 1)`` (``order`` the basis order\n"
+             "    of ``basis_specs``): maps the primal degrees of freedom of that space to the\n"
+             "    degrees of freedom of its derivative, which lies in the space one order\n"
+             "    less.\n");
 
 static PyObject *incidence_operator(PyObject *mod, PyObject *const *args, const Py_ssize_t nargs,
                                     const PyObject *kwnames)
@@ -637,7 +639,7 @@ static PyObject *incidence_operator(PyObject *mod, PyObject *const *args, const 
     }
 
     const unsigned ndim = PyArray_NDIM(array);
-    if (axis < 0 && axis >= ndim)
+    if (axis < 0 || axis >= ndim)
     {
         PyErr_Format(PyExc_IndexError, "Axis index %zd out of bounds for array of dimension %zd", axis, ndim);
         Py_DECREF(array);
@@ -735,27 +737,29 @@ static PyObject *incidence_operator(PyObject *mod, PyObject *const *args, const 
 }
 
 PyDoc_STRVAR(incidence_operator_docstring,
-             "incidence_operator(val: numpy.typing.ArrayLike, /, specs: BasisSpecs, axis: int = 0) -> "
+             "incidence_operator(x: numpy.typing.ArrayLike, specs: BasisSpecs, axis: int = 0) -> "
              "numpy.typing.NDArray[numpy.double]\n"
              "Apply the incidence operator to an array of degrees of freedom along an axis.\n"
              "\n"
              "Parameters\n"
              "----------\n"
-             "val : array_like\n"
-             "    Array of degrees of freedom to apply the incidence operator to.\n"
+             "x : array_like\n"
+             "    Array of degrees of freedom to apply the incidence operator to. The axis\n"
+             "    selected by ``axis`` must have size ``specs.order + 1``.\n"
              "\n"
              "specs : BasisSpecs\n"
              "    Specifications for basis that determine what set of polynomial is used to take\n"
              "    the derivative.\n"
              "\n"
              "axis : int, default: 0\n"
-             "    Axis along which to apply the incidence operator along.\n"
+             "    Axis along which to apply the incidence operator.\n"
              "\n"
              "Returns\n"
              "-------\n"
              "array\n"
-             "    Array of degrees of freedom that is the result of applying the incidence operator,\n"
-             "    along the specified axis.\n");
+             "    Array of degrees of freedom that is the result of applying the incidence\n"
+             "    operator along the specified axis; that axis shrinks from\n"
+             "    ``specs.order + 1`` to ``specs.order``.\n");
 
 static void incidence_matrix_fill_block(const unsigned ndim, const basis_spec_t basis[static ndim],
                                         const unsigned order, const uint8_t components[static order],
@@ -1306,8 +1310,9 @@ static PyObject *incidence_kform_operator(PyObject *mod, PyObject *const *args, 
 
 PyDoc_STRVAR(
     incidence_kform_operator_docstring,
-    "incidence_kform_operator(specs: KFormSpecs, values: numpy.typing.NDArray[np.double], transpose: bool = False, *, "
-    "out: numpy.typing.NDArray[numpy.double] | None = None) -> numpy.typing.NDArray[numpy.double]\n"
+    "incidence_kform_operator(specs: KFormSpecs, values: numpy.typing.NDArray[np.double], transpose: bool = False, "
+    "right: bool = False, *, out: numpy.typing.NDArray[numpy.double] | None = None) -> "
+    "numpy.typing.NDArray[numpy.double]\n"
     "Apply the incidence operator on the k-form.\n"
     "\n"
     "Parameters\n"
@@ -1316,23 +1321,34 @@ PyDoc_STRVAR(
     "    Specifications of the input k-form on which this operator is to be applied on.\n"
     "\n"
     "values : array\n"
-    "    Array which contains the degrees of freedom of all components flattened along the\n"
-    "    last axis. Treated as a row-major matrix or a vector, depending if 1D or 2D.\n"
+    "    Degrees of freedom of all components of the input, flattened into one axis.\n"
+    "    A 1D array is a single set of DoFs; in a 2D array that axis is the first one\n"
+    "    when applying from the left (default) and the last one when ``right`` is set,\n"
+    "    the other axis repeating the operator.\n"
     "\n"
     "transpose : bool, default: False\n"
     "    Apply the transpose of the incidence operator instead.\n"
     "\n"
+    "right : bool, default: False\n"
+    "    Apply the incidence operator from the right side: the input is multiplied by\n"
+    "    the operator on the right. This is equivalent to applying the transposed\n"
+    "    operator from the left to the transposed input, then transposing the result\n"
+    "    back.\n"
+    "\n"
     "out : array, optional\n"
-    "    Array to which the result is written to. The first axis must have the same size\n"
-    "    as the number of output degrees of freedom of the resulting k-form. If the input\n"
-    "    was 2D, this must be as well, with the last axis matching the input's last axis.\n"
+    "    Array to which the result is written. Its degree-of-freedom axis must have\n"
+    "    the size of the output degrees of freedom: the first axis when applying\n"
+    "    from the left, the last axis when ``right`` is set. A 2D input requires a\n"
+    "    2D output whose repetition axis matches the input's.\n"
     "\n"
     "Returns\n"
     "-------\n"
     "array\n"
-    "    Values of the degrees of freedom of the derivative of the input k-form. When an\n"
-    "    output array is specified through the parameters, another reference to it is\n"
-    "    returned, otherwise a new array is created to hold the result and returned.\n");
+    "    Degrees of freedom of the image of the input under the incidence operator:\n"
+    "    by default the (k + 1)-form derivative of the input k-form; with exactly one\n"
+    "    of ``transpose`` or ``right`` the operator runs from the (k + 1)-form space\n"
+    "    to the k-form space. When ``out`` is given it is returned, otherwise a new\n"
+    "    array holds the result.\n");
 
 PyMethodDef incidence_methods[] = {
     {

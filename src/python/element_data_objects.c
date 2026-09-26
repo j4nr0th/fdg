@@ -770,16 +770,15 @@ static PyGetSetDef mesh_geometry_getset[] = {
      .doc = "int : Number of distinct options in the options table."},
     {.name = "values",
      .get = mesh_geometry_get_values,
-     .doc = "numpy.typing.NDArray[numpy.double] : Flat array of all element values. Accessing this property "
-            "freezes the collection."},
+     .doc = "numpy.typing.NDArray[numpy.double] : Flat array of all element values. Freezes the collection on access."},
     {.name = "offsets",
      .get = mesh_geometry_get_offsets,
-     .doc = "numpy.typing.NDArray[numpy.uint64] : CSR offsets of the per-element value blocks, with "
-            "``element_count + 1`` entries. Accessing this property freezes the collection."},
+     .doc = "numpy.typing.NDArray[numpy.uint64] : CSR offsets of the per-element value blocks.\n"
+            "\n"
+            "The array has ``element_count + 1`` entries. Accessing this property freezes the collection."},
     {.name = "element_options",
      .get = mesh_geometry_get_element_options,
-     .doc = "numpy.typing.NDArray[numpy.uint32] : Option index of every element. Accessing this property "
-            "freezes the collection."},
+     .doc = "numpy.typing.NDArray[numpy.uint32] : Option index of every element. Freezes the collection on access."},
     {},
 };
 
@@ -801,10 +800,10 @@ PyType_Spec mesh_geometry_type_spec = {.name = FDG_TYPE_NAME("MeshGeometry"),
 
 // Section 3: ElementKForms — labeled k-form fields, grouped per element.
 
-PyDoc_STRVAR(element_kforms_docstring, "ElementKForms(ndim, /, **fields: int)\n"
+PyDoc_STRVAR(element_kforms_docstring, "ElementKForms(ndim: int, /, **fields: int)\n"
                                        "\n"
-                                       "Batched k-form data: a fixed set of labeled k-form fields, with the\n"
-                                       "values of every field grouped per element.\n"
+                                       "Batched k-form data: a fixed set of labeled fields, values\n"
+                                       "grouped per element.\n"
                                        "\n"
                                        "When setting up a finite element system one computes element matrices,\n"
                                        "so the k-forms of one element are needed together. Each keyword\n"
@@ -818,7 +817,16 @@ PyDoc_STRVAR(element_kforms_docstring, "ElementKForms(ndim, /, **fields: int)\n"
                                        "Accessing the array views :meth:`values` or :meth:`offsets` freezes\n"
                                        "the collection: no further elements can be added, but the values of\n"
                                        "existing elements can still be overwritten with\n"
-                                       ":meth:`set_field_values`.\n");
+                                       ":meth:`set_field_values`.\n"
+                                       "\n"
+                                       "Parameters\n"
+                                       "----------\n"
+                                       "ndim : int\n"
+                                       "    Number of reference dimensions, shared by all fields; must be positive.\n"
+                                       "\n"
+                                       "**fields : int\n"
+                                       "    One keyword argument per k-form field: the keyword is the unique\n"
+                                       "    label of the field, the value its order, ``0 <= order <= ndim``.\n");
 
 static int element_kforms_ensure_state(PyObject *self, PyTypeObject *defining_class,
                                        const interplib_module_state_t **p_state, element_kforms_object **p_this)
@@ -1170,7 +1178,11 @@ static PyObject *element_kforms_add_element_method(PyObject *self, PyTypeObject 
     element_kforms_object *this;
     if (element_kforms_ensure_state(self, defining_class, &state, &this) < 0)
         return NULL;
-    (void)parse_arguments_check((cpyutl_argument_t[]){{}, {}}, args, nargs, kwnames);
+    if (kwnames && PyTuple_GET_SIZE(kwnames))
+    {
+        PyErr_SetString(PyExc_TypeError, "add_element takes no keyword arguments.");
+        return NULL;
+    }
     if (this->frozen)
     {
         PyErr_SetString(PyExc_ValueError,
@@ -1180,6 +1192,11 @@ static PyObject *element_kforms_add_element_method(PyObject *self, PyTypeObject 
     const function_space_object *space;
     if (element_kforms_check_group(this, state, args, nargs, &space) < 0)
         return NULL;
+    if (!space)
+    {
+        PyErr_SetString(PyExc_ValueError, "ElementKForms requires at least one k-form field.");
+        return NULL;
+    }
 
     unsigned space_index;
     const fdg_result_t space_res = element_kforms_add_space(this->data, space->specs, &space_index);
@@ -1262,6 +1279,12 @@ static PyObject *element_kforms_from_elements(PyObject *cls, PyObject *const *ar
     PyObject *const fields_seq = PySequence_Fast(fields_object, "fields must be a sequence of (label, order) pairs.");
     if (!fields_seq)
         return NULL;
+    if (PySequence_Fast_GET_SIZE(fields_seq) < 1)
+    {
+        PyErr_SetString(PyExc_ValueError, "ElementKForms requires at least one k-form field");
+        Py_DECREF(fields_seq);
+        return NULL;
+    }
     element_kforms_object *const this = element_kforms_alloc((PyTypeObject *)cls);
     PyObject *const self = (PyObject *)this;
     if (!self)
@@ -1788,8 +1811,8 @@ static PyObject *element_kforms_set_field_values_method(PyObject *self, PyTypeOb
 
 PyDoc_STRVAR(element_kforms_values_docstring, "values(label, /) -> numpy.typing.NDArray[numpy.double]\n"
                                               "\n"
-                                              "Get the flat value array of one field. Accessing this method freezes\n"
-                                              "the collection.\n"
+                                              "Get the flat value array of one field. Freezes the\n"
+                                              "collection on access.\n"
                                               "\n"
                                               "Parameters\n"
                                               "----------\n"
@@ -1824,6 +1847,7 @@ static PyObject *element_kforms_values_method(PyObject *self, PyTypeObject *defi
 PyDoc_STRVAR(element_kforms_offsets_docstring, "offsets(label, /) -> numpy.typing.NDArray[numpy.uint64]\n"
                                                "\n"
                                                "Get the CSR offsets of one field's per-element value blocks.\n"
+                                               "\n"
                                                "Accessing this method freezes the collection.\n"
                                                "\n"
                                                "Parameters\n"
@@ -2578,16 +2602,15 @@ static PyGetSetDef element_dofs_getset[] = {
      .doc = "int : Number of distinct options in the options table."},
     {.name = "values",
      .get = element_dofs_get_values,
-     .doc = "numpy.typing.NDArray[numpy.double] : Flat array of all element values. Accessing this property "
-            "freezes the collection."},
+     .doc = "numpy.typing.NDArray[numpy.double] : Flat array of all element values. Freezes the collection on access."},
     {.name = "offsets",
      .get = element_dofs_get_offsets,
-     .doc = "numpy.typing.NDArray[numpy.uint64] : CSR offsets of the per-element value blocks, with "
-            "``element_count + 1`` entries. Accessing this property freezes the collection."},
+     .doc = "numpy.typing.NDArray[numpy.uint64] : CSR offsets of the per-element value blocks.\n"
+            "\n"
+            "The array has ``element_count + 1`` entries. Accessing this property freezes the collection."},
     {.name = "element_options",
      .get = element_dofs_get_element_options,
-     .doc = "numpy.typing.NDArray[numpy.uint32] : Option index of every element. Accessing this property "
-            "freezes the collection."},
+     .doc = "numpy.typing.NDArray[numpy.uint32] : Option index of every element. Freezes the collection on access."},
     {},
 };
 

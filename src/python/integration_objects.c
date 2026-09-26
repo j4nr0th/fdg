@@ -166,13 +166,22 @@ PyType_Spec integration_registry_type_spec = {
                      "usage",
                      (void *)integration_registry_usage,
                      METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
-                     "usage() -> tuple[IntegrationSpecs, ...]\nReturns a list of currently stored rules.",
+                     "usage() -> tuple[IntegrationSpecs, ...]\n"
+                     "\n"
+                     "Return the integration rules currently held by the registry.\n"
+                     "\n"
+                     "Returns\n"
+                     "-------\n"
+                     "tuple of IntegrationSpecs\n"
+                     "    Integration specifications of every rule stored in the registry.\n",
                  },
                  {
                      "clear",
                      (void *)integration_registry_clear,
                      METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
-                     "clear() -> None\nClears all stored rules.",
+                     "clear() -> None\n"
+                     "\n"
+                     "Release all held integration rules that are not currently in use.\n",
                  },
                  {},
              }},
@@ -372,7 +381,7 @@ static PyArrayObject *integration_specs_prepare_array(PyObject *self, PyTypeObje
 
 PyDoc_STRVAR(
     integration_specs_nodes_docstring,
-    "nodes(registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY) -> numpy.typing.NDArray[numpy.double]\n"
+    "nodes(registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY, /) -> numpy.typing.NDArray[numpy.double]\n"
     "Get the integration nodes.\n"
     "\n"
     "Parameters\n"
@@ -391,14 +400,13 @@ static PyObject *integration_specs_nodes(PyObject *self, PyTypeObject *defining_
     const integration_rule_t *rule;
     integration_rule_registry_t *registry;
     PyArrayObject *out = integration_specs_prepare_array(self, defining_class, args, nargs, kwnames, &rule, &registry);
-    if (out)
+    if (!out)
+        return NULL;
+    npy_double *const p_out = PyArray_DATA(out);
+    const double *const nodes = integration_rule_nodes_const(rule);
+    for (unsigned i = 0; i < rule->n_nodes; ++i)
     {
-        npy_double *const p_out = PyArray_DATA(out);
-        const double *const nodes = integration_rule_nodes_const(rule);
-        for (unsigned i = 0; i < rule->n_nodes; ++i)
-        {
-            p_out[i] = nodes[i];
-        }
+        p_out[i] = nodes[i];
     }
     const fdg_result_t res = integration_rule_registry_release_rule(registry, rule);
     (void)res;
@@ -408,7 +416,7 @@ static PyObject *integration_specs_nodes(PyObject *self, PyTypeObject *defining_
 
 PyDoc_STRVAR(
     integration_specs_weights_docstring,
-    "weights(registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY) -> numpy.typing.NDArray[numpy.double]\n"
+    "weights(registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY, /) -> numpy.typing.NDArray[numpy.double]\n"
     "Get the integration weights.\n"
     "\n"
     "Parameters\n"
@@ -427,14 +435,13 @@ static PyObject *integration_specs_weights(PyObject *self, PyTypeObject *definin
     const integration_rule_t *rule;
     integration_rule_registry_t *registry;
     PyArrayObject *out = integration_specs_prepare_array(self, defining_class, args, nargs, kwnames, &rule, &registry);
-    if (out)
+    if (!out)
+        return NULL;
+    npy_double *const p_out = PyArray_DATA(out);
+    const double *const weights = integration_rule_weights_const(rule);
+    for (unsigned i = 0; i < rule->n_nodes; ++i)
     {
-        npy_double *const p_out = PyArray_DATA(out);
-        const double *const weights = integration_rule_weights_const(rule);
-        for (unsigned i = 0; i < rule->n_nodes; ++i)
-        {
-            p_out[i] = weights[i];
-        }
+        p_out[i] = weights[i];
     }
     const fdg_result_t res = integration_rule_registry_release_rule(registry, rule);
     (void)res;
@@ -443,7 +450,7 @@ static PyObject *integration_specs_weights(PyObject *self, PyTypeObject *definin
 }
 
 PyDoc_STRVAR(integration_specs_docstring,
-             "IntegrationSpecs(order : int , /, method: typing.Literal[\"gauss\", \"gauss-lobatto\"] = \"gauss\")\n"
+             "IntegrationSpecs(order: int, method: typing.Literal[\"gauss\", \"gauss-lobatto\"] = \"gauss\")\n"
              "Type that describes an integration rule.\n"
              "\n"
              "Parameters\n"
@@ -451,7 +458,7 @@ PyDoc_STRVAR(integration_specs_docstring,
              "order : int\n"
              "    Order of the integration rule.\n"
              "\n"
-             "method : typing.Literal[\"gauss\", \"gauss-lobatto\"], default: \"gauss\"\n"
+             "method : fdg.IntegrationMethod, default: \"gauss\"\n"
              "    Method used for integration.\n");
 
 PyObject *integration_spec_richcompare(PyObject *self, PyObject *other, const int op)
@@ -624,6 +631,8 @@ PyDoc_STRVAR(integration_space_weights_docstring,
              "numpy.typing.NDArray[numpy.double]\n"
              "Get the integration weights of the space.\n"
              "\n"
+             "Parameters\n"
+             "----------\n"
              "registry : fdg.IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY\n"
              "    Registry used to retrieve the integration rules.\n"
              "\n"
@@ -704,6 +713,8 @@ PyDoc_STRVAR(
     "nodes(registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY, /) -> numpy.typing.NDArray[numpy.double]\n"
     "Get the integration nodes of the space.\n"
     "\n"
+    "Parameters\n"
+    "----------\n"
     "registry : fdg.IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY\n"
     "    Registry used to retrieve the integration rules.\n"
     "\n"
@@ -798,7 +809,7 @@ static PyObject *integration_space_nodes(PyObject *self, PyTypeObject *defining_
 }
 
 PyDoc_STRVAR(integration_space_docstring,
-             "IntegrationSpace(*specs : IntegrationSpecs, /)\n"
+             "IntegrationSpace(*integration_specs: IntegrationSpecs)\n"
              "Integration space defined with integration rules.\n"
              "\n"
              "Integration space defined by tensor product of integration rules in each\n"
@@ -835,7 +846,7 @@ PyType_Spec integration_space_type_spec = {
                 {
                     .name = "orders",
                     .get = integration_space_get_orders,
-                    .doc = "tuple[int, ...] : Orders of the integration rules.",
+                    .doc = "tuple[int, ...] : Orders of the integration rules in each dimension.",
                 },
                 {},
             },

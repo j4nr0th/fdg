@@ -122,12 +122,12 @@ static PyGetSetDef sampled_space_map_getsetters[] = {
     {
         .name = "input_dimensions",
         .get = sampled_space_map_get_input_dimensions,
-        .doc = "int : Number of input dimensions.",
+        .doc = "int : Dimension of the input/reference space.",
     },
     {
         .name = "output_dimensions",
         .get = sampled_space_map_get_output_dimensions,
-        .doc = "int : Number of output dimensions.",
+        .doc = "int : Dimension of the output/physical space.",
     },
     {
         .name = "orders",
@@ -146,7 +146,7 @@ static PyGetSetDef sampled_space_map_getsetters[] = {
                "\n"
                "This array contains inverse mapping matrix, which is used\n"
                "for the contravarying components. When the dimension of the\n"
-               "mapping space (as counted by :meth:`SpaceMap.output_dimensions`)\n"
+               "mapping space (as counted by :attr:`SpaceMap.output_dimensions`)\n"
                "is greater than the dimension of the reference space, this is a\n"
                "rectangular matrix, such that it maps the (rectangular) Jacobian\n"
                "to the identity matrix.\n",
@@ -178,6 +178,7 @@ static void sampled_space_map_dealloc(PyObject *self)
 PyDoc_STRVAR(sampled_space_map_doc,
              "SampledSpaceMap(space_map: SpaceMap, samples: Sequence[Sequence[float] | array_like], "
              "integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY)\n"
+             "\n"
              "Mapping between reference space and target space, sampled from a SpaceMap.\n"
              "\n"
              "A mapping from the reference space to the target space, which maps the\n"
@@ -202,15 +203,16 @@ PyDoc_STRVAR(sampled_space_map_doc,
              "samples : Sequence[Sequence[float] | array_like]\n"
              "    One-dimensional sample coordinates for each reference dimension. The\n"
              "    number of sample arrays must match the input dimension of the space map.\n"
-             "    The arrays define the tensor grid and may have different lengths.\n"
+             "    The arrays define the tensor grid, may have different lengths, and must\n"
+             "    not be empty.\n"
              "\n"
-             "integration_registry : IntegrationRegistry, optional\n"
-             "    Registry to get the integration rules from. When omitted, the default\n"
-             "    registry is used.\n");
+             "integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY\n"
+             "    Registry to get the integration rules from.\n");
 
 PyDoc_STRVAR(sampled_space_map_uniform_doc,
              "on_uniform_grid(space_map: SpaceMap, orders: Sequence[int], "
              "integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY) -> SampledSpaceMap\n"
+             "\n"
              "Create a SampledSpaceMap on a uniform grid of points in the reference space.\n"
              "\n"
              "Parameters\n"
@@ -222,9 +224,8 @@ PyDoc_STRVAR(sampled_space_map_uniform_doc,
              "    Orders of the sampling in each dimension. The number of orders must match\n"
              "    the number of input dimensions of the space map. Must not be negative.\n"
              "\n"
-             "integration_registry : IntegrationRegistry, optional\n"
-             "    Registry to get the integration rules from. When omitted, the default\n"
-             "    registry is used.\n"
+             "integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY\n"
+             "    Registry to get the integration rules from.\n"
              "\n"
              "Returns\n"
              "-------\n"
@@ -526,8 +527,8 @@ static const kform_transform_operations_t sampled_space_map_transform_operations
 
 PyDoc_STRVAR(
     transform_kform_to_target_sampled_docstring,
-    "transform_kform_to_target_sampled(order: int, smap: SampledSpaceMap, components: array_like, *, out: array | "
-    "None = None) -> array\n"
+    "transform_kform_to_target_sampled(order: int, smap: SampledSpaceMap, components: numpy.typing.ArrayLike, *, "
+    "out: numpy.typing.NDArray[numpy.double] | None = None) -> numpy.typing.NDArray[numpy.double]\n"
     "\n"
     "Transform k-form values based on a sampled space mapping.\n"
     "\n"
@@ -572,7 +573,7 @@ static PyObject *transform_kform_to_target_sampled(PyObject *mod, PyObject *cons
                  .p_val = &map,
                  .kwname = "smap"},
                 {.type = CPYARG_TYPE_PYTHON, .p_val = &py_components, .kwname = "components"},
-                {.type = CPYARG_TYPE_PYTHON, .p_val = &out, .kwname = "out", .optional = 1},
+                {.type = CPYARG_TYPE_PYTHON, .p_val = &out, .kwname = "out", .optional = 1, .kw_only = 1},
                 {},
             },
             args, nargs, kwnames) < 0)

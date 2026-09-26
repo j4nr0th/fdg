@@ -265,6 +265,30 @@ static PyObject *coordinate_map_object_gradient(PyObject *self, PyTypeObject *de
 
 static_assert(sizeof(*((coordinate_map_object *)0xB00B1E5)->values) == sizeof(double), "Nice");
 
+PyDoc_STRVAR(coordinate_map_docstring,
+             "CoordinateMap(dofs: DegreesOfFreedom, integration_space: IntegrationSpace, "
+             "integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY, "
+             "basis_registry: BasisRegistry = DEFAULT_BASIS_REGISTRY)\n"
+             "\n"
+             "Mapping between reference and physical coordinates.\n"
+             "\n"
+             "This type wraps :meth:`DegreesOfFreedom.reconstruct_at_integration_points()`\n"
+             "and :meth:`DegreesOfFreedom.reconstruct_derivative_at_integration_points()`;\n"
+             "one coordinate map evaluates a single coordinate together with all of its\n"
+             "first derivatives at every integration point. In N-dimensional space, N such\n"
+             "maps are used to represent the full mapping.\n"
+             "\n"
+             "Parameters\n"
+             "----------\n"
+             "dofs : DegreesOfFreedom\n"
+             "    Degrees of freedom that define the coordinate map.\n"
+             "integration_space : IntegrationSpace\n"
+             "    Integration space used for the mapping.\n"
+             "integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY\n"
+             "    Registry used to retrieve the integration rules.\n"
+             "basis_registry : BasisRegistry, default: DEFAULT_BASIS_REGISTRY\n"
+             "    Registry used to retrieve the basis specifications.\n");
+
 PyType_Spec coordinate_map_type_spec = {
     .name = FDG_TYPE_NAME("CoordinateMap"),
     .basicsize = sizeof(coordinate_map_object),
@@ -274,6 +298,7 @@ PyType_Spec coordinate_map_type_spec = {
         {Py_tp_traverse, (void *)coordinate_map_traverse},
         {Py_tp_dealloc, coordinate_map_dealloc},
         {Py_tp_new, coordinate_map_new},
+        {Py_tp_doc, (void *)coordinate_map_docstring},
         {Py_tp_getset,
          (PyGetSetDef[]){
              {
@@ -284,7 +309,13 @@ PyType_Spec coordinate_map_type_spec = {
              {
                  .name = "values",
                  .get = coordinate_map_get_values,
-                 .doc = "numpy.typing.NDArray[numpy.double] : Values of the coordinate map at the integration points.",
+                 .doc = "numpy.typing.NDArray[numpy.double] : Mapped coordinate values at the integration points.\n"
+                        "\n"
+                        "These are the physical coordinates of the map evaluated at every\n"
+                        "integration point of this map's own integration space, not\n"
+                        "degree-of-freedom coefficients. Do not confuse them with\n"
+                        ":attr:`DegreesOfFreedom.values`, which holds the expansion\n"
+                        "coefficients passed at construction.",
              },
              {
                  .name = "integration_space",
@@ -300,9 +331,20 @@ PyType_Spec coordinate_map_type_spec = {
                     .ml_name = "gradient",
                     .ml_meth = (void *)coordinate_map_object_gradient,
                     .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
-                    .ml_doc =
-                        "gradient(idim: int, /) -> numpy.typing.NDArray[numpy.double]\nRetrieve the gradient of the "
-                        "coordinate map in given dimension.",
+                    .ml_doc = "gradient(idim: int, /) -> numpy.typing.NDArray[numpy.double]\n"
+                              "\n"
+                              "Retrieve the gradient of the coordinate map for the given dimension.\n"
+                              "\n"
+                              "Parameters\n"
+                              "----------\n"
+                              "idim : int\n"
+                              "    Index of the dimension, in range ``[0, dimension)``.\n"
+                              "\n"
+                              "Returns\n"
+                              "-------\n"
+                              "array\n"
+                              "    Derivative of the mapped coordinate with respect to that dimension,\n"
+                              "    sampled at the integration points of the map.\n",
                 },
                 {},
             },
@@ -594,12 +636,13 @@ static PyObject *space_map_get_coordinate_map(PyObject *self, PyTypeObject *defi
 
 PyDoc_STRVAR(space_map_get_coordinate_map_docstring,
              "coordinate_map(idx: int) -> CoordinateMap\n"
+             "\n"
              "Return the coordinate map for the specified dimension.\n"
              "\n"
              "Parameters\n"
              "----------\n"
              "idx : int\n"
-             "    Index of the dimension for which the map shoudl be returned.\n"
+             "    Index of the dimension for which the map should be returned.\n"
              "\n"
              "Returns\n"
              "-------\n"
@@ -607,6 +650,7 @@ PyDoc_STRVAR(space_map_get_coordinate_map_docstring,
              "    Map used for the specified coordinate.\n");
 
 PyDoc_STRVAR(space_map_docstring, "SpaceMap(*coordinates: CoordinateMap)\n"
+                                  "\n"
                                   "Mapping between a reference space and a physical space.\n"
                                   "\n"
                                   "A mapping from a reference space to a physical space, which maps the\n"
@@ -717,7 +761,7 @@ PyDoc_STRVAR(space_map_get_inverse_map_docstring,
              "\n"
              "This array contains inverse mapping matrix, which is used\n"
              "for the contravarying components. When the dimension of the\n"
-             "mapping space (as counted by :meth:`SpaceMap.output_dimensions`)\n"
+             "mapping space (as counted by :attr:`SpaceMap.output_dimensions`)\n"
              "is greater than the dimension of the reference space, this is a\n"
              "rectangular matrix, such that it maps the (rectangular) Jacobian\n"
              "to the identity matrix.\n");
@@ -793,27 +837,53 @@ static PyObject *space_map_basis_transform(PyObject *self, PyTypeObject *definin
 
 PyDoc_STRVAR(space_map_basis_transform_docstring,
              "basis_transform(order: int) -> numpy.typing.NDArray[numpy.double]\n"
+             "\n"
              "Compute the matrix with transformation factors for k-form basis.\n"
              "\n"
-             "Basis transform matrix returned by this function specifies how at integration point a\n"
-             "basis from the reference domain contributes to the basis in the target domain.\n"
+             "Basis transform matrix returned by this function specifies how at integration\n"
+             "point a basis from the reference domain contributes to the basis in the target\n"
+             "domain.\n"
              "\n"
              "Parameters\n"
              "----------\n"
              "order : int\n"
-             "    Order of the k-form for which this is to be done.\n"
+             "    Order of the k-form for which this is to be done, in range\n"
+             "    ``(0, input_dimensions]``.\n"
              "\n"
              "Returns\n"
              "-------\n"
              "array\n"
-             "    Array with three axis. The first indexes over the input basis, the second\n"
+             "    Array with three axes. The first indexes over the input basis, the second\n"
              "    over output basis, and the last one over integration points.\n");
 
 PyDoc_STRVAR(space_map_boundary_docstring,
              "boundary(idim: int, end: bool = False, integration_space: IntegrationSpace = ..., *,\n"
              "         integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY) -> SpaceMap\n"
+             "\n"
              "Extract a space map restricted to a reference-space boundary.\n"
-             "The lower boundary is at -1 and the upper boundary is at +1.\n");
+             "\n"
+             "Parameters\n"
+             "----------\n"
+             "idim : int\n"
+             "    Index of the reference dimension that is fixed.\n"
+             "\n"
+             "end : bool, default: False\n"
+             "    Select the upper boundary at ``+1`` when true; otherwise select the lower\n"
+             "    boundary at ``-1``.\n"
+             "\n"
+             "integration_space : IntegrationSpace, default: the element space\n"
+             "    Face integration space used to sample the extracted map. When omitted,\n"
+             "    the volume integration space with the fixed axis removed is used.\n"
+             "\n"
+             "integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY\n"
+             "    Registry to get the element and face quadrature rules from.\n"
+             "\n"
+             "Returns\n"
+             "-------\n"
+             "SpaceMap\n"
+             "    Mapping from the remaining reference dimensions to the same physical\n"
+             "    coordinates. This map provides the tangential pullback and positive\n"
+             "    surface measure for forms on this element face.\n");
 
 /** Operator applied along one axis of an integration-point value tensor. */
 typedef struct
@@ -1299,7 +1369,7 @@ PyType_Spec space_map_type_spec = {
                  {
                      .name = "determinant",
                      .get = space_map_get_determinant,
-                     .doc = "numpy.typing.NDArray[numpy.double] : Array with the values of determinant at integration."
+                     .doc = "numpy.typing.NDArray[numpy.double] : Array with the values of determinant at integration "
                             "points.",
                  },
                  {
@@ -1407,7 +1477,7 @@ static int prepare_component_transform(PyObject *mod, PyObject *const *args, con
     const unsigned ndim_components = PyArray_NDIM(components);
     if (ndim_components != 1 + ndim_in)
     {
-        PyErr_Format(PyExc_ValueError, "Expected components to have shape %u dimensions, but got %u.", ndim_in,
+        PyErr_Format(PyExc_ValueError, "Expected components to have %u dimensions, but got %u.", 1 + ndim_in,
                      ndim_components);
         Py_DECREF(components);
         return -1;
@@ -1529,6 +1599,7 @@ static PyObject *transform_contravariant_to_target(PyObject *mod, PyObject *cons
 PyDoc_STRVAR(transform_contravariant_to_target_docstring,
              "transform_contravariant_to_target(smap: SpaceMap, components: numpy.typing.ArrayLike, *, out: "
              "numpy.typing.NDArray[numpy.double] | None = None) -> numpy.typing.NDArray[numpy.double]\n"
+             "\n"
              "Transform contravariant vector components from reference to target domain.\n"
              "\n"
              "Since the basis of 1-forms are covectors, which are as the name implies covarying,\n"
@@ -1542,17 +1613,18 @@ PyDoc_STRVAR(transform_contravariant_to_target_docstring,
              "    components.\n"
              "\n"
              "components : array_like\n"
-             "    Array where the first dimension indexes the components in the reference space. All\n"
-             "    other dimensions will be treated as if flattened.\n"
+             "    Array whose first dimension indexes the components in the reference space and\n"
+             "    has length ``input_dimensions``. The remaining dimensions must match the\n"
+             "    integration grid of the space map (``order + 1`` nodes per reference dimension).\n"
              "\n"
              "out : array, optional\n"
-             "    Array to used to write the resulting transformed components to. If it is not\n"
+             "    Array to use to write the resulting transformed components to. If it is not\n"
              "    specified, a new array is created.\n"
              "\n"
              "Returns\n"
              "-------\n"
              "array\n"
-             "    Array of transformed covariant components. If the ``out`` parameter was given,\n"
+             "    Array of transformed contravariant components. If the ``out`` parameter was given,\n"
              "    a new reference to it is returned, otherwise a reference to the newly created\n"
              "    output array is returned.\n");
 
@@ -1640,7 +1712,7 @@ static PyObject *transform_kform_to_target(PyObject *mod, PyObject *const *args,
                 {.type = CPYARG_TYPE_SSIZE, .p_val = &order, .kwname = "order"},
                 {.type = CPYARG_TYPE_PYTHON, .type_check = state->space_mapping_type, .p_val = &map, .kwname = "smap"},
                 {.type = CPYARG_TYPE_PYTHON, .p_val = &py_components, .kwname = "components"},
-                {.type = CPYARG_TYPE_PYTHON, .p_val = &out, .kwname = "out", .optional = 1},
+                {.type = CPYARG_TYPE_PYTHON, .p_val = &out, .kwname = "out", .optional = 1, .kw_only = 1},
                 {},
             },
             args, nargs, kwnames) < 0)
@@ -1682,7 +1754,7 @@ static PyObject *transform_kform_component_to_target(PyObject *mod, PyObject *co
                 {.type = CPYARG_TYPE_PYTHON, .type_check = state->space_mapping_type, .p_val = &map, .kwname = "smap"},
                 {.type = CPYARG_TYPE_PYTHON, .p_val = &py_component, .kwname = "component"},
                 {.type = CPYARG_TYPE_SSIZE, .p_val = &index, .kwname = "index"},
-                {.type = CPYARG_TYPE_PYTHON, .p_val = &out, .kwname = "out", .optional = 1},
+                {.type = CPYARG_TYPE_PYTHON, .p_val = &out, .kwname = "out", .optional = 1, .kw_only = 1},
                 {},
             },
             args, nargs, kwnames) < 0)
@@ -1830,6 +1902,7 @@ static PyObject *transform_kform_component_to_target(PyObject *mod, PyObject *co
                              "got %zd for dimension %u.",
                              dims_out[i + 1], i);
                 Py_DECREF(component);
+                return NULL;
             }
         }
 
@@ -1885,6 +1958,7 @@ PyDoc_STRVAR(transform_covariant_to_target_docstring,
              "transform_covariant_to_target(smap: SpaceMap, components: numpy.typing.ArrayLike, *, out: "
              "numpy.typing.NDArray[numpy.double] "
              "| None = None) -> numpy.typing.NDArray[numpy.double]\n"
+             "\n"
              "Transform covariant 1-form components from reference to target domain.\n"
              "\n"
              "Parameters\n"
@@ -1894,11 +1968,12 @@ PyDoc_STRVAR(transform_covariant_to_target_docstring,
              "    components.\n"
              "\n"
              "components : array_like\n"
-             "    Array where the first dimension indexes the components in the reference space. All\n"
-             "    other dimensions will be treated as if flattened.\n"
+             "    Array whose first dimension indexes the components in the reference space and\n"
+             "    has length ``input_dimensions``. The remaining dimensions must match the\n"
+             "    integration grid of the space map (``order + 1`` nodes per reference dimension).\n"
              "\n"
              "out : array, optional\n"
-             "    Array to used to write the resulting transformed components to. If it is not\n"
+             "    Array to use to write the resulting transformed components to. If it is not\n"
              "    specified, a new array is created.\n"
              "\n"
              "Returns\n"
@@ -1906,13 +1981,12 @@ PyDoc_STRVAR(transform_covariant_to_target_docstring,
              "array\n"
              "    Array of transformed covariant components. If the ``out`` parameter was given,\n"
              "    a new reference to it is returned, otherwise a reference to the newly created\n"
-             "    output array is returned.\n"
-
-);
+             "    output array is returned.\n");
 
 PyDoc_STRVAR(transform_kform_to_target_docstring,
-             "transform_kform_to_target(order: int,smap: SpaceMap, components: numpy.typing.ArrayLike, *, out: "
+             "transform_kform_to_target(order: int, smap: SpaceMap, components: numpy.typing.ArrayLike, *, out: "
              "numpy.typing.NDArray[numpy.double] | None = None) -> numpy.typing.NDArray[numpy.double]\n"
+             "\n"
              "Transform k-form values based on a space mapping.\n"
              "\n"
              "Parameters\n"
@@ -1939,6 +2013,7 @@ PyDoc_STRVAR(
     transform_kform_component_to_target_docstring,
     "transform_kform_component_to_target(order: int, smap: SpaceMap, component: numpy.typing.ArrayLike, index: int, *, "
     "out: numpy.typing.NDArray[numpy.double] | None = None) -> numpy.typing.NDArray[numpy.double]\n"
+    "\n"
     "Transform k-form values based on a space mapping.\n"
     "\n"
     "Parameters\n"
@@ -1950,8 +2025,10 @@ PyDoc_STRVAR(
     "    Mapping between the reference and target domain to use.\n"
     "\n"
     "component : array_like\n"
-    "    Values of component in the reference domain at integration points associated\n"
-    "    with the space mapping.\n"
+    "    Values of the component in the reference domain at the integration points\n"
+    "    of the space map. Leading dimensions are batch dimensions; the trailing\n"
+    "    dimensions must match the integration grid and the batch dimensions are\n"
+    "    preserved in the output.\n"
     "\n"
     "index : int\n"
     "    Index of the component that is to be computed.\n"

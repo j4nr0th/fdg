@@ -867,6 +867,9 @@ def _append_boundary_rows(
                 basis_registry=basis_registry,
             )
         )
+        if common is None or packed is None:
+            # No trace components: no constraint entries are produced.
+            continue
         row_offsets, _sides, components, local_dofs, coefficients = packed[0]
         candidates = [
             _windowed_dual_values(
@@ -988,6 +991,9 @@ def _append_periodic_rows(
             integration_registry=integration_registry,
             basis_registry=basis_registry,
         )
+        if common is None or packed is None:
+            # No trace components: no constraint entries are produced.
+            continue
         left_packed, right_packed = packed
         counts_per_axis = [int(value) for value in common.base_space.orders]
         row_base = 0
@@ -1067,8 +1073,10 @@ def _compute_kform_global_constraints(
         record sequences use ``BoundaryCondition`` objects.
     periodic_pairs : sequence of BoundaryPair or BoundaryPairGroup, optional
         Explicit outer-face identifications and signed axis maps.
-    basis_type : int, optional
-        Basis family forced onto every derived boundary test space.
+    basis_type : fdg.BasisType or str, default: None
+        Accepted as ``None`` or ``"legendre"`` only: the derived test
+        spaces always use the Legendre family, any other family raises
+        ``ValueError``.
     c1_continuous : bool
         Impose continuity in reference space without geometry factors;
         ``element_maps`` may be omitted in that case unless boundary data or
@@ -1213,8 +1221,10 @@ def compute_kform_global_constraints(
         Prescribed physical k-form data on outer faces.
     periodic_pairs : sequence of BoundaryPair or BoundaryPairGroup, optional
         Explicit outer-face identifications with signed axis maps.
-    basis_type : int, optional
-        Basis family forced onto every derived boundary test space.
+    basis_type : fdg.BasisType or str, default: None
+        Accepted as ``None`` or ``"legendre"`` only: the derived test
+        spaces always use the Legendre family, any other family raises
+        ``ValueError``.
     c1_continuous : bool
         Impose continuity in reference space without geometry factors.
     integration_registry : IntegrationRegistry, optional

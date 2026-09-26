@@ -114,7 +114,7 @@ static int ensure_function_space_state(PyObject *self, PyTypeObject *defining_cl
 
 PyDoc_STRVAR(function_space_evaluate_docstring,
              "evaluate(*x: numpy.typing.NDArray[numpy.double], out: numpy.typing.NDArray[numpy.double] | None = None) "
-             "-> numpy.typing.NDArray[numpy.double]:\n"
+             "-> numpy.typing.NDArray[numpy.double]\n"
              "Evaluate basis functions at given locations.\n"
              "\n"
              "Parameters\n"
@@ -124,14 +124,15 @@ PyDoc_STRVAR(function_space_evaluate_docstring,
              "    Each array corresponds to a dimension in the function space.\n"
              "out : array, optional\n"
              "    Array where the results should be written to. If not given, a new one\n"
-             "    will be created and returned. It should have the same shape as ``x``,\n"
-             "    but with an extra dimension added, the length of which is the total\n"
-             "    number of basis functions in the function space.\n"
+             "    will be created and returned. It must have the shape of the input arrays\n"
+             "    extended by one dimension per function space dimension, of size the order\n"
+             "    of that dimension plus one.\n"
              "\n"
              "Returns\n"
              "-------\n"
              "array\n"
-             "    Array of basis function values at the specified locations.\n");
+             "    Array of basis function values at the specified locations, with one extra\n"
+             "    dimension per dimension of the function space.\n");
 
 static PyObject *function_space_evaluate(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
                                          const Py_ssize_t nargs, const PyObject *kwnames)
@@ -276,9 +277,9 @@ static PyObject *function_space_evaluate(PyObject *self, PyTypeObject *defining_
 
 PyDoc_STRVAR(
     function_space_values_at_integration_nodes_docstring,
-    "values_at_integration_nodes(integration: IntegrationSpace, /, *, integration_registry: IntegrationRegistry = "
-    "DEFAULT_INTEGRATION_REGISTRY, basis_registry: BasisRegistry = DEFAULT_BASIS_REGISTRY) -> "
-    "numpy.typing.NDArray[numpy.double]\n"
+    "values_at_integration_nodes(integration: IntegrationSpace, /, transpose: bool = False, *, "
+    "integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY, basis_registry: BasisRegistry = "
+    "DEFAULT_BASIS_REGISTRY) -> numpy.typing.NDArray[numpy.double]\n"
     "Return values of basis at integration points.\n"
     "\n"
     "Parameters\n"
@@ -286,7 +287,11 @@ PyDoc_STRVAR(
     "integration : IntegrationSpace\n"
     "    Integration space, the nodes of which are used to evaluate basis at.\n"
     "\n"
-    "integration_registry : IntegrationRegistry, defaul: DEFAULT_INTEGRATION_REGISTRY\n"
+    "transpose : bool, default: False\n"
+    "    Order the array so that axes indexing the integration points come before\n"
+    "    the ones indexing the bases.\n"
+    "\n"
+    "integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY\n"
     "    Registry used to obtain the integration rules from.\n"
     "\n"
     "basis_registry : BasisRegistry, default: DEFAULT_BASIS_REGISTRY\n"
@@ -530,8 +535,10 @@ static PyObject *function_space_object_lower_order(PyObject *self, PyTypeObject 
 
 PyDoc_STRVAR(function_space_boundary_docstring,
              "boundary(idim: int) -> FunctionSpace\n"
-             "Return the function space on a boundary perpendicular to the specified dimension.\n"
-             "The lower and upper boundaries have the same function space.\n"
+             "Return the function space on a boundary perpendicular to one dimension.\n"
+             "\n"
+             "The lower and upper boundaries perpendicular to the same dimension have\n"
+             "the same function space.\n"
              "\n"
              "Parameters\n"
              "----------\n"
@@ -581,7 +588,7 @@ static PyObject *function_space_boundary(PyObject *self, PyTypeObject *defining_
 }
 
 PyDoc_STRVAR(function_space_type_docstring,
-             "FunctionSpace(*specs: BasisSpec)\n"
+             "FunctionSpace(*basis_specs: BasisSpecs)\n"
              "Function space defined with basis.\n"
              "\n"
              "Function space defined by tensor product of basis functions in each dimension.\n"
@@ -645,7 +652,7 @@ PyType_Spec function_space_type_spec = {
                 {
                     .name = "dimension",
                     .get = function_space_get_dimensions,
-                    .doc = "int:Number of dimensions in the function space.",
+                    .doc = "int : Number of dimensions in the function space.",
                 },
                 {
                     .name = "basis_specs",
@@ -655,7 +662,7 @@ PyType_Spec function_space_type_spec = {
                 {
                     .name = "orders",
                     .get = function_space_get_orders,
-                    .doc = "tuple[int, ...] : Orders of the basis functions in the function space.",
+                    .doc = "tuple[int, ...] : Orders of the basis in each dimension.",
                 },
                 {},
             },
