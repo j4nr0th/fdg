@@ -12,7 +12,6 @@
 // Internal C headers
 #include "../common/error.h"
 #include "basis_objects.h"
-#include "general.h"
 #include "integration_objects.h"
 #include "kform_objects.h"
 #include "mappings.h"
@@ -159,7 +158,7 @@ static int interplib_add_functions(PyObject *mod)
 
     if (PyModule_AddFunctions(mod, mass_matrices_methods) < 0 || PyModule_AddFunctions(mod, constraint_methods) < 0 ||
         PyModule_AddFunctions(mod, incidence_methods) < 0 || PyModule_AddFunctions(mod, transformation_functions) < 0 ||
-        PyModule_AddFunctions(mod, sampled_space_map_methods) < 0 || PyModule_AddFunctions(mod, general_methods) < 0)
+        PyModule_AddFunctions(mod, sampled_space_map_methods) < 0)
         return -1;
 
     return 0;

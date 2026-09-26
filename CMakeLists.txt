@@ -147,7 +147,6 @@ set(PYTHON_NUMERICS_SOURCE_FILES
         src/python/incidence.c
         src/python/covector_basis.c
         src/python/kform_objects.c
-        src/python/general.c
         src/python/mesh_objects.c
         src/python/element_data_objects.c
         src/python/sampled_space_map.c

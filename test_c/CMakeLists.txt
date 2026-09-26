@@ -140,6 +140,11 @@ add_executable(test_constraints operations/test_constraints.c)
 target_link_libraries(test_constraints PRIVATE test_common)
 add_test(NAME constraints COMMAND test_constraints)
 
+## Boundary space map resample
+add_executable(test_boundary_space_map_resample operations/test_boundary_space_map_resample.c)
+target_link_libraries(test_boundary_space_map_resample PRIVATE test_common)
+add_test(NAME boundary_space_map_resample COMMAND test_boundary_space_map_resample)
+
 add_executable(bench_boundary_mass operations/bench_boundary_mass.c)
 target_link_libraries(bench_boundary_mass PRIVATE test_common)
 

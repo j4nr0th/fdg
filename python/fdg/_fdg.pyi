@@ -1295,7 +1295,6 @@ class KForm:
         """
         ...
 
-    # TODO: test this method!
     def get_component(self, idx: int) -> DegreesOfFreedom:
         """Get the DegreesOfFreedom object corresponding to a k-form component.
 
@@ -1940,21 +1939,6 @@ class SampledSpaceMap:
         """
         ...
 
-def _scale_array_boundary(arr: npt.ArrayLike, /) -> npt.NDArray[np.double]:
-    """Scale the array based on how many N-dimensional boundaries an entry appears.
-
-    Parameters
-    ----------
-    arr : array_like
-        Array to scale.
-
-    Returns
-    -------
-    array
-        Scaled array.
-    """
-    ...
-
 def compute_kform_mass_matrix(
     smap: SpaceMap,
     order: int,
@@ -2302,51 +2286,6 @@ def compute_kform_boundary_load(
     numpy.ndarray
         Dense load vector over the flattened element (k-1)-form degrees of
         freedom.
-    """
-    ...
-
-def compute_boundary_space_map_factors(
-    space_map: SpaceMap,
-    orientation: Sequence[int],
-    common_integration: IntegrationSpace,
-    /,
-    *,
-    integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
-) -> tuple[npt.NDArray[np.double], npt.NDArray[np.double]]:
-    """Interpolate a face-restricted space map onto a common boundary grid.
-
-    The volume map is restricted to the oriented face and resampled at the
-    points of ``common_integration``. Exact whenever the element rule order
-    is at least the face-map order along every axis.
-
-    Parameters
-    ----------
-    space_map : SpaceMap
-        Volume map to restrict to the boundary.
-
-    orientation : Sequence[int]
-        Signed one-based orientation record of the boundary, one entry per
-        dimension of ``space_map``: a permutation of the element axes whose
-        first ``space_map.input_dimensions - common_integration.dimension``
-        entries name the fixed normal axes and whose tail maps the surviving
-        face axes.
-
-    common_integration : IntegrationSpace
-        Target boundary integration space whose points receive the sampled
-        factors.
-
-    integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY
-        Registry to get the element and face quadrature rules from.
-
-    Returns
-    -------
-    determinant : numpy.ndarray
-        Surface measure of the face immersion at the common boundary points,
-        shape ``(points,)``.
-
-    inverse_maps : numpy.ndarray
-        Inverse Jacobians of the face immersion at the common points, shape
-        ``(points, boundary_dim, coords)``.
     """
     ...
 

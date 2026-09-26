@@ -11,14 +11,6 @@ enum
     MAX_TEST_ORDER = 5,
 };
 
-static void fill_random(double values[restrict], const size_t count, test_prng_t *rng)
-{
-    for (size_t i = 0; i < count; ++i)
-    {
-        values[i] = 2.0 * test_prng_next_double(rng) - 1.0;
-    }
-}
-
 /**
  * Independent reference: walks the varying axes with a plain odometer, ascending axes with
  * the last axis fastest, stepping each axis in its orientation direction.
@@ -34,13 +26,12 @@ static void reference_indices(const unsigned ndim, const basis_spec_t basis[cons
         is_fixed[(unsigned)(code < 0 ? -code : code) - 1] = true;
     }
 
-    size_t strides[MAX_TEST_DIM];
-    size_t stride = 1;
-    for (unsigned axis = ndim; axis-- > 0;)
+    size_t dims[MAX_TEST_DIM], strides[MAX_TEST_DIM];
+    for (unsigned axis = 0; axis < ndim; ++axis)
     {
-        strides[axis] = stride;
-        stride *= basis[axis].order + 1;
+        dims[axis] = basis[axis].order + 1;
     }
+    test_tensor_strides(ndim, dims, strides);
 
     size_t base = 0;
     for (unsigned entry = 0; entry < ndim - bdim; ++entry)
@@ -172,7 +163,7 @@ static void run_case(const unsigned ndim, const basis_spec_t basis[const static 
         }
         reference_indices(ndim, basis, bdim, ascending_orientation, expected);
 
-        fill_random(values, element_count, rng);
+        test_fill_random(values, element_count, rng);
         boundary_dof_values(ndim, basis, values, work, bdim, orientation, out);
         for (size_t k = 0; k < boundary_count; ++k)
         {

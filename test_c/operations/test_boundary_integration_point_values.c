@@ -26,14 +26,6 @@ static double eval_polynomial(const double coeffs[const static MAX_TEST_ORDER + 
     return value;
 }
 
-static void fill_random(double values[restrict], const size_t count, test_prng_t *rng)
-{
-    for (size_t i = 0; i < count; ++i)
-    {
-        values[i] = 2.0 * test_prng_next_double(rng) - 1.0;
-    }
-}
-
 static void check_boundary_output(const unsigned ndim, const integration_spec_t specs[const static MAX_TEST_DIM],
                                   const double values[const restrict], const size_t value_count, const unsigned bdim,
                                   const int8_t orientation[const static MAX_TEST_DIM], const unsigned n_components,
@@ -104,7 +96,7 @@ static void run_lobatto_case(const unsigned ndim, const integration_spec_t specs
     double *const values = malloc(value_count * sizeof(double));
     double *const expected = malloc(expected_count * sizeof(double));
     TEST_ASSERTION(values != NULL && expected != NULL, "Failed to allocate test buffers.");
-    fill_random(values, value_count, rng);
+    test_fill_random(values, value_count, rng);
 
     // Enumerate the surviving points directly; the fixed axes contribute their endpoint index.
     unsigned idx[MAX_TEST_DIM] = {0};

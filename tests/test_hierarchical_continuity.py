@@ -468,7 +468,7 @@ def assert_continuity_exact(
 
 @pytest.mark.parametrize(
     ("ndim", "family", "order", "form_order"),
-    (
+    tuple(
         (ndim, family, order, form_order)
         for ndim in (2, 3)
         for family in (BasisType.LEGENDRE, BasisType.LAGRANGE_GAUSS_LOBATTO)

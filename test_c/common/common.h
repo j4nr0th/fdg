@@ -85,4 +85,15 @@ uint32_t test_prng_next_uint(test_prng_t *rng);
 FDG_INTERNAL
 double test_prng_next_double(test_prng_t *rng);
 
+/** Fill @p count doubles with uniform samples from [-1, 1). */
+FDG_INTERNAL
+void test_fill_random(double *values, size_t count, test_prng_t *rng);
+
+/**
+ * Row-major strides of one tensor shape: the last axis has stride 1 and the
+ * first axis the largest stride.
+ */
+FDG_INTERNAL
+void test_tensor_strides(unsigned ndim, const size_t dims[static ndim], size_t strides[static ndim]);
+
 #endif // FDG_COMMON_H

@@ -759,7 +759,7 @@ class Quad(HypercubeDomain):
         p_br = right.start
         p_tr = top.start
         p_tl = left.start
-        # TODO: fix
+
         for c1, c2, c3, c4, bl, br, tr, tl in zip(
             coords_c1,
             coords_c2,

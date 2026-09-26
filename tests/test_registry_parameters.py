@@ -23,16 +23,12 @@ from fdg import (
     FunctionSpace,
     IntegrationRegistry,
     IntegrationSpace,
-    IntegrationSpecs,
     KFormSpecs,
     SpaceMap,
     compute_kform_boundary_mass_matrices,
     compute_kform_boundary_trace_moments,
 )
-from fdg._fdg import (
-    compute_boundary_space_map_factors,
-    compute_kform_boundary_load,
-)
+from fdg._fdg import compute_kform_boundary_load
 from fdg.boundary_conditions import (
     _append_boundary_rows,
     _append_periodic_rows,
@@ -143,21 +139,6 @@ def test_space_map_boundary_uses_given_registry() -> None:
         maps[0].boundary(0, integration_registry=DEFAULT_INTEGRATION_REGISTRY),
         explicit,
     )
-
-
-def test_boundary_space_map_factors_use_given_registry() -> None:
-    """The factor pull fetches its face and canonical rules from the argument."""
-    _, maps, _ = _setup()
-    common = IntegrationSpace(IntegrationSpecs(5))
-    integration_registry, _ = _fresh()
-
-    explicit = compute_boundary_space_map_factors(
-        maps[0], [1, 2], common, integration_registry=integration_registry
-    )
-    assert integration_registry.usage()
-
-    default = compute_boundary_space_map_factors(maps[0], [1, 2], common)
-    _assert_same(default, explicit)
 
 
 def test_boundary_mass_matrices_use_given_registries() -> None:
@@ -350,16 +331,9 @@ def _entry_points() -> Sequence[tuple[str, Call]]:
     """Every call that gained an ``integration_registry`` keyword."""
     mesh, maps, specs = _setup()
     face = _first_boundary_face(mesh)
-    common = IntegrationSpace(IntegrationSpecs(3))
     face_space = FunctionSpace(BasisSpecs(BasisType.LAGRANGE_GAUSS_LOBATTO, 1))
     return (
         ("boundary", lambda **kw: maps[0].boundary(0, **kw)),
-        (
-            "space_map_factors",
-            lambda **kw: compute_boundary_space_map_factors(
-                maps[0], [1, 2], common, **kw
-            ),
-        ),
         (
             "mass_matrices",
             lambda **kw: compute_kform_boundary_mass_matrices(

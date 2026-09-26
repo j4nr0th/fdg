@@ -23,14 +23,6 @@ static double eval_polynomial(const double coeffs[const static MAX_TEST_ORDER + 
     return value;
 }
 
-static void fill_random(double values[restrict], const size_t count, test_prng_t *rng)
-{
-    for (size_t i = 0; i < count; ++i)
-    {
-        values[i] = 2.0 * test_prng_next_double(rng) - 1.0;
-    }
-}
-
 /**
  * Independent contraction coefficient for the bases whose contraction is trivially known:
  * endpoint-node bases pick the endpoint degree of freedom and Legendre coefficients are the
@@ -224,7 +216,7 @@ static void run_contraction_case(const unsigned ndim, const basis_spec_t basis[c
     double *const expected = malloc(out_total * sizeof(double));
     TEST_ASSERTION(values != NULL && expected != NULL, "Failed to allocate test buffers.");
 
-    fill_random(values, in_total, rng);
+    test_fill_random(values, in_total, rng);
     reference_contraction(ndim, basis, values, ndim - bdim, orientation, expected);
     check_boundary_output(ndim, basis, values, in_total, bdim, orientation, expected, out_total);
 

@@ -23,14 +23,6 @@ static const double BINOMIAL[MAX_TEST_ORDER + 1][MAX_TEST_ORDER + 1] = {
     {1.0, 3.0, 3.0, 1.0, 0.0, 0.0}, {1.0, 4.0, 6.0, 4.0, 1.0, 0.0}, {1.0, 5.0, 10.0, 10.0, 5.0, 1.0},
 };
 
-static void fill_random(double values[restrict], const size_t count, test_prng_t *rng)
-{
-    for (size_t i = 0; i < count; ++i)
-    {
-        values[i] = 2.0 * test_prng_next_double(rng) - 1.0;
-    }
-}
-
 static double integer_power(const double base, const unsigned exponent)
 {
     double result = 1.0;
@@ -180,7 +172,7 @@ static void run_plane_case(const unsigned ndim, const basis_spec_t basis[const s
     TEST_ASSERTION(values != NULL && golden != NULL && expected != NULL && out != NULL,
                    "Failed to allocate test buffers.");
 
-    fill_random(values, total, rng);
+    test_fill_random(values, total, rng);
     memcpy(golden, values, total * sizeof(double));
     reference_plane_values(ndim, basis, values, axis, plane, expected);
 
@@ -277,7 +269,7 @@ static void run_reversal_case(const unsigned ndim, const basis_spec_t basis[cons
     double *const reversed = malloc(total * sizeof(double));
     double *const restored = malloc(total * sizeof(double));
     TEST_ASSERTION(values != NULL && reversed != NULL && restored != NULL, "Failed to allocate test buffers.");
-    fill_random(values, total, rng);
+    test_fill_random(values, total, rng);
 
     dof_reverse_orientation_values(ndim, basis, values, axis, reversed);
 
