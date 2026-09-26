@@ -93,22 +93,19 @@ static void collect_face_pair(const topo_mesh_t *mesh, const unsigned mdim, cons
     }
 }
 
-// One-based signed axis codes for the face at (axis, side): bit a = axis a.
-static void face_axis_codes(const unsigned axis, const int end, int8_t codes[3])
+// One-based signed axis code for the face at (axis, side): positive at the end
+// side of the axis, negative at its start side.
+static int8_t face_axis_code(const unsigned axis, const int end)
 {
-    for (unsigned a = 0; a < 3; ++a)
-        codes[a] = 0;
-    codes[axis] = (int8_t)((end ? (axis + 1) : -(int)(axis + 1)));
+    return (int8_t)(end ? (int)(axis + 1) : -(int)(axis + 1));
 }
 
 static uint64_t element_face(const topo_mesh_t *mesh, const uint64_t element_id, const unsigned axis, const int end)
 {
-    int8_t codes[3];
-    face_axis_codes(axis, end, codes);
+    // A face of an element is fixed by its single perpendicular axis.
+    const int8_t code = face_axis_code(axis, end);
     uint64_t out = UINT64_MAX;
-    TEST_ASSERTION(topo_mesh_element_object(mesh, element_id, codes, &out) == TOPO_SUCCESS,
-                   "Could not look up face (%llu, axis %u, %s).", (unsigned long long)element_id, axis,
-                   end ? "end" : "start");
+    topo_mesh_element_object(mesh, element_id, 1, &code, &out);
     return out;
 }
 

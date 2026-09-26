@@ -152,11 +152,11 @@ static void test_1d(void)
     TEST_ASSERTION(topo_mesh_iterate_shared(mesh, 1, count_shared, &lines) == TOPO_INVALID_ARGUMENT,
                    "Iteration over element-dimension objects was accepted.");
 
-    // Lookup of an object position within an element.
+    // Lookup of an object position within an element, given by its fixed axes
+    // alone: in 1D, the start of axis 0 of element 2.
     uint64_t object;
     const int8_t point_spec[] = {-1};
-    TEST_ASSERTION(topo_mesh_element_object(mesh, 2, point_spec, &object) == TOPO_SUCCESS,
-                   "Could not look up element point.");
+    topo_mesh_element_object(mesh, 2, 1, point_spec, &object);
     TEST_ASSERTION(object == 2, "Element 2 has wrong start point.");
 
     topo_mesh_free(mesh, allocator);
@@ -286,15 +286,14 @@ static void test_2d(void)
                        pair_capture.target_pairs == 3,
                    "Shared pair iterator returned incorrect two-dimensional pair counts.");
 
-    // Lookup of object positions within one element.
+    // Lookup of object positions within one element, given by the fixed axes
+    // sorted by absolute value like the head of an orientation record.
     uint64_t object;
     const int8_t point_spec[] = {-1, +2};
-    TEST_ASSERTION(topo_mesh_element_object(mesh, 0, point_spec, &object) == TOPO_SUCCESS,
-                   "Could not look up corner point.");
+    topo_mesh_element_object(mesh, 0, 2, point_spec, &object);
     TEST_ASSERTION(object == grid2(0, 1), "Corner point has wrong ID.");
-    const int8_t edge_spec[] = {0, -2};
-    TEST_ASSERTION(topo_mesh_element_object(mesh, 0, edge_spec, &object) == TOPO_SUCCESS,
-                   "Could not look up boundary edge.");
+    const int8_t edge_spec[] = {-2};
+    topo_mesh_element_object(mesh, 0, 1, edge_spec, &object);
     TEST_ASSERTION(object == 0, "Boundary edge has wrong ID.");
 
     // Invalid arguments are rejected.
@@ -304,12 +303,6 @@ static void test_2d(void)
                    "Iteration with a null callback was accepted.");
     TEST_ASSERTION(topo_mesh_iterate_shared(NULL, 1, count_shared, &points) == TOPO_INVALID_ARGUMENT,
                    "Iteration over a null mesh was accepted.");
-    const int8_t invalid_spec[] = {0, 0};
-    TEST_ASSERTION(topo_mesh_element_object(mesh, 0, invalid_spec, &object) == TOPO_INVALID_ARGUMENT,
-                   "Lookup of the element itself was accepted.");
-    const int8_t bad_axis[] = {0, -1};
-    TEST_ASSERTION(topo_mesh_element_object(mesh, 0, bad_axis, &object) == TOPO_INVALID_ARGUMENT,
-                   "Lookup with an invalid axis entry was accepted.");
 
     topo_mesh_free(mesh, allocator);
 }

@@ -423,9 +423,7 @@ def face_test_specs(
     for element_id in range(mesh.element_count):
         for normal_axis in range(3):
             for side in (-1, 1):
-                location = [0, 0, 0]
-                location[normal_axis] = side * (normal_axis + 1)
-                face_id = mesh.element_object(element_id, location)
+                face_id = mesh.element_object(element_id, side * (normal_axis + 1))
                 test_specs[2][face_id] = [face_tests[normal_axis]]
     expected_faces = (
         (cells[0] + 1) * cells[1] * cells[2]

@@ -238,17 +238,18 @@ const topo_obj_immersion_t *topo_mesh_immersions(const topo_mesh_t *mesh);
 /**
  * Look up the global ID of the object at a given position within one element.
  *
- * The position is specified with one signed, 1-based axis index per element
- * axis, following the immersion orientation convention (@ref topo_obj_immersion_t):
- * entry ``j`` is zero when the object spans element axis ``j``, ``-(j + 1)``
- * when the object is perpendicular to the axis at its start and ``+(j + 1)``
- * when it is perpendicular to the axis at its end. The dimension of the found
- * object is the number of free (zero) axes; a fully specified position
- * (no zero entries) identifies a point.
+ * The position is specified by the fixed axes alone, in the same form as the
+ * first part of an orientation record (@ref topo_obj_immersion_t): entry ``i``
+ * is the signed, 1-based index of an element axis the object does not span,
+ * negative at the start side of that axis and positive at its end side, and
+ * the entries are sorted by absolute value. The fixed axes alone identify each
+ * boundary of the element uniquely, without padding by the spanning axes: the
+ * found object has dimension ``ndim - fixed_axes``, so one entry fixes a face
+ * and ``ndim`` entries fix a point.
  *
- * For example, ``(-1, +2, -3)`` in three dimensions identifies the point at
- * the corner reached by following element axis 0 to its start, axis 1 to its
- * end and axis 2 to its start.
+ * For example, ``{-1, +2}`` in two dimensions identifies the point reached by
+ * following element axis 0 to its start and element axis 1 to its end, while
+ * ``{+1}`` identifies the end face of element axis 0.
  *
  * The object is found by descending the boundary chains of the collections:
  * starting at the element, each fixed axis crosses from the current object
@@ -256,20 +257,25 @@ const topo_obj_immersion_t *topo_mesh_immersions(const topo_mesh_t *mesh);
  * takes time proportional to the number of fixed axes and needs no storage
  * beyond the collections themselves.
  *
+ * The arguments are preconditions, not values to validate: a null mesh or
+ * output, an out-of-range element, an empty or oversized axis list, or axis
+ * entries that are zero, out of range, duplicated or unsorted abort through
+ * CUTL_ASSERT. A caller that handles untrusted input must check these
+ * conditions itself and report them instead of relying on this function.
+ *
  * @param mesh Mesh to query.
  * @param element_id[in] ID of the element. Must be in
  *        [0, topo_mesh_element_count(mesh)).
- * @param axis[in] Position of the object within the element, one entry per
- *        element axis. Entry ``j`` must be zero, ``-(j + 1)`` or ``+(j + 1)``;
- *        at least one entry must be nonzero.
+ * @param fixed_axes[in] Number of entries of @p axis, in [1, ndim].
+ * @param axis[in] Signed, 1-based indices of the fixed element axes, sorted by
+ *        absolute value: entry ``i`` is ``-(a + 1)`` when the object lies at
+ *        the start of element axis ``a`` and ``+(a + 1)`` at its end.
  * @param out[out] Receives the global ID of the object. For points this is a
  *        point ID; otherwise it is an index into the collection of the
  *        respective object dimension.
- * @return TOPO_SUCCESS on success, TOPO_INVALID_ARGUMENT if the element ID or
- *         an axis entry is invalid.
  */
-topo_status_t topo_mesh_element_object(const topo_mesh_t *mesh, uint64_t element_id, const int8_t axis[],
-                                       uint64_t *out);
+void topo_mesh_element_object(const topo_mesh_t *mesh, uint64_t element_id, unsigned fixed_axes,
+                              const int8_t axis[static fixed_axes], uint64_t *out);
 
 /**
  * Iterate over all objects of one dimension that are shared by at least two

@@ -428,17 +428,7 @@ static PyObject *mesh_geometry_from_mesh_points(PyObject *cls, PyObject *const *
             for (unsigned idim = 0; idim < mesh->mesh->ndim; ++idim)
                 axis[idim] = (corner >> idim) & 1 ? (int8_t)(idim + 1) : (int8_t)-(idim + 1);
             uint64_t point_id;
-            const topo_status_t status = topo_mesh_element_object(mesh->mesh, element_id, axis, &point_id);
-            if (status != TOPO_SUCCESS)
-            {
-                PyErr_Format(PyExc_ValueError, "Could not look up corner %llu of element %llu: %s (%s).",
-                             (unsigned long long)corner, (unsigned long long)element_id, topo_status_to_str(status),
-                             topo_status_msg(status));
-                PyMem_Free(values);
-                Py_DECREF(points);
-                Py_DECREF(self);
-                return NULL;
-            }
+            topo_mesh_element_object(mesh->mesh, element_id, mesh->mesh->ndim, axis, &point_id);
             // Mesh corner ids have axis 0 as the least significant bit, while
             // the dof tensor index is row-major with the last axis fastest.
             size_t dof_index = 0;

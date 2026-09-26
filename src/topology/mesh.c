@@ -757,45 +757,46 @@ const topo_obj_immersion_t *topo_mesh_immersions(const topo_mesh_t *const mesh)
     return mesh->immersions;
 }
 
-topo_status_t topo_mesh_element_object(const topo_mesh_t *const mesh, const uint64_t element_id,
-                                       const int8_t axis[const], uint64_t *const out)
+void topo_mesh_element_object(const topo_mesh_t *const mesh, const uint64_t element_id, const unsigned fixed_axes,
+                              const int8_t axis[static fixed_axes], uint64_t *const out)
 {
-    if (!mesh || !out)
-        return TOPO_INVALID_ARGUMENT;
-    if (element_id >= mesh->element_count)
-        return TOPO_INVALID_ARGUMENT;
+    CUTL_ASSERT(mesh != NULL, "Mesh must not be null.");
+    CUTL_ASSERT(out != NULL, "Output pointer must not be null.");
+    CUTL_ASSERT(element_id < mesh->element_count, "Element ID %llu is not in [0, %llu).",
+                (unsigned long long)element_id, (unsigned long long)mesh->element_count);
+    CUTL_ASSERT(fixed_axes >= 1 && fixed_axes <= mesh->ndim, "Fixed axis count %u is not in [1, %u].", fixed_axes,
+                mesh->ndim);
 
-    // Decode the axis specification: fixed axes are the entries with a nonzero
-    // value, and their side is the sign. The element itself spans every axis.
+    // The fixed axes are the first part of an orientation record: signed,
+    // 1-based and ascending by absolute value. Ascending also rules out
+    // fixing the same axis twice, which would descend one chain too far.
+    unsigned previous_axis = 0;
+    for (unsigned i = 0; i < fixed_axes; ++i)
+    {
+        const int8_t value = axis[i];
+        const unsigned axis_index = (unsigned)(value < 0 ? -(int)value : (int)value);
+        CUTL_ASSERT(value != 0, "Fixed axis entry %u must not be zero.", i);
+        CUTL_ASSERT(axis_index >= 1 && axis_index <= mesh->ndim, "Fixed axis entry %u (%d) is outside ±%u.", i, value,
+                    mesh->ndim);
+        CUTL_ASSERT(axis_index > previous_axis,
+                    "Fixed axis entry %u (%d) must follow entry %u sorted by absolute value without repeating it.", i,
+                    value, i - 1U);
+        previous_axis = axis_index;
+    }
+
     uint64_t object_id = element_id;
     unsigned mdim = mesh->ndim;
     uint64_t mask = ((uint64_t)1 << mesh->ndim) - 1;
-    unsigned fixed = 0;
-    for (unsigned a = 0; a < mesh->ndim; ++a)
-    {
-        const int8_t value = axis[a];
-        if (value == (int8_t)(a + 1) || value == -(int8_t)(a + 1))
-        {
-            fixed += 1;
-        }
-        else if (value != 0)
-        {
-            return TOPO_INVALID_ARGUMENT;
-        }
-    }
-    if (fixed == 0)
-        return TOPO_INVALID_ARGUMENT;
 
     // Descend the boundary chains: for every fixed axis, in ascending order,
     // cross from the current object into the boundary perpendicular to the
     // axis at the requested side. The slot of the boundary within the current
     // object is the rank of the axis among the object's spanning axes, plus
     // mdim when the boundary is the one at the end of the axis.
-    for (unsigned a = 0; a < mesh->ndim; ++a)
+    for (unsigned i = 0; i < fixed_axes; ++i)
     {
-        const int8_t value = axis[a];
-        if (value == 0)
-            continue;
+        const int8_t value = axis[i];
+        const unsigned a = (unsigned)(value < 0 ? -(int)value : (int)value) - 1U;
         uint64_t rank = 0;
         uint64_t lower = mask & (((uint64_t)1 << a) - 1);
         while (lower)
@@ -810,7 +811,6 @@ topo_status_t topo_mesh_element_object(const topo_mesh_t *const mesh, const uint
         mdim -= 1;
     }
     *out = object_id;
-    return TOPO_SUCCESS;
 }
 
 /**

@@ -181,20 +181,25 @@ def test_mesh_element_object() -> None:
     mesh = Mesh.from_corners(2, CORNERS_2X2)
 
     # Corner point of element 0 at axis-0 start and axis-1 end: grid point (0, 1).
-    assert mesh.element_object(0, [-1, 2]) == 3
+    assert mesh.element_object(0, -1, 2) == 3
     # y-start edge of element 0 is line 0.
-    assert mesh.element_object(0, [0, -2]) == 0
+    assert mesh.element_object(0, -2) == 0
     # The shared x-interface of elements 0 and 1 is the same line from both sides.
-    assert mesh.element_object(0, [1, 0]) == mesh.element_object(1, [-1, 0])
+    assert mesh.element_object(0, 1) == mesh.element_object(1, -1)
+
+    # The fixed axes are sorted internally, so their order does not matter.
+    assert mesh.element_object(0, 2, -1) == 3
+    # An axis cannot be fixed at both sides (or twice).
+    with pytest.raises(ValueError):
+        mesh.element_object(0, 1, -1)
+    # An axis index outside the element is rejected.
+    with pytest.raises(ValueError):
+        mesh.element_object(0, 3)
 
     with pytest.raises(ValueError):
-        mesh.element_object(0, [0, 0])
+        mesh.element_object(0)
     with pytest.raises(ValueError):
-        mesh.element_object(0, [0, -1])
-    with pytest.raises(ValueError):
-        mesh.element_object(4, [-1, -2])
-    with pytest.raises(ValueError):
-        mesh.element_object(0, [-1])
+        mesh.element_object(4, -1, -2)
 
 
 def test_mesh_from_corners_rejects_bad_input() -> None:

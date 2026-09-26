@@ -238,79 +238,118 @@ static PyObject *mesh_get_collections(const mesh_object *self, void *Py_UNUSED(c
     return result;
 }
 
-static PyObject *mesh_element_object(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
-                                     const Py_ssize_t nargs, PyObject *kwnames)
+static int ensure_mesh_and_state(PyObject *self, PyTypeObject *defining_class, const interplib_module_state_t **p_state,
+                                 mesh_object **p_this)
 {
     const interplib_module_state_t *const state =
         defining_class ? PyType_GetModuleState(defining_class) : interplib_get_module_state(Py_TYPE(self));
     if (!state)
-        return NULL;
+    {
+        return -1;
+    }
     if (!PyObject_TypeCheck(self, state->mesh_type))
     {
-        PyErr_SetString(PyExc_TypeError, "Expected a Mesh object.");
+        PyErr_Format(PyExc_TypeError, "Expected a %s, but got a %s.", state->mesh_type->tp_name,
+                     Py_TYPE(self)->tp_name);
+        return -1;
+    }
+    *p_state = state;
+    *p_this = (mesh_object *)self;
+    return 0;
+}
+
+static PyObject *mesh_element_object(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
+                                     const Py_ssize_t nargs, PyObject *kwnames)
+{
+    const interplib_module_state_t *state;
+    mesh_object *mesh;
+    if (ensure_mesh_and_state(self, defining_class, &state, &mesh) < 0)
+        return NULL;
+
+    if (kwnames && PyTuple_GET_SIZE(kwnames) > 0)
+    {
+        PyErr_SetString(PyExc_TypeError, "mesh_element_object() does not accept keyword arguments.");
         return NULL;
     }
-    mesh_object *const mesh = (mesh_object *)self;
+    if (nargs < 1)
+    {
+        PyErr_SetString(PyExc_TypeError, "mesh_element_object() requires an element id.");
+        return NULL;
+    }
 
-    Py_ssize_t element_id;
-    PyObject *axis_object;
-    if (parse_arguments_check(
-            (cpyutl_argument_t[]){
-                {.type = CPYARG_TYPE_SSIZE, .p_val = &element_id},
-                {.type = CPYARG_TYPE_PYTHON, .p_val = &axis_object},
-                {},
-            },
-            args, nargs, kwnames) < 0)
+    // Positional arguments: the element id, then the fixed axes of the object.
+    const Py_ssize_t element_id = PyLong_AsSsize_t(args[0]);
+    if (PyErr_Occurred())
         return NULL;
 
-    PyObject *const seq = PySequence_Fast(axis_object, "axis must be a sequence of integers.");
-    if (!seq)
-        return NULL;
     const unsigned ndim = mesh->mesh->ndim;
-    if (PySequence_Fast_GET_SIZE(seq) != (Py_ssize_t)ndim)
+    const unsigned fixed_axes = (unsigned)(nargs - 1);
+    if (fixed_axes == 0 || fixed_axes > ndim)
     {
-        PyErr_Format(PyExc_ValueError, "Expected %u axis entries, got %zd.", ndim,
-                     (Py_ssize_t)PySequence_Fast_GET_SIZE(seq));
-        Py_DECREF(seq);
+        PyErr_Format(PyExc_ValueError, "Expected between 1 and %u fixed axis entries, got %zd.", ndim, nargs - 1);
         return NULL;
     }
-    int8_t axis[63];
-    unsigned fixed = 0;
-    for (unsigned a = 0; a < ndim; ++a)
+
+    if (element_id < 0 || (uint64_t)element_id >= mesh->mesh->element_count)
     {
-        const long value = PyLong_AsLong(PySequence_Fast_GET_ITEM(seq, (Py_ssize_t)a));
-        if (value == -1 && PyErr_Occurred())
+        PyErr_Format(PyExc_ValueError, "Invalid element ID %zd in mesh with %zu elements.", element_id,
+                     mesh->mesh->element_count);
+        return NULL;
+    }
+
+    int8_t *const axis = PyMem_Malloc(sizeof(int8_t) * fixed_axes);
+    if (!axis)
+        return NULL;
+
+    for (unsigned a = 0; a < fixed_axes; ++a)
+    {
+        const Py_ssize_t value = PyLong_AsSsize_t(args[a + 1]);
+        if (PyErr_Occurred())
         {
-            Py_DECREF(seq);
+            PyMem_Free(axis);
             return NULL;
         }
-        if (value != 0 && value != (long)(a + 1) && value != -(long)(a + 1))
+        if (value == 0 || value > ndim || value < -((Py_ssize_t)ndim))
         {
-            PyErr_Format(PyExc_ValueError, "Invalid axis entry %ld at index %u; expected 0, %d or %d.", value, a,
-                         (int)(a + 1), -(int)(a + 1));
-            Py_DECREF(seq);
+            PyErr_Format(PyExc_ValueError,
+                         "Invalid fixed axis entry %zd at index %u; expected non-zero and within [-%u, %u].", value, a,
+                         ndim, ndim);
+            PyMem_Free(axis);
             return NULL;
         }
         axis[a] = (int8_t)value;
-        if (value != 0)
-            fixed += 1;
-    }
-    Py_DECREF(seq);
-    if (fixed == 0)
-    {
-        PyErr_SetString(PyExc_ValueError, "Expected at least one fixed axis.");
-        return NULL;
     }
 
-    uint64_t out;
-    const topo_status_t topo_status = topo_mesh_element_object(mesh->mesh, (uint64_t)element_id, axis, &out);
-    if (topo_status != TOPO_SUCCESS)
+    // Sort the fixed axes by absolute value into the orientation-record order
+    // that topo_mesh_element_object() takes them in.
+    for (unsigned i = 0; i < fixed_axes - 1; ++i)
     {
-        PyErr_Format(PyExc_ValueError, "Invalid element ID or axis entry: %s (%s).", topo_status_to_str(topo_status),
-                     topo_status_msg(topo_status));
-        return NULL;
+        for (unsigned j = 0; j < fixed_axes - i - 1; ++j)
+        {
+            if (abs(axis[j]) > abs(axis[j + 1]))
+            {
+                const int8_t temp = axis[j];
+                axis[j] = axis[j + 1];
+                axis[j + 1] = temp;
+            }
+        }
     }
-    return PyLong_FromUnsignedLongLong(out);
+    for (unsigned a = 1; a < fixed_axes; ++a)
+    {
+        if (abs(axis[a]) == abs(axis[a - 1]))
+        {
+            PyErr_Format(PyExc_ValueError, "Fixed axis %d was given twice.", axis[a]);
+            PyMem_Free(axis);
+            return NULL;
+        }
+    }
+
+    // Everything topo_mesh_element_object() takes as a precondition is checked
+    // above, where a violation can be reported instead of aborting the process.
+    uint64_t out;
+    topo_mesh_element_object(mesh->mesh, (uint64_t)element_id, fixed_axes, axis, &out);
+    PyMem_Free(axis);
+    return PyLong_FromUnsignedLongLong((unsigned long long)out);
 }
 
 typedef struct
@@ -379,16 +418,10 @@ static void mesh_iterate_callback(const topo_mesh_t *mesh, const topo_mesh_share
 static PyObject *mesh_iterate_shared(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
                                      const Py_ssize_t nargs, PyObject *kwnames)
 {
-    const interplib_module_state_t *const state =
-        defining_class ? PyType_GetModuleState(defining_class) : interplib_get_module_state(Py_TYPE(self));
-    if (!state)
+    const interplib_module_state_t *state;
+    mesh_object *mesh;
+    if (ensure_mesh_and_state(self, defining_class, &state, &mesh) < 0)
         return NULL;
-    if (!PyObject_TypeCheck(self, state->mesh_type))
-    {
-        PyErr_SetString(PyExc_TypeError, "Expected a Mesh object.");
-        return NULL;
-    }
-    mesh_object *const mesh = (mesh_object *)self;
 
     Py_ssize_t mdim;
     if (parse_arguments_check(
@@ -428,16 +461,10 @@ static PyObject *mesh_iterate_shared(PyObject *self, PyTypeObject *defining_clas
 static PyObject *mesh_iterate_shared_all(PyObject *self, PyTypeObject *defining_class, PyObject *const *Py_UNUSED(args),
                                          const Py_ssize_t nargs, PyObject *kwnames)
 {
-    const interplib_module_state_t *const state =
-        defining_class ? PyType_GetModuleState(defining_class) : interplib_get_module_state(Py_TYPE(self));
-    if (!state)
+    const interplib_module_state_t *state;
+    mesh_object *mesh;
+    if (ensure_mesh_and_state(self, defining_class, &state, &mesh) < 0)
         return NULL;
-    if (!PyObject_TypeCheck(self, state->mesh_type))
-    {
-        PyErr_SetString(PyExc_TypeError, "Expected a Mesh object.");
-        return NULL;
-    }
-    mesh_object *const mesh = (mesh_object *)self;
     if (nargs != 0 || kwnames != NULL)
     {
         PyErr_SetString(PyExc_TypeError, "iterate_shared_all() takes no arguments.");
@@ -467,16 +494,10 @@ static PyObject *mesh_iterate_shared_all(PyObject *self, PyTypeObject *defining_
 static PyObject *mesh_iterate_boundary(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
                                        const Py_ssize_t nargs, PyObject *kwnames)
 {
-    const interplib_module_state_t *const state =
-        defining_class ? PyType_GetModuleState(defining_class) : interplib_get_module_state(Py_TYPE(self));
-    if (!state)
+    const interplib_module_state_t *state;
+    mesh_object *mesh;
+    if (ensure_mesh_and_state(self, defining_class, &state, &mesh) < 0)
         return NULL;
-    if (!PyObject_TypeCheck(self, state->mesh_type))
-    {
-        PyErr_SetString(PyExc_TypeError, "Expected a Mesh object.");
-        return NULL;
-    }
-    mesh_object *const mesh = (mesh_object *)self;
 
     Py_ssize_t mdim;
     if (parse_arguments_check(
@@ -516,16 +537,10 @@ static PyObject *mesh_iterate_boundary(PyObject *self, PyTypeObject *defining_cl
 static PyObject *mesh_iterate_boundary_all(PyObject *self, PyTypeObject *defining_class,
                                            PyObject *const *Py_UNUSED(args), const Py_ssize_t nargs, PyObject *kwnames)
 {
-    const interplib_module_state_t *const state =
-        defining_class ? PyType_GetModuleState(defining_class) : interplib_get_module_state(Py_TYPE(self));
-    if (!state)
+    const interplib_module_state_t *state;
+    mesh_object *mesh;
+    if (ensure_mesh_and_state(self, defining_class, &state, &mesh) < 0)
         return NULL;
-    if (!PyObject_TypeCheck(self, state->mesh_type))
-    {
-        PyErr_SetString(PyExc_TypeError, "Expected a Mesh object.");
-        return NULL;
-    }
-    mesh_object *const mesh = (mesh_object *)self;
     if (nargs != 0 || kwnames != NULL)
     {
         PyErr_SetString(PyExc_TypeError, "iterate_boundary_all() takes no arguments.");
@@ -1427,15 +1442,10 @@ static PyObject *mesh_compute_kform_continuity_constraints(PyObject *self, PyTyp
                                                            PyObject *const *args, const Py_ssize_t nargs,
                                                            PyObject *kwnames)
 {
-    const interplib_module_state_t *const state =
-        defining_class ? PyType_GetModuleState(defining_class) : interplib_get_module_state(Py_TYPE(self));
-    if (!state)
+    const interplib_module_state_t *state;
+    mesh_object *mesh_object_this;
+    if (ensure_mesh_and_state(self, defining_class, &state, &mesh_object_this) < 0)
         return NULL;
-    if (!PyObject_TypeCheck(self, state->mesh_type))
-    {
-        PyErr_SetString(PyExc_TypeError, "Expected a Mesh object.");
-        return NULL;
-    }
     PyObject *element_specs_object;
     PyObject *element_maps_object = Py_None;
     PyObject *basis_type_object = Py_None;
@@ -1471,7 +1481,6 @@ static PyObject *mesh_compute_kform_continuity_constraints(PyObject *self, PyTyp
             args, nargs, kwnames) < 0)
         return NULL;
 
-    mesh_object *const mesh_object_this = (mesh_object *)self;
     topo_mesh_t *const mesh = mesh_object_this->mesh;
     const unsigned ndim = mesh->ndim;
     if (mesh->element_count > (uint64_t)PY_SSIZE_T_MAX || mesh->point_count > (uint64_t)PY_SSIZE_T_MAX)
@@ -1592,9 +1601,9 @@ fail:
 static PyObject *mesh_compute_kform_global_constraints(PyObject *self, PyTypeObject *defining_class,
                                                        PyObject *const *args, const Py_ssize_t nargs, PyObject *kwnames)
 {
-    const interplib_module_state_t *const state =
-        defining_class ? PyType_GetModuleState(defining_class) : interplib_get_module_state(Py_TYPE(self));
-    if (!state)
+    const interplib_module_state_t *state;
+    mesh_object *mesh;
+    if (ensure_mesh_and_state(self, defining_class, &state, &mesh) < 0)
         return NULL;
     PyObject *element_specs = Py_None;
     PyObject *element_maps = Py_None;
@@ -1735,7 +1744,7 @@ static PyMethodDef mesh_methods[] = {
         .ml_name = "element_object",
         .ml_meth = (void *)mesh_element_object,
         .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
-        .ml_doc = "element_object(element_id, axis, /) -> int\n"
+        .ml_doc = "element_object(element_id, /, *fixed_axis) -> int\n"
                   "Look up the global ID of the object at a position within one element.\n"
                   "\n"
                   "Parameters\n"
@@ -1743,10 +1752,11 @@ static PyMethodDef mesh_methods[] = {
                   "element_id : int\n"
                   "    ID of the element.\n"
                   "\n"
-                  "axis : sequence of int\n"
-                  "    Axis specification of length ``ndim``; entry ``i`` is 0 for a free\n"
-                  "    axis, or ``i + 1`` / ``-(i + 1)`` to fix the axis at its end / start\n"
-                  "    side. At least one axis must be fixed.\n"
+                  "*fixed_axis : int\n"
+                  "    Fixed axis specification within the element. A positive value\n"
+                  "    indicates fixing the axis at its end side, while a negative value\n"
+                  "    indicates fixing it at its start side. At most ``ndim`` axes can be\n"
+                  "    fixed (gives a point).\n"
                   "\n"
                   "Returns\n"
                   "-------\n"

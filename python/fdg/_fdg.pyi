@@ -1403,8 +1403,7 @@ class Mesh:
         """Boundary-ID arrays of the mesh objects of every dimension (uint64 copies)."""
         ...
 
-    # TODO: rework this signature to only take fixed axes and not need the varying ones.
-    def element_object(self, element_id: int, axis: Sequence[int], /) -> int:
+    def element_object(self, element_id: int, /, *fixed_axis: int) -> int:
         """Look up the global ID of the object at a position within one element.
 
         Parameters
@@ -1412,10 +1411,10 @@ class Mesh:
         element_id : int
             ID of the element.
 
-        axis : sequence of int
-            Axis specification of length ``ndim``; entry ``i`` is 0 for a free
-            axis, or ``i + 1`` / ``-(i + 1)`` to fix the axis at its end / start
-            side. At least one axis must be fixed.
+        *fixed_axis : int
+            Fixed axis specification within the element. A positive value indicates fixing
+            the axis at its end side, while a negative value indicates fixing it at its
+            start side. At most ``ndim`` axes can be fixed (gives a point).
 
         Returns
         -------
