@@ -106,7 +106,7 @@ typedef struct
  */
 static inline const double *basis_endpoint_values(const basis_endpoint_set_t *this, const unsigned end)
 {
-    ASSERT(end <= 1, "Endpoint index was out of bounds.");
+    CUTL_ASSERT(end <= 1, "Endpoint index %u is out of bounds.", end);
     return this->_data + end * (this->spec.order + 1);
 }
 
@@ -135,7 +135,7 @@ static inline const double *basis_set_values_all(const basis_set_t *this)
  */
 static inline const double *basis_set_basis_values(const basis_set_t *this, const unsigned index)
 {
-    ASSERT(index <= this->spec.order, "Index was out of bounds.");
+    CUTL_ASSERT(index <= this->spec.order, "Basis index %u is out of bounds for order %u.", index, this->spec.order);
     return this->_data + index * (this->integration_spec.order + 1);
 }
 
@@ -162,7 +162,7 @@ static inline const double *basis_set_derivatives_all(const basis_set_t *this)
  */
 static inline const double *basis_set_basis_derivatives(const basis_set_t *this, const unsigned index)
 {
-    ASSERT(index <= this->spec.order, "Index was out of bounds.");
+    CUTL_ASSERT(index <= this->spec.order, "Basis index %u is out of bounds for order %u.", index, this->spec.order);
     return this->_data + (this->spec.order + 1 + index) * (this->integration_spec.order + 1);
 }
 
@@ -203,10 +203,12 @@ fdg_result_t basis_set_registry_create(basis_set_registry_t **out, int should_ca
  * @param integration_rule Integration rule whose nodes the basis set is
  *        evaluated at. Only the rule's type and order are used to identify
  *        the basis set.
- * @param spec Specification (type and order) of the basis set.
+ * @param spec Specification (type and order) of the basis set. The type is
+ *        a precondition: an unsupported basis type aborts through
+ *        CUTL_ASSERT, because the bindings validate it when the basis
+ *        specification is constructed.
  * @return FDG_SUCCESS on success, FDG_ERROR_FAILED_ALLOCATION if memory
- *         allocation fails, or FDG_ERROR_INVALID_ENUM if the basis type is
- *         not supported. On failure, `*p_basis` is left unmodified.
+ *         allocation fails. On failure, `*p_basis` is left unmodified.
  */
 FDG_INTERNAL
 fdg_result_t basis_set_registry_get_basis_set(basis_set_registry_t *this, const basis_set_t **p_basis,
@@ -240,8 +242,10 @@ fdg_result_t basis_set_registry_get_basis_sets(basis_set_registry_t *this, unsig
  *
  * @param this Registry to get the endpoint values from.
  * @param p_endpoints Receives the endpoint values on success.
- * @param spec Specification of the basis.
- * @return FDG_SUCCESS on success, or an error code on failure.
+ * @param spec Specification of the basis. The type is a precondition: an
+ *        unsupported basis type aborts through CUTL_ASSERT.
+ * @return FDG_SUCCESS on success, FDG_ERROR_FAILED_ALLOCATION if memory
+ *         allocation fails. On failure, `*p_endpoints` is left unmodified.
  */
 FDG_INTERNAL
 fdg_result_t basis_set_registry_get_basis_endpoints(basis_set_registry_t *this,
@@ -250,13 +254,15 @@ fdg_result_t basis_set_registry_get_basis_endpoints(basis_set_registry_t *this,
 /**
  * @brief Release a previously retrieved endpoint basis set.
  *
+ * Releasing endpoint values that are not in the registry is a caller bug:
+ * it aborts through CUTL_ASSERT instead of being reported.
+ *
  * @param this Registry the endpoint values were retrieved from.
- * @param endpoints Endpoint values to release.
- * @return FDG_SUCCESS if the endpoint values were found and released.
+ * @param endpoints Endpoint values to release. They must have been obtained
+ *        from this registry and must not have been released already.
  */
 FDG_INTERNAL
-fdg_result_t basis_set_registry_release_basis_endpoints(basis_set_registry_t *this,
-                                                        const basis_endpoint_set_t *endpoints);
+void basis_set_registry_release_basis_endpoints(basis_set_registry_t *this, const basis_endpoint_set_t *endpoints);
 
 /**
  * @brief Release a previously retrieved basis set.
@@ -265,16 +271,17 @@ fdg_result_t basis_set_registry_release_basis_endpoints(basis_set_registry_t *th
  * reaches zero and the registry was created with caching disabled, the basis
  * set is deallocated and removed from the registry.
  *
+ * Releasing a basis set that is not in the registry is a caller bug: it
+ * aborts through CUTL_ASSERT instead of being reported.
+ *
  * @param this Registry the basis set was retrieved from.
  * @param basis Basis set to release. It must have been obtained from this
  *        registry with basis_set_registry_get_basis_set or
  *        basis_set_registry_get_basis_sets and must not have been released
  *        already.
- * @return FDG_SUCCESS if the basis set was found and released,
- *         FDG_ERROR_NOT_IN_REGISTRY if it is not in the registry.
  */
 FDG_INTERNAL
-fdg_result_t basis_set_registry_release_basis_set(basis_set_registry_t *this, const basis_set_t *basis);
+void basis_set_registry_release_basis_set(basis_set_registry_t *this, const basis_set_t *basis);
 
 /**
  * @brief Destroy a basis set registry and free all its basis sets.
@@ -597,7 +604,7 @@ static inline void outer_product_pair_iterator_init(outer_product_pair_iterator_
                                                     const integration_rule_t *const *rules,
                                                     unsigned derivative_mask_left, unsigned derivative_mask_right)
 {
-    ASSERT(ndim >= 1 && ndim <= 32, "ndim must be in [1, 32]");
+    CUTL_ASSERT(ndim >= 1 && ndim <= 32, "ndim must be in [1, 32], got %u.", ndim);
     iter->ndim = ndim;
     iter->basis_left = basis_left;
     iter->basis_right = basis_right;

@@ -408,9 +408,7 @@ static PyObject *integration_specs_nodes(PyObject *self, PyTypeObject *defining_
     {
         p_out[i] = nodes[i];
     }
-    const fdg_result_t res = integration_rule_registry_release_rule(registry, rule);
-    (void)res;
-    ASSERT(res == FDG_SUCCESS, "Rule from the registry had to be successfully returned.");
+    integration_rule_registry_release_rule(registry, rule);
     return (PyObject *)out;
 }
 
@@ -443,9 +441,7 @@ static PyObject *integration_specs_weights(PyObject *self, PyTypeObject *definin
     {
         p_out[i] = weights[i];
     }
-    const fdg_result_t res = integration_rule_registry_release_rule(registry, rule);
-    (void)res;
-    ASSERT(res == FDG_SUCCESS, "Rule from the registry had to be successfully returned.");
+    integration_rule_registry_release_rule(registry, rule);
     return (PyObject *)out;
 }
 

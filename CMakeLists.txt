@@ -129,7 +129,6 @@ add_library(fdg STATIC
 add_subdirectory(cutl)
 
 set_property(TARGET fdg PROPERTY C_STANDARD 17)
-target_compile_definitions(fdg PRIVATE FDG_ASSERTS)
 target_link_libraries(fdg PUBLIC m OpenMP::OpenMP_C cutl)
 if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
     target_compile_options(fdg PRIVATE -Wall -Wextra -Werror -fanalyzer -Werror)
@@ -163,7 +162,7 @@ target_link_libraries(_fdg PRIVATE fdg cpyutl cutl)
 set_property(TARGET _fdg PROPERTY C_STANDARD 17)
 set_property(TARGET _fdg PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
 install(TARGETS _fdg DESTINATION ${SKBUILD_PROJECT_NAME})
-target_compile_definitions(_fdg PRIVATE FDG_ASSERTS CPYUTL_ENABLE_ASSERTS)
+target_compile_definitions(_fdg PRIVATE CPYUTL_ENABLE_ASSERTS)
 
 if ("${NumPy_INCLUDE_DIRS}" STREQUAL "")
     message(FATAL_ERROR "NumPy_INCLUDE_DIRS was empty.")

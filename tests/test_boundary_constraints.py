@@ -288,5 +288,23 @@ def test_shared_face_fields_annihilate() -> None:
     np.testing.assert_allclose(residual, 0.0, atol=1e-10)
 
 
+def test_orientation_records_must_be_permutations() -> None:
+    """A repeated axis is not a signed permutation; addressing requires distinct axes."""
+    specs = [_element_spec(2), _element_spec(2)]
+    integrations = [_integrations((3, 3))] * 2
+    with pytest.raises(ValueError, match="given twice"):
+        compute_kform_boundary_mass_matrices(
+            specs,
+            [_orientation_record(1, 1), _orientation_record(-1, 2)],
+            integrations,
+        )
+    with pytest.raises(ValueError, match="given twice"):
+        compute_kform_boundary_mass_matrices(
+            specs,
+            [_orientation_record(1, 2), _orientation_record(2, -2)],
+            integrations,
+        )
+
+
 if __name__ == "__main__":
     pytest.main([__file__])

@@ -83,12 +83,11 @@ unsigned covector_basis_rank(covector_basis_t basis);
 /**
  * Constructs a covector basis representation with the specified parameters.
  *
- * @param dimension The dimension of the covector space. Must be less than COVECTOR_BASIS_MAX_DIM.
+ * @param dimension The dimension of the covector space. Must be in [1, COVECTOR_BASIS_MAX_DIM).
  * @param sign The sign of the covector basis. Negative values mean the basis have a negative sign.
  * @param rank The number of active components in the covector basis. Must not exceed the dimension.
  * @param indices Sorted indices specifying the indices of the components to be set in the basis.
  *           Each index must be within the bounds of the dimension and must be unique.
- *           Behavior is undefined if an index is repeated, out of bounds, or unsorted.
  * @return The constructed covector_basis_t structure representing the basis.
  */
 FDG_INTERNAL
@@ -103,7 +102,6 @@ covector_basis_t covector_basis_create(unsigned dimension, int sign, unsigned ra
  * @param rank The number of active components in the covector basis. Must not exceed the dimension.
  * @param indices Sorted indices specifying the indices of the components to be set in the basis.
  *           Each index must be within the bounds of the dimension and must be unique.
- *           Behavior is undefined if an index is repeated, out of bounds, or unsorted.
  * @return The constructed covector_basis_t structure representing the basis.
  */
 FDG_INTERNAL

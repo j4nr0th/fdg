@@ -35,15 +35,15 @@ int main(void)
                    topo_status_to_str(status), topo_status_msg(status));
 
     int8_t orientation[3];
-    TEST_ASSERTION(topo_obj_boundary_orientation(immersions + 0, 3, 0, 0, orientation) == TOPO_SUCCESS,
+    TEST_ASSERTION(topo_obj_boundary_orientation(immersions + 0, 3, 0, 0, orientation),
                    "Could not find point boundary in first element.");
-    TEST_ASSERTION(topo_obj_boundary_orientation(immersions + 1, 3, 0, 0, orientation) == TOPO_SUCCESS,
+    TEST_ASSERTION(topo_obj_boundary_orientation(immersions + 1, 3, 0, 0, orientation),
                    "Could not find line boundary in first element.");
-    TEST_ASSERTION(topo_obj_boundary_orientation(immersions + 2, 3, 2, 0, orientation) == TOPO_SUCCESS,
+    TEST_ASSERTION(topo_obj_boundary_orientation(immersions + 2, 3, 2, 0, orientation),
                    "Could not find face boundary in first element.");
-    TEST_ASSERTION(topo_obj_boundary_orientation(immersions + 1, 3, 0, 1, orientation) == TOPO_SUCCESS,
+    TEST_ASSERTION(topo_obj_boundary_orientation(immersions + 1, 3, 0, 1, orientation),
                    "Could not find shared line boundary in second element.");
-    TEST_ASSERTION(topo_obj_boundary_orientation(immersions + 2, 3, 2, 1, orientation) == TOPO_SUCCESS,
+    TEST_ASSERTION(topo_obj_boundary_orientation(immersions + 2, 3, 2, 1, orientation),
                    "Could not find shared face boundary in second element.");
 
     topo_obj_immersions_free(3, immersions, allocator);

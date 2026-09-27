@@ -173,8 +173,8 @@ static void case_destroy(resample_case_t *const c)
 {
     for (unsigned axis = 0; axis < c->bdim; ++axis)
     {
-        TEST_FDG_RESULT(integration_rule_registry_release_rule(c->registry, c->source_rules[axis]));
-        TEST_FDG_RESULT(integration_rule_registry_release_rule(c->registry, c->target_rules[axis]));
+        integration_rule_registry_release_rule(c->registry, c->source_rules[axis]);
+        integration_rule_registry_release_rule(c->registry, c->target_rules[axis]);
     }
     integration_rule_registry_destroy(c->registry);
     free(c->source_values);

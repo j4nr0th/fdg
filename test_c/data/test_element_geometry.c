@@ -48,16 +48,13 @@ static void test_geometry_roundtrip(void)
 
     for (unsigned i = 0; i < 12; ++i)
         values[i] = -1.0;
-    TEST_FDG_RESULT(element_geometry_set_element_values(geometry, 1, values));
+    element_geometry_set_element_values(geometry, 1, values);
     TEST_NUMBERS_CLOSE(stored[12], -1.0, 1e-14, 0);
 
-    // Invalid indices are rejected.
-    TEST_ASSERTION(element_geometry_add_element(geometry, 3, values) == FDG_ERROR_NOT_IN_DOMAIN,
-                   "Out-of-range option index should be rejected.");
-    TEST_ASSERTION(element_geometry_set_element_values(geometry, 2, values) == FDG_ERROR_NOT_IN_DOMAIN,
-                   "Out-of-range element id should be rejected.");
+    // Out-of-range option indices and element ids abort through CUTL_ASSERT,
+    // so they are not tested here.
 
-    // Coordinate count mismatch is rejected.
+    // A coordinate count mismatch on a second option is rejected.
     unsigned bad_index;
     TEST_ASSERTION(element_geometry_add_option(geometry, 2, 2, specs, int_specs, &bad_index) == FDG_ERROR_NOT_IN_DOMAIN,
                    "Coordinate count mismatch should be rejected.");

@@ -16,7 +16,7 @@
  *
  * @param n Number of nodes.
  * @param nodes Array with nodes where the Lagrange polynomial is zero. The
- *        nodes must be distinct.
+ *        nodes must be pairwise distinct; asserted.
  * @param denominators Array which receives the denominators.
  */
 FDG_INTERNAL
@@ -62,9 +62,13 @@ void lagrange_polynomial_values(unsigned n_pos, const double FDG_ARRAY_ARG(p_pos
  *
  * Equivalent to lagrange_polynomial_values, but the denominators are stored
  * in the last row of the output buffer instead of a separate work array.
- * The output layout is identical. Requires `n_pos` to be at least 2.
+ * The output layout is identical.
  *
- * @param n_pos Number of points where polynomials should be evaluated.
+ * The arguments are preconditions, not values to validate: a point count of
+ * zero aborts through CUTL_ASSERT, because it would wrap the offset of the
+ * row reserved for the denominators.
+ *
+ * @param n_pos Number of points where polynomials should be evaluated. Must be at least 1.
  * @param p_pos Points where the Lagrange polynomials should be evaluated at.
  * @param n_roots Number or roots of Lagrange polynomials, which is also the order of the polynomials.
  * @param p_roots Roots of the lagrange polynomials.
@@ -101,10 +105,9 @@ void lagrange_polynomial_values_transposed(unsigned n_in, const double FDG_ARRAY
  *
  * Equivalent to lagrange_polynomial_values_transposed, but the denominators
  * are stored in the last element of each row of the output buffer instead of
- * a separate work array. The output layout is identical. Requires `n_pos` to
- * be at least 2.
+ * a separate work array. The output layout is identical.
  *
- * @param n_pos Number of points where polynomials should be evaluated.
+ * @param n_pos Number of points where polynomials should be evaluated. Must be at least 1.
  * @param p_pos Points where the Lagrange polynomials should be evaluated at.
  * @param n_roots Number or roots of Lagrange polynomials, which is also the order of the polynomials.
  * @param p_roots Roots of the lagrange polynomials.
@@ -219,14 +222,12 @@ void lagrange_polynomial_first_derivative_transposed_2(unsigned n_pos, const dou
  * @param weights Array which receives the weights for the interpolation.
  * @param work1 Array used to store intermediate results (cache for the denominators).
  * @param work2 Array used to store intermediate results (cache for the differences).
- *
- * @return FDG_SUCCESS.
  */
 FDG_INTERNAL
-fdg_result_t lagrange_polynomial_second_derivative(unsigned n_in, const double FDG_ARRAY_ARG(pos, static n_in),
-                                                   unsigned n_nodes, const double FDG_ARRAY_ARG(x, static n_nodes),
-                                                   double FDG_ARRAY_ARG(weights, restrict n_nodes *n_in),
-                                                   double FDG_ARRAY_ARG(work1, restrict n_nodes),
-                                                   double FDG_ARRAY_ARG(work2, restrict n_nodes));
+void lagrange_polynomial_second_derivative(unsigned n_in, const double FDG_ARRAY_ARG(pos, static n_in),
+                                           unsigned n_nodes, const double FDG_ARRAY_ARG(x, static n_nodes),
+                                           double FDG_ARRAY_ARG(weights, restrict n_nodes *n_in),
+                                           double FDG_ARRAY_ARG(work1, restrict n_nodes),
+                                           double FDG_ARRAY_ARG(work2, restrict n_nodes));
 
 #endif // LAGRANGE_H

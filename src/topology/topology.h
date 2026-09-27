@@ -4,18 +4,16 @@
 #include <stdint.h>
 
 /**
- * Enum with success and error codes for topological functions.
+ * Enum with the resource failures a topological function can report.
+ *
+ * Anything that is not a resource failure (a violated precondition or
+ * malformed collections) aborts through CUTL_ASSERT instead of being returned.
  */
 typedef enum
 {
-    TOPO_SUCCESS = 0,                // Success.
-    TOPO_FAILED_ALLOC,               // Failed memory allocation.
-    TOPO_NO_COMMON_BOUNDARY,         // Two non-opposite boundaries in an object have no common boundary.
-    TOPO_INVALID_PARENT_BOUNDARIES,  // Parent object had invalid orientation with repeating indices.
-    TOPO_INVALID_ELEMENT,            // Objects in an element did not appear as often as expected.
-    TOPO_MULTIPLE_COMMON_BOUNDARIES, // Two elements share more than one boundary object.
-    TOPO_SIZE_OVERFLOW,              // A size calculation overflowed.
-    TOPO_INVALID_ARGUMENT,           // An argument was invalid.
+    TOPO_SUCCESS = 0,   // Success.
+    TOPO_FAILED_ALLOC,  // Failed memory allocation.
+    TOPO_SIZE_OVERFLOW, // A size calculation overflowed.
 } topo_status_t;
 
 /**
@@ -86,19 +84,6 @@ typedef struct
 unsigned topo_obj_boundary_count(unsigned ndim);
 
 /**
- * Find the common boundary of two objects from the same collection. The orientation of the boundary returned is as
- * it is within the first object. If the first object has reversed orientation, then the returned boundary has
- * its orientation reversed as well.
- *
- * @param collection[in] Collection the two objects belong to.
- * @param id_1[in] ID of the first object.
- * @param id_2[in] ID of the second object.
- * @return UINT64_MAX if the two share no boundary, otherwise an ID of the shared boundary, with the orientation
- *         as in the object with ID of ``id_1``.
- */
-uint64_t topo_obj_common_boundary(const topo_obj_collection_t *collection, uint64_t id_1, uint64_t id_2);
-
-/**
  * Find the index of the common boundary of two objects from the same collection.
  *
  * @param collection[in] Collection the two objects belong to.
@@ -112,12 +97,19 @@ uint64_t topo_obj_common_boundary_index(const topo_obj_collection_t *collection,
  * Determine immersion information from topological description of elements in terms of boundaries. These
  * boundaries are in turn again described by their boundaries, and so on until 0-D objects (points).
  *
+ * The collections must have the boundary incidence of a consistent hypercube
+ * gluing: each object must be visited a number of times divisible by the
+ * factorial of its codimension. This is a structural property of collections
+ * that already passed the validation a binding performs (see
+ * mesh_check_collections), so a violation aborts through CUTL_ASSERT instead of
+ * being reported. The only recoverable failure is running out of memory.
+ *
  * @param ndim[in] Number of dimensions of the space all objects are immersed in.
  * @param npts[in] Number of points in the mesh which do not have their own collection.
  * @param collections[in] Collections of objects going from 1-D (lines) to ndim-D (elements themselves).
  * @param allocator[in] Allocator to use to create the immersions in.
  * @param immersions[out] Array, which receives computed immersion information for objects from 0-D to (ndim-1)-D
- * @return TOPO_SUCCESS if successful, otherwise an error code.
+ * @return TOPO_SUCCESS on success, TOPO_FAILED_ALLOC if a memory allocation fails.
  */
 topo_status_t topo_obj_create_immersion_info(unsigned ndim, unsigned npts,
                                              const topo_obj_collection_t collections[static ndim],
@@ -141,6 +133,11 @@ void topo_obj_immersions_free(unsigned ndim, topo_obj_immersion_t immersions[con
  * Create immersion information (position in the element and its relative orientation) for a boundary of an object from
  * a collection.
  *
+ * The collection must describe a consistent hypercube gluing: two boundaries
+ * of one object always share a common boundary. A violation means malformed
+ * collections reached the topology layer without being validated, so it
+ * aborts through CUTL_ASSERT rather than being reported.
+ *
  * @param ndim[in] Number of dimensions of the space everything is immersed in.
  * @param idim[in] Dimension of the boundary objects.
  * @param collection[in] Collection the object is from.
@@ -151,14 +148,12 @@ void topo_obj_immersions_free(unsigned ndim, topo_obj_immersion_t immersions[con
  * @param boundaries[in] Array of 1-based indices of other boundaries in the same topological object.
  * @param orient_arr[out] Array that receives the specification of the boundary in the element as the first
  * (ndim-idim) entries and the mapping of its local axes to those of the element as the final idim entries.
- * @return TOPO_SUCCESS if successful, TOPO_NO_COMMON_BOUNDARY if there are boundaries that do not share a boundary
- * among each other.
  */
-topo_status_t topo_obj_boundary_immersion_create(unsigned ndim, unsigned idim, const topo_obj_collection_t *collection,
-                                                 unsigned bdim, unsigned fixed_axes,
-                                                 const int8_t parent_orientation[const static ndim],
-                                                 const uint64_t boundaries[const static 2 * ndim],
-                                                 int8_t orient_arr[const ndim]);
+void topo_obj_boundary_immersion_create(unsigned ndim, unsigned idim, const topo_obj_collection_t *collection,
+                                        unsigned bdim, unsigned fixed_axes,
+                                        const int8_t parent_orientation[const static ndim],
+                                        const uint64_t boundaries[const static 2 * ndim],
+                                        int8_t orient_arr[const ndim]);
 
 /**
  * Immersion information with IDs of elements an object is contained in.
@@ -177,6 +172,10 @@ topo_status_t topo_obj_boundary_immersion_create(unsigned ndim, unsigned idim, c
  *  be iterated one integer at a time, while the orientation array should instead advance ``n`` entries
  *  at a time.
  *
+ * The arguments are preconditions, not values to validate: a null immersion,
+ * an object ID outside ``immersion->object_count`` or a null output pointer
+ * abort through CUTL_ASSERT.
+ *
  * @param[in] immersion Immersion info of objects.
  * @param[in] object_id ID of the object to get the immersion for.
  * @param[out] p_cnt Pointer to the location where the size of the output array is stored.
@@ -189,33 +188,22 @@ void topo_obj_immersion_of_object(const topo_obj_immersion_t *immersion, uint64_
 /**
  * Get the orientation of one boundary object within an element.
  *
+ * The arguments are preconditions, not values to validate: a null immersion, a
+ * ``parent_dims`` different from ``immersion->parent_dims`` or an
+ * ``object_id`` outside ``immersion->object_count`` abort through CUTL_ASSERT.
+ * Callers with untrusted input must range-check the object ID against that
+ * bound first and report it themselves.
+ *
  * @param immersion Immersion information for codimension-one objects.
  * @param parent_dims Number of dimensions in the parent elements.
  * @param object_id Boundary object ID.
  * @param element_id Parent element ID.
- * @param orientation Receives the parent-dimension orientation record.
- * @return TOPO_SUCCESS if the object is in the element, otherwise TOPO_NO_COMMON_BOUNDARY.
+ * @param orientation Receives the parent-dimension orientation record. Only written when the object is in the
+ *        element.
+ * @return true if the object is in the element, false if this valid object is simply not contained in it.
  */
-topo_status_t topo_obj_boundary_orientation(const topo_obj_immersion_t *immersion, unsigned parent_dims,
-                                            uint64_t object_id, uint64_t element_id,
-                                            int8_t orientation[const static parent_dims]);
-
-/**
- * Find the unique immersed boundary object shared by two elements.
- *
- * The output orientations contain one parent-dimension orientation record for each element, in element ID order.
- *
- * @param immersion Immersion information for codimension-one objects.
- * @param parent_dims Number of dimensions in the parent elements.
- * @param element_id_1 ID of the first element.
- * @param element_id_2 ID of the second element.
- * @param p_object_id Receives the shared boundary object ID.
- * @param orientations Receives the two orientation records, with the first record at offset zero.
- * @return TOPO_SUCCESS, TOPO_NO_COMMON_BOUNDARY, or TOPO_MULTIPLE_COMMON_BOUNDARIES.
- */
-topo_status_t topo_obj_find_common_boundary(const topo_obj_immersion_t *immersion, unsigned parent_dims,
-                                            uint64_t element_id_1, uint64_t element_id_2, uint64_t *p_object_id,
-                                            int8_t orientations[const static 2 * parent_dims]);
+bool topo_obj_boundary_orientation(const topo_obj_immersion_t *immersion, unsigned parent_dims, uint64_t object_id,
+                                   uint64_t element_id, int8_t orientation[const static parent_dims]);
 
 /**
  * Type with info and work memory needed to iterate over a boundary.

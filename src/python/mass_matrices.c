@@ -667,7 +667,7 @@ static void compute_mass_matrix_integration_weights(const space_map_object *spac
 {
     if (order == 0)
     {
-        ASSERT(transform_array == NULL, "Transform array should be NULL for order 0.");
+        CUTL_ASSERT(transform_array == NULL, "Transform array should be NULL for order 0.");
         // For 0-form it's just the determinant
         for (size_t i = 0; i < total_int_pts; ++i)
         {
@@ -676,7 +676,7 @@ static void compute_mass_matrix_integration_weights(const space_map_object *spac
     }
     else if (order == n_coords)
     {
-        ASSERT(transform_array == NULL, "Transform array should be NULL for order n.");
+        CUTL_ASSERT(transform_array == NULL, "Transform array should be NULL for order n.");
         // For n-form it is the inverse of determinant
         for (size_t i = 0; i < total_int_pts; ++i)
         {
@@ -685,12 +685,12 @@ static void compute_mass_matrix_integration_weights(const space_map_object *spac
     }
     else
     {
-        ASSERT(transform_array != NULL, "Transform array should not be NULL for order > 0.");
+        CUTL_ASSERT(transform_array != NULL, "Transform array should not be NULL for order > 0.");
         // For all others we must compute them from transformation matrix, after determinant
         const npy_intp *restrict const trans_dims = PyArray_DIMS(transform_array);
-        ASSERT(basis_idx_left < (size_t)PyArray_DIM(transform_array, 0) &&
-                   basis_idx_right < (size_t)PyArray_DIM(transform_array, 0),
-               "Input basis indices are not correct for the transformation array shape");
+        CUTL_ASSERT(basis_idx_left < (size_t)PyArray_DIM(transform_array, 0) &&
+                        basis_idx_right < (size_t)PyArray_DIM(transform_array, 0),
+                    "Input basis indices are not correct for the transformation array shape");
 
         for (size_t i = 0; i < total_int_pts; ++i)
         {
@@ -1058,13 +1058,13 @@ static PyObject *compute_kform_mass_matrix(PyObject *module, PyObject *const *ar
             }
             col_offset += dofs_right;
         }
-        ASSERT(basis_idx_right == component_count, "Right component count mismatch (%zu vs %u).", basis_idx_right,
-               component_count);
+        CUTL_ASSERT(basis_idx_right == component_count, "Right component count mismatch (%zu vs %u).", basis_idx_right,
+                    component_count);
         row_offset += dofs_left;
     }
-    ASSERT(basis_idx_left == component_count, "Left component count mismatch (%zu vs %u).", basis_idx_left,
-           component_count);
-    ASSERT(row_offset == row_cnt, "Row offset at the end of the matrix (%zu vs %zu).", row_offset, row_cnt);
+    CUTL_ASSERT(basis_idx_left == component_count, "Left component count mismatch (%zu vs %u).", basis_idx_left,
+                component_count);
+    CUTL_ASSERT(row_offset == row_cnt, "Row offset at the end of the matrix (%zu vs %zu).", row_offset, row_cnt);
 
     cutl_dealloc(&PYTHON_ALLOCATOR, basis_mem);
     for (unsigned j = 0; j < n; ++j)
@@ -1093,8 +1093,8 @@ static void compute_interior_product_component_weights(
     if (k == 1)
     {
         // TODO: check for special case when n and k are both 1
-        ASSERT(transform_array_left == NULL, "Left transform array should be NULL for k = 1.");
-        ASSERT(transform_array_right != NULL, "Right transform array for right component should not be NULL.");
+        CUTL_ASSERT(transform_array_left == NULL, "Left transform array should be NULL for k = 1.");
+        CUTL_ASSERT(transform_array_right != NULL, "Right transform array for right component should not be NULL.");
         // Add contributions of left, right, and vector field (but left is always 1)
         for (size_t i = 0; i < int_pts; ++i)
         {
@@ -1112,8 +1112,8 @@ static void compute_interior_product_component_weights(
     }
     else if (k == n_maps)
     {
-        ASSERT(transform_array_left != NULL, "Left transform array for left component should not be NULL.");
-        ASSERT(transform_array_right == NULL, "Right transform array should be NULL for k = n.");
+        CUTL_ASSERT(transform_array_left != NULL, "Left transform array for left component should not be NULL.");
+        CUTL_ASSERT(transform_array_right == NULL, "Right transform array should be NULL for k = n.");
         // Add contributions of left, right, and vector field (but right is always 1/det)
         for (size_t i = 0; i < int_pts; ++i)
         {
@@ -1131,8 +1131,8 @@ static void compute_interior_product_component_weights(
     else // if (k != 1 && k != n)
     {
         // General case
-        ASSERT(transform_array_left != NULL, "Left transform array for left component should not be NULL.");
-        ASSERT(transform_array_right != NULL, "Right transform array for right component should not be NULL.");
+        CUTL_ASSERT(transform_array_left != NULL, "Left transform array for left component should not be NULL.");
+        CUTL_ASSERT(transform_array_right != NULL, "Right transform array for right component should not be NULL.");
         // Add contributions of left, right, and vector field
         for (size_t i = 0; i < int_pts; ++i)
         {
@@ -1234,8 +1234,8 @@ static void compute_interior_product_weights(
             integration_weights[integration_pt_idx] *= int_weight;
         }
     }
-    ASSERT(integration_pt_idx == int_pts_cnt, "Integration point count mismatch (counted up %zu, expected %zu).",
-           integration_pt_idx, int_pts_cnt);
+    CUTL_ASSERT(integration_pt_idx == int_pts_cnt, "Integration point count mismatch (counted up %zu, expected %zu).",
+                integration_pt_idx, int_pts_cnt);
 }
 
 static PyObject *compute_kform_interior_product_matrix(PyObject *module, PyObject *const *args, const Py_ssize_t nargs,
@@ -1319,6 +1319,13 @@ static PyObject *compute_kform_interior_product_matrix(PyObject *module, PyObjec
     if (order < 1 || order > n)
     {
         PyErr_Format(PyExc_ValueError, "Order %zd out of bounds for space map with %u dimensions.", order, n);
+        return NULL;
+    }
+    // outer_product_pair_iterator_init() takes the dimension in [1, 32] as a
+    // precondition; report a larger one here instead of aborting there.
+    if (n > 32)
+    {
+        PyErr_Format(PyExc_ValueError, "Expected ndim in [1, 32], got %u.", n);
         return NULL;
     }
 
@@ -1579,14 +1586,15 @@ static PyObject *compute_kform_interior_product_matrix(PyObject *module, PyObjec
             const unsigned dofs_right = kform_component_dof_count(n, fn_right->specs, order, p_basis_components_right);
             col_offset += dofs_right;
         }
-        ASSERT(col_offset == col_cnt, "Column offset at the end of the row (%zu) did not match the column count (%zu)",
-               col_offset, col_cnt);
+        CUTL_ASSERT(col_offset == col_cnt,
+                    "Column offset at the end of the row (%zu) did not match the column count (%zu)", col_offset,
+                    col_cnt);
 
         const unsigned dofs_left = kform_component_dof_count(n, fn_left->specs, order - 1, p_basis_components_left);
         row_offset += dofs_left;
     }
-    ASSERT(row_offset == row_cnt, "Row offset at the end of the matrix (%zu) did not match the row count (%zu)",
-           row_offset, row_cnt);
+    CUTL_ASSERT(row_offset == row_cnt, "Row offset at the end of the matrix (%zu) did not match the row count (%zu)",
+                row_offset, row_cnt);
 
     // Release integration rules and basis
     for (unsigned j = 0; j < n; ++j)

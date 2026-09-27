@@ -32,6 +32,9 @@ static inline unsigned kform_spec_component_count(const kform_spec_t *kform_spec
 static inline void kform_component_axes(const kform_spec_t *spec, unsigned component,
                                         uint8_t axes[static spec->order == 0 ? 1 : spec->order])
 {
+    CUTL_ASSERT((size_t)component < kform_spec_component_count(spec),
+                "Component index %u is out of range for a k-form with %u components.", component,
+                kform_spec_component_count(spec));
     combination_set_to_index((uint8_t)spec->ndim, (uint8_t)spec->order, axes, component);
 }
 

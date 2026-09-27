@@ -116,8 +116,8 @@ int main(void)
 
         for (unsigned dim = 0; dim < ndim; ++dim)
         {
-            TEST_FDG_RESULT(basis_set_registry_release_basis_set(registry, basis_left[dim]));
-            TEST_FDG_RESULT(basis_set_registry_release_basis_set(registry, basis_right[dim]));
+            basis_set_registry_release_basis_set(registry, basis_left[dim]);
+            basis_set_registry_release_basis_set(registry, basis_right[dim]);
         }
     }
 

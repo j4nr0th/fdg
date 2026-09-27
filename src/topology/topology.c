@@ -11,12 +11,7 @@ const char *topo_status_to_str(const topo_status_t status)
     {
         TOPO_STATUS_CASE(TOPO_SUCCESS);
         TOPO_STATUS_CASE(TOPO_FAILED_ALLOC);
-        TOPO_STATUS_CASE(TOPO_NO_COMMON_BOUNDARY);
-        TOPO_STATUS_CASE(TOPO_INVALID_PARENT_BOUNDARIES);
-        TOPO_STATUS_CASE(TOPO_INVALID_ELEMENT);
-        TOPO_STATUS_CASE(TOPO_MULTIPLE_COMMON_BOUNDARIES);
         TOPO_STATUS_CASE(TOPO_SIZE_OVERFLOW);
-        TOPO_STATUS_CASE(TOPO_INVALID_ARGUMENT);
     }
     return "Unknown";
 }
@@ -31,12 +26,7 @@ const char *topo_status_msg(const topo_status_t status)
     {
         TOPO_STATUS_MSG(TOPO_SUCCESS, "Success");
         TOPO_STATUS_MSG(TOPO_FAILED_ALLOC, "Failed memory allocation");
-        TOPO_STATUS_MSG(TOPO_NO_COMMON_BOUNDARY, "Two non-opposite boundaries in an object have no common boundary");
-        TOPO_STATUS_MSG(TOPO_INVALID_PARENT_BOUNDARIES, "Parent object had invalid orientation with repeating indices");
-        TOPO_STATUS_MSG(TOPO_INVALID_ELEMENT, "Objects in an element did not appear as often as expected");
-        TOPO_STATUS_MSG(TOPO_MULTIPLE_COMMON_BOUNDARIES, "Two elements share multiple boundary objects");
         TOPO_STATUS_MSG(TOPO_SIZE_OVERFLOW, "A size calculation overflowed");
-        TOPO_STATUS_MSG(TOPO_INVALID_ARGUMENT, "An argument was invalid");
     }
     return "Unknown";
 }
@@ -50,6 +40,11 @@ unsigned topo_obj_boundary_count(const unsigned ndim)
 void topo_obj_immersion_of_object(const topo_obj_immersion_t *immersion, const uint64_t object_id, uint64_t *p_cnt,
                                   const uint64_t **p_ids, const int8_t **p_orientations)
 {
+    CUTL_ASSERT(immersion != NULL, "Immersion must not be null.");
+    CUTL_ASSERT(p_cnt != NULL && p_ids != NULL && p_orientations != NULL, "Output pointers must not be null.");
+    CUTL_ASSERT(object_id < immersion->object_count, "Object ID %llu is not in [0, %llu).",
+                (unsigned long long)object_id, (unsigned long long)immersion->object_count);
+
     const uint64_t offset = immersion->element_offsets[object_id];
     const uint64_t cnt = immersion->element_offsets[object_id + 1] - offset;
     *p_cnt = cnt;
@@ -57,12 +52,17 @@ void topo_obj_immersion_of_object(const topo_obj_immersion_t *immersion, const u
     *p_orientations = immersion->element_orientation + immersion->parent_dims * offset;
 }
 
-topo_status_t topo_obj_boundary_orientation(const topo_obj_immersion_t *const immersion, const unsigned parent_dims,
-                                            const uint64_t object_id, const uint64_t element_id,
-                                            int8_t orientation[const static parent_dims])
+bool topo_obj_boundary_orientation(const topo_obj_immersion_t *const immersion, const unsigned parent_dims,
+                                   const uint64_t object_id, const uint64_t element_id,
+                                   int8_t orientation[const static parent_dims])
 {
-    if (!immersion || object_id >= immersion->object_count || parent_dims != immersion->parent_dims)
-        return TOPO_NO_COMMON_BOUNDARY;
+    // The object is user input, but the binding that forwards it range-checks
+    // it against this very bound first, so everything else is a precondition.
+    CUTL_ASSERT(immersion != NULL, "Immersion must not be null.");
+    CUTL_ASSERT(parent_dims == immersion->parent_dims, "Parent dimension %u does not match immersion (%u).",
+                parent_dims, immersion->parent_dims);
+    CUTL_ASSERT(object_id < immersion->object_count, "Object ID %llu is not in [0, %llu).",
+                (unsigned long long)object_id, (unsigned long long)immersion->object_count);
 
     uint64_t element_count;
     const uint64_t *element_ids;
@@ -74,52 +74,12 @@ topo_status_t topo_obj_boundary_orientation(const topo_obj_immersion_t *const im
         {
             for (unsigned idim = 0; idim < parent_dims; ++idim)
                 orientation[idim] = element_orientations[parent_dims * i + idim];
-            return TOPO_SUCCESS;
+            return true;
         }
     }
-    return TOPO_NO_COMMON_BOUNDARY;
-}
-
-topo_status_t topo_obj_find_common_boundary(const topo_obj_immersion_t *const immersion, const unsigned parent_dims,
-                                            const uint64_t element_id_1, const uint64_t element_id_2,
-                                            uint64_t *const p_object_id,
-                                            int8_t orientations[const static 2 * parent_dims])
-{
-    if (!immersion || !p_object_id || element_id_1 == element_id_2 || parent_dims != immersion->parent_dims)
-        return TOPO_NO_COMMON_BOUNDARY;
-
-    unsigned matches = 0;
-    for (uint64_t object_id = 0; object_id < immersion->object_count; ++object_id)
-    {
-        uint64_t element_count;
-        const uint64_t *element_ids;
-        const int8_t *element_orientations;
-        topo_obj_immersion_of_object(immersion, object_id, &element_count, &element_ids, &element_orientations);
-
-        const int8_t *orientation_1 = NULL;
-        const int8_t *orientation_2 = NULL;
-        for (uint64_t i = 0; i < element_count; ++i)
-        {
-            if (element_ids[i] == element_id_1)
-                orientation_1 = element_orientations + parent_dims * i;
-            else if (element_ids[i] == element_id_2)
-                orientation_2 = element_orientations + parent_dims * i;
-        }
-        if (!orientation_1 || !orientation_2)
-            continue;
-
-        if (matches != 0)
-            return TOPO_MULTIPLE_COMMON_BOUNDARIES;
-        for (unsigned idim = 0; idim < parent_dims; ++idim)
-        {
-            orientations[idim] = orientation_1[idim];
-            orientations[parent_dims + idim] = orientation_2[idim];
-        }
-        *p_object_id = object_id;
-        matches = 1;
-    }
-
-    return matches == 0 ? TOPO_NO_COMMON_BOUNDARY : TOPO_SUCCESS;
+    // A valid object that simply is not in the requested element: the query
+    // answer, not an error.
+    return false;
 }
 
 /**
@@ -158,18 +118,6 @@ uint64_t topo_obj_common_boundary_index(const topo_obj_collection_t *collection,
 
     // There was no common boundary!
     return UINT64_MAX;
-}
-
-uint64_t topo_obj_common_boundary(const topo_obj_collection_t *collection, const uint64_t id_1, const uint64_t id_2)
-{
-    const uint64_t idx = topo_obj_common_boundary_index(collection, id_1, id_2);
-    if (idx == UINT64_MAX) // No common boundary
-        return UINT64_MAX;
-
-    // Get the boundary from the first object and adjust the id.
-    const unsigned boundaries_per_object = topo_obj_boundary_count(collection->ndim);
-    const uint64_t *const boundaries_1 = collection->boundary_ids + id_1 * boundaries_per_object;
-    return boundaries_1[idx];
 }
 
 void topo_obj_immersions_free(const unsigned ndim, topo_obj_immersion_t immersions[const ndim],
@@ -271,12 +219,10 @@ static int8_t *immersion_orientation_for_object(const uint64_t ie, const uint64_
     return element_orientation + immersion->parent_dims * insertion_idx;
 }
 
-topo_status_t topo_obj_boundary_immersion_create(const unsigned ndim, const unsigned idim,
-                                                 const topo_obj_collection_t *collection, const unsigned bdim,
-                                                 const unsigned fixed_axes,
-                                                 const int8_t parent_orientation[const static ndim],
-                                                 const uint64_t boundaries[const static 2 * ndim],
-                                                 int8_t orient_arr[const ndim])
+void topo_obj_boundary_immersion_create(const unsigned ndim, const unsigned idim,
+                                        const topo_obj_collection_t *collection, const unsigned bdim,
+                                        const unsigned fixed_axes, const int8_t parent_orientation[const static ndim],
+                                        const uint64_t boundaries[const static 2 * ndim], int8_t orient_arr[const ndim])
 {
     // Just assert, this depends on my code only.
     CUTL_ASSERT(idim == 0 || idim == collection->ndim, "Dimension index does not match up.");
@@ -295,24 +241,28 @@ topo_status_t topo_obj_boundary_immersion_create(const unsigned ndim, const unsi
         if (axis_index == bdim || axis_index + idim + 1 == bdim)
             continue;
 
-        // Find what the index of the common boundary is
-        uint64_t common_bnd_index =
+        // Find what the index of the common boundary is. Evaluated into a local
+        // first so that the lookup is not compiled away with the assertion.
+        const uint64_t common_bnd_index =
             topo_obj_common_boundary_index(collection, boundaries[bdim], boundaries[axis_index]);
 
-        if (common_bnd_index == UINT64_MAX)
-            return TOPO_NO_COMMON_BOUNDARY;
-
-        common_bnd_index += 1;
+        // Two boundaries of one object that share no boundary can only come
+        // from collections that are not a consistent hypercube gluing; such
+        // collections are deliberately not pre-checked in the bindings.
+        CUTL_ASSERT(common_bnd_index != UINT64_MAX,
+                    "Objects %llu and %llu of the dimension-%u collection share no common boundary: the "
+                    "collections are not a consistent hypercube gluing.",
+                    (unsigned long long)boundaries[bdim], (unsigned long long)boundaries[axis_index], collection->ndim);
 
         // Record the orientation for the child
         // If we are in the second half of the array, we flip the sign
-        if (common_bnd_index > idim)
+        if (common_bnd_index + 1 > idim)
         {
-            orient_arr[fixed_axes + common_bnd_index - idim] = (int8_t)-(axis_index + 1);
+            orient_arr[fixed_axes + common_bnd_index + 1 - idim] = (int8_t)-(axis_index + 1);
         }
         else
         {
-            orient_arr[fixed_axes + common_bnd_index] = (int8_t)(axis_index + 1);
+            orient_arr[fixed_axes + common_bnd_index + 1] = (int8_t)(axis_index + 1);
         }
     }
 
@@ -331,8 +281,6 @@ topo_status_t topo_obj_boundary_immersion_create(const unsigned ndim, const unsi
         // Write it back
         orient_arr[i] = parent_axis;
     }
-
-    return TOPO_SUCCESS;
 }
 
 typedef struct
@@ -366,10 +314,9 @@ typedef struct
  * @param idim[in] Index of the dimension we are currently in on this level of recursion.
  * @param parent_idx[in] Index of the parent element within its collection.
  * @param parent_orientation[in] Array specifying the parent's orientation.
- * @return If successful zero, non-zero on error.
  */
-static topo_status_t topo_obj_recursively_orient(const recursive_orient_data_t *recursion_data, const unsigned idim,
-                                                 const uint64_t parent_idx, const int8_t parent_orientation[])
+static void topo_obj_recursively_orient(const recursive_orient_data_t *recursion_data, const unsigned idim,
+                                        const uint64_t parent_idx, const int8_t parent_orientation[])
 {
     const unsigned ie = recursion_data->ie;
     const unsigned ndim = recursion_data->ndim;
@@ -413,30 +360,19 @@ static topo_status_t topo_obj_recursively_orient(const recursive_orient_data_t *
         CUTL_ASSERT(orient_start != NULL && orient_end != NULL,
                     "Could not orientation array was already used up for this object!");
 
-        const topo_status_t stat_start = topo_obj_boundary_immersion_create(
-            ndim, idim, collections + idim - 1, bdim, fixed_axis, parent_orientation, boundaries, orient_start);
-        if (stat_start != TOPO_SUCCESS)
-            return stat_start;
-        const topo_status_t stat_end = topo_obj_boundary_immersion_create(
-            ndim, idim, collections + idim - 1, bdim_opposite, fixed_axis, parent_orientation, boundaries, orient_end);
-        if (stat_end != TOPO_SUCCESS)
-            return stat_end;
+        topo_obj_boundary_immersion_create(ndim, idim, collections + idim - 1, bdim, fixed_axis, parent_orientation,
+                                           boundaries, orient_start);
+        topo_obj_boundary_immersion_create(ndim, idim, collections + idim - 1, bdim_opposite, fixed_axis,
+                                           parent_orientation, boundaries, orient_end);
 
         // If we are dealing with points only, we are done.
         if (idim == 0)
             continue;
 
         // With the object's orientation fully determined, we can now recursively do this for its boundaries.
-        const topo_status_t stat_rec1 =
-            topo_obj_recursively_orient(recursion_data, idim - 1, boundary_start, orient_start);
-        if (stat_rec1 != TOPO_SUCCESS)
-            return stat_rec1;
-        const topo_status_t stat_rec2 = topo_obj_recursively_orient(recursion_data, idim - 1, boundary_end, orient_end);
-        if (stat_rec2 != TOPO_SUCCESS)
-            return stat_rec2;
+        topo_obj_recursively_orient(recursion_data, idim - 1, boundary_start, orient_start);
+        topo_obj_recursively_orient(recursion_data, idim - 1, boundary_end, orient_end);
     }
-
-    return TOPO_SUCCESS;
 }
 
 static bool initialize_immersion(topo_obj_immersion_t *this, const unsigned ndim, const uint64_t cnt,
@@ -502,14 +438,17 @@ topo_status_t topo_obj_create_immersion_info(const unsigned ndim, const unsigned
         uint64_t *const counts = immersions[ndim - 1 - idim].element_offsets;
         for (unsigned j = 0; j < immersions[ndim - 1 - idim].object_count; ++j)
         {
-            const uint64_t remainder = counts[j] % multiplicity;
-            const uint64_t quotient = counts[j] / multiplicity;
-            if (remainder != 0)
-            {
-                return TOPO_INVALID_ELEMENT;
-            }
+            const uint64_t count = counts[j];
+            // A visit count that is not a multiple of the multiplicity means
+            // the boundary incidence of the collections is not that of a
+            // hypercube gluing; such collections are deliberately not
+            // pre-checked in the bindings.
+            CUTL_ASSERT(count % multiplicity == 0,
+                        "Object %llu of dimension %u was visited %llu times, not a multiple of %u: the "
+                        "collections' boundary incidence is not that of a hypercube gluing.",
+                        (unsigned long long)j, ndim - 1 - idim, (unsigned long long)count, multiplicity);
 
-            counts[j] = quotient;
+            counts[j] = count / multiplicity;
         }
 
         // Adjust multiplicity for the next iteration
@@ -575,15 +514,10 @@ topo_status_t topo_obj_create_immersion_info(const unsigned ndim, const unsigned
     // Similar process now as with the element counting, but we must now also deal with the orientation
     for (unsigned ie = 0; ie < collections[ndim - 1].count; ++ie)
     {
-        const topo_status_t stat = topo_obj_recursively_orient(
+        topo_obj_recursively_orient(
             &(const recursive_orient_data_t){
                 .ie = ie, .ndim = ndim, .collections = collections, .immersions = immersions},
             ndim - 1, ie, parent_orientation);
-        if (stat != 0)
-        {
-            topo_obj_immersions_free(ndim, immersions, allocator);
-            return stat;
-        }
     }
     cutl_dealloc(allocator, parent_orientation);
 

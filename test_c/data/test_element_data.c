@@ -61,19 +61,9 @@ static void test_dof_option_and_elements(void)
     // Overwrite the first element.
     for (unsigned i = 0; i < 9; ++i)
         values[i] = -1.0;
-    TEST_FDG_RESULT(element_data_set_element_values(data, 0, values, 9));
+    element_data_set_element_values(data, 0, values, 9);
     for (unsigned i = 0; i < 9; ++i)
         TEST_NUMBERS_CLOSE(stored[i], -1.0, 1e-14, 0);
-
-    // Invalid counts and indices are rejected.
-    TEST_ASSERTION(element_data_add_element(data, 0, values, 8) == FDG_ERROR_NOT_IN_DOMAIN,
-                   "Wrong value count should be rejected.");
-    TEST_ASSERTION(element_data_add_element(data, 5, values, 9) == FDG_ERROR_NOT_IN_DOMAIN,
-                   "Out-of-range option index should be rejected.");
-    TEST_ASSERTION(element_data_set_element_values(data, 2, values, 9) == FDG_ERROR_NOT_IN_DOMAIN,
-                   "Out-of-range element id should be rejected.");
-    TEST_ASSERTION(element_data_set_element_values(data, 0, values, 10) == FDG_ERROR_NOT_IN_DOMAIN,
-                   "Wrong overwrite count should be rejected.");
 
     element_data_free(data, &TEST_ALLOCATOR);
 }
@@ -94,21 +84,6 @@ static void test_kform_option(void)
     TEST_ASSERTION(index == 0, "First option should get index 0.");
     TEST_ASSERTION(element_data_option_value_count(element_data_option(data, 0)) == 12,
                    "Order-1 2D k-form on order-2 bases should store 12 values.");
-
-    // k-form order higher than ndim is rejected.
-    element_data_option_t bad_option = {
-        .kind = ELEMENT_DATA_KIND_KFORM, .ndim = 2, .basis_specs = (basis_spec_t *)specs, .kform = {.order = 3}};
-    unsigned bad_index;
-    TEST_ASSERTION(element_data_add_option(data, &bad_option, &bad_index) == FDG_ERROR_NOT_IN_DOMAIN,
-                   "K-form order above ndim should be rejected.");
-
-    // Zero-order basis axis with nonzero k-form order is rejected.
-    const basis_spec_t zero_specs[2] = {{.type = BASIS_LAGRANGE_UNIFORM, .order = 0},
-                                        {.type = BASIS_LAGRANGE_UNIFORM, .order = 2}};
-    element_data_option_t zero_option = {
-        .kind = ELEMENT_DATA_KIND_KFORM, .ndim = 2, .basis_specs = (basis_spec_t *)zero_specs, .kform = {.order = 1}};
-    TEST_ASSERTION(element_data_add_option(data, &zero_option, &bad_index) == FDG_ERROR_NOT_IN_DOMAIN,
-                   "Zero-order basis axis with k-form should be rejected.");
 
     element_data_free(data, &TEST_ALLOCATOR);
 }
@@ -132,25 +107,15 @@ static void test_geometry_option(void)
     TEST_ASSERTION(element_data_option_value_count(element_data_option(data, 0)) == 12,
                    "Geometry option with 3 coordinates and order 1 in 2D should store 12 values.");
 
-    // Geometry without integration specs is rejected.
-    element_data_option_t no_int = {.kind = ELEMENT_DATA_KIND_GEOMETRY,
-                                    .ndim = 2,
-                                    .basis_specs = (basis_spec_t *)specs,
-                                    .geometry = {.coord_count = 3, .int_specs = NULL}};
-    unsigned bad_index;
-    TEST_ASSERTION(element_data_add_option(data, &no_int, &bad_index) == FDG_ERROR_NOT_IN_DOMAIN,
-                   "Geometry without integration specs should be rejected.");
+    // Geometry without integration specs or with a mismatched kind aborts
+    // through CUTL_ASSERT, so it is not tested here.
 
-    // Kind mismatch on a second option is rejected.
-    element_data_option_t dof_option = {.kind = ELEMENT_DATA_KIND_DOF, .ndim = 2, .basis_specs = (basis_spec_t *)specs};
-    TEST_ASSERTION(element_data_add_option(data, &dof_option, &bad_index) == FDG_ERROR_NOT_IN_DOMAIN,
-                   "Kind mismatch should be rejected.");
-
-    // Coordinate count mismatch is rejected.
+    // A coordinate count mismatch on a second option is rejected.
     element_data_option_t two_coords = {.kind = ELEMENT_DATA_KIND_GEOMETRY,
                                         .ndim = 2,
                                         .basis_specs = (basis_spec_t *)specs,
                                         .geometry = {.coord_count = 2, .int_specs = (integration_spec_t *)int_specs}};
+    unsigned bad_index;
     TEST_ASSERTION(element_data_add_option(data, &two_coords, &bad_index) == FDG_ERROR_NOT_IN_DOMAIN,
                    "Coordinate count mismatch should be rejected.");
 
@@ -174,7 +139,7 @@ static void test_ndim_mismatch(void)
         .kind = ELEMENT_DATA_KIND_DOF, .ndim = 1, .basis_specs = (basis_spec_t *)specs_1d};
     unsigned bad_index;
     TEST_ASSERTION(element_data_add_option(data, &option_1d, &bad_index) == FDG_ERROR_NOT_IN_DOMAIN,
-                   "ndim mismatch should be rejected.");
+                   "An option with a different ndim than the first option should be rejected.");
 
     element_data_free(data, &TEST_ALLOCATOR);
 }

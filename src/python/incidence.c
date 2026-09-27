@@ -267,13 +267,9 @@ void lagrange_prepare_incidence_transformation(const basis_set_type_t type, cons
     double *restrict const in_nodes = work + n + (size_t)n * (n + 1); // old: n;
 
     // Compute nodes for the output set
-    fdg_result_t res = generate_lagrange_roots(n - 1, type, out_nodes);
-    CPYUTL_ASSERT(res == FDG_SUCCESS, "Somehow an invalid enum?");
-    (void)res;
+    generate_lagrange_roots(n - 1, type, out_nodes);
 
-    res = generate_lagrange_roots(n, type, in_nodes);
-    CPYUTL_ASSERT(res == FDG_SUCCESS, "Somehow an invalid enum?");
-    (void)res;
+    generate_lagrange_roots(n, type, in_nodes);
 
     lagrange_polynomial_first_derivative_2(n, out_nodes, n + 1, in_nodes, trans_matrix);
 }
@@ -381,13 +377,9 @@ void lagrange_matrix_incidence_operator(const basis_set_type_t type, const unsig
     double *restrict const trans_matrix = work + n + (n + 1);
 
     // Compute nodes for the output set
-    fdg_result_t res = generate_lagrange_roots(n - 1, type, out_nodes);
-    CPYUTL_ASSERT(res == FDG_SUCCESS, "Somehow an invalid enum?");
-    (void)res;
+    generate_lagrange_roots(n - 1, type, out_nodes);
 
-    res = generate_lagrange_roots(n, type, in_nodes);
-    CPYUTL_ASSERT(res == FDG_SUCCESS, "Somehow an invalid enum?");
-    (void)res;
+    generate_lagrange_roots(n, type, in_nodes);
 
     lagrange_polynomial_first_derivative_2(n, out_nodes, n + 1, in_nodes, trans_matrix);
     if (negate)
@@ -555,9 +547,7 @@ static PyObject *incidence_matrix(PyObject *mod, PyObject *const *args, const Py
                 Py_DECREF(out);
                 return NULL;
             }
-            fdg_result_t res = generate_lagrange_roots(n - 1, basis_specs->spec.type, out_nodes);
-            (void)res;
-            CPYUTL_ASSERT(res == FDG_SUCCESS, "Somehow an invalid enum?");
+            generate_lagrange_roots(n - 1, basis_specs->spec.type, out_nodes);
             double *const in_nodes = PyMem_Malloc(sizeof(*in_nodes) * (n + 1));
             if (!in_nodes)
             {
@@ -565,9 +555,7 @@ static PyObject *incidence_matrix(PyObject *mod, PyObject *const *args, const Py
                 Py_DECREF(out);
                 return NULL;
             }
-            res = generate_lagrange_roots(n, basis_specs->spec.type, in_nodes);
-            (void)res;
-            CPYUTL_ASSERT(res == FDG_SUCCESS, "Somehow an invalid enum?");
+            generate_lagrange_roots(n, basis_specs->spec.type, in_nodes);
 
             lagrange_polynomial_first_derivative_2(n, out_nodes, n + 1, in_nodes, data);
 
@@ -783,9 +771,9 @@ static void incidence_matrix_fill_block(const unsigned ndim, const basis_spec_t 
         }
         pre_stride *= dofs_in_dimension;
     }
-    ASSERT(components[i_component] == derivative_dim,
-           "I miscounted the components somehow (components[i_component] = %u, derivative_dim = %u).",
-           (unsigned)components[i_component], (unsigned)derivative_dim);
+    CUTL_ASSERT(components[i_component] == derivative_dim,
+                "I miscounted the components somehow (components[i_component] = %u, derivative_dim = %u).",
+                (unsigned)components[i_component], (unsigned)derivative_dim);
     i_component += 1;
     idim += 1;
     for (; idim < ndim; ++idim)
@@ -802,8 +790,8 @@ static void incidence_matrix_fill_block(const unsigned ndim, const basis_spec_t 
         }
         post_stride *= dofs_in_dimension;
     }
-    ASSERT(i_component == order, "I miscounted the components somehow (i_component = %u, order = %u).", i_component,
-           order);
+    CUTL_ASSERT(i_component == order, "I miscounted the components somehow (i_component = %u, order = %u).",
+                i_component, order);
 
     const basis_set_type_t btype = basis[derivative_dim].type;
     const unsigned n = basis[derivative_dim].order;
@@ -820,11 +808,11 @@ static void incidence_matrix_fill_block(const unsigned ndim, const basis_spec_t 
     case BASIS_LAGRANGE_GAUSS:
     case BASIS_LAGRANGE_GAUSS_LOBATTO:
     case BASIS_LAGRANGE_CHEBYSHEV_GAUSS:
-        ASSERT(work != NULL, "Work array was not given!");
+        CUTL_ASSERT(work != NULL, "Work array was not given!");
         lagrange_matrix_incidence_operator(btype, n, pre_stride, post_stride, row_pitch, mat, work, flip_sign);
         break;
     case BASIS_INVALID:
-        ASSERT(0, "Invalid basis type.");
+        CUTL_ASSERT(0, "Invalid basis type.");
         return;
     }
 }
@@ -851,9 +839,9 @@ static incidence_base_strides_t calculate_derivative_base_strides(const unsigned
         }
         pre_stride *= dofs_in_dimension;
     }
-    ASSERT(components[i_component] == derivative_dim,
-           "I miscounted the components somehow (components[i_component] = %u, derivative_dim = %u).",
-           (unsigned)components[i_component], (unsigned)derivative_dim);
+    CUTL_ASSERT(components[i_component] == derivative_dim,
+                "I miscounted the components somehow (components[i_component] = %u, derivative_dim = %u).",
+                (unsigned)components[i_component], (unsigned)derivative_dim);
     i_component += 1;
     idim += 1;
     for (; idim < ndim; ++idim)
@@ -870,8 +858,8 @@ static incidence_base_strides_t calculate_derivative_base_strides(const unsigned
         }
         post_stride *= dofs_in_dimension;
     }
-    ASSERT(i_component == order, "I miscounted the components somehow (i_component = %u, order = %u).", i_component,
-           order);
+    CUTL_ASSERT(i_component == order, "I miscounted the components somehow (i_component = %u, order = %u).",
+                i_component, order);
     const unsigned n = basis[derivative_dim].order;
 
     return (incidence_base_strides_t){.n = n, .pre_stride = pre_stride, .post_stride = post_stride};

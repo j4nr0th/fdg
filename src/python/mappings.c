@@ -8,7 +8,9 @@
 #include "degrees_of_freedom.h"
 #include "integration_objects.h"
 
+#include <limits.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 /**
  * Allocate a coordinate map on the given integration space without computing its values;
@@ -379,7 +381,8 @@ static void space_map_object_dealloc(PyObject *self)
     {
         coordinate_map_object *const map = this->maps[i];
         this->maps[i] = NULL;
-        Py_DECREF(map);
+        // Slots after an early construction failure were never filled.
+        Py_XDECREF(map);
     }
     type->tp_free((PyObject *)this);
     Py_DECREF(type);
@@ -402,6 +405,32 @@ space_map_object *space_map_object_create(PyTypeObject *subtype, const unsigned 
 
     // Copy the integration space from the first space, then check all others comply
     coordinate_map_object *const first_map = maps[0];
+    // The matrix kernels consume the map count and the dimension as unsigned
+    // matrix rows and columns; everything outside that range is a user input
+    // problem and is reported here instead of aborting in the core.
+    if (n_maps < 1)
+    {
+        PyErr_SetString(PyExc_ValueError, "Expected at least one coordinate map.");
+        Py_DECREF(this);
+        return NULL;
+    }
+    // Zero-dimensional maps are valid (a 1D element restricted to a point),
+    // but the matrix kernels consume the dimension as an unsigned matrix
+    // row/column count; report an oversized one here instead of aborting in
+    // the core.
+    if (first_map->ndim > UINT8_MAX)
+    {
+        PyErr_Format(PyExc_ValueError, "Expected ndim of at most %u, got %u.", (unsigned)UINT8_MAX, first_map->ndim);
+        Py_DECREF(this);
+        return NULL;
+    }
+    if ((uint64_t)n_maps * (uint64_t)first_map->ndim > (uint64_t)UINT_MAX)
+    {
+        PyErr_Format(PyExc_ValueError, "The product of the map count %u and dimension %u exceeds the maximum of %u.",
+                     n_maps, first_map->ndim, UINT_MAX);
+        Py_DECREF(this);
+        return NULL;
+    }
     if (first_map->ndim > n_maps)
     {
         PyErr_Format(PyExc_ValueError,

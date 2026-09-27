@@ -9,12 +9,16 @@
 #include "gauss_legendre.h"
 #include "gauss_lobatto.h"
 
+#include <stdbool.h>
 #include <string.h>
 #include <threads.h>
 
 fdg_result_t integration_rule_for_accuracy(integration_rule_t **out, const integration_rule_type_t type,
                                            const unsigned accuracy, const cutl_allocator_t *allocator)
 {
+    const bool type_valid = type == INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE || type == INTEGRATION_RULE_TYPE_GAUSS_LOBATTO;
+    CUTL_ASSERT(type_valid, "Integration rule type %d is not supported.", (int)type);
+
     unsigned required_order;
     switch (type)
     {
@@ -33,7 +37,8 @@ fdg_result_t integration_rule_for_accuracy(integration_rule_t **out, const integ
         break;
 
     default:
-        return FDG_ERROR_INVALID_ENUM;
+        required_order = 0;
+        break;
     }
 
     return integration_rule_for_order(out, type, required_order, allocator);
@@ -41,6 +46,9 @@ fdg_result_t integration_rule_for_accuracy(integration_rule_t **out, const integ
 fdg_result_t integration_rule_for_order(integration_rule_t **out, const integration_rule_type_t type,
                                         const unsigned order, const cutl_allocator_t *allocator)
 {
+    const bool type_valid = type == INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE || type == INTEGRATION_RULE_TYPE_GAUSS_LOBATTO;
+    CUTL_ASSERT(type_valid, "Integration rule type %d is not supported.", (int)type);
+
     integration_rule_t *const this = cutl_alloc(allocator, sizeof *this + 2 * (order + 1) * sizeof *this->_data);
     if (!this)
         return FDG_ERROR_FAILED_ALLOCATION;
@@ -66,7 +74,7 @@ fdg_result_t integration_rule_for_order(integration_rule_t **out, const integrat
                                     integration_rule_weights(this));
         break;
     default:
-        return FDG_ERROR_INVALID_ENUM;
+        break;
     }
 
     *out = this;
@@ -121,7 +129,8 @@ static inline fdg_result_t integration_rule_type_bucket_add_rule(integration_rul
                                                                  integration_rule_t *rule,
                                                                  const cutl_allocator_t *allocator)
 {
-    ASSERT(rule->spec.type == this->type, "Rule type does not match bucket type.");
+    CUTL_ASSERT(rule->spec.type == this->type, "Rule type %d does not match bucket type %d.", (int)rule->spec.type,
+                (int)this->type);
     if (this->count == this->capacity)
     {
         const unsigned new_capacity = this->capacity * 2;
@@ -198,68 +207,64 @@ fdg_result_t integration_rule_registry_get_rule(integration_rule_registry_t *thi
             break;
         }
     }
-    if (!bucket)
+    if (bucket)
     {
-        rw_lock_release_read(&this->lock);
-        rw_lock_acquire_write(&this->lock);
-
-        integration_rule_type_bucket_t *const new_buckets =
-            cutl_realloc(&this->allocator, this->buckets, (this->n_buckets + 1) * sizeof *new_buckets);
-        if (!new_buckets)
-            return FDG_ERROR_FAILED_ALLOCATION;
-        this->buckets = new_buckets;
-        enum
+        for (unsigned i = 0; i < bucket->count; ++i)
         {
-            BUCKET_STARTING_SIZE = 8
-        };
-        fdg_result_t result = integration_rule_type_bucket_init(this->buckets + this->n_buckets, spec.type,
-                                                                BUCKET_STARTING_SIZE, &this->allocator);
-        if (result != FDG_SUCCESS)
-            return result;
-        bucket = this->buckets + this->n_buckets;
-        this->n_buckets += 1;
-
-        integration_rule_t *rule;
-        result = integration_rule_for_order(&rule, spec.type, spec.order, &this->allocator);
-        if (result != FDG_SUCCESS)
-            return result;
-        result = integration_rule_type_bucket_add_rule(bucket, rule, &this->allocator);
-        if (result != FDG_SUCCESS)
-            return result;
-        *p_rule = rule;
-
-        rw_lock_release_write(&this->lock);
-        return FDG_SUCCESS;
-    }
-
-    for (unsigned i = 0; i < bucket->count; ++i)
-    {
-        if (bucket->rules[i]->spec.order == spec.order)
-        {
-            bucket->ref_counts[i] += 1;
-            *p_rule = bucket->rules[i];
-            rw_lock_release_read(&this->lock);
-            return FDG_SUCCESS;
+            if (bucket->rules[i]->spec.order == spec.order)
+            {
+                bucket->ref_counts[i] += 1;
+                *p_rule = bucket->rules[i];
+                rw_lock_release_read(&this->lock);
+                return FDG_SUCCESS;
+            }
         }
     }
 
+    // The rule is missing (and possibly the whole bucket of its type).
+    // Upgrade the lock and create what is missing; every failure path below
+    // releases the write lock before returning.
+    fdg_result_t result = FDG_SUCCESS;
     rw_lock_release_read(&this->lock);
     rw_lock_acquire_write(&this->lock);
-
-    integration_rule_t *rule;
-    fdg_result_t result = integration_rule_for_order(&rule, spec.type, spec.order, &this->allocator);
-    if (result != FDG_SUCCESS)
+    if (!bucket)
     {
-        rw_lock_release_write(&this->lock);
-        return result;
+        integration_rule_type_bucket_t *const new_buckets =
+            cutl_realloc(&this->allocator, this->buckets, (this->n_buckets + 1) * sizeof *new_buckets);
+        if (!new_buckets)
+        {
+            result = FDG_ERROR_FAILED_ALLOCATION;
+        }
+        else
+        {
+            this->buckets = new_buckets;
+            enum
+            {
+                BUCKET_STARTING_SIZE = 8
+            };
+            result = integration_rule_type_bucket_init(this->buckets + this->n_buckets, spec.type, BUCKET_STARTING_SIZE,
+                                                       &this->allocator);
+            if (result == FDG_SUCCESS)
+            {
+                bucket = this->buckets + this->n_buckets;
+                this->n_buckets += 1;
+            }
+        }
     }
-
-    result = integration_rule_type_bucket_add_rule(bucket, rule, &this->allocator);
     if (result == FDG_SUCCESS)
-        *p_rule = rule;
-
+    {
+        integration_rule_t *rule;
+        result = integration_rule_for_order(&rule, spec.type, spec.order, &this->allocator);
+        if (result == FDG_SUCCESS)
+        {
+            result = integration_rule_type_bucket_add_rule(bucket, rule, &this->allocator);
+            if (result == FDG_SUCCESS)
+                *p_rule = rule;
+        }
+    }
     rw_lock_release_write(&this->lock);
-    return FDG_SUCCESS;
+
+    return result;
 }
 
 fdg_result_t integration_rule_registry_get_rules(integration_rule_registry_t *this, const unsigned cnt,
@@ -287,7 +292,7 @@ fdg_result_t integration_rule_registry_get_rules(integration_rule_registry_t *th
 }
 
 FDG_INTERNAL
-fdg_result_t integration_rule_registry_release_rule(integration_rule_registry_t *this, const integration_rule_t *rule)
+void integration_rule_registry_release_rule(integration_rule_registry_t *this, const integration_rule_t *rule)
 {
     rw_lock_acquire_read(&this->lock);
     for (unsigned i = 0; i < this->n_buckets; ++i)
@@ -312,13 +317,14 @@ fdg_result_t integration_rule_registry_release_rule(integration_rule_registry_t 
                     bucket->count -= 1;
                 }
                 rw_lock_release_write(&this->lock);
-                return FDG_SUCCESS;
+                return;
             }
         }
     }
 
     rw_lock_release_read(&this->lock);
-    return FDG_ERROR_NOT_IN_REGISTRY;
+    CUTL_ASSERT(0, "Integration rule of type %d and order %u is not in the registry.", (int)rule->spec.type,
+                rule->spec.order);
 }
 
 FDG_INTERNAL
@@ -409,7 +415,9 @@ size_t integration_specs_total_points(const unsigned ndim, const integration_spe
     size_t total = 1;
     for (unsigned i = 0; i < ndim; ++i)
     {
-        total *= specs[i].order + 1;
+        const size_t axis_points = (size_t)specs[i].order + 1;
+        const bool overflowed = __builtin_mul_overflow(total, axis_points, &total);
+        CUTL_ASSERT(!overflowed, "Total integration point count overflowed at axis %u.", i);
     }
     return total;
 }

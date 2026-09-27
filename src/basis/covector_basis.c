@@ -1,6 +1,7 @@
 #include "covector_basis.h"
 
 #include <stdarg.h>
+#include <stdbool.h>
 #include <stdint.h>
 
 static unsigned popcnt_uint(unsigned x)
@@ -22,12 +23,14 @@ static unsigned popcnt_uint(unsigned x)
 
 int covector_basis_has_component(const covector_basis_t basis, const unsigned dim)
 {
-    ASSERT(dim < basis.dimension, "Dimension was out of bounds.");
+    CUTL_ASSERT(dim < basis.dimension, "Dimension %u is out of bounds for basis of dimension %u.", dim,
+                basis.dimension);
     return (basis.basis_bits & 1 << dim) != 0;
 }
 covector_basis_t covector_basis_wedge(const covector_basis_t b1, const covector_basis_t b2)
 {
-    ASSERT(b1.dimension == b2.dimension, "Basis had different dimensions (%u and %u).", b1.dimension, b2.dimension);
+    CUTL_ASSERT(b1.dimension == b2.dimension, "Basis had different dimensions (%u and %u).", b1.dimension,
+                b2.dimension);
     if (b1.basis_bits & b2.basis_bits)
     {
         // There is some overlap, which means the result is zero
@@ -69,17 +72,19 @@ unsigned covector_basis_rank(const covector_basis_t basis)
 covector_basis_t covector_basis_create(const unsigned dimension, const int sign, const unsigned rank,
                                        const unsigned FDG_ARRAY_ARG(indices, static rank))
 {
-    ASSERT(dimension > 0, "Dimension must be positive.");
-    ASSERT(rank <= dimension, "Rank was larger than dimension.");
-    ASSERT(dimension < COVECTOR_BASIS_MAX_DIM, "Maximum dimension count of %u was exceeded!", COVECTOR_BASIS_MAX_DIM);
+    CUTL_ASSERT(dimension > 0, "Dimension must be positive, got %u.", dimension);
+    CUTL_ASSERT(rank <= dimension, "Rank %u was larger than dimension %u.", rank, dimension);
+    CUTL_ASSERT(dimension < COVECTOR_BASIS_MAX_DIM, "Maximum dimension count of %u was exceeded (got %u)!",
+                COVECTOR_BASIS_MAX_DIM, dimension);
     covector_basis_t basis = {.dimension = dimension, .sign = sign < 0};
     for (unsigned i = 0; i < rank; ++i)
     {
         const unsigned idx = indices[i];
-        ASSERT(i == 0 || idx > indices[i - 1], "Indices were not sorted in ascending order.");
-        ASSERT(idx < dimension, "Index %u was out of bounds for dimension %u.", idx, dimension);
+        CUTL_ASSERT(i == 0 || idx > indices[i - 1], "Indices were not sorted in ascending order (%u after %u).", idx,
+                    indices[i - 1]);
+        CUTL_ASSERT(idx < dimension, "Index %u was out of bounds for dimension %u.", idx, dimension);
         const unsigned bit = (1u << idx);
-        ASSERT(basis.basis_bits ^ bit, "Component %u was already specified.", idx);
+        CUTL_ASSERT(basis.basis_bits ^ bit, "Component %u was already specified.", idx);
         basis.basis_bits |= bit;
     }
 
@@ -89,17 +94,19 @@ covector_basis_t covector_basis_create(const unsigned dimension, const int sign,
 covector_basis_t covector_basis_create_u8(const unsigned dimension, const int sign, const unsigned rank,
                                           const uint8_t FDG_ARRAY_ARG(indices, static rank))
 {
-    ASSERT(dimension > 0, "Dimension must be positive.");
-    ASSERT(rank <= dimension, "Rank was larger than dimension.");
-    ASSERT(dimension < COVECTOR_BASIS_MAX_DIM, "Maximum dimension count of %u was exceeded!", COVECTOR_BASIS_MAX_DIM);
+    CUTL_ASSERT(dimension > 0, "Dimension must be positive, got %u.", dimension);
+    CUTL_ASSERT(rank <= dimension, "Rank %u was larger than dimension %u.", rank, dimension);
+    CUTL_ASSERT(dimension < COVECTOR_BASIS_MAX_DIM, "Maximum dimension count of %u was exceeded (got %u)!",
+                COVECTOR_BASIS_MAX_DIM, dimension);
     covector_basis_t basis = {.dimension = dimension, .sign = sign < 0};
     for (unsigned i = 0; i < rank; ++i)
     {
         const unsigned idx = indices[i];
-        ASSERT(i == 0 || idx > indices[i - 1], "Indices were not sorted in ascending order.");
-        ASSERT(idx < dimension, "Index %u was out of bounds for dimension %u.", idx, dimension);
+        CUTL_ASSERT(i == 0 || idx > indices[i - 1], "Indices were not sorted in ascending order (%u after %u).", idx,
+                    indices[i - 1]);
+        CUTL_ASSERT(idx < dimension, "Index %u was out of bounds for dimension %u.", idx, dimension);
         const unsigned bit = (1u << idx);
-        ASSERT(basis.basis_bits ^ bit, "Component %u was already specified.", idx);
+        CUTL_ASSERT(basis.basis_bits ^ bit, "Component %u was already specified.", idx);
         basis.basis_bits |= bit;
     }
 
@@ -108,7 +115,8 @@ covector_basis_t covector_basis_create_u8(const unsigned dimension, const int si
 
 covector_basis_t covector_basis_apply_contra_basis(const covector_basis_t basis, const unsigned dim)
 {
-    ASSERT(covector_basis_has_component(basis, dim), "Basis did not have component %u.", dim);
+    const bool has_component = covector_basis_has_component(basis, dim);
+    CUTL_ASSERT(has_component, "Basis did not have component %u.", dim);
     // Remove the bit with `dim`, but flip the sign the number of bits set before it!
     int sign = basis.sign;
     const unsigned basis_bits = basis.basis_bits ^ (1u << dim);

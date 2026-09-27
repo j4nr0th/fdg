@@ -243,3 +243,42 @@ def test_zeros_from_options(
     np.testing.assert_array_equal(kforms.kform(2, "u").values, np.full(24, 2.0))
     with pytest.raises(ValueError):
         ElementKForms.zeros_from_options(2, FIELDS, [space2], [0, 1])
+
+
+def test_dimension_bounds(spaces: tuple[FunctionSpace, FunctionSpace]) -> None:
+    """The element dimension must be in [1, 63] (option storage precondition)."""
+    space2 = spaces[0]
+    for ndim in (0, 64):
+        with pytest.raises(ValueError, match="ndim in"):
+            ElementKForms(ndim, u=1)
+        with pytest.raises(ValueError, match="ndim in"):
+            ElementKForms.from_elements(ndim, FIELDS, [])
+        with pytest.raises(ValueError, match="ndim in"):
+            ElementKForms.zeros(ndim, FIELDS, space2, 1)
+        with pytest.raises(ValueError, match="ndim in"):
+            ElementKForms.zeros_from_options(ndim, FIELDS, [space2], [0])
+
+
+def test_add_field_rules() -> None:
+    """Each field rule violation raises its own ValueError before the C core runs."""
+    with pytest.raises(ValueError, match="exceed the dimension"):
+        ElementKForms(2, u=3)
+    with pytest.raises(ValueError, match="must not be empty"):
+        ElementKForms(2, **{"": 1})
+    with pytest.raises(ValueError, match="already exists"):
+        ElementKForms.from_elements(2, [("u", 1), ("u", 0)], [])
+
+
+def test_zero_order_axis_cannot_carry_ordered_field() -> None:
+    """A base space with an order-0 axis cannot support a nonzero-order field."""
+    zero_space = FunctionSpace(
+        BasisSpecs(BasisType.LEGENDRE, 0), BasisSpecs(BasisType.LEGENDRE, 0)
+    )
+    with pytest.raises(ValueError, match="order 0"):
+        ElementKForms.zeros(2, [("u", 1)], zero_space, 1)
+
+    kforms = ElementKForms(2, u=1, q=0)
+    u = KForm(KFormSpecs(1, zero_space))
+    q = KForm(KFormSpecs(0, zero_space))
+    with pytest.raises(ValueError, match="order 0"):
+        kforms.add_element(u, q)

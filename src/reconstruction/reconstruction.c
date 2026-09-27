@@ -1,5 +1,7 @@
 #include "reconstruction.h"
 
+#include <cutl/common_defs.h>
+
 double compute_basis_value_at_integration_point_d(const unsigned ndim, const multidim_iterator_t *const iter_int,
                                                   const multidim_iterator_t *const iter_basis,
                                                   const basis_set_t *basis_sets[static const ndim],
@@ -30,10 +32,12 @@ double compute_reconstruction_at_integration_point_d(const unsigned ndim, const 
                                                      const double dof_values[static ndof])
 {
     // Basis and integration iterator must be correct.
-    ASSERT((size_t)ndim == multidim_iterator_get_ndims(iter_int),
-           "Number of dimensions of integration space is not correct.");
-    ASSERT((size_t)ndim == multidim_iterator_get_ndims(iter_basis), "Number of dimensions of basis is not correct.");
-    ASSERT((size_t)ndof == multidim_iterator_total_size(iter_basis), "Number of DOFs is not correct.");
+    CUTL_ASSERT((size_t)ndim == multidim_iterator_get_ndims(iter_int),
+                "Integration iterator has %zu dimensions, expected %u.", multidim_iterator_get_ndims(iter_int), ndim);
+    CUTL_ASSERT((size_t)ndim == multidim_iterator_get_ndims(iter_basis),
+                "Basis iterator has %zu dimensions, expected %u.", multidim_iterator_get_ndims(iter_basis), ndim);
+    CUTL_ASSERT((size_t)ndof == multidim_iterator_total_size(iter_basis),
+                "Basis iterator covers %zu points, expected %u DOFs.", multidim_iterator_total_size(iter_basis), ndof);
     if (ndim == 0)
         return dof_values[0];
 
@@ -59,11 +63,15 @@ void compute_integration_point_values_derivatives(const unsigned ndim, multidim_
                                                   const double dof_values[restrict static ndof])
 {
     // Basis and integration iterator must be correct.
-    ASSERT((size_t)ndim == multidim_iterator_get_ndims(iter_int),
-           "Number of dimensions of integration space is not correct.");
-    ASSERT((size_t)ndim == multidim_iterator_get_ndims(iter_basis), "Number of dimensions of basis is not correct.");
-    ASSERT((size_t)ndof == multidim_iterator_total_size(iter_basis), "Number of DOFs is not correct.");
-    ASSERT((size_t)nout == multidim_iterator_total_size(iter_int), "Output array is too small.");
+    CUTL_ASSERT((size_t)ndim == multidim_iterator_get_ndims(iter_int),
+                "Integration iterator has %zu dimensions, expected %u.", multidim_iterator_get_ndims(iter_int), ndim);
+    CUTL_ASSERT((size_t)ndim == multidim_iterator_get_ndims(iter_basis),
+                "Basis iterator has %zu dimensions, expected %u.", multidim_iterator_get_ndims(iter_basis), ndim);
+    CUTL_ASSERT((size_t)ndof == multidim_iterator_total_size(iter_basis),
+                "Basis iterator covers %zu points, expected %u DOFs.", multidim_iterator_total_size(iter_basis), ndof);
+    CUTL_ASSERT((size_t)nout == multidim_iterator_total_size(iter_int),
+                "Output array holds %zu entries, but there are %zu integration points.", (size_t)nout,
+                multidim_iterator_total_size(iter_int));
     if (ndim == 0)
     {
         ptr[0] = dof_values[0];
@@ -103,10 +111,12 @@ double compute_reconstruction_at_integration_point(const unsigned ndim, const mu
                                                    const unsigned ndof, const double dof_values[static ndof])
 {
     // Basis and integration iterator must be correct.
-    ASSERT((size_t)ndim == multidim_iterator_get_ndims(iter_int),
-           "Number of dimensions of integration space is not correct.");
-    ASSERT((size_t)ndim == multidim_iterator_get_ndims(iter_basis), "Number of dimensions of basis is not correct.");
-    ASSERT((size_t)ndof == multidim_iterator_total_size(iter_basis), "Number of DOFs is not correct.");
+    CUTL_ASSERT((size_t)ndim == multidim_iterator_get_ndims(iter_int),
+                "Integration iterator has %zu dimensions, expected %u.", multidim_iterator_get_ndims(iter_int), ndim);
+    CUTL_ASSERT((size_t)ndim == multidim_iterator_get_ndims(iter_basis),
+                "Basis iterator has %zu dimensions, expected %u.", multidim_iterator_get_ndims(iter_basis), ndim);
+    CUTL_ASSERT((size_t)ndof == multidim_iterator_total_size(iter_basis),
+                "Basis iterator covers %zu points, expected %u DOFs.", multidim_iterator_total_size(iter_basis), ndof);
     if (ndim == 0)
         return dof_values[0];
 
@@ -129,10 +139,15 @@ void compute_integration_point_values(const unsigned ndim, multidim_iterator_t *
                                       const double dof_values[restrict static ndof])
 {
     // Basis and integration iterator must be correct.
-    ASSERT((size_t)ndim == multidim_iterator_get_ndims(iter_int),
-           "Number of dimensions of integration space is not correct.");
-    ASSERT((size_t)ndim == multidim_iterator_get_ndims(iter_basis), "Number of dimensions of basis is not correct.");
-    ASSERT((size_t)ndof == multidim_iterator_total_size(iter_basis), "Number of DOFs is not correct.");
+    CUTL_ASSERT((size_t)ndim == multidim_iterator_get_ndims(iter_int),
+                "Integration iterator has %zu dimensions, expected %u.", multidim_iterator_get_ndims(iter_int), ndim);
+    CUTL_ASSERT((size_t)ndim == multidim_iterator_get_ndims(iter_basis),
+                "Basis iterator has %zu dimensions, expected %u.", multidim_iterator_get_ndims(iter_basis), ndim);
+    CUTL_ASSERT((size_t)ndof == multidim_iterator_total_size(iter_basis),
+                "Basis iterator covers %zu points, expected %u DOFs.", multidim_iterator_total_size(iter_basis), ndof);
+    CUTL_ASSERT((size_t)nout == multidim_iterator_total_size(iter_int),
+                "Output array holds %zu entries, but there are %zu integration points.", (size_t)nout,
+                multidim_iterator_total_size(iter_int));
     if (ndim == 0)
     {
         ptr[0] = dof_values[0];

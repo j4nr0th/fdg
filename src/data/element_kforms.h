@@ -1,6 +1,8 @@
 #ifndef FDG_ELEMENT_KFORMS_H
 #define FDG_ELEMENT_KFORMS_H
 
+#include <stdbool.h>
+
 #include "element_data.h"
 
 /**
@@ -46,21 +48,24 @@ void element_kforms_free(element_kforms_t *kforms, const cutl_allocator_t *alloc
  *
  * The number of reference dimensions is fixed by the first field and must
  * be shared by all fields. Fields must be added before any base space;
- * adding a field after a base space fails. Labels must be unique within
- * the collection.
+ * labels must be unique within the collection.
+ *
+ * The arguments are preconditions, not values to validate: a null or empty
+ * label, a duplicate label, a dimension below one, a dimension that differs
+ * from the one fixed by previous fields, an order above ndim, or a field
+ * added after a base space or element aborts through CUTL_ASSERT. A caller
+ * that handles untrusted input must check these conditions itself and
+ * report them instead of relying on this function.
  *
  * @param kforms Collection to add the field to.
  * @param label Null-terminated label of the field; copied.
- * @param ndim Number of reference dimensions; must match previously added
- *        fields.
- * @param order Order of the k-form field; must not exceed ndim.
+ * @param ndim Number of reference dimensions, at least one; must match
+ *        previously added fields.
+ * @param order Order of the k-form field, in [0, ndim].
  * @param out_field Receives the index of the new field on success; may be
  *        NULL when the index is not needed.
- * @return FDG_SUCCESS on success, FDG_ERROR_NOT_IN_DOMAIN for an empty or
- *         duplicate label, an order exceeding ndim, an ndim mismatch with
- *         previous fields, or a field added after a base space,
- *         FDG_ERROR_FAILED_ALLOCATION if memory allocation fails. On
- *         failure, `*out_field` is left unmodified.
+ * @return FDG_SUCCESS on success, FDG_ERROR_FAILED_ALLOCATION if memory
+ *         allocation fails. On failure, `*out_field` is left unmodified.
  */
 FDG_INTERNAL
 fdg_result_t element_kforms_add_field(element_kforms_t *kforms, const char *label, unsigned ndim, unsigned order,
@@ -69,35 +74,41 @@ fdg_result_t element_kforms_add_field(element_kforms_t *kforms, const char *labe
 /**
  * @brief Find a field by its label.
  *
+ * This is a query, not a fallible operation: a label that names no field
+ * simply yields false.
+ *
  * @param kforms Collection to query.
- * @param label Label to look up.
- * @param out_field Receives the index of the field on success.
- * @return FDG_SUCCESS on success, FDG_ERROR_NOT_IN_DOMAIN if no field with
- *         this label exists.
+ * @param label Label to look up; a null label finds nothing.
+ * @param out_field Receives the index of the field when it is found; left
+ *        unmodified otherwise.
+ * @return true when a field with this label exists, false otherwise.
  */
 FDG_INTERNAL
-fdg_result_t element_kforms_find_field(const element_kforms_t *kforms, const char *label, unsigned *out_field);
+bool element_kforms_find_field(const element_kforms_t *kforms, const char *label, unsigned *out_field);
 
 /**
  * @brief Add a base function space, or look up an equal one.
  *
- * The space is validated and deep copied into every field's store; all
- * stores keep the same options in the same order. A space whose basis has
- * a zero-order axis is rejected when any field has a nonzero order, since
- * no k-form of nonzero order can be derived from such a space. At least
- * one field must be added before the first base space.
+ * The space is deep copied into every field's store; all stores keep the
+ * same options in the same order. At least one field must be added before
+ * the first base space.
+ *
+ * The arguments are preconditions, not values to validate: a space added
+ * before any field, a basis axis whose family is invalid, or a zero-order
+ * axis under a field of nonzero order aborts through CUTL_ASSERT. A caller
+ * that handles untrusted input must check these conditions itself and
+ * report them instead of relying on this function.
  *
  * @param kforms Collection to add the space to.
- * @param basis_specs [ndim] specs of the base function space; ndim is the
- *        collection's number of reference dimensions.
+ * @param basis_specs [ndim] specs of the base function space, with valid
+ *        basis families; ndim is the collection's number of reference
+ *        dimensions.
  * @param out_index Receives the index of the (possibly existing) equal
  *        space on success.
- * @return FDG_SUCCESS on success, FDG_ERROR_NOT_IN_DOMAIN for an invalid
- *         space or a space added before any field, FDG_ERROR_FAILED_ALLOCATION
- *         if memory allocation fails. A failing allocation can leave the
- *         per-field stores with mismatched options; the collection must
- *         then no longer be used. On other failures, `*out_index` is left
- *         unmodified.
+ * @return FDG_SUCCESS on success, FDG_ERROR_FAILED_ALLOCATION if memory
+ *         allocation fails. A failing allocation can leave the per-field
+ *         stores with mismatched options; the collection must then no
+ *         longer be used. On failure, `*out_index` is left unmodified.
  */
 FDG_INTERNAL
 fdg_result_t element_kforms_add_space(element_kforms_t *kforms, const basis_spec_t *basis_specs, unsigned *out_index);
@@ -105,14 +116,19 @@ fdg_result_t element_kforms_add_space(element_kforms_t *kforms, const basis_spec
 /**
  * @brief Append one element holding the values of all fields.
  *
+ * The arguments are preconditions, not values to validate: a collection
+ * without fields or a space index outside
+ * [0, element_kforms_space_count(kforms)) aborts through CUTL_ASSERT. A
+ * caller that handles untrusted input must check these conditions itself
+ * and report them instead of relying on this function.
+ *
  * @param kforms Collection to append to.
  * @param space_index Index of the element's base space, in
  *        [0, element_kforms_space_count(kforms)).
  * @param values Field-major values of the element, field 0 first; must
  *        hold element_kforms_element_value_count(kforms, space_index)
  *        doubles in field order.
- * @return FDG_SUCCESS on success, FDG_ERROR_NOT_IN_DOMAIN if the space
- *         index is invalid, FDG_ERROR_FAILED_ALLOCATION if memory
+ * @return FDG_SUCCESS on success, FDG_ERROR_FAILED_ALLOCATION if memory
  *         allocation fails. A failing allocation can leave the per-field
  *         stores with mismatched element counts; the collection must then
  *         no longer be used.
@@ -123,18 +139,23 @@ fdg_result_t element_kforms_add_element(element_kforms_t *kforms, unsigned space
 /**
  * @brief Overwrite the values of one field of one existing element.
  *
+ * The arguments are preconditions, not values to validate: a field index
+ * outside [0, element_kforms_field_count(kforms)), an element id outside
+ * [0, element_kforms_element_count(kforms)), or a value block of the wrong
+ * size aborts through CUTL_ASSERT. A caller that handles untrusted input
+ * must check these conditions itself and report them instead of relying on
+ * this function.
+ *
  * @param kforms Collection to modify.
  * @param element_id Element to overwrite, in
  *        [0, element_kforms_element_count(kforms)).
  * @param field Field index, in [0, element_kforms_field_count(kforms)).
  * @param values New field values, copied over the old block; must hold as
  *        many doubles as the field's block of this element.
- * @return FDG_SUCCESS on success, FDG_ERROR_NOT_IN_DOMAIN if the element
- *         id or the field index is invalid.
  */
 FDG_INTERNAL
-fdg_result_t element_kforms_set_field_values(element_kforms_t *kforms, uint64_t element_id, unsigned field,
-                                             const double values[]);
+void element_kforms_set_field_values(element_kforms_t *kforms, uint64_t element_id, unsigned field,
+                                     const double values[]);
 
 /**
  * @brief Get the number of k-form fields.

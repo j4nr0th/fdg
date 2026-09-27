@@ -134,6 +134,38 @@ def test_integration_points() -> None:
     assert expected_values == pytest.approx(computed_values)
 
 
+def test_bernstein_order_zero_derivatives_are_rejected():
+    """Bernstein derivatives evaluate one order below, so order 0 would underflow."""
+    with pytest.raises(ValueError, match="order of at least 1"):
+        BasisSpecs("bernstein", 0).derivatives(np.zeros(2))
+
+
+def test_order_zero_derivatives_remain_supported():
+    """Order-0 derivatives of the other basis families keep working."""
+    x = np.array([-0.5, 0.5])
+    for basis_type in ("legendre", "lagrange-uniform"):
+        np.testing.assert_array_equal(
+            BasisSpecs(basis_type, 0).derivatives(x), np.zeros((2, 1))
+        )
+
+
+def test_empty_evaluation_points_are_rejected():
+    """An empty point array underflows n_pos - 1 in the Lagrange evaluator."""
+    empty = np.zeros(0)
+    for basis_type in ("legendre", "bernstein", "lagrange-uniform"):
+        specs = BasisSpecs(basis_type, 1)
+        with pytest.raises(ValueError, match="non-empty"):
+            specs.values(empty)
+        with pytest.raises(ValueError, match="non-empty"):
+            specs.derivatives(empty)
+
+
+def test_dimension_upper_bound():
+    """The option storage takes ndim of at most 63 as a precondition."""
+    with pytest.raises(ValueError, match="at most 63"):
+        FunctionSpace(*(BasisSpecs("legendre", 1) for _ in range(64)))
+
+
 if __name__ == "__main__":
     test_1d_function_space()
     test_2d_function_space()

@@ -176,6 +176,17 @@ def test_mesh_iteration_counts() -> None:
     assert all(item[0] == 0 for item in boundary_all[8:])
 
 
+def test_mesh_iteration_rejects_dimension_out_of_range() -> None:
+    """The object dimension must lie inside the mesh, or the C iteration aborts."""
+    mesh = Mesh.from_corners(2, CORNERS_2X2)
+    with pytest.raises(ValueError, match=r"Expected mdim in \[0, 2\)"):
+        mesh.iterate_shared(2)
+    with pytest.raises(ValueError, match=r"Expected mdim in \[0, 2\)"):
+        mesh.iterate_boundary(2)
+    with pytest.raises(ValueError, match=r"Expected mdim in \[0, 2\)"):
+        mesh.iterate_shared(-1)
+
+
 def test_mesh_element_object() -> None:
     """Element-local axis specifications resolve to global object IDs."""
     mesh = Mesh.from_corners(2, CORNERS_2X2)
@@ -237,6 +248,61 @@ def test_mesh_from_collections() -> None:
     assert int(object_id) == 2
     np.testing.assert_array_equal(element_ids, np.array([0, 1], dtype=np.uint64))
     assert orientations.shape == (2, 2)
+
+
+def test_mesh_from_corners_rejects_repeated_corner_ids() -> None:
+    """An element may not name the same point twice."""
+    with pytest.raises(ValueError, match="Element 0 repeats corner point ID 1"):
+        Mesh.from_corners(2, np.array([0, 1, 1, 2], dtype=np.uint64))
+    with pytest.raises(ValueError, match="Element 1 repeats corner point ID 6"):
+        Mesh.from_corners(2, np.array([0, 1, 2, 3, 4, 5, 6, 6], dtype=np.uint64))
+
+
+def test_mesh_from_corners_rejects_point_count_above_uint() -> None:
+    """Corner IDs leaving more points than the topology layer holds are rejected."""
+    with pytest.raises(ValueError, match="Point count"):
+        Mesh.from_corners(2, np.array([0, 1, 2, 1 << 32], dtype=np.uint64))
+    # One point past the maximum still truncates the count to zero.
+    with pytest.raises(ValueError, match="Point count"):
+        Mesh.from_corners(2, np.array([0, 1, 2, (1 << 32) - 1], dtype=np.uint64))
+
+
+def test_mesh_from_collections_rejects_out_of_range_boundary_ids() -> None:
+    """Boundary IDs outside the collection they index are rejected."""
+    bad_lines = LINES_2X2.copy()
+    bad_lines[0, 0] = CORNERS_2X2.max() + 1
+    with pytest.raises(ValueError, match="Mesh collection 0 object 0 references"):
+        Mesh.from_collections(2, 9, (bad_lines, QUADS_2X2))
+
+    bad_quads = QUADS_2X2.copy()
+    bad_quads[0, 3] = len(LINES_2X2)
+    with pytest.raises(ValueError, match="Mesh collection 1 object 0 references"):
+        Mesh.from_collections(2, 9, (LINES_2X2, bad_quads))
+
+
+def test_mesh_from_collections_rejects_empty_element_collection() -> None:
+    """The element collection must contain at least one element."""
+    with pytest.raises(ValueError, match="at least one element"):
+        Mesh.from_collections(2, 9, (LINES_2X2, np.zeros((0, 4), dtype=np.uint64)))
+
+
+def test_mesh_from_collections_rejects_repeated_boundary_slots() -> None:
+    """All boundary slots of one object must be distinct."""
+    bad_lines = LINES_2X2.copy()
+    bad_lines[1] = (2, 2)
+    with pytest.raises(ValueError, match="Mesh collection 0 object 1 repeats"):
+        Mesh.from_collections(2, 9, (bad_lines, QUADS_2X2))
+
+    bad_quads = QUADS_2X2.copy()
+    bad_quads[0] = (2, 0, 0, 1)
+    with pytest.raises(ValueError, match="Mesh collection 1 object 0 repeats"):
+        Mesh.from_collections(2, 9, (LINES_2X2, bad_quads))
+
+
+def test_mesh_from_collections_rejects_point_count_above_uint() -> None:
+    """A point count that would not survive the unsigned cast is rejected."""
+    with pytest.raises(ValueError, match="Point count"):
+        Mesh.from_collections(2, 1 << 32, (LINES_2X2, QUADS_2X2))
 
 
 def _grid_corners(ndim: int) -> np.ndarray:
@@ -434,6 +500,44 @@ def test_kform_boundary_load_chain_integral(ndim: int) -> None:
                 lambda *x: np.ones_like(x[0]),
             )
     np.testing.assert_allclose(actual, expected, rtol=0, atol=1e-12)
+
+
+def test_kform_boundary_load_rejects_out_of_range_ids() -> None:
+    """Out-of-range element and boundary IDs are rejected before the C call."""
+    ndim = 2
+    mesh = Mesh.from_corners(ndim, _grid_corners(ndim))
+    integration = IntegrationSpace(
+        *(IntegrationSpecs(3, IntegrationMethod.GAUSS) for _ in range(ndim))
+    )
+    sm = _affine_map_ndim(ndim, 0, integration)
+    specs_q, _ = _kform_specs(ndim, 1)
+    test_specs = KFormSpecs(
+        ndim - 1,
+        FunctionSpace(*(BasisSpecs(BasisType.BERNSTEIN, 1) for _ in range(ndim - 1))),
+    )
+
+    with pytest.raises(ValueError, match="Invalid element ID"):
+        compute_kform_boundary_load(
+            test_specs,
+            specs_q,
+            sm,
+            mesh.collections,
+            mesh.point_count,
+            99,
+            0,
+            lambda *x: np.ones_like(x[0]),
+        )
+    with pytest.raises(ValueError, match="Invalid boundary ID"):
+        compute_kform_boundary_load(
+            test_specs,
+            specs_q,
+            sm,
+            mesh.collections,
+            mesh.point_count,
+            0,
+            99,
+            lambda *x: np.ones_like(x[0]),
+        )
 
 
 @pytest.mark.parametrize("ndim", range(1, 6))

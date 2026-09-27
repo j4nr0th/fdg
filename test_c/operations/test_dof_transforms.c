@@ -47,13 +47,11 @@ static void lagrange_nodes(const basis_set_type_t type, const unsigned order,
         break;
 
     case BASIS_LAGRANGE_GAUSS_LOBATTO:
-        TEST_ASSERTION(gauss_lobatto_nodes(order + 1, 1e-12, NODE_ITERATIONS, nodes) == 0,
-                       "Gauss-Lobatto node iteration did not converge.");
+        gauss_lobatto_nodes(order + 1, 1e-12, NODE_ITERATIONS, nodes);
         break;
 
     case BASIS_LAGRANGE_GAUSS:
-        TEST_ASSERTION(gauss_legendre_nodes(order + 1, 1e-12, NODE_ITERATIONS, nodes) == 0,
-                       "Gauss-Legendre node iteration did not converge.");
+        gauss_legendre_nodes(order + 1, 1e-12, NODE_ITERATIONS, nodes);
         break;
 
     default:

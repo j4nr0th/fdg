@@ -14,9 +14,7 @@ double compute_inverse_transform(const matrix_t jacobian, const matrix_t q_matri
     CUTL_ASSERT(out_matrix.rows == cols && out_matrix.cols == rows, "Output matrix dimensions do not match Jacobian.");
 
     // Decompose Jacobian into QR decomposition
-    fdg_result_t res = matrix_qr_decompose(&jacobian, &q_matrix);
-    (void)res;
-    CUTL_ASSERT(res == FDG_SUCCESS, "QR decomposition failed.");
+    matrix_qr_decompose(&jacobian, &q_matrix);
     // Compute the determinant from the diagonal of the matrix
     double det = 1;
     for (unsigned i = 0; i < cols; ++i)
@@ -41,9 +39,7 @@ double compute_inverse_transform(const matrix_t jacobian, const matrix_t q_matri
 
     // Use decomposition to compute "inverse". This is done simply by applying inverse of the
     // upper triangular (rows x rows) part of the jacobian to the matrix q_mat.
-    res = matrix_back_substitute(&jacobian, &out_matrix);
-    CUTL_ASSERT(res == FDG_SUCCESS, "Back substitution failed.");
-    (void)res;
+    matrix_back_substitute(&jacobian, &out_matrix);
     return det;
 }
 

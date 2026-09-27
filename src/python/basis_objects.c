@@ -377,6 +377,13 @@ static PyObject *basis_specs_values(PyObject *self, PyTypeObject *defining_class
     {
         return NULL;
     }
+    // The Lagrange evaluators compute the last row from `n_pos - 1`; an empty
+    // input would underflow that and write out of bounds.
+    if (PyArray_SIZE(x) == 0)
+    {
+        PyErr_SetString(PyExc_ValueError, "Expected a non-empty array of evaluation points.");
+        return NULL;
+    }
 
     const unsigned ndims = PyArray_NDIM(x);
     const npy_intp *const dims = PyArray_DIMS(x);
@@ -454,6 +461,20 @@ static PyObject *basis_specs_derivatives(PyObject *self, PyTypeObject *defining_
     const npy_intp dummy[] = {0};
     if (check_input_array(x, 0, dummy, NPY_DOUBLE, NPY_ARRAY_C_CONTIGUOUS | NPY_ARRAY_ALIGNED, "x") < 0)
     {
+        return NULL;
+    }
+    // The Lagrange evaluators compute the last row from `n_pos - 1`; an empty
+    // input would underflow that and write out of bounds.
+    if (PyArray_SIZE(x) == 0)
+    {
+        PyErr_SetString(PyExc_ValueError, "Expected a non-empty array of evaluation points.");
+        return NULL;
+    }
+    // The Bernstein derivative evaluates one order below the given one, so
+    // order zero would underflow the unsigned order to a huge loop bound.
+    if (this->spec.type == BASIS_BERNSTEIN && this->spec.order == 0)
+    {
+        PyErr_SetString(PyExc_ValueError, "Bernstein basis derivatives require an order of at least 1, but got 0.");
         return NULL;
     }
 

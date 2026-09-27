@@ -39,7 +39,7 @@ static void scale_array_boundary_iterative(const unsigned ndim, const long int d
                 // Push on a new frame (level depends on if we are first/last
                 work_stack[spos] = (loop_state_t){.idim = idim - 1, .level = new_level, .offset = new_offset};
                 spos += 1;
-                ASSERT(spos < ndim, "I miscounted loop stack space needed.");
+                CUTL_ASSERT(spos < ndim, "I miscounted loop stack space needed.");
             }
             else if (new_level > 0)
             {

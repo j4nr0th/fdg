@@ -89,27 +89,35 @@ void element_data_free(element_data_t *data, const cutl_allocator_t *allocator);
 /**
  * @brief Add an option to the options table, or look up an equal one.
  *
- * The option is validated and its specs are deep copied. If an option with
- * equal kind, payload and specification values is already present, its
- * index is returned and nothing is added.
+ * The option's specs are deep copied. If an option with equal kind, payload
+ * and specification values is already present, its index is returned and
+ * nothing is added.
  *
- * The first added option fixes the kind, the number of reference
- * dimensions and, for geometry data, the number of coordinates for the
- * whole collection. Later options that disagree return
- * FDG_ERROR_NOT_IN_DOMAIN, as do options with invalid contents (unknown
- * basis type, k-form order exceeding ndim or zero-order basis axes in a
- * nonzero-order k-form, geometry data without integration specs or
- * without coordinates).
+ * The first added option fixes the kind, the number of reference dimensions
+ * and, for geometry data, the number of coordinates for the whole
+ * collection. An option that disagrees with any of these is rejected with
+ * FDG_ERROR_NOT_IN_DOMAIN; this is the one input rule that stays a
+ * recoverable error, because callers may legitimately try per-element
+ * options against a collection and need a report instead of an abort.
  *
  * On success the option's @p value_count field is set to the number of
  * doubles that elements referencing this option must provide.
+ *
+ * The arguments are preconditions, not values to validate: an option with
+ * kind ELEMENT_DATA_KIND_INVALID, a dimension outside [1, 63], a null basis
+ * spec array, a basis spec whose family is invalid, a k-form order above
+ * ndim, a zero-order basis axis under a k-form of nonzero order, or geometry
+ * data with no coordinates or a null integration spec array abort through
+ * CUTL_ASSERT. A caller that handles untrusted input must check these
+ * conditions itself and report them instead of relying on this function.
  *
  * @param data Collection to add the option to.
  * @param option Option to add; only read, never stored.
  * @param out_index Receives the index of the (possibly existing) equal
  *        option on success.
- * @return FDG_SUCCESS on success, FDG_ERROR_NOT_IN_DOMAIN for an invalid
- *         or incompatible option, FDG_ERROR_FAILED_ALLOCATION if memory
+ * @return FDG_SUCCESS on success, FDG_ERROR_NOT_IN_DOMAIN if the option
+ *         disagrees with the kind, dimension or coordinate count fixed by
+ *         the first option, FDG_ERROR_FAILED_ALLOCATION if memory
  *         allocation fails. On failure, `*out_index` is left unmodified.
  */
 FDG_INTERNAL
@@ -117,6 +125,13 @@ fdg_result_t element_data_add_option(element_data_t *data, const element_data_op
 
 /**
  * @brief Append one element with the data of the given option.
+ *
+ * The arguments are preconditions, not values to validate: an option index
+ * outside [0, element_data_option_count(data)) or a value count different
+ * from element_data_option_value_count of the referenced option abort
+ * through CUTL_ASSERT. A caller that handles untrusted input must check
+ * these conditions itself and report them instead of relying on this
+ * function.
  *
  * @param data Collection to append to.
  * @param option_index Index into the options table, in
@@ -126,9 +141,8 @@ fdg_result_t element_data_add_option(element_data_t *data, const element_data_op
  *        of flat DoFs for GEOMETRY.
  * @param count Number of doubles in @p values; must equal
  *        element_data_option_value_count of the referenced option.
- * @return FDG_SUCCESS on success, FDG_ERROR_NOT_IN_DOMAIN if the option
- *         index or the value count is invalid, FDG_ERROR_FAILED_ALLOCATION
- *         if memory allocation fails.
+ * @return FDG_SUCCESS on success, FDG_ERROR_FAILED_ALLOCATION if memory
+ *         allocation fails.
  */
 FDG_INTERNAL
 fdg_result_t element_data_add_element(element_data_t *data, unsigned option_index, const double values[], size_t count);
@@ -136,18 +150,21 @@ fdg_result_t element_data_add_element(element_data_t *data, unsigned option_inde
 /**
  * @brief Overwrite the value block of one existing element.
  *
+ * The arguments are preconditions, not values to validate: an element id
+ * outside [0, element_data_element_count(data)) or a count different from
+ * the element's block size abort through CUTL_ASSERT. A caller that handles
+ * untrusted input must check these conditions itself and report them instead
+ * of relying on this function.
+ *
  * @param data Collection to modify.
  * @param element_id Element to overwrite, in
  *        [0, element_data_element_count(data)).
  * @param values New value block, copied over the element's old block.
  * @param count Number of doubles in @p values; must equal the block size
  *        of the element.
- * @return FDG_SUCCESS on success, FDG_ERROR_NOT_IN_DOMAIN if the element
- *         id or the value count is invalid.
  */
 FDG_INTERNAL
-fdg_result_t element_data_set_element_values(element_data_t *data, uint64_t element_id, const double values[],
-                                             size_t count);
+void element_data_set_element_values(element_data_t *data, uint64_t element_id, const double values[], size_t count);
 
 /**
  * @brief Get the kind of data stored in the collection.
@@ -179,6 +196,11 @@ unsigned element_data_option_count(const element_data_t *data);
 
 /**
  * @brief Get one option of the options table.
+ *
+ * The arguments are preconditions, not values to validate: an index outside
+ * [0, element_data_option_count(data)) aborts through CUTL_ASSERT. A caller
+ * that handles untrusted input must check this condition itself and report
+ * it instead of relying on this function.
  *
  * @param data Collection to query.
  * @param index Option index, in [0, element_data_option_count(data)).

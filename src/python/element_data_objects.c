@@ -187,9 +187,18 @@ static int mesh_geometry_add_element_impl(mesh_geometry_object *this, const inte
     unsigned index;
     const fdg_result_t res = element_geometry_add_option(this->data, map->ndim, (unsigned)Py_SIZE(map),
                                                          first->basis_specs, map->int_specs, &index);
+    if (res == FDG_ERROR_NOT_IN_DOMAIN)
+    {
+        // The option disagrees with the kind, dimension or coordinate count
+        // fixed by the first option (e.g. a space map of another dimension);
+        // this rule stays a recoverable error in the C core.
+        PyErr_Format(PyExc_ValueError, "Could not add the geometry option: %s (%s).", fdg_error_str(res),
+                     fdg_error_msg(res));
+        return -1;
+    }
     if (res != FDG_SUCCESS)
     {
-        PyErr_Format(PyExc_ValueError, "Could not add the geometry option: %s (%s).", fdg_error_str(res),
+        PyErr_Format(PyExc_RuntimeError, "Could not add the geometry option: %s (%s).", fdg_error_str(res),
                      fdg_error_msg(res));
         return -1;
     }
@@ -204,11 +213,13 @@ static int mesh_geometry_add_element_impl(mesh_geometry_object *this, const inte
         return -1;
     }
     mesh_geometry_fill_values(map, (dof_object *const *)dof_args, values);
+    // Only a failing allocation reaches this point: the option index and the
+    // derived value count are valid by construction.
     const fdg_result_t add_res = element_geometry_add_element(this->data, index, values);
     PyMem_Free(values);
     if (add_res != FDG_SUCCESS)
     {
-        PyErr_Format(PyExc_ValueError, "Could not add the element values: %s (%s).", fdg_error_str(add_res),
+        PyErr_Format(PyExc_RuntimeError, "Could not add the element values: %s (%s).", fdg_error_str(add_res),
                      fdg_error_msg(add_res));
         return -1;
     }
@@ -392,12 +403,14 @@ static PyObject *mesh_geometry_from_mesh_points(PyObject *cls, PyObject *const *
     basis_spec_t basis_specs[mesh->mesh->ndim];
     for (unsigned i = 0; i < mesh->mesh->ndim; ++i)
         basis_specs[i] = (basis_spec_t){.type = BASIS_LAGRANGE_UNIFORM, .order = 1};
+    // The collection is fresh, so only a failing allocation reaches this
+    // point.
     unsigned index;
     const fdg_result_t res =
         element_geometry_add_option(this->data, mesh->mesh->ndim, coord_count, basis_specs, integration->specs, &index);
     if (res != FDG_SUCCESS)
     {
-        PyErr_Format(PyExc_ValueError, "Could not add the geometry option: %s (%s).", fdg_error_str(res),
+        PyErr_Format(PyExc_RuntimeError, "Could not add the geometry option: %s (%s).", fdg_error_str(res),
                      fdg_error_msg(res));
         Py_DECREF(points);
         Py_DECREF(self);
@@ -441,7 +454,7 @@ static PyObject *mesh_geometry_from_mesh_points(PyObject *cls, PyObject *const *
         const fdg_result_t add_res = element_geometry_add_element(this->data, index, values);
         if (add_res != FDG_SUCCESS)
         {
-            PyErr_Format(PyExc_ValueError, "Could not add geometry values: %s (%s).", fdg_error_str(add_res),
+            PyErr_Format(PyExc_RuntimeError, "Could not add geometry values: %s (%s).", fdg_error_str(add_res),
                          fdg_error_msg(add_res));
             PyMem_Free(values);
             Py_DECREF(points);
@@ -944,15 +957,41 @@ static int element_kforms_add_field_objects(element_kforms_object *this, PyObjec
     const char *const label = PyUnicode_AsUTF8(label_object);
     if (!label)
         return -1;
-    const fdg_result_t res = element_kforms_add_field(this->data, label, (unsigned)ndim, (unsigned)order, NULL);
-    if (res == FDG_ERROR_NOT_IN_DOMAIN)
+
+    // Everything element_kforms_add_field() takes as a precondition is checked
+    // above and here, where a violation can be reported instead of the C core
+    // turning it into an assert.
+    if (order > ndim)
     {
-        PyErr_Format(PyExc_ValueError,
-                     "Invalid field %R: the label must be non-empty and unique, the order must not exceed "
-                     "the dimension %zd, and fields cannot be added after base spaces.",
-                     label_object, ndim);
+        PyErr_Format(PyExc_ValueError, "The order of field %R must not exceed the dimension %zd, but got %ld.",
+                     label_object, ndim, order);
         return -1;
     }
+    if (label[0] == '\0')
+    {
+        PyErr_SetString(PyExc_ValueError, "Field labels must not be empty.");
+        return -1;
+    }
+    unsigned existing_field;
+    if (element_kforms_find_field(this->data, label, &existing_field))
+    {
+        PyErr_Format(PyExc_ValueError, "A field labeled %R already exists.", label_object);
+        return -1;
+    }
+    if (element_kforms_space_count(this->data) != 0)
+    {
+        PyErr_Format(PyExc_ValueError, "Cannot add the field %R after base spaces were added.", label_object);
+        return -1;
+    }
+    const unsigned collection_ndim = element_kforms_ndim(this->data);
+    if (collection_ndim != 0 && collection_ndim != (unsigned)ndim)
+    {
+        PyErr_Format(PyExc_ValueError, "The field %R has dimension %zd, but the collection has dimension %u.",
+                     label_object, ndim, collection_ndim);
+        return -1;
+    }
+
+    const fdg_result_t res = element_kforms_add_field(this->data, label, (unsigned)ndim, (unsigned)order, NULL);
     if (res != FDG_SUCCESS)
     {
         PyErr_Format(PyExc_RuntimeError, "Could not add the k-form field %R: %s (%s).", label_object,
@@ -978,6 +1017,41 @@ static int element_kforms_add_field_pair(element_kforms_object *this, PyObject *
                                                      PySequence_Fast_GET_ITEM(fast, 1), ndim);
     Py_DECREF(fast);
     return res;
+}
+
+/**
+ * Validates a base function space against the collection before
+ * element_kforms_add_space() consumes it: every axis must use a valid basis
+ * family, and a nonzero-order field needs a strictly positive basis order on
+ * every axis.
+ */
+static int element_kforms_check_space(element_kforms_object *this, const function_space_object *const space)
+{
+    for (unsigned axis = 0; axis < (unsigned)Py_SIZE(space); ++axis)
+    {
+        if (!basis_set_type_is_valid(space->specs[axis].type))
+        {
+            PyErr_Format(PyExc_ValueError, "Base space axis %u does not use a valid basis family.", axis);
+            return -1;
+        }
+    }
+    for (unsigned field = 0; field < element_kforms_field_count(this->data); ++field)
+    {
+        const unsigned order = element_kforms_field_order(this->data, field);
+        if (order == 0)
+            continue;
+        for (unsigned axis = 0; axis < (unsigned)Py_SIZE(space); ++axis)
+        {
+            if (space->specs[axis].order == 0)
+            {
+                PyErr_Format(PyExc_ValueError,
+                             "Base space axis %u has order 0, which cannot carry the order-%u field %s.", axis, order,
+                             element_kforms_field_label(this->data, field));
+                return -1;
+            }
+        }
+    }
+    return 0;
 }
 
 static element_kforms_object *element_kforms_alloc(PyTypeObject *type)
@@ -1010,9 +1084,11 @@ static PyObject *element_kforms_new(PyTypeObject *type, PyObject *args, PyObject
     const Py_ssize_t ndim = PyLong_AsSsize_t(PyTuple_GET_ITEM(args, 0));
     if (ndim == -1 && PyErr_Occurred())
         return NULL;
-    if (ndim < 1)
+    // element_data_add_option() takes the dimension in [1, 63] as a
+    // precondition; report an invalid one here instead of aborting there.
+    if (ndim < 1 || ndim > 63)
     {
-        PyErr_SetString(PyExc_ValueError, "The dimension must be positive.");
+        PyErr_Format(PyExc_ValueError, "Expected ndim in [1, 63], got %zd.", ndim);
         return NULL;
     }
     const Py_ssize_t n_fields = kwds ? PyDict_Size(kwds) : 0;
@@ -1188,11 +1264,15 @@ static PyObject *element_kforms_add_element_method(PyObject *self, PyTypeObject 
         return NULL;
     }
 
+    if (element_kforms_check_space(this, space) < 0)
+        return NULL;
+    // Only a failing allocation reaches this point: the space rules are
+    // checked by element_kforms_check_space() above.
     unsigned space_index;
     const fdg_result_t space_res = element_kforms_add_space(this->data, space->specs, &space_index);
     if (space_res != FDG_SUCCESS)
     {
-        PyErr_Format(PyExc_ValueError, "Could not add the base function space option: %s (%s).",
+        PyErr_Format(PyExc_RuntimeError, "Could not add the base function space option: %s (%s).",
                      fdg_error_str(space_res), fdg_error_msg(space_res));
         return NULL;
     }
@@ -1214,7 +1294,7 @@ static PyObject *element_kforms_add_element_method(PyObject *self, PyTypeObject 
     PyMem_Free(values);
     if (res != FDG_SUCCESS)
     {
-        PyErr_Format(PyExc_ValueError, "Could not add the element values: %s (%s).", fdg_error_str(res),
+        PyErr_Format(PyExc_RuntimeError, "Could not add the element values: %s (%s).", fdg_error_str(res),
                      fdg_error_msg(res));
         return NULL;
     }
@@ -1260,9 +1340,11 @@ static PyObject *element_kforms_from_elements(PyObject *cls, PyObject *const *ar
             },
             args, nargs, kwnames) < 0)
         return NULL;
-    if (ndim < 1)
+    // element_data_add_option() takes the dimension in [1, 63] as a
+    // precondition; report an invalid one here instead of aborting there.
+    if (ndim < 1 || ndim > 63)
     {
-        PyErr_SetString(PyExc_ValueError, "The dimension must be positive.");
+        PyErr_Format(PyExc_ValueError, "Expected ndim in [1, 63], got %zd.", ndim);
         return NULL;
     }
 
@@ -1385,12 +1467,16 @@ static PyObject *element_kforms_zeros_common(PyObject *cls, const Py_ssize_t ndi
                          Py_TYPE(space)->tp_name);
             goto failure;
         }
+        if (element_kforms_check_space(this, (function_space_object *)space) < 0)
+            goto failure;
+        // Only a failing allocation reaches this point: the space rules are
+        // checked by element_kforms_check_space() above.
         unsigned space_index;
         const fdg_result_t res =
             element_kforms_add_space(this->data, ((function_space_object *)space)->specs, &space_index);
         if (res != FDG_SUCCESS)
         {
-            PyErr_Format(PyExc_ValueError, "Could not add base space %zd: %s (%s).", i, fdg_error_str(res),
+            PyErr_Format(PyExc_RuntimeError, "Could not add base space %zd: %s (%s).", i, fdg_error_str(res),
                          fdg_error_msg(res));
             goto failure;
         }
@@ -1440,7 +1526,7 @@ static PyObject *element_kforms_zeros_common(PyObject *cls, const Py_ssize_t ndi
         if (res != FDG_SUCCESS)
         {
             PyMem_Free(zeros);
-            PyErr_Format(PyExc_ValueError, "Could not add the zero element: %s (%s).", fdg_error_str(res),
+            PyErr_Format(PyExc_RuntimeError, "Could not add the zero element: %s (%s).", fdg_error_str(res),
                          fdg_error_msg(res));
             goto failure;
         }
@@ -1500,9 +1586,11 @@ static PyObject *element_kforms_zeros(PyObject *cls, PyObject *const *args, cons
             },
             args, nargs, kwnames) < 0)
         return NULL;
-    if (ndim < 1)
+    // element_data_add_option() takes the dimension in [1, 63] as a
+    // precondition; report an invalid one here instead of aborting there.
+    if (ndim < 1 || ndim > 63)
     {
-        PyErr_SetString(PyExc_ValueError, "The dimension must be positive.");
+        PyErr_Format(PyExc_ValueError, "Expected ndim in [1, 63], got %zd.", ndim);
         return NULL;
     }
     if (!PyObject_TypeCheck(space_object, state->function_space_type))
@@ -1559,9 +1647,11 @@ static PyObject *element_kforms_zeros_from_options(PyObject *cls, PyObject *cons
             },
             args, nargs, kwnames) < 0)
         return NULL;
-    if (ndim < 1)
+    // element_data_add_option() takes the dimension in [1, 63] as a
+    // precondition; report an invalid one here instead of aborting there.
+    if (ndim < 1 || ndim > 63)
     {
-        PyErr_SetString(PyExc_ValueError, "The dimension must be positive.");
+        PyErr_Format(PyExc_ValueError, "Expected ndim in [1, 63], got %zd.", ndim);
         return NULL;
     }
     return element_kforms_zeros_common(cls, ndim, fields_object, spaces_object, indices_object, 0);
@@ -1578,8 +1668,7 @@ static int element_kforms_parse_label(element_kforms_object *this, PyObject *lab
     const char *const label = PyUnicode_AsUTF8(label_object);
     if (!label)
         return -1;
-    const fdg_result_t res = element_kforms_find_field(this->data, label, out_field);
-    if (res != FDG_SUCCESS)
+    if (!element_kforms_find_field(this->data, label, out_field))
     {
         PyErr_SetObject(PyExc_KeyError, label_object);
         return -1;
@@ -2065,18 +2154,28 @@ static PyObject *element_dofs_add_element_method(PyObject *self, PyTypeObject *d
     const dof_object *const dofs = (dof_object *)obj;
     unsigned index;
     const fdg_result_t res = element_dofs_add_option(this->data, dofs->n_dims, dofs->basis_specs, &index);
+    if (res == FDG_ERROR_NOT_IN_DOMAIN)
+    {
+        // The option disagrees with the dimension fixed by the first option;
+        // this rule stays a recoverable error in the C core.
+        PyErr_Format(PyExc_ValueError, "Could not add the function space option: %s (%s).", fdg_error_str(res),
+                     fdg_error_msg(res));
+        return NULL;
+    }
     if (res != FDG_SUCCESS)
     {
-        PyErr_Format(PyExc_ValueError, "Could not add the function space option: %s (%s).", fdg_error_str(res),
+        PyErr_Format(PyExc_RuntimeError, "Could not add the function space option: %s (%s).", fdg_error_str(res),
                      fdg_error_msg(res));
         return NULL;
     }
     if (element_dofs_grow_option_objects(this, element_dofs_option_count(this->data)) < 0)
         return NULL;
+    // Only a failing allocation reaches this point: the option index and the
+    // derived value count are valid by construction.
     const fdg_result_t add_res = element_dofs_add_element(this->data, index, dofs->values);
     if (add_res != FDG_SUCCESS)
     {
-        PyErr_Format(PyExc_ValueError, "Could not add the element values: %s (%s).", fdg_error_str(add_res),
+        PyErr_Format(PyExc_RuntimeError, "Could not add the element values: %s (%s).", fdg_error_str(add_res),
                      fdg_error_msg(add_res));
         return NULL;
     }
@@ -2180,9 +2279,17 @@ static PyObject *element_dofs_zeros_common(PyObject *cls, PyObject *spaces_objec
         unsigned index;
         const fdg_result_t res = element_dofs_add_option(this->data, (unsigned)Py_SIZE(space),
                                                          ((function_space_object *)space)->specs, &index);
+        if (res == FDG_ERROR_NOT_IN_DOMAIN)
+        {
+            // The space disagrees with the dimension fixed by the first
+            // space; this rule stays a recoverable error in the C core.
+            PyErr_Format(PyExc_ValueError, "Could not add function space option %zd: %s (%s).", i, fdg_error_str(res),
+                         fdg_error_msg(res));
+            goto failure;
+        }
         if (res != FDG_SUCCESS)
         {
-            PyErr_Format(PyExc_ValueError, "Could not add function space option %zd: %s (%s).", i, fdg_error_str(res),
+            PyErr_Format(PyExc_RuntimeError, "Could not add function space option %zd: %s (%s).", i, fdg_error_str(res),
                          fdg_error_msg(res));
             goto failure;
         }
@@ -2228,11 +2335,13 @@ static PyObject *element_dofs_zeros_common(PyObject *cls, PyObject *spaces_objec
             PyMem_Free(zeros);
             goto failure;
         }
+        // Only a failing allocation reaches this point: the option index is
+        // valid by construction.
         const fdg_result_t res = element_dofs_add_element(this->data, index, zeros);
         if (res != FDG_SUCCESS)
         {
             PyMem_Free(zeros);
-            PyErr_Format(PyExc_ValueError, "Could not add the zero element: %s (%s).", fdg_error_str(res),
+            PyErr_Format(PyExc_RuntimeError, "Could not add the zero element: %s (%s).", fdg_error_str(res),
                          fdg_error_msg(res));
             goto failure;
         }

@@ -48,15 +48,13 @@ static void test_dofs_roundtrip(void)
 
     for (unsigned i = 0; i < 9; ++i)
         values[i] = -1.0;
-    TEST_FDG_RESULT(element_dofs_set_element_values(dofs, 0, values));
+    element_dofs_set_element_values(dofs, 0, values);
     TEST_NUMBERS_CLOSE(element_dofs_values(dofs)[0], -1.0, 1e-14, 0);
 
-    TEST_ASSERTION(element_dofs_add_element(dofs, 5, values) == FDG_ERROR_NOT_IN_DOMAIN,
-                   "Out-of-range option index should be rejected.");
-    TEST_ASSERTION(element_dofs_set_element_values(dofs, 3, values) == FDG_ERROR_NOT_IN_DOMAIN,
-                   "Out-of-range element id should be rejected.");
+    // Out-of-range option indices and element ids abort through CUTL_ASSERT,
+    // so they are not tested here.
 
-    // ndim mismatch is rejected.
+    // An option with a different ndim than the first option is rejected.
     const basis_spec_t specs1[1] = {{.type = BASIS_LAGRANGE_UNIFORM, .order = 2}};
     unsigned bad_index;
     TEST_ASSERTION(element_dofs_add_option(dofs, 1, specs1, &bad_index) == FDG_ERROR_NOT_IN_DOMAIN,

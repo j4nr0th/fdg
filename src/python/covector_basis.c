@@ -29,9 +29,11 @@ static PyObject *covector_basis_new(PyTypeObject *type, PyObject *args, PyObject
     if (PyErr_Occurred())
         return NULL;
 
-    if (n_dims < 0 || n_dims >= COVECTOR_BASIS_MAX_DIM)
+    // covector_basis_create() asserts a positive dimension, so zero must be
+    // reported here instead of reaching the C core.
+    if (n_dims < 1 || n_dims >= COVECTOR_BASIS_MAX_DIM)
     {
-        PyErr_Format(PyExc_ValueError, "Expected number of dimensions in range [0, %u), but got %zd.",
+        PyErr_Format(PyExc_ValueError, "Expected number of dimensions in range [1, %u), but got %zd.",
                      COVECTOR_BASIS_MAX_DIM, n_dims);
         return NULL;
     }

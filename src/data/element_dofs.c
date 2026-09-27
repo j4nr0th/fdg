@@ -24,18 +24,17 @@ fdg_result_t element_dofs_add_option(element_dofs_t *dofs, const unsigned ndim,
 
 fdg_result_t element_dofs_add_element(element_dofs_t *dofs, const unsigned option_index, const double values[])
 {
-    if (option_index >= element_data_option_count(dofs))
-        return FDG_ERROR_NOT_IN_DOMAIN;
     const size_t count = element_data_option_value_count(element_data_option(dofs, option_index));
     return element_data_add_element(dofs, option_index, values, count);
 }
 
-fdg_result_t element_dofs_set_element_values(element_dofs_t *dofs, const uint64_t element_id, const double values[])
+void element_dofs_set_element_values(element_dofs_t *dofs, const uint64_t element_id, const double values[])
 {
-    if (element_id >= element_data_element_count(dofs))
-        return FDG_ERROR_NOT_IN_DOMAIN;
+    const uint64_t element_count = element_data_element_count(dofs);
+    CUTL_ASSERT(element_id < element_count, "Element id %llu is not in [0, %llu).", (unsigned long long)element_id,
+                (unsigned long long)element_count);
     const uint64_t *const offsets = element_data_offsets(dofs);
-    return element_data_set_element_values(dofs, element_id, values, offsets[element_id + 1] - offsets[element_id]);
+    element_data_set_element_values(dofs, element_id, values, offsets[element_id + 1] - offsets[element_id]);
 }
 
 uint64_t element_dofs_element_count(const element_dofs_t *dofs)

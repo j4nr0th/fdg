@@ -37,20 +37,27 @@ void element_geometry_free(element_geometry_t *geometry, const cutl_allocator_t 
  * @brief Add a geometry option to the options table, or look up an equal one.
  *
  * The first added option fixes ndim and coord_count for the whole
- * collection. Options with different ndim or coord_count, invalid basis
- * types or a missing coordinate count are rejected with
- * FDG_ERROR_NOT_IN_DOMAIN.
+ * collection. An option with a different ndim or coord_count is rejected
+ * with FDG_ERROR_NOT_IN_DOMAIN.
+ *
+ * The arguments are preconditions, not values to validate: a dimension
+ * outside [1, 63], a basis spec whose family is invalid, a zero coordinate
+ * count or a null spec array aborts through CUTL_ASSERT. A caller that
+ * handles untrusted input must check these conditions itself and report
+ * them instead of relying on this function.
  *
  * @param geometry Collection to add the option to.
- * @param ndim Number of reference dimensions.
- * @param coord_count Number of physical coordinates.
- * @param basis_specs [ndim] specs of the shared geometry function space.
+ * @param ndim Number of reference dimensions, in [1, 63].
+ * @param coord_count Number of physical coordinates, at least one.
+ * @param basis_specs [ndim] specs of the shared geometry function space,
+ *        with valid basis families.
  * @param int_specs [ndim] integration specs of the option.
  * @param out_index Receives the index of the (possibly existing) equal
  *        option on success.
- * @return FDG_SUCCESS on success, FDG_ERROR_NOT_IN_DOMAIN for an invalid
- *         or incompatible option, FDG_ERROR_FAILED_ALLOCATION if memory
- *         allocation fails. On failure, `*out_index` is left unmodified.
+ * @return FDG_SUCCESS on success, FDG_ERROR_NOT_IN_DOMAIN if ndim or
+ *         coord_count differ from the values fixed by the first option,
+ *         FDG_ERROR_FAILED_ALLOCATION if memory allocation fails. On
+ *         failure, `*out_index` is left unmodified.
  */
 FDG_INTERNAL
 fdg_result_t element_geometry_add_option(element_geometry_t *geometry, unsigned ndim, unsigned coord_count,
@@ -60,14 +67,18 @@ fdg_result_t element_geometry_add_option(element_geometry_t *geometry, unsigned 
 /**
  * @brief Append one element with the coordinate DoFs of the given option.
  *
+ * The arguments are preconditions, not values to validate: an option index
+ * outside [0, element_geometry_option_count(geometry)) aborts through
+ * CUTL_ASSERT. A caller that handles untrusted input must check this
+ * condition itself and report it instead of relying on this function.
+ *
  * @param geometry Collection to append to.
  * @param option_index Index into the options table, in
  *        [0, element_geometry_option_count(geometry)).
  * @param values Coordinate-major blocks of tensor-order DoFs; must hold
  *        element_geometry_option_value_count(geometry, option_index)
  *        doubles.
- * @return FDG_SUCCESS on success, FDG_ERROR_NOT_IN_DOMAIN if the option
- *         index is invalid, FDG_ERROR_FAILED_ALLOCATION if memory
+ * @return FDG_SUCCESS on success, FDG_ERROR_FAILED_ALLOCATION if memory
  *         allocation fails.
  */
 FDG_INTERNAL
@@ -76,16 +87,19 @@ fdg_result_t element_geometry_add_element(element_geometry_t *geometry, unsigned
 /**
  * @brief Overwrite the value block of one existing element.
  *
+ * The arguments are preconditions, not values to validate: an element id
+ * outside [0, element_geometry_element_count(geometry)) aborts through
+ * CUTL_ASSERT. A caller that handles untrusted input must check this
+ * condition itself and report it instead of relying on this function.
+ *
  * @param geometry Collection to modify.
  * @param element_id Element to overwrite, in
  *        [0, element_geometry_element_count(geometry)).
- * @param values New value block, copied over the element's old block.
- * @return FDG_SUCCESS on success, FDG_ERROR_NOT_IN_DOMAIN if the element
- *         id is invalid.
+ * @param values New value block, copied over the element's old block; must
+ *        hold as many doubles as the element's block.
  */
 FDG_INTERNAL
-fdg_result_t element_geometry_set_element_values(element_geometry_t *geometry, uint64_t element_id,
-                                                 const double values[]);
+void element_geometry_set_element_values(element_geometry_t *geometry, uint64_t element_id, const double values[]);
 
 /**
  * @brief Get the number of elements in the collection.

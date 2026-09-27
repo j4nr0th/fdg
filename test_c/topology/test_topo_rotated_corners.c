@@ -139,8 +139,7 @@ static void test_canonical_mesh(void)
                    "Could not create the canonical mesh.");
 
     shared_faces_t faces = {0};
-    TEST_ASSERTION(topo_mesh_iterate_shared_pairs(mesh, collect_face_pair, &faces) == TOPO_SUCCESS,
-                   "Could not iterate shared pairs of the canonical mesh.");
+    topo_mesh_iterate_shared_pairs(mesh, collect_face_pair, &faces);
 
     TEST_ASSERTION(element_face(mesh, 0, 0, 1) == faces.face_04, "Element 0 x-end is not the shared (0, 4) face.");
     TEST_ASSERTION(element_face(mesh, 0, 1, 1) == faces.face_02, "Element 0 y-end is not the shared (0, 2) face.");
@@ -167,8 +166,7 @@ static void test_rotated_element(void)
                    "Could not create the rotated mesh.");
 
     shared_faces_t faces = {0};
-    TEST_ASSERTION(topo_mesh_iterate_shared_pairs(mesh, collect_face_pair, &faces) == TOPO_SUCCESS,
-                   "Could not iterate shared pairs of the rotated mesh.");
+    topo_mesh_iterate_shared_pairs(mesh, collect_face_pair, &faces);
     TEST_ASSERTION(faces.face_04 != 0 && faces.face_45 != 0 && faces.face_46 != 0,
                    "Missing expected face pairs around element 4.");
 

@@ -333,7 +333,7 @@ static void run_polynomial_case(const unsigned ndim, const basis_spec_t basis[co
         {
             poly[axis][i] = 2.0 * test_prng_next_double(rng) - 1.0;
         }
-        TEST_FDG_RESULT(generate_lagrange_roots(order, basis[axis].type, nodes[axis]));
+        generate_lagrange_roots(order, basis[axis].type, nodes[axis]);
         sizes[axis] = order + 1;
         in_strides[axis] = in_total;
         in_total *= sizes[axis];

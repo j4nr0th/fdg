@@ -37,6 +37,16 @@ static PyObject *function_space_new(PyTypeObject *type, PyObject *args, PyObject
         }
     }
 
+    // element_data_add_option() takes the dimension in [1, 63] as a
+    // precondition. Zero-dimensional spaces are valid (they are produced by
+    // boundary()), and cannot reach the option storage on their own, so only
+    // the upper bound is rejected here.
+    if (n > 63)
+    {
+        PyErr_Format(PyExc_ValueError, "Expected ndim of at most 63, got %u.", n);
+        return NULL;
+    }
+
     // Allocate the memory
     function_space_object *const this = (function_space_object *)type->tp_alloc(type, n);
     if (!this)
@@ -465,7 +475,7 @@ static PyObject *function_space_values_at_integration_nodes(PyObject *self, PyTy
     // Release all the basis now
     for (unsigned idim = 0; idim < ndim; ++idim)
     {
-        (void)basis_set_registry_release_basis_set(basis_registry->registry, basis_sets[idim]);
+        basis_set_registry_release_basis_set(basis_registry->registry, basis_sets[idim]);
     }
     PyMem_Free(basis_sets);
 

@@ -1060,7 +1060,9 @@ void constraint_physical_side_load(const kform_spec_t *const test_spec, const co
                                    const double *const surface_weights, const kform_values_table_t *const element_table,
                                    constraint_physical_side_load_work_t *const work, double values[])
 {
-    ASSERT(side->ndim == test_spec->ndim + 1, "The load is defined on codimension-one faces.");
+    CUTL_ASSERT(side->ndim == test_spec->ndim + 1,
+                "The load is defined on codimension-one faces (side ndim %u, test spec ndim %u).", side->ndim,
+                test_spec->ndim);
     const unsigned face_dim = test_spec->ndim;
     const unsigned order = test_spec->order;
     const kform_spec_t element_spec = {.ndim = side->ndim, .order = order, .basis = side->basis_specs};

@@ -36,18 +36,24 @@ void element_dofs_free(element_dofs_t *dofs, const cutl_allocator_t *allocator);
  * @brief Add a function-space option to the options table, or look up an
  *        equal one.
  *
- * The first added option fixes ndim for the whole collection. Options with
- * a different ndim or invalid basis types are rejected with
- * FDG_ERROR_NOT_IN_DOMAIN.
+ * The first added option fixes ndim for the whole collection. An option
+ * with a different ndim is rejected with FDG_ERROR_NOT_IN_DOMAIN.
+ *
+ * The arguments are preconditions, not values to validate: a dimension
+ * outside [1, 63] or a basis spec whose family is invalid aborts through
+ * CUTL_ASSERT. A caller that handles untrusted input must check these
+ * conditions itself and report them instead of relying on this function.
  *
  * @param dofs Collection to add the option to.
- * @param ndim Number of reference dimensions.
- * @param basis_specs [ndim] specs of the function space.
+ * @param ndim Number of reference dimensions, in [1, 63].
+ * @param basis_specs [ndim] specs of the function space, with valid basis
+ *        families.
  * @param out_index Receives the index of the (possibly existing) equal
  *        option on success.
- * @return FDG_SUCCESS on success, FDG_ERROR_NOT_IN_DOMAIN for an invalid
- *         or incompatible option, FDG_ERROR_FAILED_ALLOCATION if memory
- *         allocation fails. On failure, `*out_index` is left unmodified.
+ * @return FDG_SUCCESS on success, FDG_ERROR_NOT_IN_DOMAIN if ndim differs
+ *         from the fixed dimension of the collection,
+ *         FDG_ERROR_FAILED_ALLOCATION if memory allocation fails. On
+ *         failure, `*out_index` is left unmodified.
  */
 FDG_INTERNAL
 fdg_result_t element_dofs_add_option(element_dofs_t *dofs, unsigned ndim, const basis_spec_t basis_specs[static ndim],
@@ -56,13 +62,17 @@ fdg_result_t element_dofs_add_option(element_dofs_t *dofs, unsigned ndim, const 
 /**
  * @brief Append one element with the DoFs of the given option.
  *
+ * The arguments are preconditions, not values to validate: an option index
+ * outside [0, element_dofs_option_count(dofs)) aborts through CUTL_ASSERT.
+ * A caller that handles untrusted input must check this condition itself
+ * and report it instead of relying on this function.
+ *
  * @param dofs Collection to append to.
  * @param option_index Index into the options table, in
  *        [0, element_dofs_option_count(dofs)).
  * @param values Flat DoF values; must hold
  *        element_dofs_option_value_count(dofs, option_index) doubles.
- * @return FDG_SUCCESS on success, FDG_ERROR_NOT_IN_DOMAIN if the option
- *         index is invalid, FDG_ERROR_FAILED_ALLOCATION if memory
+ * @return FDG_SUCCESS on success, FDG_ERROR_FAILED_ALLOCATION if memory
  *         allocation fails.
  */
 FDG_INTERNAL
@@ -71,15 +81,19 @@ fdg_result_t element_dofs_add_element(element_dofs_t *dofs, unsigned option_inde
 /**
  * @brief Overwrite the value block of one existing element.
  *
+ * The arguments are preconditions, not values to validate: an element id
+ * outside [0, element_dofs_element_count(dofs)) aborts through CUTL_ASSERT.
+ * A caller that handles untrusted input must check this condition itself
+ * and report it instead of relying on this function.
+ *
  * @param dofs Collection to modify.
  * @param element_id Element to overwrite, in
  *        [0, element_dofs_element_count(dofs)).
- * @param values New value block, copied over the element's old block.
- * @return FDG_SUCCESS on success, FDG_ERROR_NOT_IN_DOMAIN if the element
- *         id is invalid.
+ * @param values New value block, copied over the element's old block; must
+ *        hold as many doubles as the element's block.
  */
 FDG_INTERNAL
-fdg_result_t element_dofs_set_element_values(element_dofs_t *dofs, uint64_t element_id, const double values[]);
+void element_dofs_set_element_values(element_dofs_t *dofs, uint64_t element_id, const double values[]);
 
 /**
  * @brief Get the number of elements in the collection.

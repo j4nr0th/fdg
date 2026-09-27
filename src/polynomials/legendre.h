@@ -30,7 +30,7 @@ void legendre_eval_bonnet_two(unsigned n, double x, double FDG_ARRAY_ARG(out, 2)
  * @param n Degree of the highest polynomial.
  * @param x Point at which the polynomials are evaluated.
  * @param m Number of polynomials to evaluate; must be at least 1 and at most
- *        `n`.
+ *        `n`, with `n < 2 * m`.
  * @param out Array of `m` doubles which receives the polynomial values.
  */
 FDG_INTERNAL

@@ -16,6 +16,13 @@ static PyObject *kform_spec_new(PyTypeObject *type, PyObject *args, PyObject *kw
         return NULL;
 
     unsigned const ndim = Py_SIZE(space);
+    // The option storage asserts a dimension of at most 63; zero-dimensional
+    // spaces are valid (point objects), so only the upper bound is rejected.
+    if (ndim > 63)
+    {
+        PyErr_Format(PyExc_ValueError, "Expected ndim of at most 63, got %u.", ndim);
+        return NULL;
+    }
     if (order < 0 || order > ndim)
     {
         PyErr_Format(PyExc_ValueError, "Expected order in [0, %u], got %zd.", ndim, order);
@@ -542,9 +549,9 @@ static PyObject *kform_get_component_dofs(PyObject *self, PyTypeObject *defining
         total_dofs *= ndof;
     }
     (void)total_dofs;
-    ASSERT(total_dofs == this->specs->component_offsets[idx + 1] - this->specs->component_offsets[idx],
-           "Total number of DoFs did not match number compute by offsets (%zu when expecting %zu).", total_dofs,
-           this->specs->component_offsets[idx + 1] - this->specs->component_offsets[idx]);
+    CUTL_ASSERT(total_dofs == this->specs->component_offsets[idx + 1] - this->specs->component_offsets[idx],
+                "Total number of DoFs did not match number compute by offsets (%zu when expecting %zu).", total_dofs,
+                this->specs->component_offsets[idx + 1] - this->specs->component_offsets[idx]);
 
     PyArrayObject *const out = (PyArrayObject *)PyArray_SimpleNewFromData(n, out_dims, NPY_DOUBLE, out_dofs);
     cutl_dealloc(&PYTHON_ALLOCATOR, mem);
@@ -615,9 +622,9 @@ static PyObject *kform_get_component_dof_object(PyObject *self, PyTypeObject *de
         }
         total_dofs *= ndof;
     }
-    ASSERT(total_dofs == this->specs->component_offsets[idx + 1] - this->specs->component_offsets[idx],
-           "Total number of DoFs did not match number compute by offsets (%zu when expecting %zu).", total_dofs,
-           this->specs->component_offsets[idx + 1] - this->specs->component_offsets[idx]);
+    CUTL_ASSERT(total_dofs == this->specs->component_offsets[idx + 1] - this->specs->component_offsets[idx],
+                "Total number of DoFs did not match number compute by offsets (%zu when expecting %zu).", total_dofs,
+                this->specs->component_offsets[idx + 1] - this->specs->component_offsets[idx]);
 
     // Create new DoF object with the correct function space
     dof_object *const dof_obj = dof_object_create(state->degrees_of_freedom_type, // subtype

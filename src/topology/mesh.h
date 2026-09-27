@@ -115,6 +115,12 @@ typedef void (*topo_mesh_pair_callback_t)(const topo_mesh_t *mesh, unsigned mdim
  * from the points up to the element boundaries, in the layout produced by
  * @ref topo_obj_create_immersion_info.
  *
+ * The arguments are preconditions, not values to validate: a null allocator,
+ * output, collection or immersion array, a dimension count outside [1, 63], a
+ * zero point count or a zero element count abort through CUTL_ASSERT. A
+ * caller that handles untrusted input must check these conditions itself and
+ * report them instead of relying on this function.
+ *
  * @param ndim[in] Number of dimensions of the space. Must be between 1 and 63.
  * @param point_count[in] Number of points in the mesh. Must be positive.
  * @param collections[in] Collections of the objects of dimensions 1 to ndim,
@@ -123,8 +129,8 @@ typedef void (*topo_mesh_pair_callback_t)(const topo_mesh_t *mesh, unsigned mdim
  *        transferred on success. Must have ``ndim`` entries.
  * @param allocator[in] Allocator used for all passed memory and the mesh.
  * @param out[out] Receives the created mesh. On failure it is left unmodified.
- * @return TOPO_SUCCESS on success, TOPO_INVALID_ARGUMENT if an argument is
- *         invalid, TOPO_FAILED_ALLOC if a memory allocation fails.
+ * @return TOPO_SUCCESS on success, TOPO_FAILED_ALLOC if a memory allocation
+ *         fails.
  */
 topo_status_t topo_mesh_create(unsigned ndim, uint64_t point_count, topo_obj_collection_t *collections,
                                topo_obj_immersion_t *immersions, const cutl_allocator_t *allocator, topo_mesh_t **out);
@@ -137,6 +143,13 @@ topo_status_t topo_mesh_create(unsigned ndim, uint64_t point_count, topo_obj_col
  * ownership of the passed collections; on failure the collections stay with
  * the caller.
  *
+ * The arguments are preconditions, not values to validate: a null allocator,
+ * output or collection array, a dimension count outside [1, 63] or a zero
+ * point count abort through CUTL_ASSERT, as do collections whose boundary
+ * incidence is not that of a consistent hypercube gluing. A caller that
+ * handles untrusted input must check these conditions itself and report them
+ * instead of relying on this function.
+ *
  * @param ndim[in] Number of dimensions of the space. Must be between 1 and 63.
  * @param point_count[in] Number of points in the mesh. Must be positive.
  * @param collections[in] Collections of the objects of dimensions 1 to ndim,
@@ -144,9 +157,7 @@ topo_status_t topo_mesh_create(unsigned ndim, uint64_t point_count, topo_obj_col
  *        oriented; the last entry holds the elements.
  * @param allocator[in] Allocator used for all passed memory and the mesh.
  * @param out[out] Receives the created mesh. On failure it is left unmodified.
- * @return TOPO_SUCCESS on success, TOPO_INVALID_ARGUMENT if an argument is
- *         invalid, TOPO_SIZE_OVERFLOW, TOPO_FAILED_ALLOC or a topology error
- *         code if the collections are inconsistent.
+ * @return TOPO_SUCCESS on success, TOPO_FAILED_ALLOC if a memory allocation fails.
  */
 topo_status_t topo_mesh_create_from_collections(unsigned ndim, uint64_t point_count, topo_obj_collection_t *collections,
                                                 const cutl_allocator_t *allocator, topo_mesh_t **out);
@@ -165,8 +176,16 @@ topo_status_t topo_mesh_create_from_collections(unsigned ndim, uint64_t point_co
  * objects are merged when they are made of the same set of corner points. The
  * point IDs must come from a consistent axis-aligned gluing: for every object
  * the corners must embed it identically in all of the elements it is in. The
- * input is validated as far as the merging machinery allows; inconsistent
- * inputs surface as errors from the immersion computation.
+ * input is validated as far as the merging machinery allows; collections that
+ * are still not a consistent hypercube gluing abort through CUTL_ASSERT inside
+ * the immersion computation.
+ *
+ * The arguments are preconditions, not values to validate: a null allocator,
+ * output or corner array, a dimension count outside [1, 63], a zero element
+ * or point count, a corner naming a point outside [0, point_count) or a
+ * repeated corner of one element abort through CUTL_ASSERT. A caller that
+ * handles untrusted input must check these conditions itself and report them
+ * instead of relying on this function.
  *
  * @param ndim[in] Number of dimensions of the space. Must be between 1 and 63.
  * @param element_count[in] Number of elements of the mesh. Must be positive.
@@ -175,9 +194,8 @@ topo_status_t topo_mesh_create_from_collections(unsigned ndim, uint64_t point_co
  * @param corners[in] Corner point IDs, ``element_count * 2^ndim`` entries.
  * @param allocator[in] Allocator used for all memory and the mesh.
  * @param out[out] Receives the created mesh. On failure it is left unmodified.
- * @return TOPO_SUCCESS on success, TOPO_INVALID_ARGUMENT if an argument is
- *         invalid, TOPO_SIZE_OVERFLOW or TOPO_FAILED_ALLOC on failure, or a
- *         topology error code if the corner data is inconsistent.
+ * @return TOPO_SUCCESS on success, TOPO_SIZE_OVERFLOW or TOPO_FAILED_ALLOC if
+ *         a resource allocation fails.
  */
 topo_status_t topo_mesh_create_from_corners(unsigned ndim, uint64_t element_count, uint64_t point_count,
                                             const uint64_t *corners, const cutl_allocator_t *allocator,
@@ -194,7 +212,7 @@ void topo_mesh_free(topo_mesh_t *mesh, const cutl_allocator_t *allocator);
 /**
  * Get the number of dimensions of the mesh.
  *
- * @param mesh Mesh to query.
+ * @param mesh Mesh to query. Must not be null.
  * @return Number of dimensions.
  */
 unsigned topo_mesh_ndim(const topo_mesh_t *mesh);
@@ -202,7 +220,7 @@ unsigned topo_mesh_ndim(const topo_mesh_t *mesh);
 /**
  * Get the number of points in the mesh.
  *
- * @param mesh Mesh to query.
+ * @param mesh Mesh to query. Must not be null.
  * @return Number of points in the mesh.
  */
 uint64_t topo_mesh_point_count(const topo_mesh_t *mesh);
@@ -210,7 +228,7 @@ uint64_t topo_mesh_point_count(const topo_mesh_t *mesh);
 /**
  * Get the number of elements of the mesh.
  *
- * @param mesh Mesh to query.
+ * @param mesh Mesh to query. Must not be null.
  * @return Number of elements (objects of the highest dimension).
  */
 uint64_t topo_mesh_element_count(const topo_mesh_t *mesh);
@@ -218,7 +236,7 @@ uint64_t topo_mesh_element_count(const topo_mesh_t *mesh);
 /**
  * Get the collections of topological objects of the mesh.
  *
- * @param mesh Mesh to query.
+ * @param mesh Mesh to query. Must not be null.
  * @return Array with ``topo_mesh_ndim(mesh)`` collections, owned by the mesh.
  *         Entry ``collections[d]`` holds the objects of dimension ``d + 1``,
  *         so the last entry holds the elements themselves.
@@ -228,7 +246,7 @@ const topo_obj_collection_t *topo_mesh_collections(const topo_mesh_t *mesh);
 /**
  * Get the immersion information of the mesh.
  *
- * @param mesh Mesh to query.
+ * @param mesh Mesh to query. Must not be null.
  * @return Array with ``topo_mesh_ndim(mesh)`` immersions, owned by the mesh.
  *         Entry ``immersions[d]`` holds the immersion of the objects of
  *         dimension ``d``, where the objects of dimension zero are the points.
@@ -263,7 +281,7 @@ const topo_obj_immersion_t *topo_mesh_immersions(const topo_mesh_t *mesh);
  * CUTL_ASSERT. A caller that handles untrusted input must check these
  * conditions itself and report them instead of relying on this function.
  *
- * @param mesh Mesh to query.
+ * @param mesh Mesh to query. Must not be null.
  * @param element_id[in] ID of the element. Must be in
  *        [0, topo_mesh_element_count(mesh)).
  * @param fixed_axes[in] Number of entries of @p axis, in [1, ndim].
@@ -287,16 +305,22 @@ void topo_mesh_element_object(const topo_mesh_t *mesh, uint64_t element_id, unsi
  * object and constrain only the interior of the object (skipping its own
  * boundaries).
  *
- * @param mesh Mesh to iterate over.
+ * The iteration itself cannot fail; a callback that must stop early records
+ * the failure in its ``user_data`` and the caller reports it.
+ *
+ * The arguments are preconditions, not values to validate: a null mesh or
+ * callback, or an object dimension outside [0, ndim), abort through
+ * CUTL_ASSERT. A caller that handles untrusted input must check these
+ * conditions itself and report them instead of relying on this function.
+ *
+ * @param mesh Mesh to iterate over. Must not be null.
  * @param mdim[in] Dimension of the objects to iterate over. Must be in
  *        [0, ndim).
- * @param callback[in] Callback invoked for each shared object.
+ * @param callback[in] Callback invoked for each shared object. Must not be
+ *        null.
  * @param user_data Pointer passed to the callback.
- * @return TOPO_SUCCESS on success, TOPO_INVALID_ARGUMENT if the arguments are
- *         invalid.
  */
-topo_status_t topo_mesh_iterate_shared(const topo_mesh_t *mesh, unsigned mdim, topo_mesh_callback_t callback,
-                                       void *user_data);
+void topo_mesh_iterate_shared(const topo_mesh_t *mesh, unsigned mdim, topo_mesh_callback_t callback, void *user_data);
 
 /**
  * Iterate over all shared objects of the mesh, from dimension ``ndim - 1``
@@ -307,13 +331,20 @@ topo_status_t topo_mesh_iterate_shared(const topo_mesh_t *mesh, unsigned mdim, t
  * object dimension by dimension, from the highest to the lowest, ensures that
  * no degree of freedom is constrained more than once.
  *
- * @param mesh Mesh to iterate over.
- * @param callback[in] Callback invoked for each shared object.
+ * The iteration itself cannot fail; a callback that must stop early records
+ * the failure in its ``user_data`` and the caller reports it.
+ *
+ * The arguments are preconditions, not values to validate: a null mesh or
+ * callback abort through CUTL_ASSERT. A caller that handles untrusted input
+ * must check these conditions itself and report them instead of relying on
+ * this function.
+ *
+ * @param mesh Mesh to iterate over. Must not be null.
+ * @param callback[in] Callback invoked for each shared object. Must not be
+ *        null.
  * @param user_data Pointer passed to the callback.
- * @return TOPO_SUCCESS on success, TOPO_INVALID_ARGUMENT if the arguments are
- *         invalid.
  */
-topo_status_t topo_mesh_iterate_shared_all(const topo_mesh_t *mesh, topo_mesh_callback_t callback, void *user_data);
+void topo_mesh_iterate_shared_all(const topo_mesh_t *mesh, topo_mesh_callback_t callback, void *user_data);
 
 /**
  * Iterate over consecutive element pairs of all shared objects, from dimension
@@ -323,13 +354,20 @@ topo_status_t topo_mesh_iterate_shared_all(const topo_mesh_t *mesh, topo_mesh_ca
  * ``(e0, e1)``, ..., ``(eN-1, eN)``. This produces an acyclic spanning path
  * through every shared object's element occurrences.
  *
- * @param mesh Mesh to iterate over.
- * @param callback Callback invoked for every consecutive pair.
+ * The iteration itself cannot fail; a callback that must stop early records
+ * the failure in its ``user_data`` and the caller reports it.
+ *
+ * The arguments are preconditions, not values to validate: a null mesh or
+ * callback abort through CUTL_ASSERT. A caller that handles untrusted input
+ * must check these conditions itself and report them instead of relying on
+ * this function.
+ *
+ * @param mesh Mesh to iterate over. Must not be null.
+ * @param callback Callback invoked for every consecutive pair. Must not be
+ *        null.
  * @param user_data Pointer passed to the callback.
- * @return TOPO_SUCCESS on success, TOPO_INVALID_ARGUMENT if an argument is invalid.
  */
-topo_status_t topo_mesh_iterate_shared_pairs(const topo_mesh_t *mesh, topo_mesh_pair_callback_t callback,
-                                             void *user_data);
+void topo_mesh_iterate_shared_pairs(const topo_mesh_t *mesh, topo_mesh_pair_callback_t callback, void *user_data);
 
 /**
  * Iterate over all objects of one dimension that lie on the outer boundary of
@@ -342,16 +380,22 @@ topo_status_t topo_mesh_iterate_shared_pairs(const topo_mesh_t *mesh, topo_mesh_
  * and still lie on the boundary, for example a point in the middle of a
  * boundary edge of a two-dimensional mesh.
  *
- * @param mesh Mesh to iterate over.
+ * The iteration itself cannot fail; a callback that must stop early records
+ * the failure in its ``user_data`` and the caller reports it.
+ *
+ * The arguments are preconditions, not values to validate: a null mesh or
+ * callback, or an object dimension outside [0, ndim), abort through
+ * CUTL_ASSERT. A caller that handles untrusted input must check these
+ * conditions itself and report them instead of relying on this function.
+ *
+ * @param mesh Mesh to iterate over. Must not be null.
  * @param mdim[in] Dimension of the objects to iterate over. Must be in
  *        [0, ndim).
- * @param callback[in] Callback invoked for each boundary object.
+ * @param callback[in] Callback invoked for each boundary object. Must not be
+ *        null.
  * @param user_data Pointer passed to the callback.
- * @return TOPO_SUCCESS on success, TOPO_INVALID_ARGUMENT if the arguments are
- *         invalid.
  */
-topo_status_t topo_mesh_iterate_boundary(const topo_mesh_t *mesh, unsigned mdim, topo_mesh_callback_t callback,
-                                         void *user_data);
+void topo_mesh_iterate_boundary(const topo_mesh_t *mesh, unsigned mdim, topo_mesh_callback_t callback, void *user_data);
 
 /**
  * Iterate over all boundary objects of the mesh, from dimension ``ndim - 1``
@@ -360,10 +404,17 @@ topo_status_t topo_mesh_iterate_boundary(const topo_mesh_t *mesh, unsigned mdim,
  * This is a convenience wrapper around @ref topo_mesh_iterate_boundary that
  * iterates every object dimension in descending order.
  *
- * @param mesh Mesh to iterate over.
- * @param callback[in] Callback invoked for each boundary object.
+ * The iteration itself cannot fail; a callback that must stop early records
+ * the failure in its ``user_data`` and the caller reports it.
+ *
+ * The arguments are preconditions, not values to validate: a null mesh or
+ * callback abort through CUTL_ASSERT. A caller that handles untrusted input
+ * must check these conditions itself and report them instead of relying on
+ * this function.
+ *
+ * @param mesh Mesh to iterate over. Must not be null.
+ * @param callback[in] Callback invoked for each boundary object. Must not be
+ *        null.
  * @param user_data Pointer passed to the callback.
- * @return TOPO_SUCCESS on success, TOPO_INVALID_ARGUMENT if the arguments are
- *         invalid.
  */
-topo_status_t topo_mesh_iterate_boundary_all(const topo_mesh_t *mesh, topo_mesh_callback_t callback, void *user_data);
+void topo_mesh_iterate_boundary_all(const topo_mesh_t *mesh, topo_mesh_callback_t callback, void *user_data);

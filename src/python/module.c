@@ -42,19 +42,19 @@ enum
 
 static void *allocate_system(void *state, size_t size)
 {
-    ASSERT(state == (void *)SYSTEM_MAGIC, "Pointer value for system allocator did not match.");
+    CUTL_ASSERT(state == (void *)SYSTEM_MAGIC, "Pointer value for system allocator did not match.");
     return PyMem_RawMalloc(size);
 }
 
 static void *reallocate_system(void *state, void *ptr, size_t new_size)
 {
-    ASSERT(state == (void *)SYSTEM_MAGIC, "Pointer value for system allocator did not match.");
+    CUTL_ASSERT(state == (void *)SYSTEM_MAGIC, "Pointer value for system allocator did not match.");
     return PyMem_RawRealloc(ptr, new_size);
 }
 
 static void free_system(void *state, void *ptr)
 {
-    ASSERT(state == (void *)SYSTEM_MAGIC, "Pointer value for system allocator did not match.");
+    CUTL_ASSERT(state == (void *)SYSTEM_MAGIC, "Pointer value for system allocator did not match.");
     PyMem_RawFree(ptr);
 }
 
@@ -68,19 +68,19 @@ cutl_allocator_t SYSTEM_ALLOCATOR = {
 
 static void *allocate_python(void *state, size_t size)
 {
-    ASSERT(state == (void *)PYTHON_MAGIC, "Pointer value for system allocator did not match.");
+    CUTL_ASSERT(state == (void *)PYTHON_MAGIC, "Pointer value for system allocator did not match.");
     return PyMem_Malloc(size);
 }
 
 static void *reallocate_python(void *state, void *ptr, size_t new_size)
 {
-    ASSERT(state == (void *)PYTHON_MAGIC, "Pointer value for system allocator did not match.");
+    CUTL_ASSERT(state == (void *)PYTHON_MAGIC, "Pointer value for system allocator did not match.");
     return PyMem_Realloc(ptr, new_size);
 }
 
 static void free_python(void *state, void *ptr)
 {
-    ASSERT(state == (void *)PYTHON_MAGIC, "Pointer value for system allocator did not match.");
+    CUTL_ASSERT(state == (void *)PYTHON_MAGIC, "Pointer value for system allocator did not match.");
     PyMem_Free(ptr);
 }
 

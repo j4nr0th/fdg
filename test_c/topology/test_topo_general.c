@@ -15,9 +15,7 @@ int main(void)
     const int8_t parent_orientation[] = {-2, 4, -1, 3};
     int8_t orientation[4];
 
-    TEST_ASSERTION(topo_obj_boundary_immersion_create(4, 2, &faces, 0, 1, parent_orientation, parent_boundaries,
-                                                      orientation) == TOPO_SUCCESS,
-                   "Could not create a general two-dimensional boundary orientation.");
+    topo_obj_boundary_immersion_create(4, 2, &faces, 0, 1, parent_orientation, parent_boundaries, orientation);
     TEST_ASSERTION(orientation[0] == -2 && orientation[1] == -4 && orientation[2] == -1 && orientation[3] == 3,
                    "Unexpected general boundary orientation.");
     return 0;

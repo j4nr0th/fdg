@@ -108,8 +108,10 @@ void element_data_free(element_data_t *data, const cutl_allocator_t *allocator)
     allocator->deallocate(allocator->state, data);
 }
 
-static fdg_result_t element_data_option_value_count_impl(const element_data_option_t *option, size_t *out_count)
+static void element_data_option_value_count_impl(const element_data_option_t *option, size_t *out_count)
 {
+    CUTL_ASSERT(option->kind != ELEMENT_DATA_KIND_INVALID,
+                "Cannot count the values of an option with kind ELEMENT_DATA_KIND_INVALID.");
     size_t count = 1;
     switch (option->kind)
     {
@@ -132,10 +134,9 @@ static fdg_result_t element_data_option_value_count_impl(const element_data_opti
         count *= option->geometry.coord_count;
         break;
     case ELEMENT_DATA_KIND_INVALID:
-        return FDG_ERROR_NOT_IN_DOMAIN;
+        break;
     }
     *out_count = count;
-    return FDG_SUCCESS;
 }
 
 size_t element_data_option_value_count(const element_data_option_t *option)
@@ -145,45 +146,51 @@ size_t element_data_option_value_count(const element_data_option_t *option)
 
 fdg_result_t element_data_add_option(element_data_t *data, const element_data_option_t *option, unsigned *out_index)
 {
-    if (option->kind == ELEMENT_DATA_KIND_INVALID || option->ndim < 1 || option->ndim > 63 || !option->basis_specs)
-        return FDG_ERROR_NOT_IN_DOMAIN;
+    CUTL_ASSERT(option->kind != ELEMENT_DATA_KIND_INVALID, "Option kind must not be ELEMENT_DATA_KIND_INVALID.");
+    CUTL_ASSERT(option->ndim >= 1 && option->ndim <= 63, "Option dimension %u is not in [1, 63].", option->ndim);
+    CUTL_ASSERT(option->basis_specs != NULL, "Basis spec array of the option must not be null.");
     for (unsigned i = 0; i < option->ndim; ++i)
     {
-        if (!basis_set_type_is_valid(option->basis_specs[i].type))
-            return FDG_ERROR_NOT_IN_DOMAIN;
+        const bool type_valid = basis_set_type_is_valid(option->basis_specs[i].type);
+        CUTL_ASSERT(type_valid, "Basis spec %u of the option does not use a valid basis family.", i);
     }
 
     switch (option->kind)
     {
     case ELEMENT_DATA_KIND_KFORM:
-        if (option->kform.order > option->ndim)
-            return FDG_ERROR_NOT_IN_DOMAIN;
+        CUTL_ASSERT(option->kform.order <= option->ndim, "K-form order %u of the option is not in [0, %u].",
+                    option->kform.order, option->ndim);
         if (option->kform.order != 0)
         {
             for (unsigned i = 0; i < option->ndim; ++i)
             {
-                if (option->basis_specs[i].order == 0)
-                    return FDG_ERROR_NOT_IN_DOMAIN;
+                CUTL_ASSERT(option->basis_specs[i].order != 0,
+                            "Basis axis %u has order 0, which cannot carry a k-form of order %u.", i,
+                            option->kform.order);
             }
         }
         break;
     case ELEMENT_DATA_KIND_GEOMETRY:
-        if (option->geometry.coord_count < 1 || !option->geometry.int_specs)
-            return FDG_ERROR_NOT_IN_DOMAIN;
+        CUTL_ASSERT(option->geometry.coord_count >= 1, "Geometry option must have at least one coordinate, got %u.",
+                    option->geometry.coord_count);
+        CUTL_ASSERT(option->geometry.int_specs != NULL,
+                    "Integration spec array of the geometry option must not be null.");
         break;
     case ELEMENT_DATA_KIND_DOF:
     case ELEMENT_DATA_KIND_INVALID:
         break;
     }
 
+    // The compatibility with the first option is a recoverable error, not a
+    // precondition: the Python bindings can reach it with per-element options
+    // of a different dimension or coordinate count, so it must be reported
+    // instead of aborting.
     if (data->option_count > 0 && !element_data_option_compatible(data->options, option))
         return FDG_ERROR_NOT_IN_DOMAIN;
 
     element_data_option_t copy = *option;
     copy.value_count = 0;
-    const fdg_result_t res = element_data_option_value_count_impl(&copy, &copy.value_count);
-    if (res != FDG_SUCCESS)
-        return res;
+    element_data_option_value_count_impl(&copy, &copy.value_count);
 
     // Dedup: return the index of an existing equal option.
     for (unsigned i = 0; i < data->option_count; ++i)
@@ -231,11 +238,11 @@ fdg_result_t element_data_add_option(element_data_t *data, const element_data_op
 fdg_result_t element_data_add_element(element_data_t *data, const unsigned option_index, const double values[],
                                       const size_t count)
 {
-    if (option_index >= data->option_count)
-        return FDG_ERROR_NOT_IN_DOMAIN;
+    CUTL_ASSERT(option_index < data->option_count, "Option index %u is not in [0, %u).", option_index,
+                data->option_count);
     const element_data_option_t *const option = data->options + option_index;
-    if (count != option->value_count)
-        return FDG_ERROR_NOT_IN_DOMAIN;
+    CUTL_ASSERT(count == option->value_count, "Element value count %zu does not match the %zu values of option %u.",
+                count, option->value_count, option_index);
 
     const uint64_t element_count = data->element_count;
     uint32_t *const element_options = data->allocator->reallocate(data->allocator->state, data->element_options,
@@ -264,16 +271,16 @@ fdg_result_t element_data_add_element(element_data_t *data, const unsigned optio
     return FDG_SUCCESS;
 }
 
-fdg_result_t element_data_set_element_values(element_data_t *data, const uint64_t element_id, const double values[],
-                                             const size_t count)
+void element_data_set_element_values(element_data_t *data, const uint64_t element_id, const double values[],
+                                     const size_t count)
 {
-    if (element_id >= data->element_count)
-        return FDG_ERROR_NOT_IN_DOMAIN;
+    CUTL_ASSERT(element_id < data->element_count, "Element id %llu is not in [0, %llu).",
+                (unsigned long long)element_id, (unsigned long long)data->element_count);
     const size_t begin = data->offsets[element_id];
-    if (count != data->offsets[element_id + 1] - begin)
-        return FDG_ERROR_NOT_IN_DOMAIN;
+    CUTL_ASSERT(count == data->offsets[element_id + 1] - begin,
+                "Overwrite count %zu does not match the %llu values of element %llu.", count,
+                (unsigned long long)(data->offsets[element_id + 1] - begin), (unsigned long long)element_id);
     memcpy(data->values + begin, values, count * sizeof(double));
-    return FDG_SUCCESS;
 }
 
 element_data_kind_t element_data_kind(const element_data_t *data)
@@ -293,7 +300,7 @@ unsigned element_data_option_count(const element_data_t *data)
 
 const element_data_option_t *element_data_option(const element_data_t *data, const unsigned index)
 {
-    ASSERT(index < data->option_count, "Option index %u out of bounds.", index);
+    CUTL_ASSERT(index < data->option_count, "Option index %u is not in [0, %u).", index, data->option_count);
     return data->options + index;
 }
 

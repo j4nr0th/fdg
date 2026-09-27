@@ -136,21 +136,14 @@ static void test_1d(void)
 
     // Only the three interior points are shared.
     shared_count_t points = {0, 0};
-    TEST_ASSERTION(topo_mesh_iterate_shared(mesh, 0, count_shared, &points) == TOPO_SUCCESS,
-                   "Could not iterate over shared points.");
+    topo_mesh_iterate_shared(mesh, 0, count_shared, &points);
     TEST_ASSERTION(points.count == 3, "Unexpected number of shared points.");
     TEST_ASSERTION(points.max_elements == 2, "Unexpected maximum element count of shared points.");
 
     // The eight boundary slots are the element endpoints: points 0 and 4.
     shared_count_t boundary = {0, 0};
-    TEST_ASSERTION(topo_mesh_iterate_boundary(mesh, 0, count_shared, &boundary) == TOPO_SUCCESS,
-                   "Could not iterate over boundary points.");
+    topo_mesh_iterate_boundary(mesh, 0, count_shared, &boundary);
     TEST_ASSERTION(boundary.count == 2, "Unexpected number of boundary points.");
-
-    // In 1D the lines are the elements; iterating over them is invalid.
-    shared_count_t lines = {0, 0};
-    TEST_ASSERTION(topo_mesh_iterate_shared(mesh, 1, count_shared, &lines) == TOPO_INVALID_ARGUMENT,
-                   "Iteration over element-dimension objects was accepted.");
 
     // Lookup of an object position within an element, given by its fixed axes
     // alone: in 1D, the start of axis 0 of element 2.
@@ -257,31 +250,26 @@ static void test_2d(void)
     // Shared objects: 4 shared lines (each in 2 elements) and 5 shared points
     // (4 on the interior grid lines in 2 elements, the center in all 4).
     shared_count_t lines = {0, 0};
-    TEST_ASSERTION(topo_mesh_iterate_shared(mesh, 1, count_shared, &lines) == TOPO_SUCCESS,
-                   "Could not iterate over shared lines.");
+    topo_mesh_iterate_shared(mesh, 1, count_shared, &lines);
     TEST_ASSERTION(lines.count == 4, "Unexpected number of shared lines.");
     TEST_ASSERTION(lines.max_elements == 2, "Unexpected maximum element count of shared lines.");
 
     shared_count_t points = {0, 0};
-    TEST_ASSERTION(topo_mesh_iterate_shared(mesh, 0, count_shared, &points) == TOPO_SUCCESS,
-                   "Could not iterate over shared points.");
+    topo_mesh_iterate_shared(mesh, 0, count_shared, &points);
     TEST_ASSERTION(points.count == 5, "Unexpected number of shared points.");
     TEST_ASSERTION(points.max_elements == 4, "Unexpected maximum element count of shared points.");
 
     // The boundary is the outer ring: 8 lines and 8 points. The four edge
     // mid-points (in two elements each) lie on the boundary, too.
     shared_count_t boundary_lines = {0, 0};
-    TEST_ASSERTION(topo_mesh_iterate_boundary(mesh, 1, count_shared, &boundary_lines) == TOPO_SUCCESS,
-                   "Could not iterate over boundary lines.");
+    topo_mesh_iterate_boundary(mesh, 1, count_shared, &boundary_lines);
     TEST_ASSERTION(boundary_lines.count == 8, "Unexpected number of boundary lines.");
     shared_count_t boundary_points = {0, 0};
-    TEST_ASSERTION(topo_mesh_iterate_boundary(mesh, 0, count_shared, &boundary_points) == TOPO_SUCCESS,
-                   "Could not iterate over boundary points.");
+    topo_mesh_iterate_boundary(mesh, 0, count_shared, &boundary_points);
     TEST_ASSERTION(boundary_points.count == 8, "Unexpected number of boundary points.");
 
     pair_capture_t pair_capture = {.last_mdim = UINT_MAX, .target_object = grid2(1, 1)};
-    TEST_ASSERTION(topo_mesh_iterate_shared_pairs(mesh, capture_pair, &pair_capture) == TOPO_SUCCESS,
-                   "Could not iterate over shared element pairs.");
+    topo_mesh_iterate_shared_pairs(mesh, capture_pair, &pair_capture);
     TEST_ASSERTION(pair_capture.pair_counts[1] == 4 && pair_capture.pair_counts[0] == 7 &&
                        pair_capture.target_pairs == 3,
                    "Shared pair iterator returned incorrect two-dimensional pair counts.");
@@ -295,14 +283,6 @@ static void test_2d(void)
     const int8_t edge_spec[] = {-2};
     topo_mesh_element_object(mesh, 0, 1, edge_spec, &object);
     TEST_ASSERTION(object == 0, "Boundary edge has wrong ID.");
-
-    // Invalid arguments are rejected.
-    TEST_ASSERTION(topo_mesh_iterate_shared(mesh, 2, count_shared, &points) == TOPO_INVALID_ARGUMENT,
-                   "Iteration over an invalid dimension was accepted.");
-    TEST_ASSERTION(topo_mesh_iterate_shared(mesh, 1, NULL, &points) == TOPO_INVALID_ARGUMENT,
-                   "Iteration with a null callback was accepted.");
-    TEST_ASSERTION(topo_mesh_iterate_shared(NULL, 1, count_shared, &points) == TOPO_INVALID_ARGUMENT,
-                   "Iteration over a null mesh was accepted.");
 
     topo_mesh_free(mesh, allocator);
 }
@@ -370,37 +350,30 @@ static void test_3d_two_cubes(void)
 
     // Shared objects: 1 face, 4 lines, and 4 points, all shared by both elements.
     shared_count_t faces = {0, 0};
-    TEST_ASSERTION(topo_mesh_iterate_shared(mesh, 2, count_shared, &faces) == TOPO_SUCCESS,
-                   "Could not iterate over shared faces.");
+    topo_mesh_iterate_shared(mesh, 2, count_shared, &faces);
     TEST_ASSERTION(faces.count == 1, "Unexpected number of shared faces.");
     TEST_ASSERTION(faces.max_elements == 2, "Unexpected maximum element count of shared faces.");
 
     shared_count_t lines = {0, 0};
-    TEST_ASSERTION(topo_mesh_iterate_shared(mesh, 1, count_shared, &lines) == TOPO_SUCCESS,
-                   "Could not iterate over shared lines.");
+    topo_mesh_iterate_shared(mesh, 1, count_shared, &lines);
     TEST_ASSERTION(lines.count == 4, "Unexpected number of shared lines.");
     TEST_ASSERTION(lines.max_elements == 2, "Unexpected maximum element count of shared lines.");
 
     shared_count_t points = {0, 0};
-    TEST_ASSERTION(topo_mesh_iterate_shared(mesh, 0, count_shared, &points) == TOPO_SUCCESS,
-                   "Could not iterate over shared points.");
+    topo_mesh_iterate_shared(mesh, 0, count_shared, &points);
     TEST_ASSERTION(points.count == 4, "Unexpected number of shared points.");
     TEST_ASSERTION(points.max_elements == 2, "Unexpected maximum element count of shared points.");
 
     // Iteration over all dimensions descends from the highest to the lowest,
     // with one face, four lines, and four points in total.
     descending_order_t order = {UINT_MAX, {0, 0, 0}};
-    TEST_ASSERTION(topo_mesh_iterate_shared_all(mesh, NULL, NULL) == TOPO_INVALID_ARGUMENT,
-                   "Null callback was accepted by iteration over all dims.");
-    TEST_ASSERTION(topo_mesh_iterate_shared_all(mesh, count_descending, &order) == TOPO_SUCCESS,
-                   "Could not iterate over all shared objects.");
+    topo_mesh_iterate_shared_all(mesh, count_descending, &order);
     TEST_ASSERTION(order.counts[2] == 1 && order.counts[1] == 4 && order.counts[0] == 4,
                    "Iteration over all dims visited the wrong objects.");
 
     // Boundary objects: 10 faces, 16 lines, and 8 points.
     descending_order_t boundary_order = {UINT_MAX, {0, 0, 0}};
-    TEST_ASSERTION(topo_mesh_iterate_boundary_all(mesh, count_descending, &boundary_order) == TOPO_SUCCESS,
-                   "Could not iterate over all boundary objects.");
+    topo_mesh_iterate_boundary_all(mesh, count_descending, &boundary_order);
     // 10 boundary faces. All 20 lines and all 12 points lie on the outer
     // boundary of the box: the four lines and eight points of the internal
     // face are contained in boundary faces perpendicular to them.
@@ -452,20 +425,17 @@ static void test_3d_eight_cubes(void)
     // Shared objects: 12 interior faces in 2 elements, 30 shared lines (up to 4
     // elements), 19 shared points (up to 8 elements).
     shared_count_t faces = {0, 0};
-    TEST_ASSERTION(topo_mesh_iterate_shared(mesh, 2, count_shared, &faces) == TOPO_SUCCESS,
-                   "Could not iterate over shared faces.");
+    topo_mesh_iterate_shared(mesh, 2, count_shared, &faces);
     TEST_ASSERTION(faces.count == 12, "Unexpected number of shared faces.");
     TEST_ASSERTION(faces.max_elements == 2, "Unexpected maximum element count of shared faces.");
 
     shared_count_t lines = {0, 0};
-    TEST_ASSERTION(topo_mesh_iterate_shared(mesh, 1, count_shared, &lines) == TOPO_SUCCESS,
-                   "Could not iterate over shared lines.");
+    topo_mesh_iterate_shared(mesh, 1, count_shared, &lines);
     TEST_ASSERTION(lines.count == 30, "Unexpected number of shared lines.");
     TEST_ASSERTION(lines.max_elements == 4, "Unexpected maximum element count of shared lines.");
 
     shared_count_t points = {0, 0};
-    TEST_ASSERTION(topo_mesh_iterate_shared(mesh, 0, count_shared, &points) == TOPO_SUCCESS,
-                   "Could not iterate over shared points.");
+    topo_mesh_iterate_shared(mesh, 0, count_shared, &points);
     TEST_ASSERTION(points.count == 19, "Unexpected number of shared points.");
     TEST_ASSERTION(points.max_elements == 8, "Unexpected maximum element count of shared points.");
 
@@ -505,8 +475,7 @@ static void test_3d_eight_cubes(void)
     }
 
     pair_capture_t pair_capture = {.last_mdim = UINT_MAX, .target_object = 13};
-    TEST_ASSERTION(topo_mesh_iterate_shared_pairs(mesh, capture_pair, &pair_capture) == TOPO_SUCCESS,
-                   "Could not iterate over shared element pairs.");
+    topo_mesh_iterate_shared_pairs(mesh, capture_pair, &pair_capture);
     uint64_t expected_pairs[3] = {0, 0, 0};
     const topo_obj_immersion_t *const pair_immersions = topo_mesh_immersions(mesh);
     for (unsigned mdim = 0; mdim < 3; ++mdim)
@@ -551,38 +520,11 @@ static void failing_deallocate(void *state, void *ptr)
     (void)ptr;
 }
 
-static void test_errors(void)
+// Resource failures are the only recoverable ones: an allocator that always
+// fails must be reported as such, and the output must be left unmodified.
+static void test_failed_alloc(void)
 {
-    const cutl_allocator_t *allocator = cutl_allocator_get_default();
     topo_mesh_t *mesh = (topo_mesh_t *)(void *)0x1;
-
-    TEST_ASSERTION(topo_mesh_create_from_corners(0, 1, 2, NULL, allocator, &mesh) == TOPO_INVALID_ARGUMENT,
-                   "Zero-dimensional mesh was accepted.");
-    TEST_ASSERTION(topo_mesh_create_from_corners(64, 1, 2, NULL, allocator, &mesh) == TOPO_INVALID_ARGUMENT,
-                   "Overly high-dimensional mesh was accepted.");
-    TEST_ASSERTION(topo_mesh_create_from_corners(2, 0, 1, NULL, allocator, &mesh) == TOPO_INVALID_ARGUMENT,
-                   "Mesh without elements was accepted.");
-    TEST_ASSERTION(topo_mesh_create_from_corners(2, 1, 0, NULL, allocator, &mesh) == TOPO_INVALID_ARGUMENT,
-                   "Mesh without points was accepted.");
-    TEST_ASSERTION(topo_mesh_create_from_corners(2, 1, 1, NULL, allocator, &mesh) == TOPO_INVALID_ARGUMENT,
-                   "Null corners were accepted.");
-    TEST_ASSERTION(topo_mesh_create_from_corners(2, 1, 4, NULL, allocator, NULL) == TOPO_INVALID_ARGUMENT,
-                   "Null output pointer was accepted.");
-    TEST_ASSERTION(topo_mesh_create_from_corners(2, 1, 4, NULL, NULL, &mesh) == TOPO_INVALID_ARGUMENT,
-                   "Null allocator was accepted.");
-
-    // Corner IDs must name existing points.
-    const uint64_t bad_point[] = {0, 1, 2, 4};
-    TEST_ASSERTION(topo_mesh_create_from_corners(2, 1, 4, bad_point, allocator, &mesh) == TOPO_INVALID_ARGUMENT,
-                   "Out-of-range corner point was accepted.");
-
-    // The corners of one element must be distinct.
-    const uint64_t bad_corners[] = {0, 1, 2, 1};
-    TEST_ASSERTION(topo_mesh_create_from_corners(2, 1, 4, bad_corners, allocator, &mesh) == TOPO_INVALID_ARGUMENT,
-                   "Repeated corner point was accepted.");
-
-    // An allocator that always fails must be reported as such, and the output
-    // must be left unmodified.
     static const cutl_allocator_t failing_allocator = {
         .state = NULL,
         .allocate = failing_allocate,
@@ -601,6 +543,6 @@ int main(void)
     test_2d();
     test_3d_two_cubes();
     test_3d_eight_cubes();
-    test_errors();
+    test_failed_alloc();
     return 0;
 }

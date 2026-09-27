@@ -43,18 +43,15 @@ int main()
             r.values[i * DIM_2 + j] = a.values[i * DIM_2 + j];
     }
 
-    fdg_result_t res = matrix_qr_decompose(&r, &q);
+    matrix_qr_decompose(&r, &q);
     printf("Matrix Q^T:\n");
     print_matrix(&q);
     printf("Matrix R:\n");
     print_matrix(&r);
 
-    TEST_ASSERTION(res == FDG_SUCCESS, "QR decomposition failed");
-
     // Multiplying A with Q should give R
 
-    res = matrix_multiply(&q, &a, &ra);
-    TEST_ASSERTION(res == FDG_SUCCESS, "Multiplication failed");
+    matrix_multiply(&q, &a, &ra);
     printf("Matrix QA:\n");
     print_matrix(&ra);
 
@@ -82,8 +79,7 @@ int main()
     printf("Matrix Q:\n");
     print_matrix(&q);
 
-    res = matrix_multiply(&q, &r, &ra);
-    TEST_ASSERTION(res == FDG_SUCCESS, "Multiplication failed");
+    matrix_multiply(&q, &r, &ra);
 
     printf("Re-computed QR:\n");
     print_matrix(&ra);

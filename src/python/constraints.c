@@ -7,7 +7,9 @@
 #include "integration_objects.h"
 #include "kform_objects.h"
 #include "mappings.h"
+#include "mesh_objects.h"
 #include "module.h"
+#include <limits.h>
 #include <math.h>
 #include <stdbool.h>
 #include <string.h>
@@ -35,7 +37,7 @@ static void release_boundary_topology(const unsigned element_dim, boundary_topol
     *topology = (boundary_topology_t){};
 }
 
-static int make_boundary_topology(PyObject *const collections_object, const unsigned element_dim, const unsigned npts,
+static int make_boundary_topology(PyObject *const collections_object, const unsigned element_dim, const uint64_t npts,
                                   boundary_topology_t *const topology)
 {
     *topology = (boundary_topology_t){};
@@ -67,12 +69,19 @@ static int make_boundary_topology(PyObject *const collections_object, const unsi
             .boundary_ids = PyArray_DATA(topology->collection_arrays[idim]),
         };
     }
-    const topo_status_t status = topo_obj_create_immersion_info(element_dim, npts, topology->collections,
+    if (mesh_check_collections(element_dim, npts, topology->collections) < 0)
+    {
+        release_boundary_topology(element_dim, topology);
+        return -1;
+    }
+    // Everything topo_obj_create_immersion_info() takes as a cheap precondition
+    // is checked above, where a violation can be reported instead of aborting
+    // the process.
+    const topo_status_t status = topo_obj_create_immersion_info(element_dim, (unsigned)npts, topology->collections,
                                                                 &PYTHON_ALLOCATOR, topology->immersions);
     if (status != TOPO_SUCCESS)
     {
-        PyErr_Format(PyExc_ValueError, "Could not create mesh immersions: %s (%s).", topo_status_to_str(status),
-                     topo_status_msg(status));
+        raise_topology_status("Could not create mesh immersions", status);
         release_boundary_topology(element_dim, topology);
         return -1;
     }
@@ -300,7 +309,7 @@ static int make_trace_basis_table(const unsigned element_dim, const unsigned fac
                         axis)
                         break;
                 }
-                ASSERT(fixed_axis < fixed_count, "Axis is neither fixed nor free.");
+                CUTL_ASSERT(fixed_axis < fixed_count, "Axis is neither fixed nor free.");
                 axes[axis] = (kform_trace_axis_t){
                     .kind = KFORM_TRACE_AXIS_FIXED,
                     .mirror = orientation[fixed_axis] < 0,
@@ -638,19 +647,37 @@ static PyObject *compute_kform_boundary_load(PyObject *module, PyObject *const *
     }
 
     boundary_topology_t topology;
-    if (make_boundary_topology(collections_object, element_dim, (unsigned)npts, &topology) < 0)
+    if (make_boundary_topology(collections_object, element_dim, (uint64_t)npts, &topology) < 0)
     {
         cutl_dealloc(&PYTHON_ALLOCATOR, callables_memory);
         return NULL;
     }
+    const size_t element_count = topology.collections[element_dim - 1].count;
+    if ((uint64_t)element_id >= (uint64_t)element_count)
+    {
+        PyErr_Format(PyExc_ValueError, "Invalid element ID %zd in mesh with %zu elements.", element_id, element_count);
+        release_boundary_topology(element_dim, &topology);
+        cutl_dealloc(&PYTHON_ALLOCATOR, callables_memory);
+        return NULL;
+    }
     const unsigned boundary_immersion_index = face_dim;
-    const topo_status_t topo_status =
+    const unsigned boundary_count = topology.immersions[boundary_immersion_index].object_count;
+    if ((uint64_t)boundary_id >= (uint64_t)boundary_count)
+    {
+        PyErr_Format(PyExc_ValueError, "Invalid boundary ID %zd in mesh with %u boundary objects of dimension %u.",
+                     boundary_id, boundary_count, face_dim);
+        release_boundary_topology(element_dim, &topology);
+        cutl_dealloc(&PYTHON_ALLOCATOR, callables_memory);
+        return NULL;
+    }
+    // The boundary ID is range-checked against this very bound above, so a
+    // miss here is the answer that this valid boundary is not in the element.
+    const bool boundary_in_element =
         topo_obj_boundary_orientation(topology.immersions + boundary_immersion_index, element_dim,
                                       (uint64_t)boundary_id, (uint64_t)element_id, topology.orientation);
-    if (topo_status != TOPO_SUCCESS)
+    if (!boundary_in_element)
     {
-        PyErr_Format(PyExc_ValueError, "Boundary %zd is not present in element %zd: %s (%s).", boundary_id, element_id,
-                     topo_status_to_str(topo_status), topo_status_msg(topo_status));
+        PyErr_Format(PyExc_ValueError, "Boundary %zd is not present in element %zd.", boundary_id, element_id);
         release_boundary_topology(element_dim, &topology);
         cutl_dealloc(&PYTHON_ALLOCATOR, callables_memory);
         return NULL;
@@ -830,6 +857,20 @@ static int parse_orientation_sequence(PyObject *object, const unsigned ndim, int
             Py_DECREF(sequence);
             return -1;
         }
+        // Downstream addressing requires a permutation, so every axis may
+        // appear at most once up to sign.
+        for (unsigned previous = 0; previous < axis; ++previous)
+        {
+            if (out[previous] == value || out[previous] == -value)
+            {
+                PyErr_Format(PyExc_ValueError,
+                             "Orientation is not a signed one-based permutation: axis %ld was "
+                             "given twice.",
+                             value);
+                Py_DECREF(sequence);
+                return -1;
+            }
+        }
         out[axis] = (int8_t)value;
     }
     Py_DECREF(sequence);
@@ -927,6 +968,16 @@ static PyObject *boundary_mass_assemble(PyObject *module, PyObject *const *args,
     {
         PyErr_Format(PyExc_ValueError, "Boundary dimension %u is not in [0, %u) with a matching form order.", bdim,
                      ndim);
+        Py_DECREF(specs_seq);
+        Py_DECREF(orientations_seq);
+        Py_DECREF(integrations_seq);
+        return NULL;
+    }
+    // The request carries the element count as an unsigned integer; report an
+    // overflow here instead of truncating the cast below.
+    if (nelem_ssize > (Py_ssize_t)UINT_MAX)
+    {
+        PyErr_Format(PyExc_ValueError, "Too many elements (%zd); the maximum is %u.", nelem_ssize, UINT_MAX);
         Py_DECREF(specs_seq);
         Py_DECREF(orientations_seq);
         Py_DECREF(integrations_seq);

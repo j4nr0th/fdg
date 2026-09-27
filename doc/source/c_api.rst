@@ -8,10 +8,12 @@ blocks used by the Python API: polynomial bases, quadrature rules,
 topological mesh handling, constraint assembly and reconstruction.
 
 The C core is written in C17 and has no dependency other than the ``cutl``
-utility library. Error handling is done through status codes: most functions
-return a status or result type such as :c:type:`fdg_result_t`,
-:c:type:`topo_status_t` or :c:type:`constraint_status_t`, where the zero
-value indicates success.
+utility library. Error handling is done through status codes: functions that
+can fail return a status or result type such as :c:type:`fdg_result_t` or
+:c:type:`topo_status_t`, where the zero value indicates success. Only
+resource failures (memory allocation) and a small number of collection-state
+rules are recoverable; every other invalid input is a precondition violation
+that aborts through the ``CUTL_ASSERT`` macro.
 
 Functions marked :c:macro:`FDG_INTERNAL` are hidden from the shared library
 symbol table; they are internal to the library but still usable by code that

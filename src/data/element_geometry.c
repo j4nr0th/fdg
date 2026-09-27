@@ -29,19 +29,17 @@ fdg_result_t element_geometry_add_option(element_geometry_t *geometry, const uns
 fdg_result_t element_geometry_add_element(element_geometry_t *geometry, const unsigned option_index,
                                           const double values[])
 {
-    if (option_index >= element_data_option_count(geometry))
-        return FDG_ERROR_NOT_IN_DOMAIN;
     const size_t count = element_data_option_value_count(element_data_option(geometry, option_index));
     return element_data_add_element(geometry, option_index, values, count);
 }
 
-fdg_result_t element_geometry_set_element_values(element_geometry_t *geometry, const uint64_t element_id,
-                                                 const double values[])
+void element_geometry_set_element_values(element_geometry_t *geometry, const uint64_t element_id, const double values[])
 {
-    if (element_id >= element_data_element_count(geometry))
-        return FDG_ERROR_NOT_IN_DOMAIN;
+    const uint64_t element_count = element_data_element_count(geometry);
+    CUTL_ASSERT(element_id < element_count, "Element id %llu is not in [0, %llu).", (unsigned long long)element_id,
+                (unsigned long long)element_count);
     const uint64_t *const offsets = element_data_offsets(geometry);
-    return element_data_set_element_values(geometry, element_id, values, offsets[element_id + 1] - offsets[element_id]);
+    element_data_set_element_values(geometry, element_id, values, offsets[element_id + 1] - offsets[element_id]);
 }
 
 uint64_t element_geometry_element_count(const element_geometry_t *geometry)

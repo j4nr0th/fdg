@@ -70,7 +70,8 @@ double compute_reconstruction_at_integration_point_d(unsigned ndim, const multid
  * @param basis_sets[in,out] Array of basis sets that is used for basis values.
  * @param derivatives[in] Array which specifies if the derivative of the basis should be used instead of the basis
  * itself for each dimension.
- * @param nout[in] Size of the output array. Used for bounds checks only.
+ * @param nout[in] Size of the output array. Used for bounds checks only; it must match the total number of
+ * integration points, otherwise the call aborts through CUTL_ASSERT.
  * @param ptr[out] Pointer to the output array, the size of which should be based on integration points.
  * @param ndof[in] Number of degrees of freedom. Used for  bounds checks only.
  * @param dof_values[in] Value of degrees of freedom, the size of which should be based on basis.
@@ -124,7 +125,8 @@ double compute_reconstruction_at_integration_point(unsigned ndim, const multidim
  * @param iter_int[in] Iterator that deals with iterating over integrating points.
  * @param iter_basis[in] Iterator that deals with iterating over basis.
  * @param basis_sets[in] Array of basis sets that is used for basis values.
- * @param nout[in] Size of the output array. Used for bounds checks only.
+ * @param nout[in] Size of the output array. Used for bounds checks only; it must match the total number of
+ * integration points, otherwise the call aborts through CUTL_ASSERT.
  * @param ptr[out] Pointer to the output array, the size of which should be based on integration points.
  * @param ndof[in] Number of degrees of freedom. Used for  bounds checks only.
  * @param dof_values[in] Value of degrees of freedom, the size of which should be based on basis.

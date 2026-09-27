@@ -8,7 +8,9 @@
 #include "kform_objects.h"
 #include "mappings.h"
 #include "module.h"
+#include <limits.h>
 #include <numpy/ndarrayobject.h>
+#include <stdlib.h>
 #include <string.h>
 
 static PyObject *mesh_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
@@ -31,6 +33,93 @@ static void mesh_dealloc(mesh_object *self)
     PyTypeObject *const type = Py_TYPE(self);
     type->tp_free((PyObject *)self);
     Py_DECREF(type);
+}
+
+static int compare_corner_ids(const void *const left, const void *const right)
+{
+    const uint64_t a = *(const uint64_t *)left;
+    const uint64_t b = *(const uint64_t *)right;
+    return (a > b) - (a < b);
+}
+
+void raise_topology_status(const char *const context, const topo_status_t status)
+{
+    // Every non-resource status has been turned into a CUTL_ASSERT in the C
+    // core, so only the memory failures remain.
+    PyErr_Format(PyExc_MemoryError, "%s: %s (%s).", context, topo_status_to_str(status), topo_status_msg(status));
+}
+
+int mesh_check_collections(const unsigned ndim, const uint64_t point_count,
+                           const topo_obj_collection_t collections[static ndim])
+{
+    // Boundary IDs index the objects of the dimension below them: points for
+    // the first collection, the previous collection for every other one. An
+    // out-of-range ID would index the immersion offset arrays out of bounds.
+    for (unsigned idim = 0; idim < ndim; ++idim)
+    {
+        const uint64_t object_count = idim == 0 ? point_count : (uint64_t)collections[idim - 1].count;
+        const size_t slots = (size_t)2 * (idim + 1);
+        const uint64_t *const ids = collections[idim].boundary_ids;
+        const size_t count = collections[idim].count;
+        for (size_t row = 0; row < count; ++row)
+        {
+            for (size_t slot = 0; slot < slots; ++slot)
+            {
+                const uint64_t id = ids[row * slots + slot];
+                if (id >= object_count)
+                {
+                    PyErr_Format(PyExc_ValueError,
+                                 "Mesh collection %u object %zu references boundary ID %llu outside [0, %llu).", idim,
+                                 row, (unsigned long long)id, (unsigned long long)object_count);
+                    return -1;
+                }
+            }
+        }
+    }
+    if (collections[ndim - 1].count == 0)
+    {
+        PyErr_Format(PyExc_ValueError, "Expected at least one element in mesh collection %u, got none.", ndim - 1);
+        return -1;
+    }
+    for (unsigned idim = 0; idim < ndim; ++idim)
+    {
+        if ((uint64_t)collections[idim].count > (uint64_t)UINT_MAX)
+        {
+            PyErr_Format(PyExc_ValueError, "Mesh collection %u has %zu objects, exceeding the maximum of %u.", idim,
+                         collections[idim].count, UINT_MAX);
+            return -1;
+        }
+    }
+    if (point_count > (uint64_t)UINT_MAX)
+    {
+        PyErr_Format(PyExc_ValueError, "Point count %llu exceeds the maximum of %u.", (unsigned long long)point_count,
+                     UINT_MAX);
+        return -1;
+    }
+    // Duplicated slots in one row would insert the same boundary twice while
+    // the orientations are filled in.
+    for (unsigned idim = 0; idim < ndim; ++idim)
+    {
+        const size_t slots = (size_t)2 * (idim + 1);
+        const uint64_t *const ids = collections[idim].boundary_ids;
+        const size_t count = collections[idim].count;
+        for (size_t row = 0; row < count; ++row)
+        {
+            for (size_t a = 0; a + 1 < slots; ++a)
+            {
+                for (size_t b = a + 1; b < slots; ++b)
+                {
+                    if (ids[row * slots + a] == ids[row * slots + b])
+                    {
+                        PyErr_Format(PyExc_ValueError, "Mesh collection %u object %zu repeats boundary ID %llu.", idim,
+                                     row, (unsigned long long)ids[row * slots + a]);
+                        return -1;
+                    }
+                }
+            }
+        }
+    }
+    return 0;
 }
 
 static PyObject *mesh_from_corners(PyObject *cls, PyObject *const *args, const Py_ssize_t nargs, PyObject *kwnames)
@@ -81,15 +170,53 @@ static PyObject *mesh_from_corners(PyObject *cls, PyObject *const *args, const P
         return NULL;
     }
     const uint64_t point_count = max_corner + 1;
+    if (point_count > (uint64_t)UINT_MAX)
+    {
+        PyErr_Format(PyExc_ValueError, "Point count %llu exceeds the maximum of %u.", (unsigned long long)point_count,
+                     UINT_MAX);
+        Py_DECREF(corners_array);
+        return NULL;
+    }
 
+    // The corners of one element must be distinct. Sort each element's
+    // corners in a copy of the array so that a repeated ID becomes an
+    // adjacent pair.
+    uint64_t *const sorted = PyMem_Malloc((size_t)n * sizeof(*sorted));
+    if (!sorted)
+    {
+        Py_DECREF(corners_array);
+        PyErr_NoMemory();
+        return NULL;
+    }
+    memcpy(sorted, data, (size_t)n * sizeof(*sorted));
+    for (uint64_t element = 0; element < element_count; ++element)
+    {
+        uint64_t *const element_corners = sorted + element * (uint64_t)corners_per_element;
+        qsort(element_corners, (size_t)corners_per_element, sizeof(*sorted), compare_corner_ids);
+        for (npy_intp corner = 0; corner + 1 < corners_per_element; ++corner)
+        {
+            if (element_corners[corner] == element_corners[corner + 1])
+            {
+                PyErr_Format(PyExc_ValueError, "Element %llu repeats corner point ID %llu.",
+                             (unsigned long long)element, (unsigned long long)element_corners[corner]);
+                PyMem_Free(sorted);
+                Py_DECREF(corners_array);
+                return NULL;
+            }
+        }
+    }
+    PyMem_Free(sorted);
+
+    // Everything topo_mesh_create_from_corners() takes as a cheap precondition
+    // is checked above, where a violation can be reported instead of aborting
+    // the process.
     topo_mesh_t *mesh;
     const topo_status_t topo_status =
         topo_mesh_create_from_corners((unsigned)ndim, element_count, point_count, data, &SYSTEM_ALLOCATOR, &mesh);
     Py_DECREF(corners_array);
     if (topo_status != TOPO_SUCCESS)
     {
-        PyErr_Format(PyExc_ValueError, "Could not create mesh: %s (%s).", topo_status_to_str(topo_status),
-                     topo_status_msg(topo_status));
+        raise_topology_status("Could not create mesh", topo_status);
         return NULL;
     }
 
@@ -158,18 +285,22 @@ static PyObject *mesh_from_collections(PyObject *cls, PyObject *const *args, con
             break;
         }
         const size_t ids_count = (size_t)count * 2 * (built + 1);
-        uint64_t *const ids = cutl_alloc(&SYSTEM_ALLOCATOR, ids_count * sizeof(*ids));
-        if (!ids)
+        uint64_t *ids = NULL;
+        if (ids_count > 0)
         {
-            Py_DECREF(array);
-            PyErr_NoMemory();
-            break;
+            ids = cutl_alloc(&SYSTEM_ALLOCATOR, ids_count * sizeof(*ids));
+            if (!ids)
+            {
+                Py_DECREF(array);
+                PyErr_NoMemory();
+                break;
+            }
+            memcpy(ids, PyArray_DATA(array), ids_count * sizeof(*ids));
         }
-        memcpy(ids, PyArray_DATA(array), ids_count * sizeof(*ids));
         Py_DECREF(array);
         collections[built] = (topo_obj_collection_t){.ndim = built + 1, .count = (size_t)count, .boundary_ids = ids};
     }
-    if (built != (unsigned)ndim)
+    if (built != (unsigned)ndim || mesh_check_collections((unsigned)ndim, (uint64_t)point_count, collections) < 0)
     {
         for (unsigned i = 0; i < built; ++i)
             cutl_dealloc(&SYSTEM_ALLOCATOR, (void *)collections[i].boundary_ids);
@@ -177,6 +308,9 @@ static PyObject *mesh_from_collections(PyObject *cls, PyObject *const *args, con
         return NULL;
     }
 
+    // Everything topo_mesh_create_from_collections() takes as a cheap
+    // precondition is checked above, where a violation can be reported instead
+    // of aborting the process.
     topo_mesh_t *mesh;
     const topo_status_t topo_status =
         topo_mesh_create_from_collections((unsigned)ndim, (uint64_t)point_count, collections, &SYSTEM_ALLOCATOR, &mesh);
@@ -185,8 +319,7 @@ static PyObject *mesh_from_collections(PyObject *cls, PyObject *const *args, con
         for (unsigned i = 0; i < (unsigned)ndim; ++i)
             cutl_dealloc(&SYSTEM_ALLOCATOR, (void *)collections[i].boundary_ids);
         cutl_dealloc(&SYSTEM_ALLOCATOR, collections);
-        PyErr_Format(PyExc_ValueError, "Could not create mesh: %s (%s).", topo_status_to_str(topo_status),
-                     topo_status_msg(topo_status));
+        raise_topology_status("Could not create mesh", topo_status);
         return NULL;
     }
 
@@ -441,15 +574,9 @@ static PyObject *mesh_iterate_shared(PyObject *self, PyTypeObject *defining_clas
     if (!list)
         return NULL;
     mesh_iterate_collector_t collector = {.list = list, .ndim = mesh->mesh->ndim, .error = 0};
-    const topo_status_t topo_status =
-        topo_mesh_iterate_shared(mesh->mesh, (unsigned)mdim, mesh_iterate_callback, &collector);
-    if (topo_status != TOPO_SUCCESS)
-    {
-        Py_DECREF(list);
-        PyErr_Format(PyExc_ValueError, "Could not iterate over shared objects: %s (%s).",
-                     topo_status_to_str(topo_status), topo_status_msg(topo_status));
-        return NULL;
-    }
+    // Everything topo_mesh_iterate_shared() takes as a precondition is checked
+    // above, where a violation can be reported instead of aborting the process.
+    topo_mesh_iterate_shared(mesh->mesh, (unsigned)mdim, mesh_iterate_callback, &collector);
     if (collector.error)
     {
         Py_DECREF(list);
@@ -475,14 +602,7 @@ static PyObject *mesh_iterate_shared_all(PyObject *self, PyTypeObject *defining_
     if (!list)
         return NULL;
     mesh_iterate_collector_t collector = {.list = list, .ndim = mesh->mesh->ndim, .error = 0};
-    const topo_status_t topo_status = topo_mesh_iterate_shared_all(mesh->mesh, mesh_iterate_callback, &collector);
-    if (topo_status != TOPO_SUCCESS)
-    {
-        Py_DECREF(list);
-        PyErr_Format(PyExc_ValueError, "Could not iterate over shared objects: %s (%s).",
-                     topo_status_to_str(topo_status), topo_status_msg(topo_status));
-        return NULL;
-    }
+    topo_mesh_iterate_shared_all(mesh->mesh, mesh_iterate_callback, &collector);
     if (collector.error)
     {
         Py_DECREF(list);
@@ -517,15 +637,10 @@ static PyObject *mesh_iterate_boundary(PyObject *self, PyTypeObject *defining_cl
     if (!list)
         return NULL;
     mesh_iterate_collector_t collector = {.list = list, .ndim = mesh->mesh->ndim, .error = 0};
-    const topo_status_t topo_status =
-        topo_mesh_iterate_boundary(mesh->mesh, (unsigned)mdim, mesh_iterate_callback, &collector);
-    if (topo_status != TOPO_SUCCESS)
-    {
-        Py_DECREF(list);
-        PyErr_Format(PyExc_ValueError, "Could not iterate over boundary objects: %s (%s).",
-                     topo_status_to_str(topo_status), topo_status_msg(topo_status));
-        return NULL;
-    }
+    // Everything topo_mesh_iterate_boundary() takes as a precondition is
+    // checked above, where a violation can be reported instead of aborting the
+    // process.
+    topo_mesh_iterate_boundary(mesh->mesh, (unsigned)mdim, mesh_iterate_callback, &collector);
     if (collector.error)
     {
         Py_DECREF(list);
@@ -551,14 +666,7 @@ static PyObject *mesh_iterate_boundary_all(PyObject *self, PyTypeObject *definin
     if (!list)
         return NULL;
     mesh_iterate_collector_t collector = {.list = list, .ndim = mesh->mesh->ndim, .error = 0};
-    const topo_status_t topo_status = topo_mesh_iterate_boundary_all(mesh->mesh, mesh_iterate_callback, &collector);
-    if (topo_status != TOPO_SUCCESS)
-    {
-        Py_DECREF(list);
-        PyErr_Format(PyExc_ValueError, "Could not iterate over boundary objects: %s (%s).",
-                     topo_status_to_str(topo_status), topo_status_msg(topo_status));
-        return NULL;
-    }
+    topo_mesh_iterate_boundary_all(mesh->mesh, mesh_iterate_callback, &collector);
     if (collector.error)
     {
         Py_DECREF(list);
@@ -756,7 +864,7 @@ static int mesh_continuity_assemble_object(mesh_continuity_context_t *const cont
     int plan_live = 0;
     int failed = 1;
 
-    ASSERT(bdim < ndim, "Shared-object dimension must stay below the element dimension.");
+    CUTL_ASSERT(bdim < ndim, "Shared-object dimension must stay below the element dimension.");
     if (order > bdim)
     {
         // A form of order past the object dimension has no trace components and yields no rows.
@@ -821,7 +929,7 @@ static int mesh_continuity_assemble_object(mesh_continuity_context_t *const cont
             for (unsigned axis = 0; axis < ndim; ++axis)
             {
                 const int8_t mapping = orientations[e][axis];
-                ASSERT(mapping != 0, "Orientation records must be one-based and nonzero.");
+                CUTL_ASSERT(mapping != 0, "Orientation records must be one-based and nonzero.");
                 if (basis_set_registry_get_basis_endpoints(basis_registry, &endpoints[e * ndim + axis],
                                                            element_specs[e]->function_space->specs[axis]) !=
                     FDG_SUCCESS)
@@ -963,9 +1071,9 @@ static int mesh_continuity_assemble_object(mesh_continuity_context_t *const cont
                 for (unsigned other = 0; other < nelem; ++other)
                 {
                     const int8_t mapping = orientations[other][ndim - bdim + slot];
-                    ASSERT(mapping != 0, "Orientation records must be one-based and nonzero.");
+                    CUTL_ASSERT(mapping != 0, "Orientation records must be one-based and nonzero.");
                     const unsigned element_axis = (unsigned)(mapping < 0 ? -mapping : mapping) - 1;
-                    ASSERT(element_axis < ndim, "Face slot maps outside the element axes.");
+                    CUTL_ASSERT(element_axis < ndim, "Face slot maps outside the element axes.");
                     const unsigned axis_order = element_specs[other]->function_space->specs[element_axis].order;
                     max_order = max_order > axis_order ? max_order : axis_order;
                 }
@@ -975,7 +1083,7 @@ static int mesh_continuity_assemble_object(mesh_continuity_context_t *const cont
             {
                 const int8_t mapping = orientations[e][ndim - bdim + slot];
                 const unsigned element_axis = (unsigned)(mapping < 0 ? -mapping : mapping) - 1;
-                ASSERT(element_axis < ndim, "Face slot maps outside the element axes.");
+                CUTL_ASSERT(element_axis < ndim, "Face slot maps outside the element axes.");
                 element_integrations[e * ndim + element_axis] =
                     (integration_spec_t){.type = INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE, .order = slot_orders[slot]};
             }
@@ -983,7 +1091,7 @@ static int mesh_continuity_assemble_object(mesh_continuity_context_t *const cont
             {
                 const int8_t mapping = orientations[e][fixed_axis];
                 const unsigned element_axis = (unsigned)(mapping < 0 ? -mapping : mapping) - 1;
-                ASSERT(element_axis < ndim, "Fixed axis maps outside the element axes.");
+                CUTL_ASSERT(element_axis < ndim, "Fixed axis maps outside the element axes.");
                 // Fixed normal axes read endpoint values; the rule order is
                 // irrelevant, so keep the first face slot's order.
                 element_integrations[e * ndim + element_axis] =
@@ -1576,11 +1684,7 @@ static PyObject *mesh_compute_kform_continuity_constraints(PyObject *self, PyTyp
                                      sizeof(*context.builder.row_offsets)) < 0)
         goto fail;
     context.builder.row_offsets[0] = 0;
-    if (topo_mesh_iterate_shared_all(mesh, mesh_continuity_object_callback, &context) != TOPO_SUCCESS)
-    {
-        PyErr_SetString(PyExc_ValueError, "Could not iterate over shared mesh objects.");
-        goto fail;
-    }
+    topo_mesh_iterate_shared_all(mesh, mesh_continuity_object_callback, &context);
     if (context.failed)
         goto fail;
     {

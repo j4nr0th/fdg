@@ -46,7 +46,7 @@ int main()
 
     for (unsigned i = 0; i < TEST_CASES; ++i)
     {
-        TEST_FDG_RESULT(integration_rule_registry_release_rule(registry, rules[i]));
+        integration_rule_registry_release_rule(registry, rules[i]);
         if (i % (TEST_CASES / 10) == 0)
             integration_rule_registry_release_unused_rules(registry);
 

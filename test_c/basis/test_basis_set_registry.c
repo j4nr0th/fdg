@@ -28,8 +28,8 @@ int main(void)
         for (unsigned i = 0; i < endpoint_spec.order + 1; ++i)
             TEST_NUMBERS_CLOSE(values[i], (i == end * endpoint_spec.order) ? 1.0 : 0.0, 1e-12, 1e-12);
     }
-    TEST_FDG_RESULT(basis_set_registry_release_basis_endpoints(registry, endpoints_second));
-    TEST_FDG_RESULT(basis_set_registry_release_basis_endpoints(registry, endpoints_first));
+    basis_set_registry_release_basis_endpoints(registry, endpoints_second);
+    basis_set_registry_release_basis_endpoints(registry, endpoints_first);
 
     enum
     {
@@ -69,13 +69,13 @@ int main(void)
         TEST_ASSERTION(basis_sets[i] == cached_basis, "Caching failed: Expected same basis_set pointer");
 
         // Release cached reference
-        TEST_FDG_RESULT(basis_set_registry_release_basis_set(registry, cached_basis));
+        basis_set_registry_release_basis_set(registry, cached_basis);
     }
 
     // Release all basis sets
     for (int i = 0; i < PAIR_COUNT; i++)
     {
-        TEST_FDG_RESULT(basis_set_registry_release_basis_set(registry, basis_sets[i]));
+        basis_set_registry_release_basis_set(registry, basis_sets[i]);
     }
 
     // Force cleanup of unused basis sets

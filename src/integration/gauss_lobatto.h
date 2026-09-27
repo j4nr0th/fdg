@@ -19,13 +19,10 @@
  * @param max_iter Maximum number of Newton iterations per node.
  * @param x Array of `n` doubles which receives the nodes.
  * @param w Array of `n` doubles which receives the weights.
- * @return The number of nodes for which the iteration did not converge to
- *         the requested tolerance; zero on success. The arrays are filled
- *         regardless.
  */
 FDG_INTERNAL
-int gauss_lobatto_nodes_weights(unsigned n, double tol, unsigned max_iter, double FDG_ARRAY_ARG(x, restrict n),
-                                double FDG_ARRAY_ARG(w, restrict n));
+void gauss_lobatto_nodes_weights(unsigned n, double tol, unsigned max_iter, double FDG_ARRAY_ARG(x, restrict n),
+                                 double FDG_ARRAY_ARG(w, restrict n));
 
 /**
  * @brief Compute the nodes of the Gauss-Lobatto quadrature rule.
@@ -36,11 +33,8 @@ int gauss_lobatto_nodes_weights(unsigned n, double tol, unsigned max_iter, doubl
  * @param tol Convergence tolerance for the Newton iterations.
  * @param max_iter Maximum number of Newton iterations per node.
  * @param x Array of `n` doubles which receives the nodes.
- * @return The number of nodes for which the iteration did not converge to
- *         the requested tolerance; zero on success. The array is filled
- *         regardless.
  */
 FDG_INTERNAL
-int gauss_lobatto_nodes(unsigned n, double tol, unsigned max_iter, double FDG_ARRAY_ARG(x, restrict n));
+void gauss_lobatto_nodes(unsigned n, double tol, unsigned max_iter, double FDG_ARRAY_ARG(x, restrict n));
 
 #endif // GAUSSLOBATTO_H

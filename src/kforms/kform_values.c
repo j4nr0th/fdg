@@ -32,12 +32,13 @@ void kform_component_basis_values(const unsigned ndim, const basis_spec_t basis[
                 break;
             }
         }
-        ASSERT(owner < ndim, "Free axes must cover stride slots 0..%u exactly once.", point_dims - 1);
+        CUTL_ASSERT(owner < ndim, "Caller-supplied free axes must cover stride slots 0..%u exactly once.",
+                    point_dims - 1);
         multidim_iterator_init_dim(point_iter, slot, axes[owner].free.rule_size);
     }
-    ASSERT(multidim_iterator_total_size(point_iter) == point_count,
-           "Point count does not match the stride-slot tensor (%zu vs %zu).", multidim_iterator_total_size(point_iter),
-           point_count);
+    CUTL_ASSERT(multidim_iterator_total_size(point_iter) == point_count,
+                "Caller-assembled point iterator spans %zu points, but %zu were requested.",
+                multidim_iterator_total_size(point_iter), point_count);
     const size_t *const point_digits = multidim_iterator_offsets(point_iter);
 
     for (size_t point = 0; point < point_count; ++point)
@@ -82,8 +83,10 @@ void kform_component_basis_values(const unsigned ndim, const basis_spec_t basis[
             }
             current_count *= basis_dim;
         }
-        ASSERT(current_count == dof_count, "Tensor-product basis count mismatch (%zu vs %zu).", current_count,
-               dof_count);
+        CUTL_ASSERT(
+            current_count == dof_count,
+            "Caller-assembled axes produce a tensor-product basis count of %zu, but the component has %zu DoFs.",
+            current_count, dof_count);
         if (point_dims > 0)
         {
             multidim_iterator_advance(point_iter, point_dims - 1, 1);

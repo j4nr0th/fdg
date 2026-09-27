@@ -1,5 +1,6 @@
 #include "matrices.h"
 
+#include <cutl/common_defs.h>
 #include <math.h>
 
 // static void dbg_print_matrix(const matrix_t *m)
@@ -12,16 +13,14 @@
 //     }
 // }
 
-fdg_result_t matrix_qr_decompose(const matrix_t *const ar, const matrix_t *const q)
+void matrix_qr_decompose(const matrix_t *const ar, const matrix_t *const q)
 {
     // printf("matrix_qr_decompose called with A:\n");
     // dbg_print_matrix(ar);
 
     const unsigned rows = ar->rows;
-    if (q->rows != rows || q->cols != rows)
-    {
-        return FDG_ERROR_MATRIX_DIMS_MISMATCH;
-    }
+    CUTL_ASSERT(q->rows == rows && q->cols == rows,
+                "Q matrix dimensions (%u x %u) do not match the input matrix rows (%u).", q->rows, q->cols, rows);
     const unsigned cols = ar->cols;
 
     // Initialize Q to be identity
@@ -33,7 +32,7 @@ fdg_result_t matrix_qr_decompose(const matrix_t *const ar, const matrix_t *const
 
     // Check if we can even do anything
     if (rows == 1)
-        return FDG_SUCCESS;
+        return;
 
     double *const r = ar->values;
     double *const qt = q->values;
@@ -43,7 +42,9 @@ fdg_result_t matrix_qr_decompose(const matrix_t *const ar, const matrix_t *const
     {
         for (unsigned col = 0; col < cols && col < row; ++col)
         {
-            ASSERT(row < rows && col < cols, "Givens rotation indexes outside the matrix (row %u, col %u).", row, col);
+            CUTL_ASSERT(row < rows && col < cols,
+                        "Givens rotation indexes outside the matrix (row %u, col %u of %u x %u).", row, col, rows,
+                        cols);
             double givens_c = r[col * cols + col];
             double givens_s = -r[row * cols + col];
             const double givens_mag = hypot(givens_c, givens_s);
@@ -56,10 +57,10 @@ fdg_result_t matrix_qr_decompose(const matrix_t *const ar, const matrix_t *const
             givens_s /= givens_mag;
 
             // Apply the rotation to the rows involved in the rotation
-            ASSERT(fabs(givens_s * r[col * cols + col] + givens_c * r[row * cols + col]) < 1e-12,
-                   "Givens rotation somehow does not properly eliminate the entries (c: %g, s:%g, with matrix entries "
-                   "%g and %g).",
-                   givens_c, givens_s, r[col * cols + col], r[row * cols + col]);
+            CUTL_ASSERT(fabs(givens_s * r[col * cols + col] + givens_c * r[row * cols + col]) < 1e-12,
+                        "Givens rotation somehow does not properly eliminate the entries (c: %g, s:%g, with matrix "
+                        "entries %g and %g).",
+                        givens_c, givens_s, r[col * cols + col], r[row * cols + col]);
 
             for (unsigned k = col; k < cols; ++k)
             {
@@ -69,8 +70,9 @@ fdg_result_t matrix_qr_decompose(const matrix_t *const ar, const matrix_t *const
                 r[row * cols + k] = +givens_s * v1 + givens_c * v2;
             }
 
-            ASSERT(fabs(r[row * cols + col]) < 1e-12,
-                   "Givens rotation failed to reduce matrix to upper triangular (entry was %g)", r[row * cols + col]);
+            CUTL_ASSERT(fabs(r[row * cols + col]) < 1e-12,
+                        "Givens rotation failed to reduce matrix to upper triangular (entry was %g)",
+                        r[row * cols + col]);
             r[row * cols + col] = 0;
 
             // Apply the of Givens rotation to the matrix qt
@@ -82,23 +84,20 @@ fdg_result_t matrix_qr_decompose(const matrix_t *const ar, const matrix_t *const
             }
         }
     }
-
-    return FDG_SUCCESS;
 }
 
-fdg_result_t matrix_multiply(const matrix_t *a, const matrix_t *b, const matrix_t *c)
+void matrix_multiply(const matrix_t *a, const matrix_t *b, const matrix_t *c)
 {
     const unsigned rows = a->rows;
     const unsigned cols = b->cols;
     const unsigned k = a->cols;
 
     // Does output have correct size?
-    if (rows != c->rows || cols != c->cols)
-        return FDG_ERROR_MATRIX_DIMS_MISMATCH;
+    CUTL_ASSERT(rows == c->rows && cols == c->cols,
+                "Output matrix dimensions (%u x %u) do not match the result (%u x %u).", c->rows, c->cols, rows, cols);
 
     // Do the inputs match?
-    if (k != b->rows)
-        return FDG_ERROR_MATRIX_DIMS_MISMATCH;
+    CUTL_ASSERT(k == b->rows, "Inner dimensions do not match (%u vs %u).", k, b->rows);
 
     for (unsigned i = 0; i < rows; ++i)
     {
@@ -111,17 +110,13 @@ fdg_result_t matrix_multiply(const matrix_t *a, const matrix_t *b, const matrix_
             c->values[i * cols + j] = sum;
         }
     }
-
-    return FDG_SUCCESS;
 }
 
-fdg_result_t matrix_back_substitute(const matrix_t *upper, const matrix_t *b)
+void matrix_back_substitute(const matrix_t *upper, const matrix_t *b)
 {
     const unsigned u_cols = upper->cols;
-    if (u_cols > b->rows)
-    {
-        return FDG_ERROR_MATRIX_DIMS_MISMATCH;
-    }
+    CUTL_ASSERT(u_cols <= b->rows, "Upper triangular matrix has more columns (%u) than the system has rows (%u).",
+                u_cols, b->rows);
     const unsigned b_cols = b->cols;
     // Do each column of B separately
 #pragma omp simd
@@ -137,6 +132,4 @@ fdg_result_t matrix_back_substitute(const matrix_t *upper, const matrix_t *b)
             b_ptr[(row - 1) * b_cols] = value / upper->values[(row - 1) * u_cols + (row - 1)];
         }
     }
-
-    return FDG_SUCCESS;
 }

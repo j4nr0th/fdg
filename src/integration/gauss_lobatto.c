@@ -8,17 +8,19 @@
 
 #include "gauss_lobatto.h"
 #include "../polynomials/legendre.h"
+#include <cutl/common_defs.h>
 #include <math.h>
 
 FDG_INTERNAL
-int gauss_lobatto_nodes_weights(const unsigned n, const double tol, const unsigned max_iter,
-                                double FDG_ARRAY_ARG(x, restrict n), double FDG_ARRAY_ARG(w, restrict n))
+void gauss_lobatto_nodes_weights(const unsigned n, const double tol, const unsigned max_iter,
+                                 double FDG_ARRAY_ARG(x, restrict n), double FDG_ARRAY_ARG(w, restrict n))
 {
+    CUTL_ASSERT(n > 0, "The number of nodes must be positive, got %u.", n);
     if (n == 1)
     {
         x[0] = 0.0;
         w[0] = 2.0;
-        return 0;
+        return;
     }
     if (n == 2)
     {
@@ -26,10 +28,10 @@ int gauss_lobatto_nodes_weights(const unsigned n, const double tol, const unsign
         x[1] = +1.0;
         w[0] = 1.0;
         w[1] = 1.0;
-        return 0;
+        return;
     }
 
-    int non_converged = 0;
+    unsigned non_converged = 0;
     // n >= 2
     x[0] = -1.0;
     x[n - 1] = +1.0;
@@ -57,26 +59,28 @@ int gauss_lobatto_nodes_weights(const unsigned n, const double tol, const unsign
         legendre_eval_bonnet_two(n - 1, new_x, leg_poly);
         w[n - i] = 2.0 / (n * (n - 1) * leg_poly[1] * leg_poly[1]);
     }
-    return non_converged;
+    CUTL_ASSERT(non_converged == 0, "%u of %u nodes did not converge to %g within %u iterations.", non_converged, n,
+                tol, max_iter);
 }
 
 FDG_INTERNAL
-int gauss_lobatto_nodes(const unsigned n, const double tol, const unsigned max_iter,
-                        double FDG_ARRAY_ARG(x, restrict n))
+void gauss_lobatto_nodes(const unsigned n, const double tol, const unsigned max_iter,
+                         double FDG_ARRAY_ARG(x, restrict n))
 {
+    CUTL_ASSERT(n > 0, "The number of nodes must be positive, got %u.", n);
     if (n == 1)
     {
         x[0] = 0.0;
-        return 0;
+        return;
     }
     if (n == 2)
     {
         x[0] = -1.0;
         x[1] = +1.0;
-        return 0;
+        return;
     }
 
-    int non_converged = 0;
+    unsigned non_converged = 0;
     // n >= 2
     x[0] = -1.0;
     x[n - 1] = +1.0;
@@ -102,5 +106,6 @@ int gauss_lobatto_nodes(const unsigned n, const double tol, const unsigned max_i
         x[n - i] = new_x;
         legendre_eval_bonnet_two(n - 1, new_x, leg_poly);
     }
-    return non_converged;
+    CUTL_ASSERT(non_converged == 0, "%u of %u nodes did not converge to %g within %u iterations.", non_converged, n,
+                tol, max_iter);
 }

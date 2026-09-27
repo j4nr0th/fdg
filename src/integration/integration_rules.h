@@ -139,9 +139,8 @@ static inline const double *integration_rule_weights_const(const integration_rul
  * @param type Type of the rule.
  * @param accuracy Degree of the polynomial the rule must integrate exactly.
  * @param allocator Allocator used to allocate the rule.
- * @return FDG_SUCCESS on success, FDG_ERROR_INVALID_ENUM if the type is not
- *         supported, FDG_ERROR_FAILED_ALLOCATION if memory allocation fails.
- *         On failure, `*out` is left unmodified.
+ * @return FDG_SUCCESS on success, FDG_ERROR_FAILED_ALLOCATION if memory
+ *         allocation fails. On failure, `*out` is left unmodified.
  *
  * The caller owns the created rule and is responsible for deallocating it
  * with the same allocator once it is no longer needed.
@@ -160,9 +159,8 @@ fdg_result_t integration_rule_for_accuracy(integration_rule_t **out, integration
  * @param type Type of the rule.
  * @param order Order of the rule; the rule has `order + 1` nodes.
  * @param allocator Allocator used to allocate the rule.
- * @return FDG_SUCCESS on success, FDG_ERROR_INVALID_ENUM if the type is not
- *         supported, FDG_ERROR_FAILED_ALLOCATION if memory allocation fails.
- *         On failure, `*out` is left unmodified.
+ * @return FDG_SUCCESS on success, FDG_ERROR_FAILED_ALLOCATION if memory
+ *         allocation fails. On failure, `*out` is left unmodified.
  *
  * The caller owns the created rule and is responsible for deallocating it
  * with the same allocator once it is no longer needed.
@@ -282,17 +280,16 @@ fdg_result_t integration_rule_registry_get_rules(integration_rule_registry_t *th
  * zero, the function deallocates the rule and removes it from the registry.
  *
  * @param[in] this Pointer to the `integration_rule_registry_t` containing the rule.
- * @param[in] rule Pointer to the `integration_rule_t` to be released.
- *
- * @return `FDG_SUCCESS` if the rule was successfully released and, if applicable, removed.
- *         `FDG_ERROR_NOT_IN_REGISTRY` if the specified rule was not found in the registry.
+ * @param[in] rule Pointer to the `integration_rule_t` to be released. It must
+ *        have been obtained from this registry and must not have been released
+ *        already.
  *
  * This operation might modify the internal structure of the registry, specifically the bucket
  * where the rule is located. The caller should ensure thread-safety if the registry is accessed
  * concurrently.
  */
 FDG_INTERNAL
-fdg_result_t integration_rule_registry_release_rule(integration_rule_registry_t *this, const integration_rule_t *rule);
+void integration_rule_registry_release_rule(integration_rule_registry_t *this, const integration_rule_t *rule);
 /**
  * @brief Releases unused integration rules from the registry.
  *

@@ -109,59 +109,51 @@ int main()
     const int8_t proper_orientation_vol8[NDIM] = {+4, +1, -3, +2};
     int8_t result_orientation[NDIM] = {0};
     // Volume 1
-    int stat = topo_obj_boundary_immersion_create(NDIM, collection_bnd.ndim, &collection_bnd, 0, 0, parent_orientation,
-                                                  boundary_arrangement, result_orientation);
-    TEST_ASSERTION(stat == 0, "Failed function call with return value %d", stat);
+    topo_obj_boundary_immersion_create(NDIM, collection_bnd.ndim, &collection_bnd, 0, 0, parent_orientation,
+                                       boundary_arrangement, result_orientation);
     TEST_ASSERTION(check_boundaries_match(NDIM, parent_orientation, result_orientation, proper_orientation_vol1),
                    // memcmp(result_orientation, proper_orientation_vol1, sizeof(int8_t) * NDIM) == 0,
                    "Computed immersion did not match expected result.");
 
     // Volume 2
-    stat = topo_obj_boundary_immersion_create(NDIM, collection_bnd.ndim, &collection_bnd, 1, 0, parent_orientation,
-                                              boundary_arrangement, result_orientation);
-    TEST_ASSERTION(stat == 0, "Failed function call with return value %d", stat);
+    topo_obj_boundary_immersion_create(NDIM, collection_bnd.ndim, &collection_bnd, 1, 0, parent_orientation,
+                                       boundary_arrangement, result_orientation);
     TEST_ASSERTION(check_boundaries_match(NDIM, parent_orientation, result_orientation, proper_orientation_vol2),
                    "Computed immersion did not match expected result.");
 
     // Volume 3
-    stat = topo_obj_boundary_immersion_create(NDIM, collection_bnd.ndim, &collection_bnd, 2, 0, parent_orientation,
-                                              boundary_arrangement, result_orientation);
-    TEST_ASSERTION(stat == 0, "Failed function call with return value %d", stat);
+    topo_obj_boundary_immersion_create(NDIM, collection_bnd.ndim, &collection_bnd, 2, 0, parent_orientation,
+                                       boundary_arrangement, result_orientation);
     TEST_ASSERTION(check_boundaries_match(NDIM, parent_orientation, result_orientation, proper_orientation_vol3),
                    "Computed immersion did not match expected result.");
 
     // Volume 4
-    stat = topo_obj_boundary_immersion_create(NDIM, collection_bnd.ndim, &collection_bnd, 3, 0, parent_orientation,
-                                              boundary_arrangement, result_orientation);
-    TEST_ASSERTION(stat == 0, "Failed function call with return value %d", stat);
+    topo_obj_boundary_immersion_create(NDIM, collection_bnd.ndim, &collection_bnd, 3, 0, parent_orientation,
+                                       boundary_arrangement, result_orientation);
     TEST_ASSERTION(check_boundaries_match(NDIM, parent_orientation, result_orientation, proper_orientation_vol4),
                    "Computed immersion did not match expected result.");
 
     // Volume 5
-    stat = topo_obj_boundary_immersion_create(NDIM, collection_bnd.ndim, &collection_bnd, 4, 0, parent_orientation,
-                                              boundary_arrangement, result_orientation);
-    TEST_ASSERTION(stat == 0, "Failed function call with return value %d", stat);
+    topo_obj_boundary_immersion_create(NDIM, collection_bnd.ndim, &collection_bnd, 4, 0, parent_orientation,
+                                       boundary_arrangement, result_orientation);
     TEST_ASSERTION(check_boundaries_match(NDIM, parent_orientation, result_orientation, proper_orientation_vol5),
                    "Computed immersion did not match expected result.");
 
     // Volume 6
-    stat = topo_obj_boundary_immersion_create(NDIM, collection_bnd.ndim, &collection_bnd, 5, 0, parent_orientation,
-                                              boundary_arrangement, result_orientation);
-    TEST_ASSERTION(stat == 0, "Failed function call with return value %d", stat);
+    topo_obj_boundary_immersion_create(NDIM, collection_bnd.ndim, &collection_bnd, 5, 0, parent_orientation,
+                                       boundary_arrangement, result_orientation);
     TEST_ASSERTION(check_boundaries_match(NDIM, parent_orientation, result_orientation, proper_orientation_vol6),
                    "Computed immersion did not match expected result.");
 
     // Volume 7
-    stat = topo_obj_boundary_immersion_create(NDIM, collection_bnd.ndim, &collection_bnd, 6, 0, parent_orientation,
-                                              boundary_arrangement, result_orientation);
-    TEST_ASSERTION(stat == 0, "Failed function call with return value %d", stat);
+    topo_obj_boundary_immersion_create(NDIM, collection_bnd.ndim, &collection_bnd, 6, 0, parent_orientation,
+                                       boundary_arrangement, result_orientation);
     TEST_ASSERTION(check_boundaries_match(NDIM, parent_orientation, result_orientation, proper_orientation_vol7),
                    "Computed immersion did not match expected result.");
 
     // Volume 8
-    stat = topo_obj_boundary_immersion_create(NDIM, collection_bnd.ndim, &collection_bnd, 7, 0, parent_orientation,
-                                              boundary_arrangement, result_orientation);
-    TEST_ASSERTION(stat == 0, "Failed function call with return value %d", stat);
+    topo_obj_boundary_immersion_create(NDIM, collection_bnd.ndim, &collection_bnd, 7, 0, parent_orientation,
+                                       boundary_arrangement, result_orientation);
     TEST_ASSERTION(check_boundaries_match(NDIM, parent_orientation, result_orientation, proper_orientation_vol8),
                    "Computed immersion did not match expected result.");
     return 0;

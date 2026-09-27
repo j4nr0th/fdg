@@ -73,6 +73,13 @@ static PyObject *dof_new(PyTypeObject *subtype, PyObject *args, PyObject *kwds)
 
     const Py_ssize_t ndim = Py_SIZE(space);
     const basis_spec_t *basis_specs_in = space->specs;
+    // dof_transforms.c indexes per-axis data with the dimension and the option
+    // storage asserts a range of [1, 63]; the space normally guarantees this.
+    if (ndim < 1 || ndim > 63)
+    {
+        PyErr_Format(PyExc_ValueError, "Expected ndim in [1, 63], got %zd.", ndim);
+        return NULL;
+    }
     Py_ssize_t total_dofs = 1;
     for (unsigned i = 0; i < ndim; ++i)
         total_dofs *= basis_specs_in[i].order + 1;
@@ -255,7 +262,7 @@ int dof_reconstruction_state_init(const dof_object *this, const unsigned ndim,
     {
         return -1;
     }
-    ASSERT(ndim == this->n_dims, "Input ndim does not match the DoF ndim");
+    CUTL_ASSERT(ndim == this->n_dims, "Input ndim does not match the DoF ndim");
     multidim_iterator_t *const iter_basis = python_basis_iterator(ndim, this->basis_specs);
     if (!iter_basis)
     {
@@ -305,7 +312,7 @@ static PyArrayObject *ensure_reconstruction_output(const dof_object *this, const
                                                    const integration_spec_t integration_specs[const static ndim],
                                                    PyArrayObject *out_array)
 {
-    ASSERT(ndim == this->n_dims, "Input ndim does not match the DoF ndim");
+    CUTL_ASSERT(ndim == this->n_dims, "Input ndim does not match the DoF ndim");
     // Check or create output
     if (out_array)
     {

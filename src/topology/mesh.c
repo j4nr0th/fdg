@@ -324,42 +324,52 @@ static void subobject_boundaries(const unsigned ndim, const unsigned mdim, const
 /**
  * Create the collections of a mesh from the corner points of its elements.
  *
- * @param ndim Number of dimensions of the space.
- * @param element_count Number of elements.
- * @param point_count Number of points of the mesh.
- * @param corners Corner point IDs, element_count * 2^ndim entries.
+ * The corner data is checked with CUTL_ASSERT: callers with untrusted input
+ * must validate it beforehand (the binding derives ``point_count`` from the
+ * largest corner ID and rejects repeated corner IDs itself), so that a
+ * violation is reported instead of aborting the process.
+ *
+ * @param ndim Number of dimensions of the space, in [1, 63].
+ * @param element_count Number of elements, at least one.
+ * @param point_count Number of points of the mesh, at least one and greater
+ *        than every corner ID.
+ * @param corners Corner point IDs, element_count * 2^ndim entries, not null.
  * @param allocator Allocator for the collections.
  * @param build Receives the built collections. On failure its memory is
  *        released before returning.
- * @return TOPO_SUCCESS on success, TOPO_INVALID_ARGUMENT, TOPO_SIZE_OVERFLOW
- *         or TOPO_FAILED_ALLOC on failure.
+ * @return TOPO_SUCCESS on success, TOPO_SIZE_OVERFLOW or TOPO_FAILED_ALLOC on
+ *         failure.
  */
 static topo_status_t corner_build(const unsigned ndim, const uint64_t element_count, const uint64_t point_count,
                                   const uint64_t *const corners, const cutl_allocator_t *const allocator,
                                   corner_build_t *build)
 {
-    if (!corners)
-        return TOPO_INVALID_ARGUMENT;
+    CUTL_ASSERT(corners != NULL, "Corner point array must not be null.");
     *build = (corner_build_t){0};
 
     const uint64_t corners_per_element = (uint64_t)1 << ndim;
 
-    // Validate the corner IDs: they must all name existing points, and the
-    // corners of one element must be distinct.
+    // The corner IDs must all name existing points, and the corners of one
+    // element must be distinct. Both are preconditions: the binding computes
+    // point_count as max_corner + 1, so no corner can be out of range, and it
+    // rejects repeated corner IDs before calling here.
     for (uint64_t e = 0; e < element_count; ++e)
     {
         const uint64_t *const element_corners = corners + e * corners_per_element;
         for (uint64_t c = 0; c < corners_per_element; ++c)
         {
-            if (element_corners[c] >= point_count)
-                return TOPO_INVALID_ARGUMENT;
+            CUTL_ASSERT(element_corners[c] < point_count,
+                        "Corner %llu of element %llu names point %llu, outside [0, %llu).", (unsigned long long)c,
+                        (unsigned long long)e, (unsigned long long)element_corners[c], (unsigned long long)point_count);
         }
         for (uint64_t a = 0; a + 1 < corners_per_element; ++a)
         {
             for (uint64_t b = a + 1; b < corners_per_element; ++b)
             {
-                if (element_corners[a] == element_corners[b])
-                    return TOPO_INVALID_ARGUMENT;
+                CUTL_ASSERT(element_corners[a] != element_corners[b],
+                            "Element %llu repeats corner point ID %llu at corners %llu and %llu.",
+                            (unsigned long long)e, (unsigned long long)element_corners[a], (unsigned long long)a,
+                            (unsigned long long)b);
             }
         }
     }
@@ -571,6 +581,9 @@ done:
 /**
  * Validate the immersion records of a mesh against its element count.
  *
+ * The records were computed from data this module just accepted, so a record
+ * naming an element outside the mesh can only mean the computation went wrong.
+ *
  * @param mesh Mesh with the immersions already stored.
  * @return false when an immersion record names an element outside the mesh.
  */
@@ -604,15 +617,14 @@ topo_status_t topo_mesh_create(const unsigned ndim, const uint64_t point_count,
                                topo_obj_collection_t *const collections, topo_obj_immersion_t *const immersions,
                                const cutl_allocator_t *const allocator, topo_mesh_t **const out)
 {
-    if (!allocator || !out || !collections || !immersions)
-        return TOPO_INVALID_ARGUMENT;
-    if (ndim == 0 || ndim > 63)
-        return TOPO_INVALID_ARGUMENT;
-    if (point_count == 0)
-        return TOPO_INVALID_ARGUMENT;
+    CUTL_ASSERT(allocator != NULL, "Allocator must not be null.");
+    CUTL_ASSERT(out != NULL, "Output pointer must not be null.");
+    CUTL_ASSERT(collections != NULL, "Collections must not be null.");
+    CUTL_ASSERT(immersions != NULL, "Immersions must not be null.");
+    CUTL_ASSERT(ndim >= 1 && ndim <= 63, "Number of dimensions %u is not in [1, 63].", ndim);
+    CUTL_ASSERT(point_count > 0, "Point count must be positive.");
     const uint64_t element_count = collections[ndim - 1].count;
-    if (element_count == 0)
-        return TOPO_INVALID_ARGUMENT;
+    CUTL_ASSERT(element_count > 0, "Collection %u holds no elements.", ndim - 1);
 
     topo_mesh_t *mesh = cutl_alloc(allocator, sizeof(*mesh));
     if (!mesh)
@@ -625,11 +637,11 @@ topo_status_t topo_mesh_create(const unsigned ndim, const uint64_t point_count,
     mesh->immersions = immersions;
     mesh->element_count = element_count;
 
-    if (!mesh_validate_immersions(mesh))
-    {
-        cutl_dealloc(allocator, mesh);
-        return TOPO_INVALID_ARGUMENT;
-    }
+    // Evaluated into a local so that the check is not compiled away when
+    // asserts are disabled.
+    const bool immersions_valid = mesh_validate_immersions(mesh);
+    CUTL_ASSERT(immersions_valid, "An immersion record names an element outside [0, %llu).",
+                (unsigned long long)element_count);
 
     *out = mesh;
     return TOPO_SUCCESS;
@@ -639,12 +651,11 @@ topo_status_t topo_mesh_create_from_collections(const unsigned ndim, const uint6
                                                 topo_obj_collection_t *const collections,
                                                 const cutl_allocator_t *const allocator, topo_mesh_t **const out)
 {
-    if (!allocator || !out || !collections)
-        return TOPO_INVALID_ARGUMENT;
-    if (ndim == 0 || ndim > 63)
-        return TOPO_INVALID_ARGUMENT;
-    if (point_count == 0)
-        return TOPO_INVALID_ARGUMENT;
+    CUTL_ASSERT(allocator != NULL, "Allocator must not be null.");
+    CUTL_ASSERT(out != NULL, "Output pointer must not be null.");
+    CUTL_ASSERT(collections != NULL, "Collections must not be null.");
+    CUTL_ASSERT(ndim >= 1 && ndim <= 63, "Number of dimensions %u is not in [1, 63].", ndim);
+    CUTL_ASSERT(point_count > 0, "Point count must be positive.");
 
     topo_obj_immersion_t *const immersions = cutl_alloc(allocator, (size_t)ndim * sizeof(topo_obj_immersion_t));
     if (!immersions)
@@ -674,17 +685,18 @@ topo_status_t topo_mesh_create_from_corners(const unsigned ndim, const uint64_t 
                                             const uint64_t point_count, const uint64_t *const corners,
                                             const cutl_allocator_t *const allocator, topo_mesh_t **const out)
 {
-    if (!allocator || !out)
-        return TOPO_INVALID_ARGUMENT;
-    if (ndim == 0 || ndim > 63)
-        return TOPO_INVALID_ARGUMENT;
-    if (element_count == 0 || point_count == 0)
-        return TOPO_INVALID_ARGUMENT;
+    CUTL_ASSERT(allocator != NULL, "Allocator must not be null.");
+    CUTL_ASSERT(out != NULL, "Output pointer must not be null.");
+    CUTL_ASSERT(ndim >= 1 && ndim <= 63, "Number of dimensions %u is not in [1, 63].", ndim);
+    CUTL_ASSERT(element_count > 0, "Element count must be positive.");
+    CUTL_ASSERT(point_count > 0, "Point count must be positive.");
 
     corner_build_t build;
-    topo_status_t status = corner_build(ndim, element_count, point_count, corners, allocator, &build);
-    if (status != TOPO_SUCCESS)
-        return status;
+    // Only resource failures reach this point: the corner data is checked
+    // with CUTL_ASSERT inside corner_build().
+    const topo_status_t build_status = corner_build(ndim, element_count, point_count, corners, allocator, &build);
+    if (build_status != TOPO_SUCCESS)
+        return build_status;
 
     topo_obj_immersion_t *const immersions = cutl_alloc(allocator, (size_t)ndim * sizeof(topo_obj_immersion_t));
     if (!immersions)
@@ -695,7 +707,8 @@ topo_status_t topo_mesh_create_from_corners(const unsigned ndim, const uint64_t 
     for (unsigned i = 0; i < ndim; ++i)
         immersions[i] = (topo_obj_immersion_t){0};
 
-    status = topo_obj_create_immersion_info(ndim, (unsigned)point_count, build.collections, allocator, immersions);
+    topo_status_t status =
+        topo_obj_create_immersion_info(ndim, (unsigned)point_count, build.collections, allocator, immersions);
     if (status != TOPO_SUCCESS)
     {
         topo_obj_immersions_free(ndim, immersions, allocator);
@@ -704,6 +717,7 @@ topo_status_t topo_mesh_create_from_corners(const unsigned ndim, const uint64_t 
         return status;
     }
 
+    // topo_mesh_create() only fails when it cannot allocate the mesh itself.
     status = topo_mesh_create(ndim, point_count, build.collections, immersions, allocator, out);
     if (status != TOPO_SUCCESS)
     {
@@ -734,26 +748,31 @@ void topo_mesh_free(topo_mesh_t *const mesh, const cutl_allocator_t *const alloc
 
 unsigned topo_mesh_ndim(const topo_mesh_t *const mesh)
 {
+    CUTL_ASSERT(mesh != NULL, "Mesh must not be null.");
     return mesh->ndim;
 }
 
 uint64_t topo_mesh_point_count(const topo_mesh_t *const mesh)
 {
+    CUTL_ASSERT(mesh != NULL, "Mesh must not be null.");
     return mesh->point_count;
 }
 
 uint64_t topo_mesh_element_count(const topo_mesh_t *const mesh)
 {
+    CUTL_ASSERT(mesh != NULL, "Mesh must not be null.");
     return mesh->element_count;
 }
 
 const topo_obj_collection_t *topo_mesh_collections(const topo_mesh_t *const mesh)
 {
+    CUTL_ASSERT(mesh != NULL, "Mesh must not be null.");
     return mesh->collections;
 }
 
 const topo_obj_immersion_t *topo_mesh_immersions(const topo_mesh_t *const mesh)
 {
+    CUTL_ASSERT(mesh != NULL, "Mesh must not be null.");
     return mesh->immersions;
 }
 
@@ -867,20 +886,17 @@ static bool mesh_object_on_boundary(const topo_mesh_t *const mesh, const uint64_
  * ``min_count`` elements.
  *
  * @param mesh Mesh to iterate over.
- * @param mdim Dimension of the objects to iterate over.
+ * @param mdim Dimension of the objects to iterate over, in [0, ndim).
  * @param min_count Objects with fewer elements are skipped.
- * @param callback Callback invoked for each visited object.
+ * @param callback Callback invoked for each visited object, not null.
  * @param user_data Pointer passed to the callback.
- * @return TOPO_SUCCESS on success, TOPO_INVALID_ARGUMENT if the arguments are
- *         invalid.
  */
-static topo_status_t mesh_iterate(const topo_mesh_t *const mesh, const unsigned mdim, const uint64_t min_count,
-                                  topo_mesh_callback_t callback, void *const user_data)
+static void mesh_iterate(const topo_mesh_t *const mesh, const unsigned mdim, const uint64_t min_count,
+                         topo_mesh_callback_t callback, void *const user_data)
 {
-    if (!mesh || !callback)
-        return TOPO_INVALID_ARGUMENT;
-    if (mdim >= mesh->ndim)
-        return TOPO_INVALID_ARGUMENT;
+    CUTL_ASSERT(mesh != NULL, "Mesh must not be null.");
+    CUTL_ASSERT(callback != NULL, "Callback must not be null.");
+    CUTL_ASSERT(mdim < mesh->ndim, "Object dimension %u is not in [0, %u).", mdim, mesh->ndim);
 
     const topo_obj_immersion_t *const immersion = mesh->immersions + mdim;
     for (uint64_t g = 0; g < immersion->object_count; ++g)
@@ -895,34 +911,27 @@ static topo_status_t mesh_iterate(const topo_mesh_t *const mesh, const unsigned 
             .mdim = mdim, .object_id = g, .element_count = element_count, .element_ids = ids, .orientations = orients};
         callback(mesh, &object, user_data);
     }
-    return TOPO_SUCCESS;
 }
 
-topo_status_t topo_mesh_iterate_shared(const topo_mesh_t *const mesh, const unsigned mdim,
-                                       topo_mesh_callback_t callback, void *const user_data)
+void topo_mesh_iterate_shared(const topo_mesh_t *const mesh, const unsigned mdim, topo_mesh_callback_t callback,
+                              void *const user_data)
 {
-    return mesh_iterate(mesh, mdim, 2, callback, user_data);
+    mesh_iterate(mesh, mdim, 2, callback, user_data);
 }
 
-topo_status_t topo_mesh_iterate_shared_all(const topo_mesh_t *const mesh, topo_mesh_callback_t callback,
-                                           void *const user_data)
+void topo_mesh_iterate_shared_all(const topo_mesh_t *const mesh, topo_mesh_callback_t callback, void *const user_data)
 {
-    if (!mesh || !callback)
-        return TOPO_INVALID_ARGUMENT;
+    CUTL_ASSERT(mesh != NULL, "Mesh must not be null.");
+    CUTL_ASSERT(callback != NULL, "Callback must not be null.");
     for (unsigned mdim = mesh->ndim; mdim-- > 0;)
-    {
-        const topo_status_t status = topo_mesh_iterate_shared(mesh, mdim, callback, user_data);
-        if (status != TOPO_SUCCESS)
-            return status;
-    }
-    return TOPO_SUCCESS;
+        topo_mesh_iterate_shared(mesh, mdim, callback, user_data);
 }
 
-topo_status_t topo_mesh_iterate_shared_pairs(const topo_mesh_t *const mesh, topo_mesh_pair_callback_t callback,
-                                             void *const user_data)
+void topo_mesh_iterate_shared_pairs(const topo_mesh_t *const mesh, topo_mesh_pair_callback_t callback,
+                                    void *const user_data)
 {
-    if (!mesh || !callback)
-        return TOPO_INVALID_ARGUMENT;
+    CUTL_ASSERT(mesh != NULL, "Mesh must not be null.");
+    CUTL_ASSERT(callback != NULL, "Callback must not be null.");
     for (unsigned mdim = mesh->ndim; mdim-- > 0;)
     {
         const topo_obj_immersion_t *const immersion = mesh->immersions + mdim;
@@ -939,16 +948,14 @@ topo_status_t topo_mesh_iterate_shared_pairs(const topo_mesh_t *const mesh, topo
             }
         }
     }
-    return TOPO_SUCCESS;
 }
 
-topo_status_t topo_mesh_iterate_boundary(const topo_mesh_t *const mesh, const unsigned mdim,
-                                         topo_mesh_callback_t callback, void *const user_data)
+void topo_mesh_iterate_boundary(const topo_mesh_t *const mesh, const unsigned mdim, topo_mesh_callback_t callback,
+                                void *const user_data)
 {
-    if (!mesh || !callback)
-        return TOPO_INVALID_ARGUMENT;
-    if (mdim >= mesh->ndim)
-        return TOPO_INVALID_ARGUMENT;
+    CUTL_ASSERT(mesh != NULL, "Mesh must not be null.");
+    CUTL_ASSERT(callback != NULL, "Callback must not be null.");
+    CUTL_ASSERT(mdim < mesh->ndim, "Object dimension %u is not in [0, %u).", mdim, mesh->ndim);
 
     const topo_obj_immersion_t *const immersion = mesh->immersions + mdim;
     for (uint64_t g = 0; g < immersion->object_count; ++g)
@@ -962,19 +969,12 @@ topo_status_t topo_mesh_iterate_boundary(const topo_mesh_t *const mesh, const un
             .mdim = mdim, .object_id = g, .element_count = element_count, .element_ids = ids, .orientations = orients};
         callback(mesh, &object, user_data);
     }
-    return TOPO_SUCCESS;
 }
 
-topo_status_t topo_mesh_iterate_boundary_all(const topo_mesh_t *const mesh, topo_mesh_callback_t callback,
-                                             void *const user_data)
+void topo_mesh_iterate_boundary_all(const topo_mesh_t *const mesh, topo_mesh_callback_t callback, void *const user_data)
 {
-    if (!mesh || !callback)
-        return TOPO_INVALID_ARGUMENT;
+    CUTL_ASSERT(mesh != NULL, "Mesh must not be null.");
+    CUTL_ASSERT(callback != NULL, "Callback must not be null.");
     for (unsigned mdim = mesh->ndim; mdim-- > 0;)
-    {
-        const topo_status_t status = topo_mesh_iterate_boundary(mesh, mdim, callback, user_data);
-        if (status != TOPO_SUCCESS)
-            return status;
-    }
-    return TOPO_SUCCESS;
+        topo_mesh_iterate_boundary(mesh, mdim, callback, user_data);
 }
