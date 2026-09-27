@@ -43,9 +43,10 @@ double compute_inverse_transform(const matrix_t jacobian, const matrix_t q_matri
     return det;
 }
 
-int compute_basis_transform_from_inverse(const cutl_allocator_t *allocator, unsigned n_dims, unsigned n_maps,
-                                         unsigned order, const double *inverse_maps, const double *determinant,
-                                         size_t n_pts, double *out)
+void compute_basis_transform_from_inverse(unsigned n_dims, unsigned n_maps, unsigned order, const double *inverse_maps,
+                                          const double *determinant, size_t n_pts, double *out,
+                                          permutation_iterator_t *iter_out_perm, combination_iterator_t *iter_out_comb,
+                                          combination_iterator_t *iter_in_comb)
 {
     if (order == 1)
     {
@@ -65,19 +66,9 @@ int compute_basis_transform_from_inverse(const cutl_allocator_t *allocator, unsi
     {
         CUTL_ASSERT(order <= n_dims, "Transformation order %u exceeds the %u input dimensions.", order, n_dims);
         CUTL_ASSERT(order <= n_maps, "Transformation order %u exceeds the %u output maps.", order, n_maps);
-        permutation_iterator_t *iter_out_perm;
-        combination_iterator_t *iter_out_comb;
-        combination_iterator_t *iter_in_comb;
-        void *const mem = cutl_alloc_group(
-            allocator,
-            (const cutl_alloc_info_t[]){
-                {.size = permutation_iterator_required_memory(order, order), .p_ptr = (void **)&iter_out_perm},
-                {.size = combination_iterator_required_memory(order), .p_ptr = (void **)&iter_out_comb},
-                {.size = combination_iterator_required_memory(order), .p_ptr = (void **)&iter_in_comb},
-                {},
-            });
-        if (!mem)
-            return -1;
+        CUTL_ASSERT(iter_out_perm != NULL && iter_out_comb != NULL && iter_in_comb != NULL,
+                    "The general case needs iterator scratch, which the caller did not pass (order %u, n_maps %u).",
+                    order, n_maps);
 
         const size_t out_total =
             (size_t)combination_total_count(n_dims, order) * (size_t)combination_total_count(n_maps, order) * n_pts;
@@ -152,10 +143,7 @@ int compute_basis_transform_from_inverse(const cutl_allocator_t *allocator, unsi
             idx_in += 1;
             combination_iterator_next(iter_in_comb);
         }
-
-        cutl_dealloc(allocator, mem);
     }
-    return 0;
 }
 
 void compute_space_map_determinants(unsigned n_dim, unsigned n_maps, const double *const *gradients,

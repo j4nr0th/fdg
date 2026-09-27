@@ -1,7 +1,8 @@
 #pragma once
 
 #include "matrices.h"
-#include <cutl/allocators.h>
+#include <cutl/iterators/combination_iterator.h>
+#include <cutl/iterators/permutation_iterator.h>
 #include <stddef.h>
 
 /**
@@ -32,12 +33,15 @@ double compute_inverse_transform(const matrix_t jacobian, const matrix_t q_matri
  * map at every point. The special cases `order == 1` (the coefficients are the entries of the
  * inverse maps themselves) and `order == n_maps` (the only coefficient is the reciprocal of the
  * determinant) are handled directly, while the general case enumerates the combinations of
- * order input dimensions and output coordinates. The iterator memory is allocated from
- * @p allocator and released before returning.
+ * order input dimensions and output coordinates.
  *
- * @todo Might be worth to take in memory for the iterators as parameter.
+ * The function never allocates. Scratch memory for the iterators of the general case is supplied
+ * by the caller: the three iterator arguments must be non-NULL (pointing at uninitialized storage
+ * of the documented size) exactly when `order != 1 && order != n_maps`, and may be NULL otherwise;
+ * a caller that gets this wrong aborts through CUTL_ASSERT. The general case re-initialises the
+ * iterators itself, so their previous state does not matter, and releases nothing - the caller
+ * owns the memory.
  *
- * @param allocator Allocator used to allocate the combination and permutation iterators from.
  * @param n_dims Number of dimensions of the reference space.
  * @param n_maps Number of coordinate maps, i.e. dimensions of the output space.
  * @param order Order of the k-form, with `1 <= order <= n_maps` and `order <= n_dims`.
@@ -55,11 +59,20 @@ double compute_inverse_transform(const matrix_t jacobian, const matrix_t q_matri
  *               combinations of order input dimensions and `i_out` the combinations of order
  *               output coordinates, both in the lexicographical order of the combination
  *               iterators.
- * @return 0 on success, -1 if the iterator memory could not be allocated.
+ * @param iter_out_perm Uninitialized storage of `permutation_iterator_required_memory(order, order)`
+ *               bytes for the permutation over the output coordinates; required when the general
+ *               case runs, ignored otherwise.
+ * @param iter_out_comb Uninitialized storage of `combination_iterator_required_memory(order)` bytes
+ *               for the combinations of output coordinates; required when the general case runs,
+ *               ignored otherwise.
+ * @param iter_in_comb Uninitialized storage of `combination_iterator_required_memory(order)` bytes
+ *               for the combinations of input dimensions; required when the general case runs,
+ *               ignored otherwise.
  */
-int compute_basis_transform_from_inverse(const cutl_allocator_t *allocator, unsigned n_dims, unsigned n_maps,
-                                         unsigned order, const double *inverse_maps, const double *determinant,
-                                         size_t n_pts, double *out);
+void compute_basis_transform_from_inverse(unsigned n_dims, unsigned n_maps, unsigned order, const double *inverse_maps,
+                                          const double *determinant, size_t n_pts, double *out,
+                                          permutation_iterator_t *iter_out_perm, combination_iterator_t *iter_out_comb,
+                                          combination_iterator_t *iter_in_comb);
 
 /**
  * @brief Computes the determinants and inverse maps of a space map at every point.

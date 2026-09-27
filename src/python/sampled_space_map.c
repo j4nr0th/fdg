@@ -473,20 +473,40 @@ static PyArrayObject *sampled_space_map_basis_transform(const sampled_space_map_
     if (!res)
         return NULL;
 
-    int status;
-    Py_BEGIN_ALLOW_THREADS;
-    status = compute_basis_transform_from_inverse(&SYSTEM_ALLOCATOR, n_dims, n_maps, (unsigned)order, map->inverse_maps,
-                                                  map->determinant, total_points, PyArray_DATA(res));
-    Py_END_ALLOW_THREADS;
-    if (status < 0)
+    // The transform allocates nothing itself: the general case (order neither 1 nor n_maps)
+    // walks iterator state that the caller has to provide, and the special cases use none of
+    // it. The scratch is allocated from the system allocator with the GIL held and released
+    // after the transform has run without it.
+    const unsigned order_u = (unsigned)order;
+    permutation_iterator_t *iter_out_perm = NULL;
+    combination_iterator_t *iter_out_comb = NULL;
+    combination_iterator_t *iter_in_comb = NULL;
+    void *iter_mem = NULL;
+    if (order_u != 1 && order_u != n_maps)
     {
-        if (!PyErr_Occurred())
+        iter_mem = cutl_alloc_group(
+            &SYSTEM_ALLOCATOR,
+            (const cutl_alloc_info_t[]){
+                {.size = permutation_iterator_required_memory(order_u, order_u), .p_ptr = (void **)&iter_out_perm},
+                {.size = combination_iterator_required_memory(order_u), .p_ptr = (void **)&iter_out_comb},
+                {.size = combination_iterator_required_memory(order_u), .p_ptr = (void **)&iter_in_comb},
+                {},
+            });
+        if (!iter_mem)
         {
             PyErr_NoMemory();
+            Py_DECREF(res);
+            return NULL;
         }
-        Py_DECREF(res);
-        return NULL;
     }
+
+    // The transform only touches raw memory buffers, so it runs without the GIL.
+    Py_BEGIN_ALLOW_THREADS;
+    compute_basis_transform_from_inverse(n_dims, n_maps, order_u, map->inverse_maps, map->determinant, total_points,
+                                         PyArray_DATA(res), iter_out_perm, iter_out_comb, iter_in_comb);
+    Py_END_ALLOW_THREADS;
+    if (iter_mem)
+        cutl_dealloc(&SYSTEM_ALLOCATOR, iter_mem);
     map->transformations[order - 1] = res;
     Py_INCREF(res);
     return res;
