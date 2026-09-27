@@ -1,7 +1,6 @@
 #include "element_data.h"
 
-#include "../kforms/kform_types.h"
-
+#include <stdbool.h>
 #include <string.h>
 
 struct element_data_t
@@ -39,14 +38,6 @@ static int element_data_options_equal(const element_data_option_t *first, const 
         return 0;
     if (!element_data_basis_specs_equal(first->basis_specs, second->basis_specs, first->ndim))
         return 0;
-    switch (first->kind)
-    {
-    case ELEMENT_DATA_KIND_KFORM:
-        return first->kform.order == second->kform.order;
-    case ELEMENT_DATA_KIND_DOF:
-    case ELEMENT_DATA_KIND_INVALID:
-        return 1;
-    }
     return 1;
 }
 
@@ -98,15 +89,6 @@ static void element_data_option_value_count_impl(const element_data_option_t *op
         for (unsigned i = 0; i < option->ndim; ++i)
             count *= option->basis_specs[i].order + 1;
         break;
-    case ELEMENT_DATA_KIND_KFORM: {
-        const kform_spec_t kform = {
-            .ndim = option->ndim,
-            .order = option->kform.order,
-            .basis = option->basis_specs,
-        };
-        count = kform_spec_total_dofs(&kform);
-        break;
-    }
     case ELEMENT_DATA_KIND_INVALID:
         break;
     }
@@ -127,26 +109,6 @@ fdg_result_t element_data_add_option(element_data_t *data, const element_data_op
     {
         const bool type_valid = basis_set_type_is_valid(option->basis_specs[i].type);
         CUTL_ASSERT(type_valid, "Basis spec %u of the option does not use a valid basis family.", i);
-    }
-
-    switch (option->kind)
-    {
-    case ELEMENT_DATA_KIND_KFORM:
-        CUTL_ASSERT(option->kform.order <= option->ndim, "K-form order %u of the option is not in [0, %u].",
-                    option->kform.order, option->ndim);
-        if (option->kform.order != 0)
-        {
-            for (unsigned i = 0; i < option->ndim; ++i)
-            {
-                CUTL_ASSERT(option->basis_specs[i].order != 0,
-                            "Basis axis %u has order 0, which cannot carry a k-form of order %u.", i,
-                            option->kform.order);
-            }
-        }
-        break;
-    case ELEMENT_DATA_KIND_DOF:
-    case ELEMENT_DATA_KIND_INVALID:
-        break;
     }
 
     // The compatibility with the first option is a recoverable error, not a

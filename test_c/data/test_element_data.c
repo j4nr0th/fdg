@@ -68,26 +68,6 @@ static void test_dof_option_and_elements(void)
     element_data_free(data, &TEST_ALLOCATOR);
 }
 
-static void test_kform_option(void)
-{
-    element_data_t *data;
-    TEST_FDG_RESULT(element_data_create(&data, &TEST_ALLOCATOR));
-
-    // 1-forms in 2D over order-2 uniform bases: two components with
-    // p * (p + 1) = 6 DoFs each, for 12 values total.
-    const basis_spec_t specs[2] = {{.type = BASIS_LAGRANGE_UNIFORM, .order = 2},
-                                   {.type = BASIS_LAGRANGE_UNIFORM, .order = 2}};
-    element_data_option_t option = {
-        .kind = ELEMENT_DATA_KIND_KFORM, .ndim = 2, .basis_specs = (basis_spec_t *)specs, .kform = {.order = 1}};
-    unsigned index;
-    TEST_FDG_RESULT(element_data_add_option(data, &option, &index));
-    TEST_ASSERTION(index == 0, "First option should get index 0.");
-    TEST_ASSERTION(element_data_option_value_count(element_data_option(data, 0)) == 12,
-                   "Order-1 2D k-form on order-2 bases should store 12 values.");
-
-    element_data_free(data, &TEST_ALLOCATOR);
-}
-
 static void test_ndim_mismatch(void)
 {
     element_data_t *data;
@@ -150,7 +130,6 @@ int main(void)
 {
     test_empty();
     test_dof_option_and_elements();
-    test_kform_option();
     test_ndim_mismatch();
     test_mixed_option_counts();
     return 0;

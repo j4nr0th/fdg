@@ -65,6 +65,7 @@ typedef struct
     PyTypeObject *coordinate_mapping_type;
     PyTypeObject *space_mapping_type;
     PyTypeObject *mesh_geometry_type;
+    PyTypeObject *mesh_kform_specs_type;
     PyTypeObject *element_kforms_type;
     PyTypeObject *element_dofs_type;
     PyTypeObject *sampled_space_mapping_type;

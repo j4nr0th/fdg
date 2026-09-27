@@ -18,6 +18,7 @@ from fdg._fdg import KForm as KForm
 from fdg._fdg import KFormSpecs as KFormSpecs
 from fdg._fdg import Mesh as Mesh
 from fdg._fdg import MeshGeometry as MeshGeometry
+from fdg._fdg import MeshKFormSpecs as MeshKFormSpecs
 from fdg._fdg import SampledSpaceMap as SampledSpaceMap
 from fdg._fdg import SpaceMap as SpaceMap
 from fdg._fdg import compute_gradient_mass_matrix as compute_gradient_mass_matrix

@@ -59,6 +59,8 @@ set(DATA_SOURCE_FILES
         src/data/element_dofs.h
         src/data/element_kforms.c
         src/data/element_kforms.h
+        src/data/mesh_kform_specs.c
+        src/data/mesh_kform_specs.h
 )
 
 set(INTEGRATION_SOURCE_FILES

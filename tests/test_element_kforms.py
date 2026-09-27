@@ -1,4 +1,4 @@
-"""Check the batched per-element k-form collection with labeled fields."""
+"""Check the batched per-element k-form values with labeled fields."""
 
 import numpy as np
 import pytest
@@ -8,6 +8,7 @@ from fdg._fdg import (
     FunctionSpace,
     KForm,
     KFormSpecs,
+    MeshKFormSpecs,
 )
 from fdg.enum_type import BasisType
 
@@ -36,10 +37,18 @@ def specs(spaces: tuple[FunctionSpace, FunctionSpace]) -> tuple[KFormSpecs, KFor
 
 
 @pytest.fixture
-def store(specs: tuple[KFormSpecs, KFormSpecs]) -> ElementKForms:
-    """Return a collection with fields u and q and two elements."""
+def structure(spaces: tuple[FunctionSpace, FunctionSpace]) -> MeshKFormSpecs:
+    """Return a structure with fields u and q and two elements on the order-2 space."""
+    return MeshKFormSpecs.from_space(2, FIELDS, spaces[0], 2)
+
+
+@pytest.fixture
+def store(
+    structure: MeshKFormSpecs, specs: tuple[KFormSpecs, KFormSpecs]
+) -> ElementKForms:
+    """Return a collection with fields u and q and two filled elements."""
     u_specs, q_specs = specs
-    kforms = ElementKForms(2, u=1, q=0)
+    kforms = ElementKForms(structure)
     for value in range(2):
         u = KForm(u_specs)
         u.values[:] = float(value)
@@ -49,25 +58,29 @@ def store(specs: tuple[KFormSpecs, KFormSpecs]) -> ElementKForms:
     return kforms
 
 
-def test_labels_and_construction() -> None:
-    """Constructor keywords define the labeled fields."""
-    kforms = ElementKForms(2, u=1, q=0)
+def test_labels_and_construction(
+    spaces: tuple[FunctionSpace, FunctionSpace],
+) -> None:
+    """The borrowed structure defines the labeled fields."""
+    structure = MeshKFormSpecs.from_space(2, FIELDS, spaces[0], 0)
+    kforms = ElementKForms(structure)
     assert kforms.labels == ("u", "q")
     assert kforms.element_count == 0
+    assert kforms.filled_count == 0
+    assert kforms.specs is structure
 
     with pytest.raises(TypeError):
         ElementKForms()
-    with pytest.raises(ValueError):
-        ElementKForms.from_elements(2, [("x", 1), ("x", 0)], [])
-    with pytest.raises(ValueError):
-        ElementKForms(2, u=3)
     with pytest.raises(TypeError):
-        ElementKForms(2, u="1")  # type: ignore[arg-type]
+        ElementKForms(structure, structure)
+    with pytest.raises(TypeError):
+        ElementKForms(2)  # type: ignore[arg-type]
 
 
 def test_element_grouping_and_getters(store: ElementKForms) -> None:
     """Element values are grouped per element and round-trip per field."""
     assert store.element_count == 2
+    assert store.filled_count == 2
     np.testing.assert_array_equal(store.offsets("u"), [0, 12, 24])
     np.testing.assert_array_equal(store.offsets("q"), [0, 9, 18])
 
@@ -78,8 +91,8 @@ def test_element_grouping_and_getters(store: ElementKForms) -> None:
         assert u.specs.order == 1
         assert q.specs.order == 0
 
-        u_specs = store.specs(element, "u")
-        q_specs = store.specs(element, "q")
+        u_specs = store.field_specs(element, "u")
+        q_specs = store.field_specs(element, "q")
         assert u_specs.order == 1
         assert q_specs.order == 0
         assert u_specs.dimension == 2
@@ -88,12 +101,15 @@ def test_element_grouping_and_getters(store: ElementKForms) -> None:
         )
 
 
-def test_per_element_spaces(spaces: tuple[FunctionSpace, FunctionSpace]) -> None:
+def test_per_element_spaces(
+    spaces: tuple[FunctionSpace, FunctionSpace],
+) -> None:
     """Each element carries its own base space; all fields derive from it."""
     space2, space3 = spaces
     u2, q2 = KFormSpecs(1, space2), KFormSpecs(0, space2)
     u3, q3 = KFormSpecs(1, space3), KFormSpecs(0, space3)
-    kforms = ElementKForms(2, u=1, q=0)
+    structure = MeshKFormSpecs.from_options(2, FIELDS, [space2, space3], [0, 1])
+    kforms = ElementKForms(structure)
     kforms.add_element(KForm(u2), KForm(q2))
     kforms.add_element(KForm(u3), KForm(q3))
 
@@ -102,8 +118,8 @@ def test_per_element_spaces(spaces: tuple[FunctionSpace, FunctionSpace]) -> None
     assert kforms.kform(1, "u").specs.order == 1
     assert kforms.kform(1, "u").specs.dimension == 2
     # The base space of element 1 is the order-3 space.
-    assert kforms.specs(1, "u").base_space == space3
-    assert kforms.specs(0, "u").base_space == space2
+    assert kforms.field_specs(1, "u").base_space == space3
+    assert kforms.field_specs(0, "u").base_space == space2
 
 
 def test_set_field_values(store: ElementKForms) -> None:
@@ -112,8 +128,8 @@ def test_set_field_values(store: ElementKForms) -> None:
     np.testing.assert_array_equal(store.kform(1, "u").values, np.full(12, 1.0))
 
 
-def test_views_and_freeze(store: ElementKForms) -> None:
-    """Array views expose the storage and freeze the collection."""
+def test_views_and_full_store(store: ElementKForms) -> None:
+    """Array views expose the storage; a full store rejects new elements."""
     u_values = store.values("u")
     assert u_values.dtype == np.double
     assert u_values.shape == (24,)
@@ -122,12 +138,30 @@ def test_views_and_freeze(store: ElementKForms) -> None:
 
     store.set_field_values(1, "q", np.full(9, -1.0))
     np.testing.assert_array_equal(store.values("q")[9:18], np.full(9, -1.0))
-    with pytest.raises(ValueError):
-        u = KForm(KFormSpecs(1, store.specs(0, "u").base_space))
-        store.add_element(u, KForm(store.specs(0, "q")))
-    # Overwriting stays allowed after freezing.
+
+    # The store is full: appending raises IndexError, overwriting stays
+    # allowed.
+    space = store.specs.space(0)
+    with pytest.raises(IndexError):
+        store.add_element(KForm(KFormSpecs(1, space)), KForm(KFormSpecs(0, space)))
     store.set_field_values(0, "u", np.full(12, 5.0))
     np.testing.assert_array_equal(store.kform(0, "u").values, np.full(12, 5.0))
+
+
+def test_filled_count(
+    structure: MeshKFormSpecs, specs: tuple[KFormSpecs, KFormSpecs]
+) -> None:
+    """The cursor starts at zero, advances per element, and caps at the count."""
+    u_specs, q_specs = specs
+    kforms = ElementKForms(structure)
+    assert kforms.filled_count == 0
+    for element in range(2):
+        kforms.add_element(KForm(u_specs), KForm(q_specs))
+        assert kforms.filled_count == element + 1
+    assert kforms.filled_count == kforms.element_count
+    with pytest.raises(IndexError):
+        kforms.add_element(KForm(u_specs), KForm(q_specs))
+    assert kforms.filled_count == kforms.element_count
 
 
 def test_errors(
@@ -136,12 +170,17 @@ def test_errors(
     """Invalid usage raises the expected exceptions."""
     u_specs, q_specs = specs
     space2, space3 = spaces
-    kforms = ElementKForms(2, u=1, q=0)
-    assert kforms.element_count == 0
+    structure = MeshKFormSpecs.from_space(2, FIELDS, space2, 3)
+    kforms = ElementKForms(structure)
+    assert kforms.element_count == 3
+    assert kforms.filled_count == 0
+    # Elements are addressable as soon as the structure defines them, even
+    # before they are filled.
+    np.testing.assert_array_equal(kforms.kform(0, "u").values, np.zeros(12))
     with pytest.raises(IndexError):
-        kforms.kform(0, "u")
+        kforms.kform(5, "u")
     with pytest.raises(IndexError):
-        kforms.specs(0, "u")
+        kforms.field_specs(5, "u")
 
     u = KForm(u_specs)
     q = KForm(q_specs)
@@ -166,14 +205,18 @@ def test_errors(
     with pytest.raises(TypeError):
         kforms.add_element(KForm(other_specs), KForm(q_specs))
     # The k-forms of one element must share one base space.
-    with pytest.raises(TypeError):
+    with pytest.raises(TypeError, match="share one base function space"):
         kforms.add_element(KForm(u_specs), KForm(KFormSpecs(0, space3)))
+    # The k-forms must use the base space stored for their element.
+    with pytest.raises(TypeError, match="stored for element 0"):
+        kforms.add_element(KForm(KFormSpecs(1, space3)), KForm(KFormSpecs(0, space3)))
 
     kforms.add_element(u, q)
+    assert kforms.filled_count == 1
     with pytest.raises(KeyError):
         kforms.kform(0, "missing")
     with pytest.raises(KeyError):
-        kforms.specs(0, "missing")
+        kforms.field_specs(0, "missing")
     with pytest.raises(ValueError):
         kforms.set_field_values(0, "u", np.full(11, 0.0))
     with pytest.raises(IndexError):
@@ -183,7 +226,7 @@ def test_errors(
 def test_from_elements(
     specs: tuple[KFormSpecs, KFormSpecs], spaces: tuple[FunctionSpace, FunctionSpace]
 ) -> None:
-    """The classmethod accepts field pairs and per-element groups."""
+    """The classmethod accepts a structure and per-element groups."""
     u_specs, q_specs = specs
     space2, space3 = spaces
     u3, q3 = KFormSpecs(1, space3), KFormSpecs(0, space3)
@@ -197,88 +240,63 @@ def test_from_elements(
         q.values[:] = -float(value)
         groups.append((u, q))
 
-    kforms = ElementKForms.from_elements(2, FIELDS, groups)
+    structure = MeshKFormSpecs.from_options(2, FIELDS, [space2, space3], [0, 1, 0])
+    kforms = ElementKForms.from_elements(structure, groups)
     assert kforms.labels == ("u", "q")
     assert kforms.element_count == 3
+    assert kforms.filled_count == 3
     np.testing.assert_array_equal(kforms.kform(2, "u").values, np.full(12, 2.0))
     np.testing.assert_array_equal(kforms.kform(2, "q").values, np.full(9, -2.0))
     np.testing.assert_array_equal(kforms.kform(1, "u").values, np.full(24, 1.0))
     np.testing.assert_array_equal(kforms.offsets("u"), [0, 12, 36, 48])
     np.testing.assert_array_equal(kforms.offsets("q"), [0, 9, 25, 34])
     with pytest.raises(ValueError):
-        ElementKForms.from_elements(2, [("x", 1), ("x", 0)], [])
+        ElementKForms.from_elements(structure, groups[:-1])
 
 
-def test_zeros(spaces: tuple[FunctionSpace, FunctionSpace]) -> None:
-    """zeros() builds a uniformly zero-initialized collection."""
+def test_zero_filled(spaces: tuple[FunctionSpace, FunctionSpace]) -> None:
+    """A collection on a from_space() structure starts zero-filled."""
     space2 = spaces[0]
-    kforms = ElementKForms.zeros(2, FIELDS, space2, 3)
+    kforms = ElementKForms(MeshKFormSpecs.from_space(2, FIELDS, space2, 3))
     assert kforms.labels == ("u", "q")
     assert kforms.element_count == 3
+    assert kforms.filled_count == 0
     np.testing.assert_array_equal(kforms.offsets("u"), [0, 12, 24, 36])
     np.testing.assert_array_equal(kforms.offsets("q"), [0, 9, 18, 27])
     np.testing.assert_array_equal(kforms.values("u"), np.zeros(36))
     for element in range(3):
         np.testing.assert_array_equal(kforms.kform(element, "u").values, np.zeros(12))
-        assert kforms.specs(element, "u").order == 1
+        assert kforms.field_specs(element, "u").order == 1
     kforms.set_field_values(1, "q", np.full(9, 4.0))
     np.testing.assert_array_equal(kforms.kform(1, "q").values, np.full(9, 4.0))
-    with pytest.raises(ValueError):
-        kforms.add_element(KForm(KFormSpecs(1, space2)), KForm(KFormSpecs(0, space2)))
+
+    # Appending to a zero-filled store is allowed until the cursor is full;
+    # there is no freezing anymore.
+    u_specs, q_specs = KFormSpecs(1, space2), KFormSpecs(0, space2)
+    u = KForm(u_specs)
+    u.values[:] = 7.0
+    q = KForm(q_specs)
+    q.values[:] = 8.0
+    for _ in range(3):
+        kforms.add_element(u, q)
+    assert kforms.filled_count == 3
+    np.testing.assert_array_equal(kforms.kform(0, "u").values, np.full(12, 7.0))
+    with pytest.raises(IndexError):
+        kforms.add_element(u, q)
 
 
-def test_zeros_from_options(
+def test_per_element_zero_filled(
     spaces: tuple[FunctionSpace, FunctionSpace],
 ) -> None:
-    """zeros_from_options() builds a zero store with per-element spaces."""
+    """A collection on a from_options() structure starts zero-filled."""
     space2, space3 = spaces
-    kforms = ElementKForms.zeros_from_options(2, FIELDS, [space2, space3], [0, 1, 1])
+    structure = MeshKFormSpecs.from_options(2, FIELDS, [space2, space3], [0, 1, 1])
+    kforms = ElementKForms(structure)
     assert kforms.element_count == 3
     np.testing.assert_array_equal(kforms.offsets("u"), [0, 12, 36, 60])
     np.testing.assert_array_equal(kforms.offsets("q"), [0, 9, 25, 41])
     np.testing.assert_array_equal(kforms.values("u"), np.zeros(60))
-    assert kforms.specs(2, "u").base_space == space3
-    assert kforms.specs(0, "q").base_space == space2
+    assert kforms.field_specs(2, "u").base_space == space3
+    assert kforms.field_specs(0, "q").base_space == space2
     kforms.set_field_values(2, "u", np.full(24, 2.0))
     np.testing.assert_array_equal(kforms.kform(2, "u").values, np.full(24, 2.0))
-    with pytest.raises(ValueError):
-        ElementKForms.zeros_from_options(2, FIELDS, [space2], [0, 1])
-
-
-def test_dimension_bounds(spaces: tuple[FunctionSpace, FunctionSpace]) -> None:
-    """The element dimension must be in [1, 63] (option storage precondition)."""
-    space2 = spaces[0]
-    for ndim in (0, 64):
-        with pytest.raises(ValueError, match="ndim in"):
-            ElementKForms(ndim, u=1)
-        with pytest.raises(ValueError, match="ndim in"):
-            ElementKForms.from_elements(ndim, FIELDS, [])
-        with pytest.raises(ValueError, match="ndim in"):
-            ElementKForms.zeros(ndim, FIELDS, space2, 1)
-        with pytest.raises(ValueError, match="ndim in"):
-            ElementKForms.zeros_from_options(ndim, FIELDS, [space2], [0])
-
-
-def test_add_field_rules() -> None:
-    """Each field rule violation raises its own ValueError before the C core runs."""
-    with pytest.raises(ValueError, match="exceed the dimension"):
-        ElementKForms(2, u=3)
-    with pytest.raises(ValueError, match="must not be empty"):
-        ElementKForms(2, **{"": 1})
-    with pytest.raises(ValueError, match="already exists"):
-        ElementKForms.from_elements(2, [("u", 1), ("u", 0)], [])
-
-
-def test_zero_order_axis_cannot_carry_ordered_field() -> None:
-    """A base space with an order-0 axis cannot support a nonzero-order field."""
-    zero_space = FunctionSpace(
-        BasisSpecs(BasisType.LEGENDRE, 0), BasisSpecs(BasisType.LEGENDRE, 0)
-    )
-    with pytest.raises(ValueError, match="order 0"):
-        ElementKForms.zeros(2, [("u", 1)], zero_space, 1)
-
-    kforms = ElementKForms(2, u=1, q=0)
-    u = KForm(KFormSpecs(1, zero_space))
-    q = KForm(KFormSpecs(0, zero_space))
-    with pytest.raises(ValueError, match="order 0"):
-        kforms.add_element(u, q)

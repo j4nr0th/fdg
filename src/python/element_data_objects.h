@@ -3,6 +3,7 @@
 
 #include "../data/element_dofs.h"
 #include "../data/element_kforms.h"
+#include "../data/mesh_kform_specs.h"
 #include "mappings.h"
 #include "module.h"
 
@@ -19,11 +20,17 @@ typedef struct
 typedef struct
 {
     PyObject_HEAD;
-    element_kforms_t *data;   // Owned; created with SYSTEM_ALLOCATOR.
+    mesh_kform_specs_t *data; // Owned; created with SYSTEM_ALLOCATOR.
     PyObject **space_objects; // [space_capacity] lazily built FunctionSpace per base space, owned refs.
     PyObject ***field_specs;  // [field_count][space_capacity] lazily built KFormSpecs, owned refs.
     unsigned space_capacity;  // Allocated length of space_objects and of every field_specs row.
-    int frozen;               // Set once a numpy view of the storage has been handed out.
+} mesh_kform_specs_object;
+
+typedef struct
+{
+    PyObject_HEAD;
+    PyObject *specs;        // Strong reference to the borrowed MeshKFormSpecs.
+    element_kforms_t *data; // Owned; created with SYSTEM_ALLOCATOR.
 } element_kforms_object;
 
 typedef struct
@@ -36,6 +43,9 @@ typedef struct
 
 FDG_INTERNAL
 extern PyType_Spec mesh_geometry_type_spec;
+
+FDG_INTERNAL
+extern PyType_Spec mesh_kform_specs_type_spec;
 
 FDG_INTERNAL
 extern PyType_Spec element_kforms_type_spec;

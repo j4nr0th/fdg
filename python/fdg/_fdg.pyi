@@ -801,22 +801,18 @@ class ElementDoFs:
         ...
 
 @final
-class ElementKForms:
-    """Batched k-form data: a fixed set of labeled fields, values grouped per element.
+class MeshKFormSpecs:
+    """Structure of the batched k-form collections: labeled fields and base spaces.
 
-    When setting up a finite element system one computes element matrices,
-    so the k-forms of one element are needed together. Each keyword
-    argument of the constructor defines one field: the keyword is its
-    unique label and the value its k-form order. All fields are derived
-    from one base function space per element; the distinct base spaces
-    form the options of the collection. Every element added with
-    :meth:`add_element` then stores the values of all fields, in field
-    order.
+    The type describes the structure of an :class:`ElementKForms` without
+    holding any values. Each keyword argument of the constructor defines one
+    field: the keyword is its unique label and the value its k-form order.
+    The distinct base function spaces form the space table of the structure,
+    and every element added with :meth:`add_element` references one of them.
 
-    Accessing the array views :meth:`values` or :meth:`offsets` freezes
-    the collection: no further elements can be added, but the values of
-    existing elements can still be overwritten with
-    :meth:`set_field_values`.
+    A structure is frozen once an :class:`ElementKForms` borrows it: no
+    further spaces or elements can be added, and the structure must outlive
+    the collection.
 
     Parameters
     ----------
@@ -834,10 +830,10 @@ class ElementKForms:
         cls,
         ndim: int,
         fields: Sequence[tuple[str, int]],
-        elements: Sequence[tuple[KForm, ...]],
+        groups: Sequence[Sequence[KFormSpecs]],
         /,
-    ) -> ElementKForms:
-        """Create a new collection from labeled fields and per-element k-form groups.
+    ) -> MeshKFormSpecs:
+        """Create a new structure from labeled fields and element groups.
 
         Parameters
         ----------
@@ -845,27 +841,28 @@ class ElementKForms:
             Number of reference dimensions, shared by all fields.
         fields : Sequence[tuple[str, int]]
             One ``(label, order)`` pair per k-form field, in field order.
-        elements : Sequence[tuple[KForm, ...]]
-            One tuple of k-forms per element, in field order. All k-forms
-            of one element must share one base function space; distinct
-            spaces across elements are stored as separate options.
+        groups : Sequence[Sequence[KFormSpecs]]
+            One tuple of k-form specifications per element, in field order.
+            All specifications of one group must share one base function
+            space; distinct spaces across groups are stored as separate
+            spaces of the structure.
 
         Returns
         -------
-        ElementKForms
-            Collection holding the k-form values of all elements.
+        MeshKFormSpecs
+            Structure holding the fields, spaces, and elements.
         """
         ...
     @classmethod
-    def zeros(
+    def from_space(
         cls,
         ndim: int,
         fields: Sequence[tuple[str, int]],
         space: FunctionSpace,
         count: int,
         /,
-    ) -> ElementKForms:
-        """Create a zero-initialized collection with one shared base function space.
+    ) -> MeshKFormSpecs:
+        """Create a new structure with one shared base function space.
 
         Parameters
         ----------
@@ -877,24 +874,24 @@ class ElementKForms:
             Base function space shared by every element; all fields are
             derived from it.
         count : int
-            Number of zero-initialized elements.
+            Number of elements.
 
         Returns
         -------
-        ElementKForms
-            Collection holding ``count`` zero elements.
+        MeshKFormSpecs
+            Structure holding ``count`` elements on one base space.
         """
         ...
     @classmethod
-    def zeros_from_options(
+    def from_options(
         cls,
         ndim: int,
         fields: Sequence[tuple[str, int]],
         spaces: Sequence[FunctionSpace],
         indices: Sequence[int],
         /,
-    ) -> ElementKForms:
-        """Create a zero-initialized collection with per-element base spaces.
+    ) -> MeshKFormSpecs:
+        """Create a new structure with per-element base spaces.
 
         Parameters
         ----------
@@ -911,19 +908,172 @@ class ElementKForms:
 
         Returns
         -------
+        MeshKFormSpecs
+            Structure holding one element per index.
+        """
+        ...
+    def add_space(self, space: FunctionSpace, /) -> int:
+        """Add a base function space, or look up an equal one.
+
+        Parameters
+        ----------
+        space : FunctionSpace
+            Base function space all fields are derived from.
+
+        Returns
+        -------
+        int
+            Index of the (possibly existing) equal space.
+
+        Raises
+        ------
+        ValueError
+            If the structure is frozen or the space does not match the
+            fields.
+        """
+        ...
+    def add_element(self, space_index: int, /) -> None:
+        """Append one element referencing a base space of the structure.
+
+        Parameters
+        ----------
+        space_index : int
+            Index of the element's base function space, as returned by
+            :meth:`add_space`.
+
+        Raises
+        ------
+        ValueError
+            If the structure is frozen or the space index is out of range.
+        """
+        ...
+    def space(self, index: int, /) -> FunctionSpace:
+        """Get one base function space of the structure.
+
+        Parameters
+        ----------
+        index : int
+            Index into the space table.
+
+        Returns
+        -------
+        FunctionSpace
+            Base function space stored at the index.
+        """
+        ...
+    def element_space(self, element_id: int, /) -> int:
+        """Get the base space index of one element.
+
+        Parameters
+        ----------
+        element_id : int
+            Index of the element.
+
+        Returns
+        -------
+        int
+            Index into the space table.
+        """
+        ...
+    def field_specs(self, element_id: int, label: str, /) -> KFormSpecs:
+        """Get the specifications of one field on the base space of one element.
+
+        Parameters
+        ----------
+        element_id : int
+            Index of the element.
+        label : str
+            Label of the field.
+
+        Returns
+        -------
+        KFormSpecs
+            Specifications of the field, derived from the element's base
+            function space.
+        """
+        ...
+    @property
+    def ndim(self) -> int:
+        """Number of reference dimensions."""
+        ...
+    @property
+    def labels(self) -> tuple[str, ...]:
+        """Labels of the k-form fields, in field order."""
+        ...
+    @property
+    def element_count(self) -> int:
+        """Number of stored elements."""
+        ...
+    @property
+    def space_count(self) -> int:
+        """Number of distinct base spaces."""
+        ...
+
+@final
+class ElementKForms:
+    """Batched k-form values: a fixed set of labeled fields, values grouped per element.
+
+    The structure is described by a :class:`MeshKFormSpecs`: its labeled
+    fields, its base function spaces, and the base space of every element.
+    The values are stored in one array per field, sized by the structure,
+    and start zero-filled. Elements are filled in order with
+    :meth:`add_element` until every element of the structure holds values;
+    the number of filled elements is tracked by :attr:`filled_count`.
+
+    The structure is borrowed and frozen by the collection: no further
+    spaces or elements can be added to it, and it must outlive the
+    collection.
+
+    Parameters
+    ----------
+    specs : MeshKFormSpecs
+        Structure defining the fields, base spaces, and elements of the
+        collection.
+    """
+
+    def __new__(cls, specs: MeshKFormSpecs, /) -> Self: ...
+    @classmethod
+    def from_elements(
+        cls, specs: MeshKFormSpecs, elements: Sequence[tuple[KForm, ...]], /
+    ) -> ElementKForms:
+        """Create a new collection from a structure and per-element k-form groups.
+
+        Parameters
+        ----------
+        specs : MeshKFormSpecs
+            Structure defining the fields, base spaces, and elements.
+        elements : Sequence[tuple[KForm, ...]]
+            One tuple of k-forms per element of the structure, in field
+            order. All k-forms of one element must share the base function
+            space the structure stored for the element.
+
+        Returns
+        -------
         ElementKForms
-            Collection holding one zero element per index.
+            Collection holding the k-form values of all elements.
+
+        Raises
+        ------
+        ValueError
+            If the number of element groups differs from the element count
+            of the structure.
         """
         ...
     def add_element(self, *kforms: KForm) -> None:
-        """Add the k-form values of one element to the collection.
+        """Fill the next unfilled element with the k-form values.
 
         Parameters
         ----------
         *kforms : KForm
             One k-form per field, in field order. The order and dimension
             of every k-form must match its field, and all k-forms of the
-            element must share one base function space.
+            element must share the base function space the structure
+            stored for the element.
+
+        Raises
+        ------
+        IndexError
+            If all elements of the structure are already filled.
         """
         ...
     def kform(self, element_id: int, label: str, /) -> KForm:
@@ -956,7 +1106,7 @@ class ElementKForms:
             One k-form per field, in field order.
         """
         ...
-    def specs(self, element_id: int, label: str, /) -> KFormSpecs:
+    def field_specs(self, element_id: int, label: str, /) -> KFormSpecs:
         """Get the specifications of one field on the base space of one element.
 
         Parameters
@@ -989,7 +1139,7 @@ class ElementKForms:
         """
         ...
     def values(self, label: str, /) -> npt.NDArray[np.double]:
-        """Get the flat value array of one field. Freezes the collection on access.
+        """Get the flat value array of one field.
 
         Parameters
         ----------
@@ -1004,8 +1154,6 @@ class ElementKForms:
         ...
     def offsets(self, label: str, /) -> npt.NDArray[np.uint64]:
         """Get the CSR offsets of one field's per-element value blocks.
-
-        Accessing this method freezes the collection.
 
         Parameters
         ----------
@@ -1025,6 +1173,14 @@ class ElementKForms:
     @property
     def labels(self) -> tuple[str, ...]:
         """Labels of the k-form fields, in field order."""
+        ...
+    @property
+    def specs(self) -> MeshKFormSpecs:
+        """Structure the collection borrows its fields, spaces, and elements from."""
+        ...
+    @property
+    def filled_count(self) -> int:
+        """Number of elements filled so far."""
         ...
 
 @final

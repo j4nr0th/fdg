@@ -135,6 +135,8 @@ static int interplib_add_types(PyObject *mod)
         (module_state->mesh_type = cpyutl_add_type_from_spec_to_module(mod, &mesh_type_spec, NULL)) == NULL ||
         (module_state->mesh_geometry_type = cpyutl_add_type_from_spec_to_module(mod, &mesh_geometry_type_spec, NULL)) ==
             NULL ||
+        (module_state->mesh_kform_specs_type =
+             cpyutl_add_type_from_spec_to_module(mod, &mesh_kform_specs_type_spec, NULL)) == NULL ||
         (module_state->element_kforms_type =
              cpyutl_add_type_from_spec_to_module(mod, &element_kforms_type_spec, NULL)) == NULL ||
         (module_state->element_dofs_type = cpyutl_add_type_from_spec_to_module(mod, &element_dofs_type_spec, NULL)) ==

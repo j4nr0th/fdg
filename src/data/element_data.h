@@ -18,15 +18,14 @@ typedef enum
 {
     ELEMENT_DATA_KIND_INVALID = 0, // No option has been added yet.
     ELEMENT_DATA_KIND_DOF,         // Plain DoFs of a single function space.
-    ELEMENT_DATA_KIND_KFORM,       // Component DoFs of a k-form.
 } element_data_kind_t;
 
 /**
  * @brief One entry of the options table: a distinct data specification.
  *
- * This is a tagged union: @p kind selects which payload member is active.
  * All variants share the number of reference dimensions and the specs of
- * the underlying function space; only the kind-specific payload differs.
+ * the underlying function space; a kind-specific payload may extend this
+ * in the future.
  *
  * The specs are deep copies owned by the collection; @p value_count is
  * filled in by element_data_add_option and must be zero when the caller
@@ -34,16 +33,10 @@ typedef enum
  */
 typedef struct
 {
-    element_data_kind_t kind;  // Which payload member is active.
+    element_data_kind_t kind;  // Which payload variant is active.
     unsigned ndim;             // Number of reference dimensions.
     basis_spec_t *basis_specs; // [ndim] Specs of the underlying function space.
-    union {
-        struct
-        {
-            unsigned order; // K-form order, in [0, ndim].
-        } kform;
-    };
-    size_t value_count; // Number of doubles stored per element; set by add_option.
+    size_t value_count;        // Number of doubles stored per element; set by add_option.
 } element_data_option_t;
 
 /**
@@ -99,10 +92,9 @@ void element_data_free(element_data_t *data, const cutl_allocator_t *allocator);
  *
  * The arguments are preconditions, not values to validate: an option with
  * kind ELEMENT_DATA_KIND_INVALID, a dimension outside [1, 63], a null basis
- * spec array, a basis spec whose family is invalid, a k-form order above
- * ndim, or a zero-order basis axis under a k-form of nonzero order abort
- * through CUTL_ASSERT. A caller that handles untrusted input must check
- * these conditions itself and report them instead of relying on this
+ * spec array, or a basis spec whose family is invalid aborts through
+ * CUTL_ASSERT. A caller that handles untrusted input must check these
+ * conditions itself and report them instead of relying on this
  * function.
  *
  * @param data Collection to add the option to.
@@ -130,8 +122,8 @@ fdg_result_t element_data_add_option(element_data_t *data, const element_data_op
  * @param data Collection to append to.
  * @param option_index Index into the options table, in
  *        [0, element_data_option_count(data)).
- * @param values Value block of the element; layout is determined by the
- *        kind: flat DoFs for DOF and KFORM kinds.
+ * @param values Value block of the element; the layout is determined by
+ *        the kind: flat DoFs for the DOF kind.
  * @param count Number of doubles in @p values; must equal
  *        element_data_option_value_count of the referenced option.
  * @return FDG_SUCCESS on success, FDG_ERROR_FAILED_ALLOCATION if memory

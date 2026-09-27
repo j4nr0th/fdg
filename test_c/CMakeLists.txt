@@ -159,3 +159,7 @@ add_test(NAME element_dofs COMMAND test_element_dofs)
 add_executable(test_element_kforms data/test_element_kforms.c)
 target_link_libraries(test_element_kforms PRIVATE test_common)
 add_test(NAME element_kforms COMMAND test_element_kforms)
+
+add_executable(test_mesh_kform_specs data/test_mesh_kform_specs.c)
+target_link_libraries(test_mesh_kform_specs PRIVATE test_common)
+add_test(NAME mesh_kform_specs COMMAND test_mesh_kform_specs)

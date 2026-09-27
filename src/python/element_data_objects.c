@@ -12,8 +12,9 @@
 // Section 1: shared helpers.
 //
 // The collection types with flat array storage (ElementKForms, ElementDoFs)
-// share the same memory layout prefix (owned C data, an array of cached spec
-// objects, a frozen flag), so view construction is implemented once.
+// build their numpy views through this one helper. ElementDoFs additionally
+// freezes its storage by passing the flag to set; the ElementKForms storage
+// has a fixed size and never freezes.
 
 static PyObject *element_collection_make_view(PyObject *self, int *frozen, const void *data, const npy_intp length,
                                               const int typenum)
@@ -27,7 +28,8 @@ static PyObject *element_collection_make_view(PyObject *self, int *frozen, const
         return NULL;
     }
     Py_INCREF(self);
-    *frozen = 1;
+    if (frozen)
+        *frozen = 1;
     return (PyObject *)array;
 }
 
@@ -609,50 +611,48 @@ PyType_Spec mesh_geometry_type_spec = {.name = FDG_TYPE_NAME("MeshGeometry"),
                                            {},
                                        }};
 
-// Section 3: ElementKForms — labeled k-form fields, grouped per element.
+// Section 3: MeshKFormSpecs — structure of the k-form collections.
 
-PyDoc_STRVAR(element_kforms_docstring, "ElementKForms(ndim: int, /, **fields: int)\n"
-                                       "\n"
-                                       "Batched k-form data: a fixed set of labeled fields, values\n"
-                                       "grouped per element.\n"
-                                       "\n"
-                                       "When setting up a finite element system one computes element matrices,\n"
-                                       "so the k-forms of one element are needed together. Each keyword\n"
-                                       "argument of the constructor defines one field: the keyword is its\n"
-                                       "unique label and the value its k-form order. All fields are derived\n"
-                                       "from one base function space per element; the distinct base spaces\n"
-                                       "form the options of the collection. Every element added with\n"
-                                       ":meth:`add_element` then stores the values of all fields, in field\n"
-                                       "order.\n"
-                                       "\n"
-                                       "Accessing the array views :meth:`values` or :meth:`offsets` freezes\n"
-                                       "the collection: no further elements can be added, but the values of\n"
-                                       "existing elements can still be overwritten with\n"
-                                       ":meth:`set_field_values`.\n"
-                                       "\n"
-                                       "Parameters\n"
-                                       "----------\n"
-                                       "ndim : int\n"
-                                       "    Number of reference dimensions, shared by all fields; must be positive.\n"
-                                       "\n"
-                                       "**fields : int\n"
-                                       "    One keyword argument per k-form field: the keyword is the unique\n"
-                                       "    label of the field, the value its order, ``0 <= order <= ndim``.\n");
+PyDoc_STRVAR(mesh_kform_specs_docstring, "MeshKFormSpecs(ndim: int, /, **fields: int)\n"
+                                         "\n"
+                                         "Structure of the batched k-form collections: labeled fields, base\n"
+                                         "function spaces, and the base space of every element.\n"
+                                         "\n"
+                                         "The type describes the structure of an :class:`ElementKForms`\n"
+                                         "without holding any values. Each keyword argument of the\n"
+                                         "constructor defines one field: the keyword is its unique label\n"
+                                         "and the value its k-form order. The distinct base function\n"
+                                         "spaces form the space table of the structure, and every element\n"
+                                         "added with :meth:`add_element` references one of them.\n"
+                                         "\n"
+                                         "A structure is frozen once an :class:`ElementKForms` borrows it:\n"
+                                         "no further spaces or elements can be added, and the structure\n"
+                                         "must outlive the collection.\n"
+                                         "\n"
+                                         "Parameters\n"
+                                         "----------\n"
+                                         "ndim : int\n"
+                                         "    Number of reference dimensions, shared by all fields; must be "
+                                         "positive.\n"
+                                         "\n"
+                                         "**fields : int\n"
+                                         "    One keyword argument per k-form field: the keyword is the unique\n"
+                                         "    label of the field, the value its order, ``0 <= order <= ndim``.\n");
 
-static int element_kforms_ensure_state(PyObject *self, PyTypeObject *defining_class,
-                                       const interplib_module_state_t **p_state, element_kforms_object **p_this)
+static int mesh_kform_specs_ensure_state(PyObject *self, PyTypeObject *defining_class,
+                                         const interplib_module_state_t **p_state, mesh_kform_specs_object **p_this)
 {
     const interplib_module_state_t *const state =
         defining_class ? PyType_GetModuleState(defining_class) : interplib_get_module_state(Py_TYPE(self));
     if (!state)
         return -1;
     *p_state = state;
-    *p_this = (element_kforms_object *)self;
+    *p_this = (mesh_kform_specs_object *)self;
     return 0;
 }
 
 /** Grows the per-space caches to hold at least space_count entries per row. */
-static int element_kforms_grow_caches(element_kforms_object *this, const unsigned space_count)
+static int mesh_kform_specs_grow_caches(mesh_kform_specs_object *this, const unsigned space_count)
 {
     if (space_count <= this->space_capacity)
         return 0;
@@ -674,14 +674,14 @@ static int element_kforms_grow_caches(element_kforms_object *this, const unsigne
     // count never changes after allocation.
     if (!this->field_specs)
     {
-        this->field_specs = PyMem_Calloc((size_t)element_kforms_field_count(this->data), sizeof(*this->field_specs));
+        this->field_specs = PyMem_Calloc((size_t)mesh_kform_specs_field_count(this->data), sizeof(*this->field_specs));
         if (!this->field_specs)
         {
             PyErr_NoMemory();
             return -1;
         }
     }
-    for (unsigned i = 0; i < element_kforms_field_count(this->data); ++i)
+    for (unsigned i = 0; i < mesh_kform_specs_field_count(this->data); ++i)
     {
         PyObject **const row = PyMem_Realloc(this->field_specs[i], (size_t)new_capacity * sizeof(*row));
         if (!row)
@@ -697,14 +697,15 @@ static int element_kforms_grow_caches(element_kforms_object *this, const unsigne
     return 0;
 }
 
-static PyObject *element_kforms_space_function_space(element_kforms_object *this, const interplib_module_state_t *state,
-                                                     const unsigned space_index)
+static PyObject *mesh_kform_specs_space_function_space(mesh_kform_specs_object *this,
+                                                       const interplib_module_state_t *state,
+                                                       const unsigned space_index)
 {
     if (!this->space_objects[space_index])
     {
-        const element_data_option_t *const option = element_kforms_space_option(this->data, space_index);
-        PyObject *const space =
-            (PyObject *)function_space_object_create(state->function_space_type, option->ndim, option->basis_specs);
+        const basis_spec_t *const basis_specs = mesh_kform_specs_space_basis_specs(this->data, space_index);
+        PyObject *const space = (PyObject *)function_space_object_create(
+            state->function_space_type, mesh_kform_specs_ndim(this->data), basis_specs);
         if (!space)
             return NULL;
         this->space_objects[space_index] = space;
@@ -713,35 +714,24 @@ static PyObject *element_kforms_space_function_space(element_kforms_object *this
 }
 
 /** Returns the cached KFormSpecs of one field on one base space. */
-static PyObject *element_kforms_field_spec(element_kforms_object *this, const interplib_module_state_t *state,
-                                           const unsigned field, const unsigned space_index)
+static PyObject *mesh_kform_specs_field_spec(mesh_kform_specs_object *this, const interplib_module_state_t *state,
+                                             const unsigned field, const unsigned space_index)
 {
     if (!this->field_specs[field][space_index])
     {
-        PyObject *const space = element_kforms_space_function_space(this, state, space_index);
+        PyObject *const space = mesh_kform_specs_space_function_space(this, state, space_index);
         if (!space)
             return NULL;
         this->field_specs[field][space_index] =
             PyObject_CallFunction((PyObject *)state->kform_specs_type, "nO",
-                                  (Py_ssize_t)element_kforms_field_order(this->data, field), space);
+                                  (Py_ssize_t)mesh_kform_specs_field_order(this->data, field), space);
     }
     return this->field_specs[field][space_index];
 }
 
-static int element_kforms_check_element(element_kforms_object *this, const Py_ssize_t element_id)
-{
-    if (element_id < 0 || (uint64_t)element_id >= element_kforms_element_count(this->data))
-    {
-        PyErr_Format(PyExc_IndexError, "Element index %zd out of range for %llu elements.", element_id,
-                     (unsigned long long)element_kforms_element_count(this->data));
-        return -1;
-    }
-    return 0;
-}
-
 /** Adds one field from a label object and its k-form order object. */
-static int element_kforms_add_field_objects(element_kforms_object *this, PyObject *label_object, PyObject *order_object,
-                                            const Py_ssize_t ndim)
+static int mesh_kform_specs_add_field_objects(mesh_kform_specs_object *this, PyObject *label_object,
+                                              PyObject *order_object, const Py_ssize_t ndim)
 {
     if (!PyUnicode_Check(label_object))
     {
@@ -766,9 +756,9 @@ static int element_kforms_add_field_objects(element_kforms_object *this, PyObjec
     if (!label)
         return -1;
 
-    // Everything element_kforms_add_field() takes as a precondition is checked
-    // above and here, where a violation can be reported instead of the C core
-    // turning it into an assert.
+    // Everything mesh_kform_specs_add_field() takes as a precondition is
+    // checked above and here, where a violation can be reported instead of
+    // the C core turning it into an assert.
     if (order > ndim)
     {
         PyErr_Format(PyExc_ValueError, "The order of field %R must not exceed the dimension %zd, but got %ld.",
@@ -781,25 +771,25 @@ static int element_kforms_add_field_objects(element_kforms_object *this, PyObjec
         return -1;
     }
     unsigned existing_field;
-    if (element_kforms_find_field(this->data, label, &existing_field))
+    if (mesh_kform_specs_find_field(this->data, label, &existing_field))
     {
         PyErr_Format(PyExc_ValueError, "A field labeled %R already exists.", label_object);
         return -1;
     }
-    if (element_kforms_space_count(this->data) != 0)
+    if (mesh_kform_specs_space_count(this->data) != 0)
     {
         PyErr_Format(PyExc_ValueError, "Cannot add the field %R after base spaces were added.", label_object);
         return -1;
     }
-    const unsigned collection_ndim = element_kforms_ndim(this->data);
-    if (collection_ndim != 0 && collection_ndim != (unsigned)ndim)
+    const unsigned structure_ndim = mesh_kform_specs_ndim(this->data);
+    if (structure_ndim != 0 && structure_ndim != (unsigned)ndim)
     {
-        PyErr_Format(PyExc_ValueError, "The field %R has dimension %zd, but the collection has dimension %u.",
-                     label_object, ndim, collection_ndim);
+        PyErr_Format(PyExc_ValueError, "The field %R has dimension %zd, but the structure has dimension %u.",
+                     label_object, ndim, structure_ndim);
         return -1;
     }
 
-    const fdg_result_t res = element_kforms_add_field(this->data, label, (unsigned)ndim, (unsigned)order, NULL);
+    const fdg_result_t res = mesh_kform_specs_add_field(this->data, label, (unsigned)ndim, (unsigned)order, NULL);
     if (res != FDG_SUCCESS)
     {
         PyErr_Format(PyExc_RuntimeError, "Could not add the k-form field %R: %s (%s).", label_object,
@@ -810,7 +800,7 @@ static int element_kforms_add_field_objects(element_kforms_object *this, PyObjec
 }
 
 /** Adds one (label, order) pair of a fields sequence. */
-static int element_kforms_add_field_pair(element_kforms_object *this, PyObject *pair, const Py_ssize_t ndim)
+static int mesh_kform_specs_add_field_pair(mesh_kform_specs_object *this, PyObject *pair, const Py_ssize_t ndim)
 {
     PyObject *const fast = PySequence_Fast(pair, "fields must be a sequence of (label, order) pairs.");
     if (!fast)
@@ -821,20 +811,27 @@ static int element_kforms_add_field_pair(element_kforms_object *this, PyObject *
         Py_DECREF(fast);
         return -1;
     }
-    const int res = element_kforms_add_field_objects(this, PySequence_Fast_GET_ITEM(fast, 0),
-                                                     PySequence_Fast_GET_ITEM(fast, 1), ndim);
+    const int res = mesh_kform_specs_add_field_objects(this, PySequence_Fast_GET_ITEM(fast, 0),
+                                                       PySequence_Fast_GET_ITEM(fast, 1), ndim);
     Py_DECREF(fast);
     return res;
 }
 
 /**
- * Validates a base function space against the collection before
- * element_kforms_add_space() consumes it: every axis must use a valid basis
- * family, and a nonzero-order field needs a strictly positive basis order on
+ * Validates a base function space against the structure before
+ * mesh_kform_specs_add_space() consumes it: the space must have the
+ * dimension of the structure, every axis must use a valid basis family,
+ * and a nonzero-order field needs a strictly positive basis order on
  * every axis.
  */
-static int element_kforms_check_space(element_kforms_object *this, const function_space_object *const space)
+static int mesh_kform_specs_check_space(mesh_kform_specs_object *this, const function_space_object *const space)
 {
+    if ((unsigned)Py_SIZE(space) != mesh_kform_specs_ndim(this->data))
+    {
+        PyErr_Format(PyExc_ValueError, "Expected a base space with %u dimensions, got %zd.",
+                     mesh_kform_specs_ndim(this->data), Py_SIZE(space));
+        return -1;
+    }
     for (unsigned axis = 0; axis < (unsigned)Py_SIZE(space); ++axis)
     {
         if (!basis_set_type_is_valid(space->specs[axis].type))
@@ -843,9 +840,9 @@ static int element_kforms_check_space(element_kforms_object *this, const functio
             return -1;
         }
     }
-    for (unsigned field = 0; field < element_kforms_field_count(this->data); ++field)
+    for (unsigned field = 0; field < mesh_kform_specs_field_count(this->data); ++field)
     {
-        const unsigned order = element_kforms_field_order(this->data, field);
+        const unsigned order = mesh_kform_specs_field_order(this->data, field);
         if (order == 0)
             continue;
         for (unsigned axis = 0; axis < (unsigned)Py_SIZE(space); ++axis)
@@ -853,8 +850,9 @@ static int element_kforms_check_space(element_kforms_object *this, const functio
             if (space->specs[axis].order == 0)
             {
                 PyErr_Format(PyExc_ValueError,
-                             "Base space axis %u has order 0, which cannot carry the order-%u field %s.", axis, order,
-                             element_kforms_field_label(this->data, field));
+                             "Base space axis %u has order 0, which cannot carry the "
+                             "order-%u field %s.",
+                             axis, order, mesh_kform_specs_field_label(this->data, field));
                 return -1;
             }
         }
@@ -862,19 +860,74 @@ static int element_kforms_check_space(element_kforms_object *this, const functio
     return 0;
 }
 
-static element_kforms_object *element_kforms_alloc(PyTypeObject *type)
+/**
+ * Validates, adds, and caches one base function space object: reports the
+ * frozen state and the space rules, dedups through the C core, and grows
+ * the object caches.
+ */
+static int mesh_kform_specs_add_space_object(mesh_kform_specs_object *this, const function_space_object *const space,
+                                             unsigned *out_index)
 {
-    element_kforms_object *const self = (element_kforms_object *)type->tp_alloc(type, 0);
+    if (mesh_kform_specs_is_frozen(this->data))
+    {
+        PyErr_SetString(PyExc_ValueError, "Cannot add a base space: the structure "
+                                          "is in use by an ElementKForms.");
+        return -1;
+    }
+    if (mesh_kform_specs_check_space(this, space) < 0)
+        return -1;
+    // Only a failing allocation reaches this point: the space rules are
+    // checked by mesh_kform_specs_check_space() above.
+    unsigned index;
+    const fdg_result_t res = mesh_kform_specs_add_space(this->data, space->specs, &index);
+    if (res != FDG_SUCCESS)
+    {
+        PyErr_Format(PyExc_RuntimeError, "Could not add the base function space: %s (%s).", fdg_error_str(res),
+                     fdg_error_msg(res));
+        return -1;
+    }
+    if (mesh_kform_specs_grow_caches(this, mesh_kform_specs_space_count(this->data)) < 0)
+        return -1;
+    if (out_index)
+        *out_index = index;
+    return 0;
+}
+
+/** Appends one element referencing a base space index of the structure. */
+static int mesh_kform_specs_add_element_index(mesh_kform_specs_object *this, const Py_ssize_t space_index)
+{
+    if (mesh_kform_specs_is_frozen(this->data))
+    {
+        PyErr_SetString(PyExc_ValueError, "Cannot add an element: the structure is in use by an ElementKForms.");
+        return -1;
+    }
+    if (space_index < 0 || (unsigned)space_index >= mesh_kform_specs_space_count(this->data))
+    {
+        PyErr_Format(PyExc_ValueError, "Space index %zd out of range for %u base spaces.", space_index,
+                     mesh_kform_specs_space_count(this->data));
+        return -1;
+    }
+    const fdg_result_t res = mesh_kform_specs_add_element(this->data, (unsigned)space_index);
+    if (res != FDG_SUCCESS)
+    {
+        PyErr_Format(PyExc_RuntimeError, "Could not add the element: %s (%s).", fdg_error_str(res), fdg_error_msg(res));
+        return -1;
+    }
+    return 0;
+}
+
+static mesh_kform_specs_object *mesh_kform_specs_alloc(PyTypeObject *type)
+{
+    mesh_kform_specs_object *const self = (mesh_kform_specs_object *)type->tp_alloc(type, 0);
     if (!self)
         return NULL;
     self->space_objects = NULL;
     self->field_specs = NULL;
     self->space_capacity = 0;
-    self->frozen = 0;
-    const fdg_result_t res = element_kforms_create(&self->data, &SYSTEM_ALLOCATOR);
+    const fdg_result_t res = mesh_kform_specs_create(&self->data, &SYSTEM_ALLOCATOR);
     if (res != FDG_SUCCESS)
     {
-        PyErr_Format(PyExc_RuntimeError, "Could not create the k-form storage: %s (%s).", fdg_error_str(res),
+        PyErr_Format(PyExc_RuntimeError, "Could not create the k-form structure: %s (%s).", fdg_error_str(res),
                      fdg_error_msg(res));
         Py_DECREF(self);
         return NULL;
@@ -882,18 +935,19 @@ static element_kforms_object *element_kforms_alloc(PyTypeObject *type)
     return self;
 }
 
-static PyObject *element_kforms_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
+static PyObject *mesh_kform_specs_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 {
     if (PyTuple_GET_SIZE(args) != 1)
     {
-        PyErr_SetString(PyExc_TypeError, "ElementKForms takes exactly one positional argument: the dimension.");
+        PyErr_SetString(PyExc_TypeError, "MeshKFormSpecs takes exactly one positional argument: the dimension.");
         return NULL;
     }
     const Py_ssize_t ndim = PyLong_AsSsize_t(PyTuple_GET_ITEM(args, 0));
     if (ndim == -1 && PyErr_Occurred())
         return NULL;
-    // element_data_add_option() takes the dimension in [1, 63] as a
-    // precondition; report an invalid one here instead of aborting there.
+    // mesh_kform_specs_add_field() takes a positive dimension as a
+    // precondition and the element storage caps the dimension at 63; report
+    // an invalid one here instead of aborting there.
     if (ndim < 1 || ndim > 63)
     {
         PyErr_Format(PyExc_ValueError, "Expected ndim in [1, 63], got %zd.", ndim);
@@ -902,11 +956,11 @@ static PyObject *element_kforms_new(PyTypeObject *type, PyObject *args, PyObject
     const Py_ssize_t n_fields = kwds ? PyDict_Size(kwds) : 0;
     if (n_fields < 1)
     {
-        PyErr_SetString(PyExc_TypeError, "ElementKForms requires at least one k-form field.");
+        PyErr_SetString(PyExc_TypeError, "MeshKFormSpecs requires at least one k-form field.");
         return NULL;
     }
 
-    element_kforms_object *const self = element_kforms_alloc(type);
+    mesh_kform_specs_object *const self = mesh_kform_specs_alloc(type);
     if (!self)
         return NULL;
     Py_ssize_t pos = 0;
@@ -914,7 +968,7 @@ static PyObject *element_kforms_new(PyTypeObject *type, PyObject *args, PyObject
     PyObject *value;
     while (PyDict_Next(kwds, &pos, &key, &value))
     {
-        if (element_kforms_add_field_objects(self, key, value, ndim) < 0)
+        if (mesh_kform_specs_add_field_objects(self, key, value, ndim) < 0)
         {
             Py_DECREF(self);
             return NULL;
@@ -923,196 +977,144 @@ static PyObject *element_kforms_new(PyTypeObject *type, PyObject *args, PyObject
     return (PyObject *)self;
 }
 
-static int element_kforms_traverse(element_kforms_object *self, visitproc visit, void *arg)
-{
-    Py_VISIT(Py_TYPE(self));
-    if (self->space_objects)
-    {
-        for (unsigned i = 0; i < self->space_capacity; ++i)
-            Py_VISIT(self->space_objects[i]);
-    }
-    if (self->field_specs)
-    {
-        for (unsigned field = 0; field < element_kforms_field_count(self->data); ++field)
-        {
-            if (!self->field_specs[field])
-                continue;
-            for (unsigned i = 0; i < self->space_capacity; ++i)
-                Py_VISIT(self->field_specs[field][i]);
-        }
-    }
-    return 0;
-}
-
-static int element_kforms_clear(element_kforms_object *self)
-{
-    if (self->space_objects)
-    {
-        for (unsigned i = 0; i < self->space_capacity; ++i)
-            Py_CLEAR(self->space_objects[i]);
-    }
-    if (self->field_specs)
-    {
-        for (unsigned field = 0; field < element_kforms_field_count(self->data); ++field)
-        {
-            if (!self->field_specs[field])
-                continue;
-            for (unsigned i = 0; i < self->space_capacity; ++i)
-                Py_CLEAR(self->field_specs[field][i]);
-        }
-    }
-    return 0;
-}
-
-static void element_kforms_dealloc(element_kforms_object *self)
+static void mesh_kform_specs_dealloc(PyObject *self)
 {
     PyObject_GC_UnTrack(self);
-    element_kforms_clear(self);
-    if (self->field_specs)
+    mesh_kform_specs_object *const this = (mesh_kform_specs_object *)self;
+    PyTypeObject *const type = Py_TYPE(this);
+
+    // The cached spaces and field specs never reference this object, so no
+    // cycle can pass through it and traverse only has to cover the type.
+    if (this->data && this->field_specs)
     {
-        for (unsigned field = 0; field < element_kforms_field_count(self->data); ++field)
-            PyMem_Free(self->field_specs[field]);
-        PyMem_Free(self->field_specs);
-        self->field_specs = NULL;
+        for (unsigned field = 0; field < mesh_kform_specs_field_count(this->data); ++field)
+        {
+            if (!this->field_specs[field])
+                continue;
+            for (unsigned i = 0; i < this->space_capacity; ++i)
+            {
+                PyObject *const spec = this->field_specs[field][i];
+                this->field_specs[field][i] = NULL;
+                // Slots after an early construction failure were never filled.
+                Py_XDECREF(spec);
+            }
+            PyMem_Free(this->field_specs[field]);
+        }
+        PyMem_Free(this->field_specs);
+        this->field_specs = NULL;
     }
-    if (self->space_objects)
+    if (this->space_objects)
     {
-        PyMem_Free(self->space_objects);
-        self->space_objects = NULL;
+        for (unsigned i = 0; i < this->space_capacity; ++i)
+        {
+            PyObject *const space = this->space_objects[i];
+            this->space_objects[i] = NULL;
+            // Slots after an early construction failure were never filled.
+            Py_XDECREF(space);
+        }
+        PyMem_Free(this->space_objects);
+        this->space_objects = NULL;
     }
-    if (self->data)
+    if (this->data)
     {
-        element_kforms_free(self->data, &SYSTEM_ALLOCATOR);
-        self->data = NULL;
+        mesh_kform_specs_free(this->data, &SYSTEM_ALLOCATOR);
+        this->data = NULL;
     }
-    PyTypeObject *const type = Py_TYPE(self);
-    type->tp_free((PyObject *)self);
+    type->tp_free(self);
     Py_DECREF(type);
 }
 
-PyDoc_STRVAR(element_kforms_add_element_docstring, "add_element(*kforms) -> None\n"
+PyDoc_STRVAR(mesh_kform_specs_add_space_docstring, "add_space(space, /) -> int\n"
                                                    "\n"
-                                                   "Add the k-form values of one element to the collection.\n"
+                                                   "Add a base function space, or look up an equal one.\n"
                                                    "\n"
                                                    "Parameters\n"
                                                    "----------\n"
-                                                   "*kforms : KForm\n"
-                                                   "    One k-form per field, in field order. The order and\n"
-                                                   "    dimension of every k-form must match its field, and all\n"
-                                                   "    k-forms of the element must share one base function space.\n");
+                                                   "space : FunctionSpace\n"
+                                                   "    Base function space all fields are derived from.\n"
+                                                   "\n"
+                                                   "Returns\n"
+                                                   "-------\n"
+                                                   "int\n"
+                                                   "    Index of the (possibly existing) equal space.\n"
+                                                   "\n"
+                                                   "Raises\n"
+                                                   "------\n"
+                                                   "ValueError\n"
+                                                   "    If the structure is frozen or the space does not match\n"
+                                                   "    the fields.\n");
 
-/** Validates one element's k-form group and extracts its shared base space. */
-static int element_kforms_check_group(element_kforms_object *this, const interplib_module_state_t *state,
-                                      PyObject *const *args, const Py_ssize_t nargs,
-                                      const function_space_object **out_space)
-{
-    const unsigned field_count = element_kforms_field_count(this->data);
-    if (nargs != (Py_ssize_t)field_count)
-    {
-        PyErr_Format(PyExc_TypeError, "Expected %u k-forms (one per field), got %zd.", field_count, nargs);
-        return -1;
-    }
-    const function_space_object *space = NULL;
-    for (unsigned field = 0; field < field_count; ++field)
-    {
-        if (!PyObject_TypeCheck(args[field], state->kform_type))
-        {
-            PyErr_Format(PyExc_TypeError, "Expected a %s for field %u, got %s.", state->kform_type->tp_name, field,
-                         Py_TYPE(args[field])->tp_name);
-            return -1;
-        }
-        const kform_spec_object *const specs = ((kform_object *)args[field])->specs;
-        if ((unsigned)Py_SIZE(specs->function_space) != element_kforms_ndim(this->data) ||
-            specs->order != element_kforms_field_order(this->data, field))
-        {
-            PyErr_Format(PyExc_TypeError, "The specifications of the k-form for field %u do not match the field.",
-                         field);
-            return -1;
-        }
-        if (!space)
-        {
-            space = specs->function_space;
-        }
-        else if (Py_SIZE(specs->function_space) != Py_SIZE(space) ||
-                 memcmp(specs->function_space->specs, space->specs, (size_t)Py_SIZE(space) * sizeof(*space->specs)) !=
-                     0)
-        {
-            PyErr_SetString(PyExc_TypeError, "All k-forms of one element must share one base function space.");
-            return -1;
-        }
-    }
-    *out_space = space;
-    return 0;
-}
-
-static PyObject *element_kforms_add_element_method(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
+static PyObject *mesh_kform_specs_add_space_method(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
                                                    const Py_ssize_t nargs, PyObject *kwnames)
 {
     const interplib_module_state_t *state;
-    element_kforms_object *this;
-    if (element_kforms_ensure_state(self, defining_class, &state, &this) < 0)
+    mesh_kform_specs_object *this;
+    if (mesh_kform_specs_ensure_state(self, defining_class, &state, &this) < 0)
+        return NULL;
+    if (kwnames && PyTuple_GET_SIZE(kwnames))
+    {
+        PyErr_SetString(PyExc_TypeError, "add_space takes no keyword arguments.");
+        return NULL;
+    }
+    if (nargs != 1)
+    {
+        PyErr_Format(PyExc_TypeError, "add_space() takes exactly one argument (%zd given).", nargs);
+        return NULL;
+    }
+    if (!PyObject_TypeCheck(args[0], state->function_space_type))
+    {
+        PyErr_Format(PyExc_TypeError, "Expected a %s, got %s.", state->function_space_type->tp_name,
+                     Py_TYPE(args[0])->tp_name);
+        return NULL;
+    }
+    unsigned index;
+    if (mesh_kform_specs_add_space_object(this, (const function_space_object *)args[0], &index) < 0)
+        return NULL;
+    return PyLong_FromUnsignedLong(index);
+}
+
+PyDoc_STRVAR(mesh_kform_specs_add_element_docstring, "add_element(space_index, /) -> None\n"
+                                                     "\n"
+                                                     "Append one element referencing a base space of the structure.\n"
+                                                     "\n"
+                                                     "Parameters\n"
+                                                     "----------\n"
+                                                     "space_index : int\n"
+                                                     "    Index of the element's base function space, as returned\n"
+                                                     "    by :meth:`add_space`.\n"
+                                                     "\n"
+                                                     "Raises\n"
+                                                     "------\n"
+                                                     "ValueError\n"
+                                                     "    If the structure is frozen or the space index is out of\n"
+                                                     "    range.\n");
+
+static PyObject *mesh_kform_specs_add_element_method(PyObject *self, PyTypeObject *defining_class,
+                                                     PyObject *const *args, const Py_ssize_t nargs, PyObject *kwnames)
+{
+    const interplib_module_state_t *state;
+    mesh_kform_specs_object *this;
+    if (mesh_kform_specs_ensure_state(self, defining_class, &state, &this) < 0)
         return NULL;
     if (kwnames && PyTuple_GET_SIZE(kwnames))
     {
         PyErr_SetString(PyExc_TypeError, "add_element takes no keyword arguments.");
         return NULL;
     }
-    if (this->frozen)
-    {
-        PyErr_SetString(PyExc_ValueError,
-                        "Cannot add elements to a frozen ElementKForms; array views of the storage were handed out.");
+    Py_ssize_t space_index;
+    if (parse_arguments_check((cpyutl_argument_t[]){{.type = CPYARG_TYPE_SSIZE, .p_val = &space_index}, {}}, args,
+                              nargs, kwnames) < 0)
         return NULL;
-    }
-    const function_space_object *space;
-    if (element_kforms_check_group(this, state, args, nargs, &space) < 0)
+    if (mesh_kform_specs_add_element_index(this, space_index) < 0)
         return NULL;
-    if (!space)
-    {
-        PyErr_SetString(PyExc_ValueError, "ElementKForms requires at least one k-form field.");
-        return NULL;
-    }
-
-    if (element_kforms_check_space(this, space) < 0)
-        return NULL;
-    // Only a failing allocation reaches this point: the space rules are
-    // checked by element_kforms_check_space() above.
-    unsigned space_index;
-    const fdg_result_t space_res = element_kforms_add_space(this->data, space->specs, &space_index);
-    if (space_res != FDG_SUCCESS)
-    {
-        PyErr_Format(PyExc_RuntimeError, "Could not add the base function space option: %s (%s).",
-                     fdg_error_str(space_res), fdg_error_msg(space_res));
-        return NULL;
-    }
-    if (element_kforms_grow_caches(this, element_kforms_space_count(this->data)) < 0)
-        return NULL;
-
-    const size_t count = element_kforms_element_value_count(this->data, space_index);
-    double *const values = PyMem_Malloc(count * sizeof(*values));
-    if (!values)
-        return PyErr_NoMemory();
-    size_t offset = 0;
-    for (unsigned field = 0; field < element_kforms_field_count(this->data); ++field)
-    {
-        const kform_object *const kform = (kform_object *)args[field];
-        memcpy(values + offset, kform->values, (size_t)Py_SIZE(kform) * sizeof(*values));
-        offset += (size_t)Py_SIZE(kform);
-    }
-    const fdg_result_t res = element_kforms_add_element(this->data, space_index, values);
-    PyMem_Free(values);
-    if (res != FDG_SUCCESS)
-    {
-        PyErr_Format(PyExc_RuntimeError, "Could not add the element values: %s (%s).", fdg_error_str(res),
-                     fdg_error_msg(res));
-        return NULL;
-    }
     Py_RETURN_NONE;
 }
 
-PyDoc_STRVAR(element_kforms_from_elements_docstring,
-             "from_elements(ndim, fields, elements, /) -> ElementKForms\n"
+PyDoc_STRVAR(mesh_kform_specs_from_elements_docstring,
+             "from_elements(ndim, fields, groups, /) -> MeshKFormSpecs\n"
              "\n"
-             "Create a new collection from labeled fields and per-element k-form groups.\n"
+             "Create a new structure from labeled fields and per-element field\n"
+             "specifications.\n"
              "\n"
              "Parameters\n"
              "----------\n"
@@ -1120,36 +1122,38 @@ PyDoc_STRVAR(element_kforms_from_elements_docstring,
              "    Number of reference dimensions, shared by all fields.\n"
              "fields : Sequence[tuple[str, int]]\n"
              "    One ``(label, order)`` pair per k-form field, in field order.\n"
-             "elements : Sequence[tuple[KForm, ...]]\n"
-             "    One tuple of k-forms per element, in field order. All k-forms of\n"
-             "    one element must share one base function space; distinct spaces\n"
-             "    across elements are stored as separate options.\n"
+             "groups : Sequence[Sequence[KFormSpecs]]\n"
+             "    One tuple of k-form specifications per element, in field\n"
+             "    order. All specifications of one group must share one base\n"
+             "    function space; distinct spaces across groups are stored as\n"
+             "    separate spaces of the structure.\n"
              "\n"
              "Returns\n"
              "-------\n"
-             "ElementKForms\n"
-             "    Collection holding the k-form values of all elements.\n");
+             "MeshKFormSpecs\n"
+             "    Structure holding the fields, spaces, and elements.\n");
 
-static PyObject *element_kforms_from_elements(PyObject *cls, PyObject *const *args, const Py_ssize_t nargs,
-                                              PyObject *kwnames)
+static PyObject *mesh_kform_specs_from_elements(PyObject *cls, PyObject *const *args, const Py_ssize_t nargs,
+                                                PyObject *kwnames)
 {
     const interplib_module_state_t *const state = interplib_get_module_state((PyTypeObject *)cls);
     if (!state)
         return NULL;
     Py_ssize_t ndim;
     PyObject *fields_object;
-    PyObject *elements_object;
+    PyObject *groups_object;
     if (parse_arguments_check(
             (cpyutl_argument_t[]){
                 {.type = CPYARG_TYPE_SSIZE, .p_val = &ndim},
                 {.type = CPYARG_TYPE_PYTHON, .p_val = &fields_object},
-                {.type = CPYARG_TYPE_PYTHON, .p_val = &elements_object},
+                {.type = CPYARG_TYPE_PYTHON, .p_val = &groups_object},
                 {},
             },
             args, nargs, kwnames) < 0)
         return NULL;
-    // element_data_add_option() takes the dimension in [1, 63] as a
-    // precondition; report an invalid one here instead of aborting there.
+    // mesh_kform_specs_add_field() takes a positive dimension as a
+    // precondition and the element storage caps the dimension at 63; report
+    // an invalid one here instead of aborting there.
     if (ndim < 1 || ndim > 63)
     {
         PyErr_Format(PyExc_ValueError, "Expected ndim in [1, 63], got %zd.", ndim);
@@ -1161,11 +1165,11 @@ static PyObject *element_kforms_from_elements(PyObject *cls, PyObject *const *ar
         return NULL;
     if (PySequence_Fast_GET_SIZE(fields_seq) < 1)
     {
-        PyErr_SetString(PyExc_ValueError, "ElementKForms requires at least one k-form field");
+        PyErr_SetString(PyExc_ValueError, "MeshKFormSpecs requires at least one k-form field");
         Py_DECREF(fields_seq);
         return NULL;
     }
-    element_kforms_object *const this = element_kforms_alloc((PyTypeObject *)cls);
+    mesh_kform_specs_object *const this = mesh_kform_specs_alloc((PyTypeObject *)cls);
     PyObject *const self = (PyObject *)this;
     if (!self)
     {
@@ -1174,7 +1178,7 @@ static PyObject *element_kforms_from_elements(PyObject *cls, PyObject *const *ar
     }
     for (Py_ssize_t i = 0; i < PySequence_Fast_GET_SIZE(fields_seq); ++i)
     {
-        if (element_kforms_add_field_pair(this, PySequence_Fast_GET_ITEM(fields_seq, i), ndim) < 0)
+        if (mesh_kform_specs_add_field_pair(this, PySequence_Fast_GET_ITEM(fields_seq, i), ndim) < 0)
         {
             Py_DECREF(fields_seq);
             Py_DECREF(self);
@@ -1183,180 +1187,81 @@ static PyObject *element_kforms_from_elements(PyObject *cls, PyObject *const *ar
     }
     Py_DECREF(fields_seq);
 
-    PyObject *const elements_seq = PySequence_Fast(elements_object, "elements must be a sequence of k-form tuples.");
-    if (!elements_seq)
+    PyObject *const groups_seq =
+        PySequence_Fast(groups_object, "groups must be a sequence of k-form specification tuples.");
+    if (!groups_seq)
     {
         Py_DECREF(self);
         return NULL;
     }
-    for (Py_ssize_t i = 0; i < PySequence_Fast_GET_SIZE(elements_seq); ++i)
+    for (Py_ssize_t i = 0; i < PySequence_Fast_GET_SIZE(groups_seq); ++i)
     {
-        PyObject *const group =
-            PySequence_Fast(PySequence_Fast_GET_ITEM(elements_seq, i), "elements must be a sequence of k-form tuples.");
+        PyObject *const group = PySequence_Fast(PySequence_Fast_GET_ITEM(groups_seq, i),
+                                                "groups must be a sequence of k-form specification tuples.");
         if (!group)
         {
-            Py_DECREF(elements_seq);
+            Py_DECREF(groups_seq);
             Py_DECREF(self);
             return NULL;
         }
-        PyObject *const result = element_kforms_add_element_method(self, NULL, PySequence_Fast_ITEMS(group),
-                                                                   PySequence_Fast_GET_SIZE(group), NULL);
-        Py_DECREF(group);
-        if (!result)
+        // All specs of one group must agree on one base function space.
+        const function_space_object *space = NULL;
+        for (Py_ssize_t field = 0; field < PySequence_Fast_GET_SIZE(group); ++field)
         {
-            Py_DECREF(elements_seq);
-            Py_DECREF(self);
-            return NULL;
-        }
-        Py_DECREF(result);
-    }
-    Py_DECREF(elements_seq);
-    return self;
-}
-
-/** Shared implementation of zeros and zeros_from_options. */
-static PyObject *element_kforms_zeros_common(PyObject *cls, const Py_ssize_t ndim, PyObject *fields_object,
-                                             PyObject *spaces_object, PyObject *indices_object, const Py_ssize_t count)
-{
-    const interplib_module_state_t *const state = interplib_get_module_state((PyTypeObject *)cls);
-    if (!state)
-        return NULL;
-    PyObject *const fields_seq = PySequence_Fast(fields_object, "fields must be a sequence of (label, order) pairs.");
-    if (!fields_seq)
-        return NULL;
-    PyObject *const spaces_seq = PySequence_Fast(spaces_object, "spaces must be a sequence of FunctionSpace objects.");
-    if (!spaces_seq)
-    {
-        Py_DECREF(fields_seq);
-        return NULL;
-    }
-    const Py_ssize_t space_count = PySequence_Fast_GET_SIZE(spaces_seq);
-    PyObject *const indices_seq =
-        indices_object ? PySequence_Fast(indices_object, "indices must be a sequence of integers.") : NULL;
-    if (indices_object && !indices_seq)
-    {
-        Py_DECREF(spaces_seq);
-        Py_DECREF(fields_seq);
-        return NULL;
-    }
-    const Py_ssize_t element_count = indices_seq ? PySequence_Fast_GET_SIZE(indices_seq) : count;
-    if (element_count < 0)
-    {
-        PyErr_SetString(PyExc_ValueError, "The element count must not be negative.");
-        Py_XDECREF(indices_seq);
-        Py_DECREF(spaces_seq);
-        Py_DECREF(fields_seq);
-        return NULL;
-    }
-
-    element_kforms_object *const this = element_kforms_alloc((PyTypeObject *)cls);
-    PyObject *const self = (PyObject *)this;
-    if (!self)
-    {
-        Py_XDECREF(indices_seq);
-        Py_DECREF(spaces_seq);
-        Py_DECREF(fields_seq);
-        return NULL;
-    }
-    for (Py_ssize_t i = 0; i < PySequence_Fast_GET_SIZE(fields_seq); ++i)
-    {
-        if (element_kforms_add_field_pair(this, PySequence_Fast_GET_ITEM(fields_seq, i), ndim) < 0)
-            goto failure;
-    }
-
-    // Add the base spaces and find the largest per-element block.
-    size_t max_count = 0;
-    for (Py_ssize_t i = 0; i < space_count; ++i)
-    {
-        PyObject *const space = PySequence_Fast_GET_ITEM(spaces_seq, i);
-        if (!PyObject_TypeCheck(space, state->function_space_type))
-        {
-            PyErr_Format(PyExc_TypeError, "Expected a %s, got %s.", state->function_space_type->tp_name,
-                         Py_TYPE(space)->tp_name);
-            goto failure;
-        }
-        if (element_kforms_check_space(this, (function_space_object *)space) < 0)
-            goto failure;
-        // Only a failing allocation reaches this point: the space rules are
-        // checked by element_kforms_check_space() above.
-        unsigned space_index;
-        const fdg_result_t res =
-            element_kforms_add_space(this->data, ((function_space_object *)space)->specs, &space_index);
-        if (res != FDG_SUCCESS)
-        {
-            PyErr_Format(PyExc_RuntimeError, "Could not add base space %zd: %s (%s).", i, fdg_error_str(res),
-                         fdg_error_msg(res));
-            goto failure;
-        }
-        if (element_kforms_grow_caches(this, element_kforms_space_count(this->data)) < 0)
-            goto failure;
-        const size_t value_count = element_kforms_element_value_count(this->data, space_index);
-        if (value_count > max_count)
-            max_count = value_count;
-    }
-    if (indices_seq)
-    {
-        for (Py_ssize_t i = 0; i < PySequence_Fast_GET_SIZE(indices_seq); ++i)
-        {
-            const Py_ssize_t index = PyLong_AsSsize_t(PySequence_Fast_GET_ITEM(indices_seq, i));
-            if (index == -1 && PyErr_Occurred())
-                goto failure;
-            if (index < 0 || (unsigned)index >= element_kforms_space_count(this->data))
+            PyObject *const item = PySequence_Fast_GET_ITEM(group, field);
+            if (!PyObject_TypeCheck(item, state->kform_specs_type))
             {
-                PyErr_Format(PyExc_ValueError, "Space index %zd out of range for %u base spaces.", index,
-                             element_kforms_space_count(this->data));
-                goto failure;
+                PyErr_Format(PyExc_TypeError, "Expected a %s for field %zd, got %s.", state->kform_specs_type->tp_name,
+                             field, Py_TYPE(item)->tp_name);
+                break;
+            }
+            const kform_spec_object *const field_specs = (kform_spec_object *)item;
+            if ((unsigned)Py_SIZE(field_specs->function_space) != mesh_kform_specs_ndim(this->data) ||
+                field_specs->order != mesh_kform_specs_field_order(this->data, (unsigned)field))
+            {
+                PyErr_Format(PyExc_TypeError,
+                             "The specifications of the k-form for field %zd do not "
+                             "match the field.",
+                             field);
+                break;
+            }
+            if (!space)
+            {
+                space = field_specs->function_space;
+                continue;
+            }
+            if (Py_SIZE(field_specs->function_space) != Py_SIZE(space) ||
+                memcmp(field_specs->function_space->specs, space->specs,
+                       (size_t)Py_SIZE(space) * sizeof(*space->specs)) != 0)
+            {
+                PyErr_SetString(PyExc_TypeError, "All k-forms of one element must share one base function space.");
+                break;
             }
         }
-    }
-
-    double *const zeros = max_count > 0 ? PyMem_Calloc(max_count, sizeof(*zeros)) : NULL;
-    if (max_count > 0 && !zeros)
-    {
-        PyErr_NoMemory();
-        goto failure;
-    }
-    for (Py_ssize_t i = 0; i < element_count; ++i)
-    {
-        unsigned space_index = 0;
-        if (indices_seq)
+        Py_DECREF(group);
+        if (!space || PyErr_Occurred())
         {
-            space_index = (unsigned)PyLong_AsSsize_t(PySequence_Fast_GET_ITEM(indices_seq, i));
+            Py_DECREF(groups_seq);
+            Py_DECREF(self);
+            return NULL;
         }
-        else if (space_count > 1)
+        unsigned space_index;
+        if (mesh_kform_specs_add_space_object(this, space, &space_index) < 0 ||
+            mesh_kform_specs_add_element_index(this, (Py_ssize_t)space_index) < 0)
         {
-            PyErr_SetString(PyExc_ValueError,
-                            "Multiple base spaces require one space index per element; use zeros_from_options.");
-            PyMem_Free(zeros);
-            goto failure;
-        }
-        const fdg_result_t res = element_kforms_add_element(this->data, space_index, zeros);
-        if (res != FDG_SUCCESS)
-        {
-            PyMem_Free(zeros);
-            PyErr_Format(PyExc_RuntimeError, "Could not add the zero element: %s (%s).", fdg_error_str(res),
-                         fdg_error_msg(res));
-            goto failure;
+            Py_DECREF(groups_seq);
+            Py_DECREF(self);
+            return NULL;
         }
     }
-    PyMem_Free(zeros);
-    Py_XDECREF(indices_seq);
-    Py_DECREF(spaces_seq);
-    Py_DECREF(fields_seq);
+    Py_DECREF(groups_seq);
     return self;
-
-failure:
-    Py_XDECREF(indices_seq);
-    Py_DECREF(spaces_seq);
-    Py_DECREF(fields_seq);
-    Py_DECREF(self);
-    return NULL;
 }
 
-PyDoc_STRVAR(element_kforms_zeros_docstring,
-             "zeros(ndim, fields, space, count, /) -> ElementKForms\n"
+PyDoc_STRVAR(mesh_kform_specs_from_space_docstring,
+             "from_space(ndim, fields, space, count, /) -> MeshKFormSpecs\n"
              "\n"
-             "Create a zero-initialized collection with one shared base function space.\n"
+             "Create a new structure with one shared base function space.\n"
              "\n"
              "Parameters\n"
              "----------\n"
@@ -1368,22 +1273,23 @@ PyDoc_STRVAR(element_kforms_zeros_docstring,
              "    Base function space shared by every element; all fields are\n"
              "    derived from it.\n"
              "count : int\n"
-             "    Number of zero-initialized elements.\n"
+             "    Number of elements.\n"
              "\n"
              "Returns\n"
              "-------\n"
-             "ElementKForms\n"
-             "    Collection holding ``count`` zero elements.\n");
+             "MeshKFormSpecs\n"
+             "    Structure holding ``count`` elements on one base space.\n");
 
-static PyObject *element_kforms_zeros(PyObject *cls, PyObject *const *args, const Py_ssize_t nargs, PyObject *kwnames)
+static PyObject *mesh_kform_specs_from_space(PyObject *cls, PyObject *const *args, const Py_ssize_t nargs,
+                                             PyObject *kwnames)
 {
+    const interplib_module_state_t *const state = interplib_get_module_state((PyTypeObject *)cls);
+    if (!state)
+        return NULL;
     Py_ssize_t ndim;
     PyObject *fields_object;
     PyObject *space_object;
     Py_ssize_t count;
-    const interplib_module_state_t *const state = interplib_get_module_state((PyTypeObject *)cls);
-    if (!state)
-        return NULL;
     if (parse_arguments_check(
             (cpyutl_argument_t[]){
                 {.type = CPYARG_TYPE_SSIZE, .p_val = &ndim},
@@ -1394,8 +1300,9 @@ static PyObject *element_kforms_zeros(PyObject *cls, PyObject *const *args, cons
             },
             args, nargs, kwnames) < 0)
         return NULL;
-    // element_data_add_option() takes the dimension in [1, 63] as a
-    // precondition; report an invalid one here instead of aborting there.
+    // mesh_kform_specs_add_field() takes a positive dimension as a
+    // precondition and the element storage caps the dimension at 63; report
+    // an invalid one here instead of aborting there.
     if (ndim < 1 || ndim > 63)
     {
         PyErr_Format(PyExc_ValueError, "Expected ndim in [1, 63], got %zd.", ndim);
@@ -1407,18 +1314,54 @@ static PyObject *element_kforms_zeros(PyObject *cls, PyObject *const *args, cons
                      Py_TYPE(space_object)->tp_name);
         return NULL;
     }
-    PyObject *const spaces_tuple = PyTuple_Pack(1, space_object);
-    if (!spaces_tuple)
+    if (count < 0)
+    {
+        PyErr_SetString(PyExc_ValueError, "The element count must not be negative.");
         return NULL;
-    PyObject *const result = element_kforms_zeros_common(cls, ndim, fields_object, spaces_tuple, NULL, count);
-    Py_DECREF(spaces_tuple);
-    return result;
+    }
+
+    mesh_kform_specs_object *const this = mesh_kform_specs_alloc((PyTypeObject *)cls);
+    PyObject *const self = (PyObject *)this;
+    if (!self)
+        return NULL;
+    PyObject *const fields_seq = PySequence_Fast(fields_object, "fields must be a sequence of (label, order) pairs.");
+    if (!fields_seq)
+    {
+        Py_DECREF(self);
+        return NULL;
+    }
+    for (Py_ssize_t i = 0; i < PySequence_Fast_GET_SIZE(fields_seq); ++i)
+    {
+        if (mesh_kform_specs_add_field_pair(this, PySequence_Fast_GET_ITEM(fields_seq, i), ndim) < 0)
+        {
+            Py_DECREF(fields_seq);
+            Py_DECREF(self);
+            return NULL;
+        }
+    }
+    Py_DECREF(fields_seq);
+
+    unsigned space_index;
+    if (mesh_kform_specs_add_space_object(this, (const function_space_object *)space_object, &space_index) < 0)
+    {
+        Py_DECREF(self);
+        return NULL;
+    }
+    for (Py_ssize_t i = 0; i < count; ++i)
+    {
+        if (mesh_kform_specs_add_element_index(this, (Py_ssize_t)space_index) < 0)
+        {
+            Py_DECREF(self);
+            return NULL;
+        }
+    }
+    return self;
 }
 
-PyDoc_STRVAR(element_kforms_zeros_from_options_docstring,
-             "zeros_from_options(ndim, fields, spaces, indices, /) -> ElementKForms\n"
+PyDoc_STRVAR(mesh_kform_specs_from_options_docstring,
+             "from_options(ndim, fields, spaces, indices, /) -> MeshKFormSpecs\n"
              "\n"
-             "Create a zero-initialized collection with per-element base spaces.\n"
+             "Create a new structure with per-element base spaces.\n"
              "\n"
              "Parameters\n"
              "----------\n"
@@ -1430,17 +1373,20 @@ PyDoc_STRVAR(element_kforms_zeros_from_options_docstring,
              "    The distinct base function spaces; all fields are derived from\n"
              "    the base space of an element.\n"
              "indices : Sequence[int]\n"
-             "    Index into ``spaces`` for every element; also fixes the element\n"
-             "    count.\n"
+             "    Index into ``spaces`` for every element; also fixes the\n"
+             "    element count.\n"
              "\n"
              "Returns\n"
              "-------\n"
-             "ElementKForms\n"
-             "    Collection holding one zero element per index.\n");
+             "MeshKFormSpecs\n"
+             "    Structure holding one element per index.\n");
 
-static PyObject *element_kforms_zeros_from_options(PyObject *cls, PyObject *const *args, const Py_ssize_t nargs,
-                                                   PyObject *kwnames)
+static PyObject *mesh_kform_specs_from_options(PyObject *cls, PyObject *const *args, const Py_ssize_t nargs,
+                                               PyObject *kwnames)
 {
+    const interplib_module_state_t *const state = interplib_get_module_state((PyTypeObject *)cls);
+    if (!state)
+        return NULL;
     Py_ssize_t ndim;
     PyObject *fields_object;
     PyObject *spaces_object;
@@ -1455,17 +1401,381 @@ static PyObject *element_kforms_zeros_from_options(PyObject *cls, PyObject *cons
             },
             args, nargs, kwnames) < 0)
         return NULL;
-    // element_data_add_option() takes the dimension in [1, 63] as a
-    // precondition; report an invalid one here instead of aborting there.
+    // mesh_kform_specs_add_field() takes a positive dimension as a
+    // precondition and the element storage caps the dimension at 63; report
+    // an invalid one here instead of aborting there.
     if (ndim < 1 || ndim > 63)
     {
         PyErr_Format(PyExc_ValueError, "Expected ndim in [1, 63], got %zd.", ndim);
         return NULL;
     }
-    return element_kforms_zeros_common(cls, ndim, fields_object, spaces_object, indices_object, 0);
+
+    mesh_kform_specs_object *const this = mesh_kform_specs_alloc((PyTypeObject *)cls);
+    PyObject *const self = (PyObject *)this;
+    if (!self)
+        return NULL;
+    PyObject *const fields_seq = PySequence_Fast(fields_object, "fields must be a sequence of (label, order) pairs.");
+    if (!fields_seq)
+    {
+        Py_DECREF(self);
+        return NULL;
+    }
+    for (Py_ssize_t i = 0; i < PySequence_Fast_GET_SIZE(fields_seq); ++i)
+    {
+        if (mesh_kform_specs_add_field_pair(this, PySequence_Fast_GET_ITEM(fields_seq, i), ndim) < 0)
+        {
+            Py_DECREF(fields_seq);
+            Py_DECREF(self);
+            return NULL;
+        }
+    }
+    Py_DECREF(fields_seq);
+
+    PyObject *const spaces_seq = PySequence_Fast(spaces_object, "spaces must be a sequence of FunctionSpace objects.");
+    if (!spaces_seq)
+    {
+        Py_DECREF(self);
+        return NULL;
+    }
+    for (Py_ssize_t i = 0; i < PySequence_Fast_GET_SIZE(spaces_seq); ++i)
+    {
+        PyObject *const space = PySequence_Fast_GET_ITEM(spaces_seq, i);
+        if (!PyObject_TypeCheck(space, state->function_space_type))
+        {
+            PyErr_Format(PyExc_TypeError, "Expected a %s, got %s.", state->function_space_type->tp_name,
+                         Py_TYPE(space)->tp_name);
+            Py_DECREF(spaces_seq);
+            Py_DECREF(self);
+            return NULL;
+        }
+        if (mesh_kform_specs_add_space_object(this, (const function_space_object *)space, NULL) < 0)
+        {
+            Py_DECREF(spaces_seq);
+            Py_DECREF(self);
+            return NULL;
+        }
+    }
+    Py_DECREF(spaces_seq);
+
+    PyObject *const indices_seq = PySequence_Fast(indices_object, "indices must be a sequence of integers.");
+    if (!indices_seq)
+    {
+        Py_DECREF(self);
+        return NULL;
+    }
+    for (Py_ssize_t i = 0; i < PySequence_Fast_GET_SIZE(indices_seq); ++i)
+    {
+        const Py_ssize_t index = PyLong_AsSsize_t(PySequence_Fast_GET_ITEM(indices_seq, i));
+        if (index == -1 && PyErr_Occurred())
+        {
+            Py_DECREF(indices_seq);
+            Py_DECREF(self);
+            return NULL;
+        }
+        if (mesh_kform_specs_add_element_index(this, index) < 0)
+        {
+            Py_DECREF(indices_seq);
+            Py_DECREF(self);
+            return NULL;
+        }
+    }
+    Py_DECREF(indices_seq);
+    return self;
 }
 
-/** Resolves a label argument to a field index, raising KeyError when unknown. */
+PyDoc_STRVAR(mesh_kform_specs_space_docstring, "space(index, /) -> FunctionSpace\n"
+                                               "\n"
+                                               "Get one base function space of the structure.\n"
+                                               "\n"
+                                               "Parameters\n"
+                                               "----------\n"
+                                               "index : int\n"
+                                               "    Index into the space table.\n"
+                                               "\n"
+                                               "Returns\n"
+                                               "-------\n"
+                                               "FunctionSpace\n"
+                                               "    Base function space stored at the index.\n");
+
+static PyObject *mesh_kform_specs_space_method(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
+                                               const Py_ssize_t nargs, PyObject *kwnames)
+{
+    const interplib_module_state_t *state;
+    mesh_kform_specs_object *this;
+    if (mesh_kform_specs_ensure_state(self, defining_class, &state, &this) < 0)
+        return NULL;
+    Py_ssize_t index;
+    if (parse_arguments_check((cpyutl_argument_t[]){{.type = CPYARG_TYPE_SSIZE, .p_val = &index}, {}}, args, nargs,
+                              kwnames) < 0)
+        return NULL;
+    if (index < 0 || (unsigned)index >= mesh_kform_specs_space_count(this->data))
+    {
+        PyErr_Format(PyExc_IndexError, "Space index %zd out of range for %u base spaces.", index,
+                     mesh_kform_specs_space_count(this->data));
+        return NULL;
+    }
+    PyObject *const space = mesh_kform_specs_space_function_space(this, state, (unsigned)index);
+    if (!space)
+        return NULL;
+    Py_INCREF(space);
+    return space;
+}
+
+PyDoc_STRVAR(mesh_kform_specs_element_space_docstring, "element_space(element_id, /) -> int\n"
+                                                       "\n"
+                                                       "Get the base space index of one element.\n"
+                                                       "\n"
+                                                       "Parameters\n"
+                                                       "----------\n"
+                                                       "element_id : int\n"
+                                                       "    Index of the element.\n"
+                                                       "\n"
+                                                       "Returns\n"
+                                                       "-------\n"
+                                                       "int\n"
+                                                       "    Index into the space table.\n");
+
+static PyObject *mesh_kform_specs_element_space_method(PyObject *self, PyTypeObject *defining_class,
+                                                       PyObject *const *args, const Py_ssize_t nargs, PyObject *kwnames)
+{
+    const interplib_module_state_t *state;
+    mesh_kform_specs_object *this;
+    if (mesh_kform_specs_ensure_state(self, defining_class, &state, &this) < 0)
+        return NULL;
+    Py_ssize_t element_id;
+    if (parse_arguments_check((cpyutl_argument_t[]){{.type = CPYARG_TYPE_SSIZE, .p_val = &element_id}, {}}, args, nargs,
+                              kwnames) < 0)
+        return NULL;
+    const uint64_t element_count = mesh_kform_specs_element_count(this->data);
+    if (element_id < 0 || (uint64_t)element_id >= element_count)
+    {
+        PyErr_Format(PyExc_IndexError, "Element index %zd out of range for %llu elements.", element_id,
+                     (unsigned long long)element_count);
+        return NULL;
+    }
+    return PyLong_FromUnsignedLong(mesh_kform_specs_element_space(this->data, (uint64_t)element_id));
+}
+
+PyDoc_STRVAR(mesh_kform_specs_field_specs_docstring, "field_specs(element_id, label, /) -> KFormSpecs\n"
+                                                     "\n"
+                                                     "Get the specifications of one field on the base space of one\n"
+                                                     "element.\n"
+                                                     "\n"
+                                                     "Parameters\n"
+                                                     "----------\n"
+                                                     "element_id : int\n"
+                                                     "    Index of the element.\n"
+                                                     "label : str\n"
+                                                     "    Label of the field.\n"
+                                                     "\n"
+                                                     "Returns\n"
+                                                     "-------\n"
+                                                     "KFormSpecs\n"
+                                                     "    Specifications of the field, derived from the element's\n"
+                                                     "    base function space.\n");
+
+static PyObject *mesh_kform_specs_field_specs_method(PyObject *self, PyTypeObject *defining_class,
+                                                     PyObject *const *args, const Py_ssize_t nargs, PyObject *kwnames)
+{
+    const interplib_module_state_t *state;
+    mesh_kform_specs_object *this;
+    if (mesh_kform_specs_ensure_state(self, defining_class, &state, &this) < 0)
+        return NULL;
+    Py_ssize_t element_id;
+    PyObject *label_object;
+    if (parse_arguments_check(
+            (cpyutl_argument_t[]){
+                {.type = CPYARG_TYPE_SSIZE, .p_val = &element_id},
+                {.type = CPYARG_TYPE_PYTHON, .p_val = &label_object},
+                {},
+            },
+            args, nargs, kwnames) < 0)
+        return NULL;
+    const uint64_t element_count = mesh_kform_specs_element_count(this->data);
+    if (element_id < 0 || (uint64_t)element_id >= element_count)
+    {
+        PyErr_Format(PyExc_IndexError, "Element index %zd out of range for %llu elements.", element_id,
+                     (unsigned long long)element_count);
+        return NULL;
+    }
+    if (!PyUnicode_Check(label_object))
+    {
+        PyErr_SetString(PyExc_TypeError, "The label must be a string.");
+        return NULL;
+    }
+    const char *const label = PyUnicode_AsUTF8(label_object);
+    if (!label)
+        return NULL;
+    unsigned field;
+    if (!mesh_kform_specs_find_field(this->data, label, &field))
+    {
+        PyErr_SetObject(PyExc_KeyError, label_object);
+        return NULL;
+    }
+    PyObject *const field_specs = mesh_kform_specs_field_spec(
+        this, state, field, mesh_kform_specs_element_space(this->data, (uint64_t)element_id));
+    if (!field_specs)
+        return NULL;
+    Py_INCREF(field_specs);
+    return field_specs;
+}
+
+static PyObject *mesh_kform_specs_get_ndim(PyObject *self, void *Py_UNUSED(closure))
+{
+    mesh_kform_specs_object *this = (mesh_kform_specs_object *)self;
+    return PyLong_FromUnsignedLong(mesh_kform_specs_ndim(this->data));
+}
+
+static PyObject *mesh_kform_specs_get_labels(PyObject *self, void *Py_UNUSED(closure))
+{
+    mesh_kform_specs_object *this = (mesh_kform_specs_object *)self;
+    const unsigned field_count = mesh_kform_specs_field_count(this->data);
+    PyObject *const tuple = PyTuple_New(field_count);
+    if (!tuple)
+        return NULL;
+    for (unsigned field = 0; field < field_count; ++field)
+    {
+        PyObject *const label = PyUnicode_FromString(mesh_kform_specs_field_label(this->data, field));
+        if (!label)
+        {
+            Py_DECREF(tuple);
+            return NULL;
+        }
+        PyTuple_SET_ITEM(tuple, field, label);
+    }
+    return tuple;
+}
+
+static PyObject *mesh_kform_specs_get_element_count(PyObject *self, void *Py_UNUSED(closure))
+{
+    mesh_kform_specs_object *this = (mesh_kform_specs_object *)self;
+    return PyLong_FromUnsignedLongLong(mesh_kform_specs_element_count(this->data));
+}
+
+static PyObject *mesh_kform_specs_get_space_count(PyObject *self, void *Py_UNUSED(closure))
+{
+    mesh_kform_specs_object *this = (mesh_kform_specs_object *)self;
+    return PyLong_FromUnsignedLong(mesh_kform_specs_space_count(this->data));
+}
+
+static PyMethodDef mesh_kform_specs_methods[] = {
+    {.ml_name = "add_space",
+     .ml_meth = (void *)mesh_kform_specs_add_space_method,
+     .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
+     .ml_doc = (void *)mesh_kform_specs_add_space_docstring},
+    {.ml_name = "add_element",
+     .ml_meth = (void *)mesh_kform_specs_add_element_method,
+     .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
+     .ml_doc = (void *)mesh_kform_specs_add_element_docstring},
+    {.ml_name = "from_elements",
+     .ml_meth = (void *)mesh_kform_specs_from_elements,
+     .ml_flags = METH_CLASS | METH_FASTCALL | METH_KEYWORDS,
+     .ml_doc = (void *)mesh_kform_specs_from_elements_docstring},
+    {.ml_name = "from_space",
+     .ml_meth = (void *)mesh_kform_specs_from_space,
+     .ml_flags = METH_CLASS | METH_FASTCALL | METH_KEYWORDS,
+     .ml_doc = (void *)mesh_kform_specs_from_space_docstring},
+    {.ml_name = "from_options",
+     .ml_meth = (void *)mesh_kform_specs_from_options,
+     .ml_flags = METH_CLASS | METH_FASTCALL | METH_KEYWORDS,
+     .ml_doc = (void *)mesh_kform_specs_from_options_docstring},
+    {.ml_name = "space",
+     .ml_meth = (void *)mesh_kform_specs_space_method,
+     .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
+     .ml_doc = (void *)mesh_kform_specs_space_docstring},
+    {.ml_name = "element_space",
+     .ml_meth = (void *)mesh_kform_specs_element_space_method,
+     .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
+     .ml_doc = (void *)mesh_kform_specs_element_space_docstring},
+    {.ml_name = "field_specs",
+     .ml_meth = (void *)mesh_kform_specs_field_specs_method,
+     .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
+     .ml_doc = (void *)mesh_kform_specs_field_specs_docstring},
+    {},
+};
+
+static PyGetSetDef mesh_kform_specs_getset[] = {
+    {.name = "ndim", .get = mesh_kform_specs_get_ndim, .doc = "int : Number of reference dimensions."},
+    {.name = "labels",
+     .get = mesh_kform_specs_get_labels,
+     .doc = "tuple[str, ...] : Labels of the k-form fields, in field order."},
+    {.name = "element_count", .get = mesh_kform_specs_get_element_count, .doc = "int : Number of stored elements."},
+    {.name = "space_count", .get = mesh_kform_specs_get_space_count, .doc = "int : Number of distinct base spaces."},
+    {},
+};
+
+PyType_Spec mesh_kform_specs_type_spec = {.name = FDG_TYPE_NAME("MeshKFormSpecs"),
+                                          .basicsize = sizeof(mesh_kform_specs_object),
+                                          .itemsize = 0,
+                                          .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HEAPTYPE | Py_TPFLAGS_HAVE_GC |
+                                                   Py_TPFLAGS_IMMUTABLETYPE,
+                                          .slots = (PyType_Slot[]){
+                                              {Py_tp_new, mesh_kform_specs_new},
+                                              {Py_tp_doc, (void *)mesh_kform_specs_docstring},
+                                              {Py_tp_traverse, heap_type_traverse_type},
+                                              {Py_tp_dealloc, mesh_kform_specs_dealloc},
+                                              {Py_tp_methods, mesh_kform_specs_methods},
+                                              {Py_tp_getset, mesh_kform_specs_getset},
+                                              {},
+                                          }};
+
+// Section 4: ElementKForms — values of the k-form collections.
+
+PyDoc_STRVAR(element_kforms_docstring, "ElementKForms(specs: MeshKFormSpecs, /)\n"
+                                       "\n"
+                                       "Batched k-form values: the values of a fixed set of labeled\n"
+                                       "fields, grouped per element.\n"
+                                       "\n"
+                                       "The structure is described by a :class:`MeshKFormSpecs`: its\n"
+                                       "labeled fields, its base function spaces, and the base space of\n"
+                                       "every element. The values are stored in one array per field,\n"
+                                       "sized by the structure, and start zero-filled. Elements are\n"
+                                       "filled in order with :meth:`add_element` until every element of\n"
+                                       "the structure holds values; the number of filled elements is\n"
+                                       "tracked by :attr:`filled_count`.\n"
+                                       "\n"
+                                       "The structure is borrowed and frozen by the collection: no\n"
+                                       "further spaces or elements can be added to it, and it must\n"
+                                       "outlive the collection.\n"
+                                       "\n"
+                                       "Parameters\n"
+                                       "----------\n"
+                                       "specs : MeshKFormSpecs\n"
+                                       "    Structure defining the fields, base spaces, and elements of\n"
+                                       "    the collection.\n");
+
+static int element_kforms_ensure_state(PyObject *self, PyTypeObject *defining_class,
+                                       const interplib_module_state_t **p_state, element_kforms_object **p_this)
+{
+    const interplib_module_state_t *const state =
+        defining_class ? PyType_GetModuleState(defining_class) : interplib_get_module_state(Py_TYPE(self));
+    if (!state)
+        return -1;
+    *p_state = state;
+    *p_this = (element_kforms_object *)self;
+    return 0;
+}
+
+/** Returns the specs object the collection borrows its structure from. */
+static mesh_kform_specs_object *element_kforms_borrowed_specs(const element_kforms_object *this)
+{
+    return (mesh_kform_specs_object *)this->specs;
+}
+
+static int element_kforms_check_element(element_kforms_object *this, const Py_ssize_t element_id)
+{
+    const uint64_t element_count = mesh_kform_specs_element_count(element_kforms_borrowed_specs(this)->data);
+    if (element_id < 0 || (uint64_t)element_id >= element_count)
+    {
+        PyErr_Format(PyExc_IndexError, "Element index %zd out of range for %llu elements.", element_id,
+                     (unsigned long long)element_count);
+        return -1;
+    }
+    return 0;
+}
+
+/** Resolves a label argument to a field index, raising KeyError when unknown.
+ */
 static int element_kforms_parse_label(element_kforms_object *this, PyObject *label_object, unsigned *out_field)
 {
     if (!PyUnicode_Check(label_object))
@@ -1476,12 +1786,385 @@ static int element_kforms_parse_label(element_kforms_object *this, PyObject *lab
     const char *const label = PyUnicode_AsUTF8(label_object);
     if (!label)
         return -1;
-    if (!element_kforms_find_field(this->data, label, out_field))
+    if (!mesh_kform_specs_find_field(element_kforms_borrowed_specs(this)->data, label, out_field))
     {
         PyErr_SetObject(PyExc_KeyError, label_object);
         return -1;
     }
     return 0;
+}
+
+static PyObject *element_kforms_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
+{
+    if (kwds && PyDict_Size(kwds) != 0)
+    {
+        PyErr_SetString(PyExc_TypeError, "ElementKForms takes no keyword arguments.");
+        return NULL;
+    }
+    if (PyTuple_GET_SIZE(args) != 1)
+    {
+        PyErr_SetString(PyExc_TypeError, "ElementKForms takes exactly one positional argument: the "
+                                         "MeshKFormSpecs structure.");
+        return NULL;
+    }
+    PyObject *const specs_object = PyTuple_GET_ITEM(args, 0);
+    const interplib_module_state_t *const state = interplib_get_module_state(type);
+    if (!state)
+        return NULL;
+    if (!PyObject_TypeCheck(specs_object, state->mesh_kform_specs_type))
+    {
+        PyErr_Format(PyExc_TypeError, "Expected a %s, got %s.", state->mesh_kform_specs_type->tp_name,
+                     Py_TYPE(specs_object)->tp_name);
+        return NULL;
+    }
+    mesh_kform_specs_object *const specs = (mesh_kform_specs_object *)specs_object;
+
+    element_kforms_object *const self = (element_kforms_object *)type->tp_alloc(type, 0);
+    if (!self)
+        return NULL;
+    Py_INCREF(specs);
+    self->specs = (PyObject *)specs;
+    self->data = NULL;
+    const fdg_result_t res = element_kforms_create(&self->data, specs->data, &SYSTEM_ALLOCATOR);
+    if (res != FDG_SUCCESS)
+    {
+        PyErr_Format(PyExc_RuntimeError, "Could not create the k-form storage: %s (%s).", fdg_error_str(res),
+                     fdg_error_msg(res));
+        Py_DECREF(self);
+        return NULL;
+    }
+    // The borrow freezes the structure against further mutation.
+    mesh_kform_specs_freeze(specs->data);
+    return (PyObject *)self;
+}
+
+static void element_kforms_dealloc(PyObject *self)
+{
+    PyObject_GC_UnTrack(self);
+    element_kforms_object *const this = (element_kforms_object *)self;
+    PyTypeObject *const type = Py_TYPE(this);
+
+    // The borrowed MeshKFormSpecs never references this object, so no cycle
+    // can pass through it and traverse only has to cover the type. The C
+    // storage borrows the specs of the MeshKFormSpecs object, so it must be
+    // freed while the strong reference keeps those specs alive.
+    if (this->data)
+    {
+        element_kforms_free(this->data, &SYSTEM_ALLOCATOR);
+        this->data = NULL;
+    }
+    Py_XDECREF(this->specs);
+    this->specs = NULL;
+    type->tp_free(self);
+    Py_DECREF(type);
+}
+
+PyDoc_STRVAR(element_kforms_add_element_docstring, "add_element(*kforms) -> None\n"
+                                                   "\n"
+                                                   "Fill the next unfilled element with the k-form values.\n"
+                                                   "\n"
+                                                   "Parameters\n"
+                                                   "----------\n"
+                                                   "*kforms : KForm\n"
+                                                   "    One k-form per field, in field order. The order and\n"
+                                                   "    dimension of every k-form must match its field, and all\n"
+                                                   "    k-forms of the element must share the base function space\n"
+                                                   "    the structure stored for the element.\n"
+                                                   "\n"
+                                                   "Raises\n"
+                                                   "------\n"
+                                                   "IndexError\n"
+                                                   "    If all elements of the structure are already filled.\n");
+
+/** Validates one element's k-form group and extracts its shared base space. */
+static int element_kforms_check_group(const interplib_module_state_t *state, const mesh_kform_specs_t *specs,
+                                      PyObject *const *args, const Py_ssize_t nargs,
+                                      const function_space_object **out_space)
+{
+    const unsigned field_count = mesh_kform_specs_field_count(specs);
+    if (nargs != (Py_ssize_t)field_count)
+    {
+        PyErr_Format(PyExc_TypeError, "Expected %u k-forms (one per field), got %zd.", field_count, nargs);
+        return -1;
+    }
+    const function_space_object *space = NULL;
+    for (unsigned field = 0; field < field_count; ++field)
+    {
+        if (!PyObject_TypeCheck(args[field], state->kform_type))
+        {
+            PyErr_Format(PyExc_TypeError, "Expected a %s for field %u, got %s.", state->kform_type->tp_name, field,
+                         Py_TYPE(args[field])->tp_name);
+            return -1;
+        }
+        const kform_spec_object *const field_specs = ((kform_object *)args[field])->specs;
+        if ((unsigned)Py_SIZE(field_specs->function_space) != mesh_kform_specs_ndim(specs) ||
+            field_specs->order != mesh_kform_specs_field_order(specs, field))
+        {
+            PyErr_Format(PyExc_TypeError,
+                         "The specifications of the k-form for field %u do not match "
+                         "the field.",
+                         field);
+            return -1;
+        }
+        if (!space)
+        {
+            space = field_specs->function_space;
+        }
+        else if (Py_SIZE(field_specs->function_space) != Py_SIZE(space) ||
+                 memcmp(field_specs->function_space->specs, space->specs,
+                        (size_t)Py_SIZE(space) * sizeof(*space->specs)) != 0)
+        {
+            PyErr_SetString(PyExc_TypeError, "All k-forms of one element must share one base function space.");
+            return -1;
+        }
+    }
+    *out_space = space;
+    return 0;
+}
+
+/**
+ * Reports a TypeError when the base space of a validated k-form group
+ * differs from the base space the structure stored for the element.
+ */
+static int element_kforms_check_stored_space(const mesh_kform_specs_t *specs, const function_space_object *const space,
+                                             const unsigned space_index, const uint64_t element_id)
+{
+    if ((unsigned)Py_SIZE(space) != mesh_kform_specs_ndim(specs) ||
+        memcmp(space->specs, mesh_kform_specs_space_basis_specs(specs, space_index),
+               (size_t)mesh_kform_specs_ndim(specs) * sizeof(*space->specs)) != 0)
+    {
+        PyErr_Format(PyExc_TypeError,
+                     "The base function space of the k-forms does not match the "
+                     "base function space the structure "
+                     "stored for element %llu.",
+                     (unsigned long long)element_id);
+        return -1;
+    }
+    return 0;
+}
+
+/** Packs one element's k-forms into a field-major value block. */
+static double *element_kforms_pack_group(const mesh_kform_specs_t *specs, PyObject *const *args, const Py_ssize_t nargs,
+                                         const unsigned space_index)
+{
+    size_t count = 0;
+    for (Py_ssize_t field = 0; field < nargs; ++field)
+        count += (size_t)Py_SIZE(args[field]);
+    if (count != mesh_kform_specs_element_value_count(specs, space_index))
+    {
+        PyErr_Format(PyExc_TypeError, "The k-forms hold %zu values, but the element stores %zu.", count,
+                     mesh_kform_specs_element_value_count(specs, space_index));
+        return NULL;
+    }
+    double *const values = count > 0 ? PyMem_Malloc(count * sizeof(*values)) : NULL;
+    if (count > 0 && !values)
+    {
+        PyErr_NoMemory();
+        return NULL;
+    }
+    size_t offset = 0;
+    for (Py_ssize_t field = 0; field < nargs; ++field)
+    {
+        const kform_object *const kform = (kform_object *)args[field];
+        memcpy(values + offset, kform->values, (size_t)Py_SIZE(kform) * sizeof(*values));
+        offset += (size_t)Py_SIZE(kform);
+    }
+    return values;
+}
+
+static PyObject *element_kforms_add_element_method(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
+                                                   const Py_ssize_t nargs, PyObject *kwnames)
+{
+    const interplib_module_state_t *state;
+    element_kforms_object *this;
+    if (element_kforms_ensure_state(self, defining_class, &state, &this) < 0)
+        return NULL;
+    if (kwnames && PyTuple_GET_SIZE(kwnames))
+    {
+        PyErr_SetString(PyExc_TypeError, "add_element takes no keyword arguments.");
+        return NULL;
+    }
+    const mesh_kform_specs_t *const specs = element_kforms_borrowed_specs(this)->data;
+    const function_space_object *space;
+    if (element_kforms_check_group(state, specs, args, nargs, &space) < 0)
+        return NULL;
+
+    const uint64_t filled = element_kforms_filled_count(this->data);
+    const uint64_t element_count = mesh_kform_specs_element_count(specs);
+    if (filled >= element_count)
+    {
+        PyErr_Format(PyExc_IndexError, "All %llu elements of the structure are already filled.",
+                     (unsigned long long)element_count);
+        return NULL;
+    }
+    // The k-forms agree on one base space; it must be the one the structure
+    // stored for this element.
+    const unsigned space_index = mesh_kform_specs_element_space(specs, filled);
+    if (element_kforms_check_stored_space(specs, space, space_index, filled) < 0)
+        return NULL;
+
+    double *const values = element_kforms_pack_group(specs, args, nargs, space_index);
+    if (!values && mesh_kform_specs_element_value_count(specs, space_index) > 0)
+        return NULL;
+    element_kforms_add_element(this->data, values);
+    PyMem_Free(values);
+    Py_RETURN_NONE;
+}
+
+PyDoc_STRVAR(element_kforms_from_elements_docstring, "from_elements(specs, elements, /) -> ElementKForms\n"
+                                                     "\n"
+                                                     "Create a new collection from a structure and per-element k-form\n"
+                                                     "groups.\n"
+                                                     "\n"
+                                                     "Parameters\n"
+                                                     "----------\n"
+                                                     "specs : MeshKFormSpecs\n"
+                                                     "    Structure defining the fields, base spaces, and elements.\n"
+                                                     "elements : Sequence[tuple[KForm, ...]]\n"
+                                                     "    One tuple of k-forms per element of the structure, in field\n"
+                                                     "    order. All k-forms of one element must share the base\n"
+                                                     "    function space the structure stored for the element.\n"
+                                                     "\n"
+                                                     "Returns\n"
+                                                     "-------\n"
+                                                     "ElementKForms\n"
+                                                     "    Collection holding the k-form values of all elements.\n"
+                                                     "\n"
+                                                     "Raises\n"
+                                                     "------\n"
+                                                     "ValueError\n"
+                                                     "    If the number of element groups differs from the element\n"
+                                                     "    count of the structure.\n");
+
+static PyObject *element_kforms_from_elements(PyObject *cls, PyObject *const *args, const Py_ssize_t nargs,
+                                              PyObject *kwnames)
+{
+    const interplib_module_state_t *const state = interplib_get_module_state((PyTypeObject *)cls);
+    if (!state)
+        return NULL;
+    PyObject *specs_object;
+    PyObject *elements_object;
+    if (parse_arguments_check(
+            (cpyutl_argument_t[]){
+                {.type = CPYARG_TYPE_PYTHON, .p_val = &specs_object},
+                {.type = CPYARG_TYPE_PYTHON, .p_val = &elements_object},
+                {},
+            },
+            args, nargs, kwnames) < 0)
+        return NULL;
+    if (!PyObject_TypeCheck(specs_object, state->mesh_kform_specs_type))
+    {
+        PyErr_Format(PyExc_TypeError, "Expected a %s, got %s.", state->mesh_kform_specs_type->tp_name,
+                     Py_TYPE(specs_object)->tp_name);
+        return NULL;
+    }
+    const mesh_kform_specs_t *const specs = ((mesh_kform_specs_object *)specs_object)->data;
+
+    PyObject *const elements_seq = PySequence_Fast(elements_object, "elements must be a sequence of k-form tuples.");
+    if (!elements_seq)
+        return NULL;
+    const Py_ssize_t element_count = (Py_ssize_t)mesh_kform_specs_element_count(specs);
+    if (PySequence_Fast_GET_SIZE(elements_seq) != element_count)
+    {
+        PyErr_Format(PyExc_ValueError, "Expected %zd element groups, got %zd.", element_count,
+                     PySequence_Fast_GET_SIZE(elements_seq));
+        Py_DECREF(elements_seq);
+        return NULL;
+    }
+
+    // Validate every group before anything is written, so a failing
+    // validation leaves no collection behind.
+    const function_space_object **const groups_spaces =
+        element_count > 0 ? PyMem_Malloc((size_t)element_count * sizeof(*groups_spaces)) : NULL;
+    if (element_count > 0 && !groups_spaces)
+    {
+        Py_DECREF(elements_seq);
+        return PyErr_NoMemory();
+    }
+    for (Py_ssize_t i = 0; i < element_count; ++i)
+    {
+        PyObject *const group =
+            PySequence_Fast(PySequence_Fast_GET_ITEM(elements_seq, i), "elements must be a sequence of k-form tuples.");
+        if (!group)
+        {
+            PyMem_Free(groups_spaces);
+            Py_DECREF(elements_seq);
+            return NULL;
+        }
+        const int res = element_kforms_check_group(state, specs, PySequence_Fast_ITEMS(group),
+                                                   PySequence_Fast_GET_SIZE(group), &groups_spaces[i]);
+        Py_DECREF(group);
+        if (res < 0)
+        {
+            PyMem_Free(groups_spaces);
+            Py_DECREF(elements_seq);
+            return NULL;
+        }
+        const unsigned space_index = mesh_kform_specs_element_space(specs, (uint64_t)i);
+        if (element_kforms_check_stored_space(specs, groups_spaces[i], space_index, (uint64_t)i) < 0)
+        {
+            PyMem_Free(groups_spaces);
+            Py_DECREF(elements_seq);
+            return NULL;
+        }
+    }
+
+    PyObject *const self = PyObject_CallFunction(cls, "O", specs_object);
+    if (!self)
+    {
+        PyMem_Free(groups_spaces);
+        Py_DECREF(elements_seq);
+        return NULL;
+    }
+    element_kforms_object *const this = (element_kforms_object *)self;
+
+    size_t max_count = 0;
+    for (Py_ssize_t i = 0; i < element_count; ++i)
+    {
+        const size_t count =
+            mesh_kform_specs_element_value_count(specs, mesh_kform_specs_element_space(specs, (uint64_t)i));
+        if (count > max_count)
+            max_count = count;
+    }
+    double *const values = max_count > 0 ? PyMem_Malloc(max_count * sizeof(*values)) : NULL;
+    if (max_count > 0 && !values)
+    {
+        PyMem_Free(groups_spaces);
+        Py_DECREF(elements_seq);
+        Py_DECREF(self);
+        return PyErr_NoMemory();
+    }
+    for (Py_ssize_t i = 0; i < element_count; ++i)
+    {
+        PyObject *const group =
+            PySequence_Fast(PySequence_Fast_GET_ITEM(elements_seq, i), "elements must be a sequence of k-form tuples.");
+        if (!group)
+        {
+            PyMem_Free(values);
+            PyMem_Free(groups_spaces);
+            Py_DECREF(elements_seq);
+            Py_DECREF(self);
+            return NULL;
+        }
+        const unsigned space_index = mesh_kform_specs_element_space(specs, (uint64_t)i);
+        double *const group_values = element_kforms_pack_group(specs, PySequence_Fast_ITEMS(group),
+                                                               PySequence_Fast_GET_SIZE(group), space_index);
+        Py_DECREF(group);
+        if (!group_values && mesh_kform_specs_element_value_count(specs, space_index) > 0)
+        {
+            PyMem_Free(values);
+            PyMem_Free(groups_spaces);
+            Py_DECREF(elements_seq);
+            Py_DECREF(self);
+            return NULL;
+        }
+        element_kforms_add_element(this->data, group_values);
+        PyMem_Free(group_values);
+    }
+    PyMem_Free(values);
+    PyMem_Free(groups_spaces);
+    Py_DECREF(elements_seq);
+    return self;
 }
 
 PyDoc_STRVAR(element_kforms_kform_docstring, "kform(element_id, label, /) -> KForm\n"
@@ -1524,11 +2207,12 @@ static PyObject *element_kforms_kform_method(PyObject *self, PyTypeObject *defin
         return NULL;
 
     const uint64_t eid = (uint64_t)element_id;
-    PyObject *const specs =
-        element_kforms_field_spec(this, state, field, element_kforms_element_space(this->data, eid));
-    if (!specs)
+    mesh_kform_specs_object *const specs = element_kforms_borrowed_specs(this);
+    PyObject *const field_specs =
+        mesh_kform_specs_field_spec(specs, state, field, mesh_kform_specs_element_space(specs->data, eid));
+    if (!field_specs)
         return NULL;
-    kform_object *const kform = kform_object_create(state->kform_type, (kform_spec_object *)specs, 0);
+    kform_object *const kform = kform_object_create(state->kform_type, (kform_spec_object *)field_specs, 0);
     if (!kform)
         return NULL;
     const uint64_t *const offsets = element_kforms_field_offsets(this->data, field);
@@ -1565,13 +2249,14 @@ static PyObject *element_kforms_kforms_method(PyObject *self, PyTypeObject *defi
     if (element_kforms_check_element(this, element_id) < 0)
         return NULL;
 
-    const unsigned field_count = element_kforms_field_count(this->data);
+    const unsigned field_count = mesh_kform_specs_field_count(element_kforms_borrowed_specs(this)->data);
     PyObject *const tuple = PyTuple_New(field_count);
     if (!tuple)
         return NULL;
     for (unsigned field = 0; field < field_count; ++field)
     {
-        PyObject *const label_object = PyUnicode_FromString(element_kforms_field_label(this->data, field));
+        PyObject *const label_object =
+            PyUnicode_FromString(mesh_kform_specs_field_label(element_kforms_borrowed_specs(this)->data, field));
         if (!label_object)
         {
             Py_DECREF(tuple);
@@ -1591,26 +2276,26 @@ static PyObject *element_kforms_kforms_method(PyObject *self, PyTypeObject *defi
     return tuple;
 }
 
-PyDoc_STRVAR(element_kforms_specs_docstring, "specs(element_id, label, /) -> KFormSpecs\n"
-                                             "\n"
-                                             "Get the specifications of one field on the base space of one\n"
-                                             "element.\n"
-                                             "\n"
-                                             "Parameters\n"
-                                             "----------\n"
-                                             "element_id : int\n"
-                                             "    Index of the element.\n"
-                                             "label : str\n"
-                                             "    Label of the field.\n"
-                                             "\n"
-                                             "Returns\n"
-                                             "-------\n"
-                                             "KFormSpecs\n"
-                                             "    Specifications of the field, derived from the element's base\n"
-                                             "    function space.\n");
+PyDoc_STRVAR(element_kforms_field_specs_docstring, "field_specs(element_id, label, /) -> KFormSpecs\n"
+                                                   "\n"
+                                                   "Get the specifications of one field on the base space of one\n"
+                                                   "element.\n"
+                                                   "\n"
+                                                   "Parameters\n"
+                                                   "----------\n"
+                                                   "element_id : int\n"
+                                                   "    Index of the element.\n"
+                                                   "label : str\n"
+                                                   "    Label of the field.\n"
+                                                   "\n"
+                                                   "Returns\n"
+                                                   "-------\n"
+                                                   "KFormSpecs\n"
+                                                   "    Specifications of the field, derived from the element's\n"
+                                                   "    base function space.\n");
 
-static PyObject *element_kforms_specs_method(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
-                                             const Py_ssize_t nargs, PyObject *kwnames)
+static PyObject *element_kforms_field_specs_method(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
+                                                   const Py_ssize_t nargs, PyObject *kwnames)
 {
     const interplib_module_state_t *state;
     element_kforms_object *this;
@@ -1631,12 +2316,13 @@ static PyObject *element_kforms_specs_method(PyObject *self, PyTypeObject *defin
     unsigned field;
     if (element_kforms_parse_label(this, label_object, &field) < 0)
         return NULL;
-    PyObject *const specs =
-        element_kforms_field_spec(this, state, field, element_kforms_element_space(this->data, (uint64_t)element_id));
-    if (!specs)
+    mesh_kform_specs_object *const specs = element_kforms_borrowed_specs(this);
+    PyObject *const field_specs = mesh_kform_specs_field_spec(
+        specs, state, field, mesh_kform_specs_element_space(specs->data, (uint64_t)element_id));
+    if (!field_specs)
         return NULL;
-    Py_INCREF(specs);
-    return specs;
+    Py_INCREF(field_specs);
+    return field_specs;
 }
 
 PyDoc_STRVAR(element_kforms_set_field_values_docstring,
@@ -1698,8 +2384,7 @@ static PyObject *element_kforms_set_field_values_method(PyObject *self, PyTypeOb
 
 PyDoc_STRVAR(element_kforms_values_docstring, "values(label, /) -> numpy.typing.NDArray[numpy.double]\n"
                                               "\n"
-                                              "Get the flat value array of one field. Freezes the\n"
-                                              "collection on access.\n"
+                                              "Get the flat value array of one field.\n"
                                               "\n"
                                               "Parameters\n"
                                               "----------\n"
@@ -1726,16 +2411,15 @@ static PyObject *element_kforms_values_method(PyObject *self, PyTypeObject *defi
     if (element_kforms_parse_label(this, label_object, &field) < 0)
         return NULL;
     const uint64_t *const offsets = element_kforms_field_offsets(this->data, field);
-    const npy_intp total = (npy_intp)offsets[element_kforms_element_count(this->data)];
-    return element_collection_make_view(self, &this->frozen, element_kforms_field_values(this->data, field), total,
-                                        NPY_DOUBLE);
+    const npy_intp total = (npy_intp)offsets[mesh_kform_specs_element_count(element_kforms_borrowed_specs(this)->data)];
+    // The storage is allocated at its final size, so the view can never
+    // dangle and the collection never freezes.
+    return element_collection_make_view(self, NULL, element_kforms_field_values(this->data, field), total, NPY_DOUBLE);
 }
 
 PyDoc_STRVAR(element_kforms_offsets_docstring, "offsets(label, /) -> numpy.typing.NDArray[numpy.uint64]\n"
                                                "\n"
                                                "Get the CSR offsets of one field's per-element value blocks.\n"
-                                               "\n"
-                                               "Accessing this method freezes the collection.\n"
                                                "\n"
                                                "Parameters\n"
                                                "----------\n"
@@ -1761,26 +2445,30 @@ static PyObject *element_kforms_offsets_method(PyObject *self, PyTypeObject *def
     unsigned field;
     if (element_kforms_parse_label(this, label_object, &field) < 0)
         return NULL;
-    return element_collection_make_view(self, &this->frozen, element_kforms_field_offsets(this->data, field),
-                                        (npy_intp)element_kforms_element_count(this->data) + 1, NPY_UINT64);
+    // The storage is allocated at its final size, so the view can never
+    // dangle and the collection never freezes.
+    return element_collection_make_view(
+        self, NULL, element_kforms_field_offsets(this->data, field),
+        (npy_intp)mesh_kform_specs_element_count(element_kforms_borrowed_specs(this)->data) + 1, NPY_UINT64);
 }
 
 static PyObject *element_kforms_get_element_count(PyObject *self, void *Py_UNUSED(closure))
 {
     element_kforms_object *this = (element_kforms_object *)self;
-    return PyLong_FromUnsignedLongLong(element_kforms_element_count(this->data));
+    return PyLong_FromUnsignedLongLong(mesh_kform_specs_element_count(element_kforms_borrowed_specs(this)->data));
 }
 
 static PyObject *element_kforms_get_labels(PyObject *self, void *Py_UNUSED(closure))
 {
     element_kforms_object *this = (element_kforms_object *)self;
-    const unsigned field_count = element_kforms_field_count(this->data);
+    const mesh_kform_specs_t *const specs = element_kforms_borrowed_specs(this)->data;
+    const unsigned field_count = mesh_kform_specs_field_count(specs);
     PyObject *const tuple = PyTuple_New(field_count);
     if (!tuple)
         return NULL;
     for (unsigned field = 0; field < field_count; ++field)
     {
-        PyObject *const label = PyUnicode_FromString(element_kforms_field_label(this->data, field));
+        PyObject *const label = PyUnicode_FromString(mesh_kform_specs_field_label(specs, field));
         if (!label)
         {
             Py_DECREF(tuple);
@@ -1789,6 +2477,19 @@ static PyObject *element_kforms_get_labels(PyObject *self, void *Py_UNUSED(closu
         PyTuple_SET_ITEM(tuple, field, label);
     }
     return tuple;
+}
+
+static PyObject *element_kforms_get_specs(PyObject *self, void *Py_UNUSED(closure))
+{
+    element_kforms_object *this = (element_kforms_object *)self;
+    Py_INCREF(this->specs);
+    return this->specs;
+}
+
+static PyObject *element_kforms_get_filled_count(PyObject *self, void *Py_UNUSED(closure))
+{
+    element_kforms_object *this = (element_kforms_object *)self;
+    return PyLong_FromUnsignedLongLong(element_kforms_filled_count(this->data));
 }
 
 static PyMethodDef element_kforms_methods[] = {
@@ -1800,14 +2501,6 @@ static PyMethodDef element_kforms_methods[] = {
      .ml_meth = (void *)element_kforms_from_elements,
      .ml_flags = METH_CLASS | METH_FASTCALL | METH_KEYWORDS,
      .ml_doc = (void *)element_kforms_from_elements_docstring},
-    {.ml_name = "zeros",
-     .ml_meth = (void *)element_kforms_zeros,
-     .ml_flags = METH_CLASS | METH_FASTCALL | METH_KEYWORDS,
-     .ml_doc = (void *)element_kforms_zeros_docstring},
-    {.ml_name = "zeros_from_options",
-     .ml_meth = (void *)element_kforms_zeros_from_options,
-     .ml_flags = METH_CLASS | METH_FASTCALL | METH_KEYWORDS,
-     .ml_doc = (void *)element_kforms_zeros_from_options_docstring},
     {.ml_name = "kform",
      .ml_meth = (void *)element_kforms_kform_method,
      .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
@@ -1816,10 +2509,10 @@ static PyMethodDef element_kforms_methods[] = {
      .ml_meth = (void *)element_kforms_kforms_method,
      .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
      .ml_doc = (void *)element_kforms_kforms_docstring},
-    {.ml_name = "specs",
-     .ml_meth = (void *)element_kforms_specs_method,
+    {.ml_name = "field_specs",
+     .ml_meth = (void *)element_kforms_field_specs_method,
      .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
-     .ml_doc = (void *)element_kforms_specs_docstring},
+     .ml_doc = (void *)element_kforms_field_specs_docstring},
     {.ml_name = "set_field_values",
      .ml_meth = (void *)element_kforms_set_field_values_method,
      .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
@@ -1840,6 +2533,11 @@ static PyGetSetDef element_kforms_getset[] = {
     {.name = "labels",
      .get = element_kforms_get_labels,
      .doc = "tuple[str, ...] : Labels of the k-form fields, in field order."},
+    {.name = "specs",
+     .get = element_kforms_get_specs,
+     .doc = "MeshKFormSpecs : Structure the collection borrows its fields, "
+            "spaces, and elements from."},
+    {.name = "filled_count", .get = element_kforms_get_filled_count, .doc = "int : Number of elements filled so far."},
     {},
 };
 
@@ -1851,15 +2549,13 @@ PyType_Spec element_kforms_type_spec = {.name = FDG_TYPE_NAME("ElementKForms"),
                                         .slots = (PyType_Slot[]){
                                             {Py_tp_new, element_kforms_new},
                                             {Py_tp_doc, (void *)element_kforms_docstring},
-                                            {Py_tp_traverse, element_kforms_traverse},
-                                            {Py_tp_clear, element_kforms_clear},
+                                            {Py_tp_traverse, heap_type_traverse_type},
                                             {Py_tp_dealloc, element_kforms_dealloc},
                                             {Py_tp_methods, element_kforms_methods},
                                             {Py_tp_getset, element_kforms_getset},
                                             {},
                                         }};
-
-// Section 4: ElementDoFs — per-element degrees of freedom.
+// Section 5: ElementDoFs — per-element degrees of freedom.
 
 PyDoc_STRVAR(element_dofs_docstring, "ElementDoFs()\n"
                                      "\n"
