@@ -55,8 +55,6 @@ set(KFORM_SOURCE_FILES
 set(DATA_SOURCE_FILES
         src/data/element_data.c
         src/data/element_data.h
-        src/data/element_geometry.c
-        src/data/element_geometry.h
         src/data/element_dofs.c
         src/data/element_dofs.h
         src/data/element_kforms.c

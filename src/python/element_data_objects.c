@@ -11,9 +11,9 @@
 
 // Section 1: shared helpers.
 //
-// The three collection types share the same memory layout prefix
-// (owned C data, an array of cached spec objects, a frozen flag), so view
-// construction and cache clearing are implemented once.
+// The collection types with flat array storage (ElementKForms, ElementDoFs)
+// share the same memory layout prefix (owned C data, an array of cached spec
+// objects, a frozen flag), so view construction is implemented once.
 
 static PyObject *element_collection_make_view(PyObject *self, int *frozen, const void *data, const npy_intp length,
                                               const int typenum)
@@ -31,25 +31,32 @@ static PyObject *element_collection_make_view(PyObject *self, int *frozen, const
     return (PyObject *)array;
 }
 
-// Section 2: MeshGeometry — per-element space map data of a mesh.
+// Section 2: MeshGeometry — one space map per element of a mesh.
 
-PyDoc_STRVAR(mesh_geometry_docstring, "MeshGeometry()\n"
+PyDoc_STRVAR(mesh_geometry_docstring, "MeshGeometry(input_dimensions, output_dimensions, /)\n"
                                       "\n"
                                       "Batched geometry data: the space map of every element of a mesh.\n"
                                       "\n"
-                                      "Elements of a mesh often share only a few distinct geometry\n"
-                                      "specifications (function spaces and integration spaces). Instead of\n"
-                                      "storing one Python object per element, this type stores a small table of\n"
-                                      "distinct options and, per element, an index into that table along with\n"
-                                      "an offset into one large, flat array of coordinate values.\n"
+                                      "Each element is stored as one :class:`SpaceMap`, so the store holds\n"
+                                      "the geometry of a whole mesh without rebuilding maps on access.\n"
+                                      "\n"
+                                      "The dimensions are shared by every stored space map: only maps from\n"
+                                      "``input_dimensions`` reference dimensions to ``output_dimensions``\n"
+                                      "physical dimensions can be added.\n"
                                       "\n"
                                       "Data is added with :meth:`add_element` or one of the constructors\n"
-                                      ":meth:`from_elements` and :meth:`from_mesh_points`. Accessing the array\n"
-                                      "views :attr:`values`, :attr:`offsets` or :attr:`element_options` freezes\n"
-                                      "the collection: no further elements can be added, but values of existing\n"
-                                      "elements can still be overwritten with :meth:`set_element_values`.\n"
-                                      "Per-element geometry is retrieved as a regular :class:`SpaceMap` with\n"
-                                      ":meth:`space_map`.\n");
+                                      ":meth:`from_elements` and :meth:`from_mesh_points`. Per-element geometry\n"
+                                      "is retrieved as a regular :class:`SpaceMap` with :meth:`space_map`.\n"
+                                      "\n"
+                                      "Parameters\n"
+                                      "----------\n"
+                                      "input_dimensions : int\n"
+                                      "    Number of reference dimensions of every space map; must be in\n"
+                                      "    ``[0, 255]`` and must not exceed ``output_dimensions``.\n"
+                                      "output_dimensions : int\n"
+                                      "    Number of physical dimensions of every space map; must be at\n"
+                                      "    least 1, and both it and its product with ``input_dimensions``\n"
+                                      "    must fit in an unsigned 32-bit integer.\n");
 
 static int mesh_geometry_ensure_state(PyObject *self, PyTypeObject *defining_class,
                                       const interplib_module_state_t **p_state, mesh_geometry_object **p_this)
@@ -63,166 +70,66 @@ static int mesh_geometry_ensure_state(PyObject *self, PyTypeObject *defining_cla
     return 0;
 }
 
-static PyObject *mesh_geometry_option_function_space(mesh_geometry_object *this, const interplib_module_state_t *state,
-                                                     const unsigned index)
+/** Grows the map array to hold at least `count` map references. */
+static int mesh_geometry_grow_maps(mesh_geometry_object *this, const Py_ssize_t count)
 {
-    if (!this->option_objects[2 * index + 0])
-    {
-        const element_data_option_t *const option = element_geometry_option(this->data, index);
-        this->option_objects[2 * index + 0] =
-            (PyObject *)function_space_object_create(state->function_space_type, option->ndim, option->basis_specs);
-    }
-    return this->option_objects[2 * index + 0];
-}
-
-static PyObject *mesh_geometry_option_integration_space(mesh_geometry_object *this,
-                                                        const interplib_module_state_t *state, const unsigned index)
-{
-    if (!this->option_objects[2 * index + 1])
-    {
-        const element_data_option_t *const option = element_geometry_option(this->data, index);
-        integration_space_object *const space = (integration_space_object *)state->integration_space_type->tp_alloc(
-            state->integration_space_type, option->ndim);
-        if (!space)
-            return NULL;
-        for (unsigned i = 0; i < option->ndim; ++i)
-            space->specs[i] = option->geometry.int_specs[i];
-        this->option_objects[2 * index + 1] = (PyObject *)space;
-    }
-    return this->option_objects[2 * index + 1];
-}
-
-static int mesh_geometry_grow_option_objects(mesh_geometry_object *this, const unsigned option_count)
-{
-    const size_t new_size = 2 * (size_t)option_count * sizeof(*this->option_objects);
-    PyObject **const objects =
-        this->option_objects ? PyMem_Realloc(this->option_objects, new_size) : PyMem_Malloc(new_size);
-    if (!objects)
+    if (count <= this->allocated)
+        return 0;
+    Py_ssize_t capacity = this->allocated > 0 ? this->allocated : 4;
+    while (capacity < count)
+        capacity *= 2;
+    space_map_object **const maps = PyMem_Realloc(this->maps, (size_t)capacity * sizeof(*maps));
+    if (!maps)
     {
         PyErr_NoMemory();
         return -1;
     }
-    objects[2 * option_count - 2] = NULL;
-    objects[2 * option_count - 1] = NULL;
-    this->option_objects = objects;
+    this->maps = maps;
+    this->allocated = capacity;
     return 0;
 }
 
-PyDoc_STRVAR(mesh_geometry_add_element_docstring, "add_element(space_map, *dofs) -> None\n"
+PyDoc_STRVAR(mesh_geometry_add_element_docstring, "add_element(space_map, /) -> None\n"
                                                   "\n"
-                                                  "Add the geometry of one element to the collection.\n"
+                                                  "Add the space map of one element to the collection.\n"
                                                   "\n"
                                                   "Parameters\n"
                                                   "----------\n"
                                                   "space_map : SpaceMap\n"
-                                                  "    Space map of the element.\n"
-                                                  "*dofs : DegreesOfFreedom\n"
-                                                  "    Geometry degrees of freedom, one per coordinate of the\n"
-                                                  "    space map. All of them must share one function space.\n");
-
-static int mesh_geometry_fill_values(const space_map_object *map, dof_object *const *dofs, double *out)
-{
-    size_t offset = 0;
-    for (Py_ssize_t icoordinate = 0; icoordinate < Py_SIZE(map); ++icoordinate)
-    {
-        const dof_object *const coordinate_dofs = dofs[icoordinate];
-        memcpy(out + offset, coordinate_dofs->values, (size_t)Py_SIZE(coordinate_dofs) * sizeof(*out));
-        offset += Py_SIZE(coordinate_dofs);
-    }
-    return 0;
-}
+                                                  "    Space map of the element. Its input and output dimensions\n"
+                                                  "    must match those of the collection.\n"
+                                                  "\n"
+                                                  "Raises\n"
+                                                  "------\n"
+                                                  "ValueError\n"
+                                                  "    If the dimensions of the space map differ from the\n"
+                                                  "    dimensions of the collection.\n");
 
 static int mesh_geometry_add_element_impl(mesh_geometry_object *this, const interplib_module_state_t *state,
-                                          PyObject *obj, PyObject *const *dof_args, const Py_ssize_t n_dofs)
+                                          PyObject *map)
 {
-    if (this->frozen)
+    if (!PyObject_TypeCheck(map, state->space_mapping_type))
     {
-        PyErr_SetString(PyExc_ValueError,
-                        "Cannot add elements to a frozen MeshGeometry; array views of the storage were handed out.");
+        PyErr_Format(PyExc_TypeError, "Expected a %s, but got a %s.", state->space_mapping_type->tp_name,
+                     Py_TYPE(map)->tp_name);
         return -1;
     }
-    if (!PyObject_TypeCheck(obj, state->space_mapping_type))
+    // Subclasses of SpaceMap share the layout prefix, so the cast after the
+    // type check reads the dimensions of the map itself.
+    const space_map_object *const space_map = (const space_map_object *)map;
+    if (space_map->ndim != this->input_dimensions || (unsigned)Py_SIZE(map) != this->output_dimensions)
     {
-        PyErr_Format(PyExc_TypeError, "Expected a %s, got %s.", state->space_mapping_type->tp_name,
-                     Py_TYPE(obj)->tp_name);
+        PyErr_Format(PyExc_ValueError,
+                     "Expected a space map from %u input dimensions to %u output dimensions, but got %u input "
+                     "dimensions and %u output dimensions.",
+                     this->input_dimensions, this->output_dimensions, space_map->ndim, (unsigned)Py_SIZE(map));
         return -1;
     }
-    const space_map_object *const map = (space_map_object *)obj;
-
-    if (n_dofs != Py_SIZE(map))
-    {
-        PyErr_Format(PyExc_ValueError, "Expected %zd degrees of freedom, one per coordinate, but got %zd.",
-                     Py_SIZE(map), n_dofs);
+    if (mesh_geometry_grow_maps(this, this->count + 1) < 0)
         return -1;
-    }
-    for (Py_ssize_t icoordinate = 0; icoordinate < n_dofs; ++icoordinate)
-    {
-        if (!PyObject_TypeCheck(dof_args[icoordinate], state->degrees_of_freedom_type))
-        {
-            PyErr_Format(PyExc_TypeError, "Expected a %s, got %s.", state->degrees_of_freedom_type->tp_name,
-                         Py_TYPE(dof_args[icoordinate])->tp_name);
-            return -1;
-        }
-        if (((const dof_object *)dof_args[icoordinate])->n_dims != map->ndim)
-        {
-            PyErr_Format(PyExc_ValueError, "Expected degrees of freedom with %u dimensions, got %u.", map->ndim,
-                         ((const dof_object *)dof_args[icoordinate])->n_dims);
-            return -1;
-        }
-    }
-
-    // All coordinates must share one function space.
-    const dof_object *const first = (dof_object *)dof_args[0];
-    for (Py_ssize_t icoordinate = 1; icoordinate < n_dofs; ++icoordinate)
-    {
-        const dof_object *const dofs = (dof_object *)dof_args[icoordinate];
-        if (dofs->n_dims != first->n_dims ||
-            memcmp(dofs->basis_specs, first->basis_specs, first->n_dims * sizeof(*first->basis_specs)) != 0)
-        {
-            PyErr_SetString(PyExc_ValueError, "Coordinate maps must share one function space.");
-            return -1;
-        }
-    }
-
-    unsigned index;
-    const fdg_result_t res = element_geometry_add_option(this->data, map->ndim, (unsigned)Py_SIZE(map),
-                                                         first->basis_specs, map->int_specs, &index);
-    if (res == FDG_ERROR_NOT_IN_DOMAIN)
-    {
-        // The option disagrees with the kind, dimension or coordinate count
-        // fixed by the first option (e.g. a space map of another dimension);
-        // this rule stays a recoverable error in the C core.
-        PyErr_Format(PyExc_ValueError, "Could not add the geometry option: %s (%s).", fdg_error_str(res),
-                     fdg_error_msg(res));
-        return -1;
-    }
-    if (res != FDG_SUCCESS)
-    {
-        PyErr_Format(PyExc_RuntimeError, "Could not add the geometry option: %s (%s).", fdg_error_str(res),
-                     fdg_error_msg(res));
-        return -1;
-    }
-    if (mesh_geometry_grow_option_objects(this, element_geometry_option_count(this->data)) < 0)
-        return -1;
-
-    const size_t count = element_geometry_option_value_count(this->data, index);
-    double *const values = PyMem_Malloc(count * sizeof(*values));
-    if (!values)
-    {
-        PyErr_NoMemory();
-        return -1;
-    }
-    mesh_geometry_fill_values(map, (dof_object *const *)dof_args, values);
-    // Only a failing allocation reaches this point: the option index and the
-    // derived value count are valid by construction.
-    const fdg_result_t add_res = element_geometry_add_element(this->data, index, values);
-    PyMem_Free(values);
-    if (add_res != FDG_SUCCESS)
-    {
-        PyErr_Format(PyExc_RuntimeError, "Could not add the element values: %s (%s).", fdg_error_str(add_res),
-                     fdg_error_msg(add_res));
-        return -1;
-    }
+    Py_INCREF(map);
+    this->maps[this->count] = (space_map_object *)map;
+    this->count += 1;
     return 0;
 }
 
@@ -233,36 +140,49 @@ static PyObject *mesh_geometry_add_element_method(PyObject *self, PyTypeObject *
     mesh_geometry_object *this;
     if (mesh_geometry_ensure_state(self, defining_class, &state, &this) < 0)
         return NULL;
+    // The arity is checked before parse_arguments_check: the helper asserts
+    // (and aborts through CPYUTL_ASSERT) on a wrong argument count instead of
+    // raising, so the error is reported here.
     if (kwnames && PyTuple_GET_SIZE(kwnames))
     {
-        PyErr_SetString(PyExc_TypeError, "add_element takes no keyword arguments.");
+        PyErr_SetString(PyExc_TypeError, "add_element() takes no keyword arguments.");
         return NULL;
     }
-    if (nargs < 1)
+    if (nargs != 1)
     {
-        PyErr_SetString(PyExc_TypeError, "add_element requires a space map and its degrees of freedom.");
+        PyErr_Format(PyExc_TypeError, "add_element() takes exactly one argument (%zd given).", nargs);
         return NULL;
     }
-    if (mesh_geometry_add_element_impl(this, state, args[0], args + 1, nargs - 1) < 0)
+    PyObject *map;
+    if (parse_arguments_check((cpyutl_argument_t[]){{.type = CPYARG_TYPE_PYTHON, .p_val = &map}, {}}, args, nargs,
+                              kwnames) < 0)
+        return NULL;
+    if (mesh_geometry_add_element_impl(this, state, map) < 0)
         return NULL;
     Py_RETURN_NONE;
 }
 
-PyDoc_STRVAR(mesh_geometry_from_elements_docstring, "from_elements(elements, /) -> MeshGeometry\n"
+PyDoc_STRVAR(mesh_geometry_from_elements_docstring, "from_elements(*space_maps) -> MeshGeometry\n"
                                                     "\n"
-                                                    "Create a new collection from space maps with their geometry\n"
-                                                    "degrees of freedom.\n"
+                                                    "Create a new collection from the space maps of the elements.\n"
+                                                    "\n"
+                                                    "The input and output dimensions of the collection are taken\n"
+                                                    "from the first space map; every further map must match them.\n"
                                                     "\n"
                                                     "Parameters\n"
                                                     "----------\n"
-                                                    "elements : Sequence[tuple[SpaceMap, DegreesOfFreedom, ...]]\n"
-                                                    "    Geometry of every element: its space map and one geometry\n"
-                                                    "    degree of freedom per coordinate, in element order.\n"
+                                                    "*space_maps : SpaceMap\n"
+                                                    "    Space map of every element, in element order.\n"
                                                     "\n"
                                                     "Returns\n"
                                                     "-------\n"
                                                     "MeshGeometry\n"
-                                                    "    Collection holding the geometry of all elements.\n");
+                                                    "    Collection holding the space maps of all elements.\n"
+                                                    "\n"
+                                                    "Raises\n"
+                                                    "------\n"
+                                                    "ValueError\n"
+                                                    "    If a space map does not have the dimensions of the first.\n");
 
 static PyObject *mesh_geometry_from_elements(PyObject *cls, PyObject *const *args, const Py_ssize_t nargs,
                                              PyObject *kwnames)
@@ -270,54 +190,84 @@ static PyObject *mesh_geometry_from_elements(PyObject *cls, PyObject *const *arg
     const interplib_module_state_t *const state = interplib_get_module_state((PyTypeObject *)cls);
     if (!state)
         return NULL;
-    PyObject *elements_object;
-    if (parse_arguments_check((cpyutl_argument_t[]){{.type = CPYARG_TYPE_PYTHON, .p_val = &elements_object}, {}}, args,
-                              nargs, kwnames) < 0)
+    if (kwnames && PyTuple_GET_SIZE(kwnames))
+    {
+        PyErr_SetString(PyExc_TypeError, "from_elements() takes no keyword arguments.");
         return NULL;
-
-    PyObject *const self = PyObject_CallFunctionObjArgs(cls, NULL);
+    }
+    if (nargs < 1)
+    {
+        PyErr_SetString(PyExc_TypeError, "from_elements() requires at least one space map.");
+        return NULL;
+    }
+    if (!PyObject_TypeCheck(args[0], state->space_mapping_type))
+    {
+        PyErr_Format(PyExc_TypeError, "Expected a %s, but got a %s.", state->space_mapping_type->tp_name,
+                     Py_TYPE(args[0])->tp_name);
+        return NULL;
+    }
+    // The dimensions of the collection follow from the first map; the remaining
+    // maps are checked against them by mesh_geometry_add_element_impl().
+    const space_map_object *const first_map = (const space_map_object *)args[0];
+    PyObject *const self = PyObject_CallFunction(cls, "nn", (Py_ssize_t)first_map->ndim, (Py_ssize_t)Py_SIZE(args[0]));
     if (!self)
         return NULL;
-    PyObject *const seq = PySequence_Fast(elements_object, "elements must be a sequence of (space_map, *dofs) tuples.");
-    if (!seq)
+    for (Py_ssize_t i = 0; i < nargs; ++i)
     {
-        Py_DECREF(self);
-        return NULL;
-    }
-    for (Py_ssize_t i = 0; i < PySequence_Fast_GET_SIZE(seq); ++i)
-    {
-        PyObject *const element = PySequence_Fast_GET_ITEM(seq, i);
-        if (!PyTuple_Check(element) || PyTuple_GET_SIZE(element) < 1)
+        if (mesh_geometry_add_element_impl((mesh_geometry_object *)self, state, args[i]) < 0)
         {
-            PyErr_SetString(PyExc_TypeError, "Expected a (space_map, *dofs) tuple for every element.");
-            Py_DECREF(seq);
-            Py_DECREF(self);
-            return NULL;
-        }
-        const Py_ssize_t n_dofs = PyTuple_GET_SIZE(element) - 1;
-        PyObject **const dof_args = PyMem_Malloc(sizeof(*dof_args) * (size_t)n_dofs);
-        if (!dof_args)
-        {
-            Py_DECREF(seq);
-            Py_DECREF(self);
-            return PyErr_NoMemory();
-        }
-        for (Py_ssize_t j = 0; j < n_dofs; ++j)
-        {
-            dof_args[j] = PyTuple_GET_ITEM(element, j + 1);
-        }
-        const int status = mesh_geometry_add_element_impl((mesh_geometry_object *)self, state,
-                                                          PyTuple_GET_ITEM(element, 0), dof_args, n_dofs);
-        PyMem_Free(dof_args);
-        if (status < 0)
-        {
-            Py_DECREF(seq);
             Py_DECREF(self);
             return NULL;
         }
     }
-    Py_DECREF(seq);
     return self;
+}
+
+/**
+ * Build a space map from one coordinate-major block of DoF values.
+ *
+ * @param state Interpreter module state.
+ * @param ndim Number of reference dimensions of the map.
+ * @param basis_specs [ndim] Specs of the function space shared by the coordinates.
+ * @param coord_count Number of physical coordinates.
+ * @param integration_space Integration space of the map.
+ * @param values [coord_count * dofs_per_coordinate] values, coordinate-major.
+ * @return The new space map, or NULL with a Python exception set.
+ */
+static PyObject *mesh_geometry_build_space_map(const interplib_module_state_t *state, const unsigned ndim,
+                                               const basis_spec_t basis_specs[static ndim], const unsigned coord_count,
+                                               PyObject *integration_space, const double *values)
+{
+    unsigned dofs_per_coordinate = 1;
+    for (unsigned i = 0; i < ndim; ++i)
+        dofs_per_coordinate *= basis_specs[i].order + 1;
+
+    PyObject *const coordinate_tuple = PyTuple_New(coord_count);
+    if (!coordinate_tuple)
+        return NULL;
+    for (unsigned icoordinate = 0; icoordinate < coord_count; ++icoordinate)
+    {
+        dof_object *const dofs = dof_object_create(state->degrees_of_freedom_type, ndim, basis_specs);
+        if (!dofs)
+        {
+            Py_DECREF(coordinate_tuple);
+            return NULL;
+        }
+        memcpy(dofs->values, values + (size_t)icoordinate * dofs_per_coordinate,
+               dofs_per_coordinate * sizeof(*dofs->values));
+        PyObject *const coordinate =
+            PyObject_CallFunction((PyObject *)state->coordinate_mapping_type, "OO", dofs, integration_space);
+        Py_DECREF(dofs);
+        if (!coordinate)
+        {
+            Py_DECREF(coordinate_tuple);
+            return NULL;
+        }
+        PyTuple_SET_ITEM(coordinate_tuple, icoordinate, coordinate);
+    }
+    PyObject *const space_map = PyObject_CallObject((PyObject *)state->space_mapping_type, coordinate_tuple);
+    Py_DECREF(coordinate_tuple);
+    return space_map;
 }
 
 PyDoc_STRVAR(mesh_geometry_from_mesh_points_docstring,
@@ -392,7 +342,7 @@ static PyObject *mesh_geometry_from_mesh_points(PyObject *cls, PyObject *const *
         return NULL;
     }
 
-    PyObject *const self = PyObject_CallFunctionObjArgs(cls, NULL);
+    PyObject *const self = PyObject_CallFunction(cls, "nn", (Py_ssize_t)mesh->mesh->ndim, (Py_ssize_t)coord_count);
     if (!self)
     {
         Py_DECREF(points);
@@ -403,25 +353,6 @@ static PyObject *mesh_geometry_from_mesh_points(PyObject *cls, PyObject *const *
     basis_spec_t basis_specs[mesh->mesh->ndim];
     for (unsigned i = 0; i < mesh->mesh->ndim; ++i)
         basis_specs[i] = (basis_spec_t){.type = BASIS_LAGRANGE_UNIFORM, .order = 1};
-    // The collection is fresh, so only a failing allocation reaches this
-    // point.
-    unsigned index;
-    const fdg_result_t res =
-        element_geometry_add_option(this->data, mesh->mesh->ndim, coord_count, basis_specs, integration->specs, &index);
-    if (res != FDG_SUCCESS)
-    {
-        PyErr_Format(PyExc_RuntimeError, "Could not add the geometry option: %s (%s).", fdg_error_str(res),
-                     fdg_error_msg(res));
-        Py_DECREF(points);
-        Py_DECREF(self);
-        return NULL;
-    }
-    if (mesh_geometry_grow_option_objects(this, element_geometry_option_count(this->data)) < 0)
-    {
-        Py_DECREF(points);
-        Py_DECREF(self);
-        return NULL;
-    }
 
     const uint64_t corners_per_element = (uint64_t)1 << mesh->mesh->ndim;
     const size_t values_per_element = coord_count * corners_per_element;
@@ -451,11 +382,19 @@ static PyObject *mesh_geometry_from_mesh_points(PyObject *cls, PyObject *const *
                 values[icoordinate * corners_per_element + dof_index] =
                     point_data[(npy_intp)point_id * coord_count + icoordinate];
         }
-        const fdg_result_t add_res = element_geometry_add_element(this->data, index, values);
-        if (add_res != FDG_SUCCESS)
+        PyObject *const map = mesh_geometry_build_space_map(state, mesh->mesh->ndim, basis_specs, coord_count,
+                                                            integration_object, values);
+        if (!map)
         {
-            PyErr_Format(PyExc_RuntimeError, "Could not add geometry values: %s (%s).", fdg_error_str(add_res),
-                         fdg_error_msg(add_res));
+            PyMem_Free(values);
+            Py_DECREF(points);
+            Py_DECREF(self);
+            return NULL;
+        }
+        const int status = mesh_geometry_add_element_impl(this, state, map);
+        Py_DECREF(map);
+        if (status < 0)
+        {
             PyMem_Free(values);
             Py_DECREF(points);
             Py_DECREF(self);
@@ -467,27 +406,25 @@ static PyObject *mesh_geometry_from_mesh_points(PyObject *cls, PyObject *const *
     return self;
 }
 
-PyDoc_STRVAR(mesh_geometry_space_map_docstring,
-             "space_map(element_id, /) -> SpaceMap\n"
-             "\n"
-             "Get the geometry of one element as a space map.\n"
-             "\n"
-             "Parameters\n"
-             "----------\n"
-             "element_id : int\n"
-             "    Index of the element.\n"
-             "\n"
-             "Returns\n"
-             "-------\n"
-             "SpaceMap\n"
-             "    Space map built from the stored coordinate data of the element.\n");
+PyDoc_STRVAR(mesh_geometry_space_map_docstring, "space_map(element_id, /) -> SpaceMap\n"
+                                                "\n"
+                                                "Get the space map of one element.\n"
+                                                "\n"
+                                                "Parameters\n"
+                                                "----------\n"
+                                                "element_id : int\n"
+                                                "    Index of the element.\n"
+                                                "\n"
+                                                "Returns\n"
+                                                "-------\n"
+                                                "SpaceMap\n"
+                                                "    Space map stored for the element.\n");
 
 static int mesh_geometry_check_element(mesh_geometry_object *this, const Py_ssize_t element_id)
 {
-    if (element_id < 0 || (uint64_t)element_id >= element_geometry_element_count(this->data))
+    if (element_id < 0 || element_id >= this->count)
     {
-        PyErr_Format(PyExc_IndexError, "Element index %zd out of range for %llu elements.", element_id,
-                     (unsigned long long)element_geometry_element_count(this->data));
+        PyErr_Format(PyExc_IndexError, "Element index %zd out of range for %zd elements.", element_id, this->count);
         return -1;
     }
     return 0;
@@ -507,215 +444,107 @@ static PyObject *mesh_geometry_space_map_method(PyObject *self, PyTypeObject *de
     if (mesh_geometry_check_element(this, element_id) < 0)
         return NULL;
 
-    const uint64_t eid = (uint64_t)element_id;
-    const unsigned index = element_geometry_element_options(this->data)[eid];
-    const element_data_option_t *const option = element_geometry_option(this->data, index);
-    PyObject *const integration_space = mesh_geometry_option_integration_space(this, state, index);
-    if (!integration_space)
-        return NULL;
-
-    unsigned dofs_per_coordinate = 1;
-    for (unsigned i = 0; i < option->ndim; ++i)
-        dofs_per_coordinate *= option->basis_specs[i].order + 1;
-
-    PyObject *const coordinate_tuple = PyTuple_New(option->geometry.coord_count);
-    if (!coordinate_tuple)
-        return NULL;
-    const double *const values = element_geometry_values(this->data) + element_geometry_offsets(this->data)[eid];
-    for (unsigned icoordinate = 0; icoordinate < option->geometry.coord_count; ++icoordinate)
-    {
-        dof_object *const dofs = dof_object_create(state->degrees_of_freedom_type, option->ndim, option->basis_specs);
-        if (!dofs)
-        {
-            Py_DECREF(coordinate_tuple);
-            return NULL;
-        }
-        memcpy(dofs->values, values + (size_t)icoordinate * dofs_per_coordinate,
-               dofs_per_coordinate * sizeof(*dofs->values));
-        PyObject *const coordinate =
-            PyObject_CallFunction((PyObject *)state->coordinate_mapping_type, "OO", dofs, integration_space);
-        Py_DECREF(dofs);
-        if (!coordinate)
-        {
-            Py_DECREF(coordinate_tuple);
-            return NULL;
-        }
-        PyTuple_SET_ITEM(coordinate_tuple, icoordinate, coordinate);
-    }
-
-    PyObject *const space_map = PyObject_CallObject((PyObject *)state->space_mapping_type, coordinate_tuple);
-    Py_DECREF(coordinate_tuple);
-    return space_map;
-}
-
-PyDoc_STRVAR(mesh_geometry_option_docstring, "option(index, /) -> tuple[FunctionSpace, IntegrationSpace]\n"
-                                             "\n"
-                                             "Get the geometry specification of one option.\n"
-                                             "\n"
-                                             "Parameters\n"
-                                             "----------\n"
-                                             "index : int\n"
-                                             "    Index into the options table.\n"
-                                             "\n"
-                                             "Returns\n"
-                                             "-------\n"
-                                             "tuple[FunctionSpace, IntegrationSpace]\n"
-                                             "    Function and integration space of the option.\n");
-
-static PyObject *mesh_geometry_option_method(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
-                                             const Py_ssize_t nargs, PyObject *kwnames)
-{
-    const interplib_module_state_t *state;
-    mesh_geometry_object *this;
-    if (mesh_geometry_ensure_state(self, defining_class, &state, &this) < 0)
-        return NULL;
-    Py_ssize_t index;
-    if (parse_arguments_check((cpyutl_argument_t[]){{.type = CPYARG_TYPE_SSIZE, .p_val = &index}, {}}, args, nargs,
-                              kwnames) < 0)
-        return NULL;
-    if (index < 0 || (unsigned)index >= element_geometry_option_count(this->data))
-    {
-        PyErr_Format(PyExc_IndexError, "Option index %zd out of range for %u options.", index,
-                     element_geometry_option_count(this->data));
-        return NULL;
-    }
-
-    PyObject *const function_space = mesh_geometry_option_function_space(this, state, (unsigned)index);
-    if (!function_space)
-        return NULL;
-    PyObject *const integration_space = mesh_geometry_option_integration_space(this, state, (unsigned)index);
-    if (!integration_space)
-        return NULL;
-    return PyTuple_Pack(2, function_space, integration_space);
-}
-
-PyDoc_STRVAR(mesh_geometry_set_element_values_docstring,
-             "set_element_values(element_id, values, /) -> None\n"
-             "\n"
-             "Overwrite the stored coordinate values of one element.\n"
-             "\n"
-             "Parameters\n"
-             "----------\n"
-             "element_id : int\n"
-             "    Index of the element.\n"
-             "values : array_like\n"
-             "    Flat array with as many entries as the element's option stores.\n");
-
-static PyObject *mesh_geometry_set_element_values_method(PyObject *self, PyTypeObject *defining_class,
-                                                         PyObject *const *args, const Py_ssize_t nargs,
-                                                         PyObject *kwnames)
-{
-    const interplib_module_state_t *state;
-    mesh_geometry_object *this;
-    if (mesh_geometry_ensure_state(self, defining_class, &state, &this) < 0)
-        return NULL;
-    Py_ssize_t element_id;
-    PyObject *values_object;
-    if (parse_arguments_check(
-            (cpyutl_argument_t[]){
-                {.type = CPYARG_TYPE_SSIZE, .p_val = &element_id},
-                {.type = CPYARG_TYPE_PYTHON, .p_val = &values_object},
-                {},
-            },
-            args, nargs, kwnames) < 0)
-        return NULL;
-    if (mesh_geometry_check_element(this, element_id) < 0)
-        return NULL;
-
-    PyArrayObject *const values = (PyArrayObject *)PyArray_FROMANY(values_object, NPY_DOUBLE, 1, 1, NPY_ARRAY_IN_ARRAY);
-    if (!values)
-        return NULL;
-    const uint64_t eid = (uint64_t)element_id;
-    const size_t expected = element_geometry_offsets(this->data)[eid + 1] - element_geometry_offsets(this->data)[eid];
-    if (PyArray_SIZE(values) != (npy_intp)expected)
-    {
-        PyErr_Format(PyExc_ValueError, "Expected %zu values, got %lld.", expected, (long long)PyArray_SIZE(values));
-        Py_DECREF(values);
-        return NULL;
-    }
-    memcpy(element_geometry_values(this->data) + element_geometry_offsets(this->data)[eid], PyArray_DATA(values),
-           expected * sizeof(double));
-    Py_DECREF(values);
-    Py_RETURN_NONE;
+    PyObject *const map = (PyObject *)this->maps[element_id];
+    Py_INCREF(map);
+    return map;
 }
 
 static PyObject *mesh_geometry_get_element_count(PyObject *self, void *Py_UNUSED(closure))
 {
     mesh_geometry_object *this = (mesh_geometry_object *)self;
-    return PyLong_FromUnsignedLongLong(element_geometry_element_count(this->data));
+    return PyLong_FromSsize_t(this->count);
 }
 
-static PyObject *mesh_geometry_get_option_count(PyObject *self, void *Py_UNUSED(closure))
+static PyObject *mesh_geometry_get_input_dimensions(PyObject *self, void *Py_UNUSED(closure))
 {
     mesh_geometry_object *this = (mesh_geometry_object *)self;
-    return PyLong_FromUnsignedLong(element_geometry_option_count(this->data));
+    return PyLong_FromUnsignedLong(this->input_dimensions);
 }
 
-static PyObject *mesh_geometry_get_values(PyObject *self, void *Py_UNUSED(closure))
+static PyObject *mesh_geometry_get_output_dimensions(PyObject *self, void *Py_UNUSED(closure))
 {
     mesh_geometry_object *this = (mesh_geometry_object *)self;
-    const npy_intp count = (npy_intp)element_geometry_value_count(this->data);
-    return element_collection_make_view(self, &this->frozen, element_geometry_values(this->data), count, NPY_DOUBLE);
-}
-
-static PyObject *mesh_geometry_get_offsets(PyObject *self, void *Py_UNUSED(closure))
-{
-    mesh_geometry_object *this = (mesh_geometry_object *)self;
-    const npy_intp count = (npy_intp)element_geometry_element_count(this->data) + 1;
-    return element_collection_make_view(self, &this->frozen, element_geometry_offsets(this->data), count, NPY_UINT64);
-}
-
-static PyObject *mesh_geometry_get_element_options(PyObject *self, void *Py_UNUSED(closure))
-{
-    mesh_geometry_object *this = (mesh_geometry_object *)self;
-    const npy_intp count = (npy_intp)element_geometry_element_count(this->data);
-    return element_collection_make_view(self, &this->frozen, element_geometry_element_options(this->data), count,
-                                        NPY_UINT32);
+    return PyLong_FromUnsignedLong(this->output_dimensions);
 }
 
 static PyObject *mesh_geometry_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 {
-    if (PyTuple_GET_SIZE(args) != 0 || (kwds && PyDict_Size(kwds) != 0))
+    if (kwds && PyDict_Size(kwds) != 0)
     {
-        PyErr_SetString(PyExc_TypeError, "MeshGeometry takes no arguments.");
+        PyErr_SetString(PyExc_TypeError, "MeshGeometry takes no keyword arguments.");
+        return NULL;
+    }
+    if (PyTuple_GET_SIZE(args) != 2)
+    {
+        PyErr_Format(PyExc_TypeError, "MeshGeometry takes exactly two arguments, got %zd.", PyTuple_GET_SIZE(args));
+        return NULL;
+    }
+    const Py_ssize_t input_dimensions = PyLong_AsSsize_t(PyTuple_GET_ITEM(args, 0));
+    if (input_dimensions == -1 && PyErr_Occurred())
+        return NULL;
+    const Py_ssize_t output_dimensions = PyLong_AsSsize_t(PyTuple_GET_ITEM(args, 1));
+    if (output_dimensions == -1 && PyErr_Occurred())
+        return NULL;
+    // space_map_object_create() takes these as preconditions; report an
+    // invalid combination here instead of ending up with a store to which no
+    // space map could ever be added.
+    if (input_dimensions < 0 || input_dimensions > UINT8_MAX)
+    {
+        PyErr_Format(PyExc_ValueError, "Expected input_dimensions in [0, %u], got %zd.", (unsigned)UINT8_MAX,
+                     input_dimensions);
+        return NULL;
+    }
+    if (output_dimensions < 1)
+    {
+        PyErr_Format(PyExc_ValueError, "Expected output_dimensions of at least 1, got %zd.", output_dimensions);
+        return NULL;
+    }
+    if (input_dimensions > output_dimensions)
+    {
+        PyErr_Format(PyExc_ValueError, "Expected input_dimensions at most output_dimensions, got %zd and %zd.",
+                     input_dimensions, output_dimensions);
+        return NULL;
+    }
+    if ((uint64_t)output_dimensions > (uint64_t)UINT_MAX)
+    {
+        // With input_dimensions 0 the product check below is vacuous, but the
+        // dimensions are stored as unsigned and a SpaceMap has at most that
+        // many coordinate maps.
+        PyErr_Format(PyExc_ValueError, "Expected output_dimensions of at most %u, got %zd.", UINT_MAX,
+                     output_dimensions);
+        return NULL;
+    }
+    if ((uint64_t)input_dimensions * (uint64_t)output_dimensions > (uint64_t)UINT_MAX)
+    {
+        PyErr_Format(PyExc_ValueError,
+                     "The product of input_dimensions %zd and output_dimensions %zd exceeds the maximum of %u.",
+                     input_dimensions, output_dimensions, UINT_MAX);
         return NULL;
     }
     mesh_geometry_object *const self = (mesh_geometry_object *)type->tp_alloc(type, 0);
     if (!self)
         return NULL;
-    self->option_objects = NULL;
-    self->frozen = 0;
-    const fdg_result_t res = element_geometry_create(&self->data, &SYSTEM_ALLOCATOR);
-    if (res != FDG_SUCCESS)
-    {
-        PyErr_Format(PyExc_RuntimeError, "Could not create the geometry storage: %s (%s).", fdg_error_str(res),
-                     fdg_error_msg(res));
-        Py_DECREF(self);
-        return NULL;
-    }
+    self->maps = NULL;
+    self->count = 0;
+    self->allocated = 0;
+    self->input_dimensions = (unsigned)input_dimensions;
+    self->output_dimensions = (unsigned)output_dimensions;
     return (PyObject *)self;
 }
 
 static int mesh_geometry_traverse(mesh_geometry_object *self, visitproc visit, void *arg)
 {
     Py_VISIT(Py_TYPE(self));
-    if (self->option_objects)
-    {
-        const size_t count = 2 * (size_t)element_geometry_option_count(self->data);
-        for (size_t i = 0; i < count; ++i)
-            Py_VISIT(self->option_objects[i]);
-    }
+    for (Py_ssize_t i = 0; i < self->count; ++i)
+        Py_VISIT(self->maps[i]);
     return 0;
 }
 
 static int mesh_geometry_clear(mesh_geometry_object *self)
 {
-    if (self->option_objects)
-    {
-        const size_t count = 2 * (size_t)element_geometry_option_count(self->data);
-        for (size_t i = 0; i < count; ++i)
-            Py_CLEAR(self->option_objects[i]);
-    }
+    for (Py_ssize_t i = 0; i < self->count; ++i)
+        Py_CLEAR(self->maps[i]);
+    self->count = 0;
     return 0;
 }
 
@@ -723,15 +552,10 @@ static void mesh_geometry_dealloc(mesh_geometry_object *self)
 {
     PyObject_GC_UnTrack(self);
     mesh_geometry_clear(self);
-    if (self->option_objects)
+    if (self->maps)
     {
-        PyMem_Free(self->option_objects);
-        self->option_objects = NULL;
-    }
-    if (self->data)
-    {
-        element_geometry_free(self->data, &SYSTEM_ALLOCATOR);
-        self->data = NULL;
+        PyMem_Free(self->maps);
+        self->maps = NULL;
     }
     PyTypeObject *const type = Py_TYPE(self);
     type->tp_free((PyObject *)self);
@@ -755,33 +579,17 @@ static PyMethodDef mesh_geometry_methods[] = {
      .ml_meth = (void *)mesh_geometry_space_map_method,
      .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
      .ml_doc = (void *)mesh_geometry_space_map_docstring},
-    {.ml_name = "option",
-     .ml_meth = (void *)mesh_geometry_option_method,
-     .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
-     .ml_doc = (void *)mesh_geometry_option_docstring},
-    {.ml_name = "set_element_values",
-     .ml_meth = (void *)mesh_geometry_set_element_values_method,
-     .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
-     .ml_doc = (void *)mesh_geometry_set_element_values_docstring},
     {},
 };
 
 static PyGetSetDef mesh_geometry_getset[] = {
-    {.name = "element_count", .get = mesh_geometry_get_element_count, .doc = "int : Number of stored elements."},
-    {.name = "option_count",
-     .get = mesh_geometry_get_option_count,
-     .doc = "int : Number of distinct options in the options table."},
-    {.name = "values",
-     .get = mesh_geometry_get_values,
-     .doc = "numpy.typing.NDArray[numpy.double] : Flat array of all element values. Freezes the collection on access."},
-    {.name = "offsets",
-     .get = mesh_geometry_get_offsets,
-     .doc = "numpy.typing.NDArray[numpy.uint64] : CSR offsets of the per-element value blocks.\n"
-            "\n"
-            "The array has ``element_count + 1`` entries. Accessing this property freezes the collection."},
-    {.name = "element_options",
-     .get = mesh_geometry_get_element_options,
-     .doc = "numpy.typing.NDArray[numpy.uint32] : Option index of every element. Freezes the collection on access."},
+    {.name = "element_count", .get = mesh_geometry_get_element_count, .doc = "int : Number of stored space maps."},
+    {.name = "input_dimensions",
+     .get = mesh_geometry_get_input_dimensions,
+     .doc = "int : Dimension of the input/reference space."},
+    {.name = "output_dimensions",
+     .get = mesh_geometry_get_output_dimensions,
+     .doc = "int : Dimension of the output/physical space."},
     {},
 };
 

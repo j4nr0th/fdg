@@ -21,25 +21,9 @@ static void element_data_option_clear(element_data_option_t *option, const cutl_
 {
     allocator->deallocate(allocator->state, option->basis_specs);
     option->basis_specs = NULL;
-    if (option->kind == ELEMENT_DATA_KIND_GEOMETRY)
-    {
-        allocator->deallocate(allocator->state, option->geometry.int_specs);
-        option->geometry.int_specs = NULL;
-    }
 }
 
 static int element_data_basis_specs_equal(const basis_spec_t *first, const basis_spec_t *second, const unsigned ndim)
-{
-    for (unsigned i = 0; i < ndim; ++i)
-    {
-        if (first[i].type != second[i].type || first[i].order != second[i].order)
-            return 0;
-    }
-    return 1;
-}
-
-static int element_data_int_specs_equal(const integration_spec_t *first, const integration_spec_t *second,
-                                        const unsigned ndim)
 {
     for (unsigned i = 0; i < ndim; ++i)
     {
@@ -59,9 +43,6 @@ static int element_data_options_equal(const element_data_option_t *first, const 
     {
     case ELEMENT_DATA_KIND_KFORM:
         return first->kform.order == second->kform.order;
-    case ELEMENT_DATA_KIND_GEOMETRY:
-        return first->geometry.coord_count == second->geometry.coord_count &&
-               element_data_int_specs_equal(first->geometry.int_specs, second->geometry.int_specs, first->ndim);
     case ELEMENT_DATA_KIND_DOF:
     case ELEMENT_DATA_KIND_INVALID:
         return 1;
@@ -72,8 +53,6 @@ static int element_data_options_equal(const element_data_option_t *first, const 
 static int element_data_option_compatible(const element_data_option_t *first, const element_data_option_t *option)
 {
     if (first->kind != option->kind || first->ndim != option->ndim)
-        return 0;
-    if (option->kind == ELEMENT_DATA_KIND_GEOMETRY && first->geometry.coord_count != option->geometry.coord_count)
         return 0;
     return 1;
 }
@@ -128,11 +107,6 @@ static void element_data_option_value_count_impl(const element_data_option_t *op
         count = kform_spec_total_dofs(&kform);
         break;
     }
-    case ELEMENT_DATA_KIND_GEOMETRY:
-        for (unsigned i = 0; i < option->ndim; ++i)
-            count *= option->basis_specs[i].order + 1;
-        count *= option->geometry.coord_count;
-        break;
     case ELEMENT_DATA_KIND_INVALID:
         break;
     }
@@ -170,12 +144,6 @@ fdg_result_t element_data_add_option(element_data_t *data, const element_data_op
             }
         }
         break;
-    case ELEMENT_DATA_KIND_GEOMETRY:
-        CUTL_ASSERT(option->geometry.coord_count >= 1, "Geometry option must have at least one coordinate, got %u.",
-                    option->geometry.coord_count);
-        CUTL_ASSERT(option->geometry.int_specs != NULL,
-                    "Integration spec array of the geometry option must not be null.");
-        break;
     case ELEMENT_DATA_KIND_DOF:
     case ELEMENT_DATA_KIND_INVALID:
         break;
@@ -183,8 +151,8 @@ fdg_result_t element_data_add_option(element_data_t *data, const element_data_op
 
     // The compatibility with the first option is a recoverable error, not a
     // precondition: the Python bindings can reach it with per-element options
-    // of a different dimension or coordinate count, so it must be reported
-    // instead of aborting.
+    // of a different kind or dimension, so it must be reported instead of
+    // aborting.
     if (data->option_count > 0 && !element_data_option_compatible(data->options, option))
         return FDG_ERROR_NOT_IN_DOMAIN;
 
@@ -217,17 +185,6 @@ fdg_result_t element_data_add_option(element_data_t *data, const element_data_op
     if (!copy.basis_specs)
         return FDG_ERROR_FAILED_ALLOCATION;
     memcpy(copy.basis_specs, option->basis_specs, copy.ndim * sizeof(*copy.basis_specs));
-    if (copy.kind == ELEMENT_DATA_KIND_GEOMETRY)
-    {
-        copy.geometry.int_specs =
-            data->allocator->allocate(data->allocator->state, copy.ndim * sizeof(*copy.geometry.int_specs));
-        if (!copy.geometry.int_specs)
-        {
-            data->allocator->deallocate(data->allocator->state, copy.basis_specs);
-            return FDG_ERROR_FAILED_ALLOCATION;
-        }
-        memcpy(copy.geometry.int_specs, option->geometry.int_specs, copy.ndim * sizeof(*copy.geometry.int_specs));
-    }
 
     data->options[data->option_count] = copy;
     *out_index = data->option_count;

@@ -19,7 +19,6 @@ typedef enum
     ELEMENT_DATA_KIND_INVALID = 0, // No option has been added yet.
     ELEMENT_DATA_KIND_DOF,         // Plain DoFs of a single function space.
     ELEMENT_DATA_KIND_KFORM,       // Component DoFs of a k-form.
-    ELEMENT_DATA_KIND_GEOMETRY,    // Coordinate DoFs of a geometry map.
 } element_data_kind_t;
 
 /**
@@ -43,11 +42,6 @@ typedef struct
         {
             unsigned order; // K-form order, in [0, ndim].
         } kform;
-        struct
-        {
-            unsigned coord_count;          // Number of physical coordinates.
-            integration_spec_t *int_specs; // [ndim] Integration specs.
-        } geometry;
     };
     size_t value_count; // Number of doubles stored per element; set by add_option.
 } element_data_option_t;
@@ -93,12 +87,12 @@ void element_data_free(element_data_t *data, const cutl_allocator_t *allocator);
  * and specification values is already present, its index is returned and
  * nothing is added.
  *
- * The first added option fixes the kind, the number of reference dimensions
- * and, for geometry data, the number of coordinates for the whole
- * collection. An option that disagrees with any of these is rejected with
- * FDG_ERROR_NOT_IN_DOMAIN; this is the one input rule that stays a
- * recoverable error, because callers may legitimately try per-element
- * options against a collection and need a report instead of an abort.
+ * The first added option fixes the kind and the number of reference
+ * dimensions for the whole collection. An option that disagrees with either
+ * of these is rejected with FDG_ERROR_NOT_IN_DOMAIN; this is the one input
+ * rule that stays a recoverable error, because callers may legitimately try
+ * per-element options against a collection and need a report instead of an
+ * abort.
  *
  * On success the option's @p value_count field is set to the number of
  * doubles that elements referencing this option must provide.
@@ -106,19 +100,19 @@ void element_data_free(element_data_t *data, const cutl_allocator_t *allocator);
  * The arguments are preconditions, not values to validate: an option with
  * kind ELEMENT_DATA_KIND_INVALID, a dimension outside [1, 63], a null basis
  * spec array, a basis spec whose family is invalid, a k-form order above
- * ndim, a zero-order basis axis under a k-form of nonzero order, or geometry
- * data with no coordinates or a null integration spec array abort through
- * CUTL_ASSERT. A caller that handles untrusted input must check these
- * conditions itself and report them instead of relying on this function.
+ * ndim, or a zero-order basis axis under a k-form of nonzero order abort
+ * through CUTL_ASSERT. A caller that handles untrusted input must check
+ * these conditions itself and report them instead of relying on this
+ * function.
  *
  * @param data Collection to add the option to.
  * @param option Option to add; only read, never stored.
  * @param out_index Receives the index of the (possibly existing) equal
  *        option on success.
  * @return FDG_SUCCESS on success, FDG_ERROR_NOT_IN_DOMAIN if the option
- *         disagrees with the kind, dimension or coordinate count fixed by
- *         the first option, FDG_ERROR_FAILED_ALLOCATION if memory
- *         allocation fails. On failure, `*out_index` is left unmodified.
+ *         disagrees with the kind or dimension fixed by the first option,
+ *         FDG_ERROR_FAILED_ALLOCATION if memory allocation fails. On
+ *         failure, `*out_index` is left unmodified.
  */
 FDG_INTERNAL
 fdg_result_t element_data_add_option(element_data_t *data, const element_data_option_t *option, unsigned *out_index);
@@ -137,8 +131,7 @@ fdg_result_t element_data_add_option(element_data_t *data, const element_data_op
  * @param option_index Index into the options table, in
  *        [0, element_data_option_count(data)).
  * @param values Value block of the element; layout is determined by the
- *        kind: flat DoFs for DOF and KFORM kinds, coordinate-major blocks
- *        of flat DoFs for GEOMETRY.
+ *        kind: flat DoFs for DOF and KFORM kinds.
  * @param count Number of doubles in @p values; must equal
  *        element_data_option_value_count of the referenced option.
  * @return FDG_SUCCESS on success, FDG_ERROR_FAILED_ALLOCATION if memory

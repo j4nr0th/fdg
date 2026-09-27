@@ -1031,38 +1031,50 @@ class ElementKForms:
 class MeshGeometry:
     """Batched geometry data: the space map of every element of a mesh.
 
-    Elements of a mesh often share only a few distinct geometry
-    specifications (function spaces and integration spaces). Instead of
-    storing one Python object per element, this type stores a small table of
-    distinct options and, per element, an index into that table along with
-    an offset into one large, flat array of coordinate values.
+    Each element is stored as one :class:`SpaceMap`, so the store holds
+    the geometry of a whole mesh without rebuilding maps on access.
+
+    The dimensions are shared by every stored space map: only maps from
+    ``input_dimensions`` reference dimensions to ``output_dimensions``
+    physical dimensions can be added.
 
     Data is added with :meth:`add_element` or one of the constructors
-    :meth:`from_elements` and :meth:`from_mesh_points`. Accessing the array
-    views :attr:`values`, :attr:`offsets` or :attr:`element_options` freezes
-    the collection: no further elements can be added, but values of existing
-    elements can still be overwritten with :meth:`set_element_values`.
-    Per-element geometry is retrieved as a regular :class:`SpaceMap` with
-    :meth:`space_map`.
+    :meth:`from_elements` and :meth:`from_mesh_points`. Per-element geometry
+    is retrieved as a regular :class:`SpaceMap` with :meth:`space_map`.
+
+    Parameters
+    ----------
+    input_dimensions : int
+        Number of reference dimensions of every space map; must be in
+        ``[0, 255]`` and must not exceed ``output_dimensions``.
+    output_dimensions : int
+        Number of physical dimensions of every space map; must be at
+        least 1, and both it and its product with ``input_dimensions``
+        must fit in an unsigned 32-bit integer.
     """
 
-    def __new__(cls) -> Self: ...
+    def __new__(cls, input_dimensions: int, output_dimensions: int, /) -> Self: ...
     @classmethod
-    def from_elements(
-        cls, elements: Sequence[tuple[SpaceMap, *tuple[DegreesOfFreedom, ...]]], /
-    ) -> MeshGeometry:
-        """Create a new collection from space maps with their geometry degrees of freedom.
+    def from_elements(cls, *space_maps: SpaceMap) -> MeshGeometry:
+        """Create a new collection from the space maps of the elements.
+
+        The input and output dimensions of the collection are taken
+        from the first space map; every further map must match them.
 
         Parameters
         ----------
-        elements : Sequence[tuple[SpaceMap, DegreesOfFreedom, ...]]
-            Geometry of every element: its space map and one geometry degree of
-            freedom per coordinate, in element order.
+        *space_maps : SpaceMap
+            Space map of every element, in element order.
 
         Returns
         -------
         MeshGeometry
-            Collection holding the geometry of all elements.
+            Collection holding the space maps of all elements.
+
+        Raises
+        ------
+        ValueError
+            If a space map does not have the dimensions of the first.
         """
         ...
     @classmethod
@@ -1093,20 +1105,24 @@ class MeshGeometry:
             element order.
         """
         ...
-    def add_element(self, space_map: SpaceMap, *dofs: DegreesOfFreedom) -> None:
-        """Add the geometry of one element to the collection.
+    def add_element(self, space_map: SpaceMap, /) -> None:
+        """Add the space map of one element to the collection.
 
         Parameters
         ----------
         space_map : SpaceMap
-            Space map of the element.
-        *dofs : DegreesOfFreedom
-            Geometry degrees of freedom, one per coordinate of the space map.
-            All of them must share one function space.
+            Space map of the element. Its input and output dimensions
+            must match those of the collection.
+
+        Raises
+        ------
+        ValueError
+            If the dimensions of the space map differ from the
+            dimensions of the collection.
         """
         ...
     def space_map(self, element_id: int, /) -> SpaceMap:
-        """Get the geometry of one element as a space map.
+        """Get the space map of one element.
 
         Parameters
         ----------
@@ -1116,57 +1132,22 @@ class MeshGeometry:
         Returns
         -------
         SpaceMap
-            Space map built from the stored coordinate data of the element.
-        """
-        ...
-    def option(self, index: int, /) -> tuple[FunctionSpace, IntegrationSpace]:
-        """Get the geometry specification of one option.
-
-        Parameters
-        ----------
-        index : int
-            Index into the options table.
-
-        Returns
-        -------
-        tuple[FunctionSpace, IntegrationSpace]
-            Function and integration space of the option.
-        """
-        ...
-    def set_element_values(self, element_id: int, values: npt.ArrayLike, /) -> None:
-        """Overwrite the stored coordinate values of one element.
-
-        Parameters
-        ----------
-        element_id : int
-            Index of the element.
-        values : array_like
-            Flat array with as many entries as the element's option stores.
+            Space map stored for the element.
         """
         ...
     @property
     def element_count(self) -> int:
-        """Number of stored elements."""
+        """Number of stored space maps."""
         ...
-    @property
-    def option_count(self) -> int:
-        """Number of distinct options in the options table."""
-        ...
-    @property
-    def values(self) -> npt.NDArray[np.double]:
-        """Flat array of all element values. Freezes the collection on access."""
-        ...
-    @property
-    def offsets(self) -> npt.NDArray[np.uint64]:
-        """CSR offsets of the per-element value blocks.
 
-        The array has ``element_count + 1`` entries. Accessing this property
-        freezes the collection.
-        """
-        ...
     @property
-    def element_options(self) -> npt.NDArray[np.uint32]:
-        """Option index of every element. Freezes the collection on access."""
+    def input_dimensions(self) -> int:
+        """Dimension of the input/reference space."""
+        ...
+
+    @property
+    def output_dimensions(self) -> int:
+        """Dimension of the output/physical space."""
         ...
 
 @final

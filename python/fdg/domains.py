@@ -824,6 +824,44 @@ class Quad(HypercubeDomain):
 
 
 @lru_cache
+def _vtk_1d_indices(p0: int) -> npt.NDArray[np.uintp]:
+    """Permutation from C-order tensor points onto VTK Lagrange curve order.
+
+    Parameters
+    ----------
+    p0 : int
+        Polynomial order along the reference axis.
+
+    Returns
+    -------
+    idx : (N,) uintp ndarray, N = p0 + 1
+        VTK local indices of the C-order points. Reorder with
+        ``vtk_order = np.empty_like(natural); vtk_order[idx] = natural``.
+        VTK stores the two vertices of a Lagrange curve first, at
+        parametric coordinates 0 and 1, followed by the points of the curve
+        interior in increasing parametric order.
+
+    Raises
+    ------
+    ValueError
+        If the polynomial order is less than one.
+
+    Notes
+    -----
+    The result is cached. Callers must treat the returned array as read-only;
+    mutating it would change the cached permutation for future calls.
+    """
+    if p0 < 1:
+        raise ValueError("VTK curve orders must be positive.")
+    idx = np.empty(p0 + 1, dtype=np.uintp)
+    idx[0] = 0
+    idx[p0] = 1
+    if p0 > 1:
+        idx[1:p0] = np.arange(2, p0 + 1, dtype=np.uintp)
+    return idx
+
+
+@lru_cache
 def _vtk_2d_indices(p0: int, p1: int) -> npt.NDArray[np.uintp]:
     """Return the scatter permutation from C-order to VTK point order.
 

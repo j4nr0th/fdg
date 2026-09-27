@@ -88,40 +88,6 @@ static void test_kform_option(void)
     element_data_free(data, &TEST_ALLOCATOR);
 }
 
-static void test_geometry_option(void)
-{
-    element_data_t *data;
-    TEST_FDG_RESULT(element_data_create(&data, &TEST_ALLOCATOR));
-
-    const basis_spec_t specs[2] = {{.type = BASIS_LAGRANGE_UNIFORM, .order = 1},
-                                   {.type = BASIS_LAGRANGE_UNIFORM, .order = 1}};
-    const integration_spec_t int_specs[2] = {{.type = INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE, .order = 3},
-                                             {.type = INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE, .order = 3}};
-    element_data_option_t option = {.kind = ELEMENT_DATA_KIND_GEOMETRY,
-                                    .ndim = 2,
-                                    .basis_specs = (basis_spec_t *)specs,
-                                    .geometry = {.coord_count = 3, .int_specs = (integration_spec_t *)int_specs}};
-    unsigned index;
-    TEST_FDG_RESULT(element_data_add_option(data, &option, &index));
-    TEST_ASSERTION(index == 0, "First option should get index 0.");
-    TEST_ASSERTION(element_data_option_value_count(element_data_option(data, 0)) == 12,
-                   "Geometry option with 3 coordinates and order 1 in 2D should store 12 values.");
-
-    // Geometry without integration specs or with a mismatched kind aborts
-    // through CUTL_ASSERT, so it is not tested here.
-
-    // A coordinate count mismatch on a second option is rejected.
-    element_data_option_t two_coords = {.kind = ELEMENT_DATA_KIND_GEOMETRY,
-                                        .ndim = 2,
-                                        .basis_specs = (basis_spec_t *)specs,
-                                        .geometry = {.coord_count = 2, .int_specs = (integration_spec_t *)int_specs}};
-    unsigned bad_index;
-    TEST_ASSERTION(element_data_add_option(data, &two_coords, &bad_index) == FDG_ERROR_NOT_IN_DOMAIN,
-                   "Coordinate count mismatch should be rejected.");
-
-    element_data_free(data, &TEST_ALLOCATOR);
-}
-
 static void test_ndim_mismatch(void)
 {
     element_data_t *data;
@@ -185,7 +151,6 @@ int main(void)
     test_empty();
     test_dof_option_and_elements();
     test_kform_option();
-    test_geometry_option();
     test_ndim_mismatch();
     test_mixed_option_counts();
     return 0;

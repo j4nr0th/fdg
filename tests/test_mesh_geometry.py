@@ -83,8 +83,28 @@ def _affine_map(element_id: int, integration: IntegrationSpace) -> SpaceMap:
 def _add_affine_element(
     store: MeshGeometry, element_id: int, integration: IntegrationSpace
 ) -> None:
-    """Add the affine map of one element with its degrees of freedom."""
-    store.add_element(_affine_map(element_id, integration), *_affine_dofs(element_id))
+    """Add the affine map of one element to the store."""
+    store.add_element(_affine_map(element_id, integration))
+
+
+def _map_1_in_2_out() -> SpaceMap:
+    """Space map from the 1D reference space onto a 2D physical space."""
+    basis = FunctionSpace(BasisSpecs(BasisType.LAGRANGE_UNIFORM, 1))
+    integration = IntegrationSpace(IntegrationSpecs(3))
+    return SpaceMap(
+        CoordinateMap(DegreesOfFreedom(basis, [0.0, 1.0]), integration),
+        CoordinateMap(DegreesOfFreedom(basis, [0.0, 1.0]), integration),
+    )
+
+
+def _map_2_in_3_out() -> SpaceMap:
+    """Space map from the 2D reference space onto a 3D physical space."""
+    return SpaceMap(
+        *(
+            CoordinateMap(DegreesOfFreedom(GEOM_BASIS, np.zeros(4)), INTEGRATION)
+            for _ in range(3)
+        )
+    )
 
 
 @pytest.fixture
@@ -102,11 +122,6 @@ def geometry(mesh: Mesh) -> MeshGeometry:
 def test_from_mesh_points_matches_manual_maps(geometry: MeshGeometry) -> None:
     """Store-built space maps equal manually built affine maps bit for bit."""
     assert geometry.element_count == 4
-    assert geometry.option_count == 1
-    np.testing.assert_array_equal(geometry.element_options, np.zeros(4, dtype=np.uint32))
-    np.testing.assert_array_equal(
-        geometry.offsets, np.array([0, 8, 16, 24, 32], dtype=np.uint64)
-    )
 
     for element_id in range(4):
         stored = geometry.space_map(element_id)
@@ -120,71 +135,30 @@ def test_from_mesh_points_matches_manual_maps(geometry: MeshGeometry) -> None:
         np.testing.assert_array_equal(stored.inverse_map, expected.inverse_map)
 
 
-def test_option_dedup() -> None:
-    """Identical geometry specifications collapse into one option."""
-    store = MeshGeometry()
-    _add_affine_element(store, 0, INTEGRATION)
-    _add_affine_element(store, 1, INTEGRATION)
-    other_integration = IntegrationSpace(IntegrationSpecs(4), IntegrationSpecs(4))
-    _add_affine_element(store, 2, other_integration)
-
-    assert store.option_count == 2
-    assert store.element_count == 3
-    np.testing.assert_array_equal(
-        store.element_options, np.array([0, 0, 1], dtype=np.uint32)
-    )
-    np.testing.assert_array_equal(
-        store.offsets, np.array([0, 8, 16, 24], dtype=np.uint64)
-    )
-
-    function_space, integration_space = store.option(0)
-    assert isinstance(function_space, FunctionSpace)
-    assert isinstance(integration_space, IntegrationSpace)
-    assert store.option(1)[1].orders == other_integration.orders
-
-
-def test_views_and_freeze() -> None:
-    """Array views expose the storage and freeze the collection."""
-    store = MeshGeometry()
-    _add_affine_element(store, 0, INTEGRATION)
-    _add_affine_element(store, 1, INTEGRATION)
-
-    values = store.values
-    offsets = store.offsets
-    options = store.element_options
-    assert values.dtype == np.double
-    assert offsets.dtype == np.uint64
-    assert options.dtype == np.uint32
-    assert values.size == 16
-    values[0] = 42.0
-    # The mutation is visible through the space_map getter.
-    mutated = store.space_map(0).coordinate_map(0).values
-    fresh = _affine_map(0, INTEGRATION).coordinate_map(0).values
-    assert not np.array_equal(mutated, fresh)
-    np.testing.assert_array_equal(
-        store.space_map(1).coordinate_map(0).values,
-        _affine_map(1, INTEGRATION).coordinate_map(0).values,
-    )
-
-    with pytest.raises(ValueError):
-        _add_affine_element(store, 2, INTEGRATION)
-
-    # Overwriting existing values stays allowed after freezing.
-    store.set_element_values(1, np.full(8, 7.0))
-    np.testing.assert_array_equal(values[8:16], np.full(8, 7.0))
-
-
 def test_errors(mesh: Mesh) -> None:
     """Invalid usage raises the expected exceptions."""
-    empty = MeshGeometry()
+    empty = MeshGeometry(2, 2)
     with pytest.raises(IndexError):
         empty.space_map(0)
-    with pytest.raises(IndexError):
-        empty.option(0)
+    with pytest.raises(TypeError):
+        empty.add_element()  # type: ignore[call-arg]
     with pytest.raises(TypeError):
         empty.add_element("not a space map")  # type: ignore[arg-type]
-    with pytest.raises(ValueError):
-        empty.add_element(_affine_map(0, INTEGRATION))
+
+    # Missing arguments raise instead of aborting: the positional-only specs
+    # have a NULL keyword name, which used to crash the error formatting.
+    # from_elements() no longer goes through that helper and reports its own
+    # missing space map instead.
+    with pytest.raises(TypeError):
+        empty.space_map()  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        MeshGeometry.from_elements()
+    with pytest.raises(TypeError):
+        MeshGeometry.from_mesh_points()  # type: ignore[call-arg]
+
+    # A bare space map is all add_element takes now.
+    _add_affine_element(empty, 0, INTEGRATION)
+    assert empty.element_count == 1
 
     with pytest.raises(ValueError):
         MeshGeometry.from_mesh_points(mesh, POINTS_2X2[:, 0], INTEGRATION)
@@ -194,14 +168,8 @@ def test_errors(mesh: Mesh) -> None:
     with pytest.raises(ValueError):
         MeshGeometry.from_mesh_points(mesh, POINTS_2X2, one_d_integration)
 
-    store = MeshGeometry()
-    _add_affine_element(store, 0, INTEGRATION)
-    with pytest.raises(IndexError):
-        store.set_element_values(1, np.zeros(8))
-    with pytest.raises(ValueError):
-        store.set_element_values(0, np.zeros(7))
-
-    # Geometry with mismatched per-coordinate function spaces is rejected.
+    # Geometry with mismatched per-coordinate function spaces is stored as
+    # given, together with everything else that is a space map.
     x_dofs = DegreesOfFreedom(GEOM_BASIS, [0.0, 1.0, 0.0, 1.0])
     y_dofs = DegreesOfFreedom(
         FunctionSpace(
@@ -214,8 +182,76 @@ def test_errors(mesh: Mesh) -> None:
         CoordinateMap(x_dofs, INTEGRATION),
         CoordinateMap(y_dofs, INTEGRATION),
     )
+    store = MeshGeometry.from_elements(mixed)
+    assert store.element_count == 1
+    assert store.space_map(0) is mixed
+
+    with pytest.raises(TypeError):
+        MeshGeometry.from_elements("not a map")  # type: ignore[arg-type]
+
+
+def test_constructor_dimensions() -> None:
+    """The constructor takes two validated dimensions and exposes them."""
+    with pytest.raises(TypeError):
+        MeshGeometry()  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        MeshGeometry(2)  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        MeshGeometry(2, 2, 2)  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        MeshGeometry(input_dimensions=2, output_dimensions=2)  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        MeshGeometry("2", 2)  # type: ignore[arg-type]
+    with pytest.raises(TypeError):
+        MeshGeometry(2, 2.0)  # type: ignore[arg-type]
+
     with pytest.raises(ValueError):
-        MeshGeometry.from_elements([(mixed, x_dofs, y_dofs)])
+        MeshGeometry(-1, 2)
+    with pytest.raises(ValueError):
+        MeshGeometry(0, 0)
+    with pytest.raises(ValueError):
+        MeshGeometry(3, 2)
+    with pytest.raises(ValueError):
+        MeshGeometry(2, 2**31)
+
+    empty = MeshGeometry(2, 3)
+    assert empty.input_dimensions == 2
+    assert empty.output_dimensions == 3
+    assert empty.element_count == 0
+
+    store = MeshGeometry(2, 2)
+    _add_affine_element(store, 0, INTEGRATION)
+    assert store.input_dimensions == 2
+    assert store.output_dimensions == 2
+    assert store.element_count == 1
+
+
+def test_add_element_dimension_mismatch() -> None:
+    """add_element rejects space maps of different dimensions."""
+    store = MeshGeometry(2, 2)
+    # One input dimension instead of two.
+    with pytest.raises(ValueError):
+        store.add_element(_map_1_in_2_out())
+    # Two input dimensions, but three output dimensions.
+    with pytest.raises(ValueError):
+        store.add_element(_map_2_in_3_out())
+    assert store.element_count == 0
+
+    _add_affine_element(store, 0, INTEGRATION)
+    assert store.element_count == 1
+
+
+def test_from_elements_dimensions() -> None:
+    """from_elements infers the dimensions from its first space map."""
+    first = _map_2_in_3_out()
+    store = MeshGeometry.from_elements(first, _map_2_in_3_out())
+    assert store.input_dimensions == 2
+    assert store.output_dimensions == 3
+    assert store.element_count == 2
+    assert store.space_map(0) is first
+
+    with pytest.raises(ValueError):
+        MeshGeometry.from_elements(first, _affine_map(0, INTEGRATION))
 
 
 def test_geometry_maps_feed_boundary_constraints(

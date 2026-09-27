@@ -2,18 +2,18 @@
 #define FDG_ELEMENT_DATA_OBJECTS_H
 
 #include "../data/element_dofs.h"
-#include "../data/element_geometry.h"
 #include "../data/element_kforms.h"
+#include "mappings.h"
 #include "module.h"
 
 typedef struct
 {
     PyObject_HEAD;
-    element_geometry_t *data;  // Owned; created with SYSTEM_ALLOCATOR.
-    PyObject **option_objects; // [2 * option_count] lazily built, owned refs:
-                               // [2i + 0] FunctionSpace of the option.
-                               // [2i + 1] IntegrationSpace of the option.
-    int frozen;                // Set once a numpy view of the storage has been handed out.
+    space_map_object **maps; // [allocated] owned refs to space_map_object, [0, count).
+    Py_ssize_t count;
+    Py_ssize_t allocated;
+    unsigned input_dimensions;  // Reference dimensions shared by every stored map.
+    unsigned output_dimensions; // Physical dimensions shared by every stored map.
 } mesh_geometry_object;
 
 typedef struct
