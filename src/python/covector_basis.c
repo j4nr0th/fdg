@@ -496,6 +496,14 @@ static int covector_basis_contains(PyObject *self, PyObject *item)
     return covector_basis_has_component(this->basis, num);
 }
 
+static void covector_basis_dealloc(covector_basis_object *self)
+{
+    PyObject_GC_UnTrack(self);
+    PyTypeObject *const type = Py_TYPE(self);
+    type->tp_free((PyObject *)self);
+    Py_DECREF(type);
+}
+
 PyType_Spec covector_basis_type_spec = {
     .name = FDG_TYPE_NAME("CovectorBasis"),
     .basicsize = sizeof(covector_basis_object),
@@ -504,6 +512,7 @@ PyType_Spec covector_basis_type_spec = {
     .slots =
         (PyType_Slot[]){
             {Py_tp_traverse, heap_type_traverse_type},
+            {Py_tp_dealloc, covector_basis_dealloc},
             {Py_tp_new, covector_basis_new},
             {Py_tp_getset,
              (PyGetSetDef[]){

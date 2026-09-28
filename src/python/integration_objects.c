@@ -481,6 +481,14 @@ PyObject *integration_spec_richcompare(PyObject *self, PyObject *other, const in
     return PyBool_FromLong(op == Py_EQ ? equal : !equal);
 }
 
+static void integration_specs_dealloc(integration_specs_object *self)
+{
+    PyObject_GC_UnTrack(self);
+    PyTypeObject *const type = Py_TYPE(self);
+    type->tp_free((PyObject *)self);
+    Py_DECREF(type);
+}
+
 PyType_Spec integration_specs_type_spec = {
     .name = FDG_TYPE_NAME("IntegrationSpecs"),
     .basicsize = sizeof(integration_specs_object),
@@ -491,6 +499,7 @@ PyType_Spec integration_specs_type_spec = {
             {Py_tp_doc, (void *)integration_specs_docstring},
             {Py_tp_getset, integration_rule_getset},
             {Py_tp_new, integration_specs_new},
+            {Py_tp_dealloc, integration_specs_dealloc},
             {Py_tp_repr, (reprfunc)integration_rule_repr},
             {Py_tp_traverse, heap_type_traverse_type},
             {Py_tp_richcompare, integration_spec_richcompare},
@@ -817,6 +826,14 @@ PyDoc_STRVAR(integration_space_docstring,
              "*integration_specs : IntegrationSpecs\n"
              "    Integration specifications for each dimension of the integration space.\n");
 
+static void integration_space_dealloc(integration_space_object *self)
+{
+    PyObject_GC_UnTrack(self);
+    PyTypeObject *const type = Py_TYPE(self);
+    type->tp_free((PyObject *)self);
+    Py_DECREF(type);
+}
+
 PyType_Spec integration_space_type_spec = {
     .name = FDG_TYPE_NAME("IntegrationSpace"),
     .basicsize = sizeof(integration_space_object),
@@ -824,6 +841,7 @@ PyType_Spec integration_space_type_spec = {
     .flags = Py_TPFLAGS_HEAPTYPE | Py_TPFLAGS_HAVE_GC | Py_TPFLAGS_IMMUTABLETYPE | Py_TPFLAGS_DEFAULT,
     .slots = (PyType_Slot[]){
         {Py_tp_new, integration_space_new},
+        {Py_tp_dealloc, integration_space_dealloc},
         {Py_tp_traverse, heap_type_traverse_type},
         {
             Py_tp_getset,

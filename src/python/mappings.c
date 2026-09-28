@@ -129,12 +129,6 @@ static void coordinate_map_dealloc(coordinate_map_object *self)
     Py_DECREF(type);
 }
 
-static int coordinate_map_traverse(coordinate_map_object *self, visitproc visit, void *arg)
-{
-    Py_VISIT(Py_TYPE(self));
-    return 0;
-}
-
 static PyObject *coordinate_map_get_dimension(PyObject *self, void *Py_UNUSED(closure))
 {
     const coordinate_map_object *const this = (coordinate_map_object *)self;
@@ -297,7 +291,7 @@ PyType_Spec coordinate_map_type_spec = {
     .itemsize = sizeof(*((coordinate_map_object *)0xB00B1E5)->values),
     .flags = Py_TPFLAGS_HEAPTYPE | Py_TPFLAGS_HAVE_GC | Py_TPFLAGS_DEFAULT | Py_TPFLAGS_IMMUTABLETYPE,
     .slots = (PyType_Slot[]){
-        {Py_tp_traverse, (void *)coordinate_map_traverse},
+        {Py_tp_traverse, heap_type_traverse_type},
         {Py_tp_dealloc, coordinate_map_dealloc},
         {Py_tp_new, coordinate_map_new},
         {Py_tp_doc, (void *)coordinate_map_docstring},

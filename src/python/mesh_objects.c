@@ -25,6 +25,7 @@ static PyObject *mesh_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 
 static void mesh_dealloc(mesh_object *self)
 {
+    PyObject_GC_UnTrack(self);
     if (self->mesh)
     {
         topo_mesh_free(self->mesh, &SYSTEM_ALLOCATOR);
@@ -2080,11 +2081,12 @@ static PyMethodDef mesh_methods[] = {
 PyType_Spec mesh_type_spec = {
     .name = FDG_TYPE_NAME("Mesh"),
     .basicsize = sizeof(mesh_object),
-    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HEAPTYPE | Py_TPFLAGS_IMMUTABLETYPE,
+    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HEAPTYPE | Py_TPFLAGS_IMMUTABLETYPE | Py_TPFLAGS_HAVE_GC,
     .slots =
         (PyType_Slot[]){
             {Py_tp_new, mesh_new},
             {Py_tp_dealloc, mesh_dealloc},
+            {Py_tp_traverse, heap_type_traverse_type},
             {Py_tp_getset, mesh_getset},
             {Py_tp_methods, mesh_methods},
             {Py_tp_doc, (char *)mesh_docstring},

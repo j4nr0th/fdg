@@ -550,6 +550,14 @@ static PyObject *basis_specs_richcompare(PyObject *self, PyObject *other, const 
     return PyBool_FromLong(equal);
 }
 
+static void basis_specs_dealloc(basis_specs_object *self)
+{
+    PyObject_GC_UnTrack(self);
+    PyTypeObject *const type = Py_TYPE(self);
+    type->tp_free((PyObject *)self);
+    Py_DECREF(type);
+}
+
 /* Spec for the heap type */
 PyType_Spec basis_specs_type_spec = {
     .name = FDG_TYPE_NAME("BasisSpecs"),
@@ -559,6 +567,7 @@ PyType_Spec basis_specs_type_spec = {
     .slots =
         (PyType_Slot[]){
             {Py_tp_new, (void *)basis_specs_new},
+            {Py_tp_dealloc, basis_specs_dealloc},
             {Py_tp_getset, (void *)basis_getset},
             {Py_tp_doc, (void *)basis_specs_docstring},
             {Py_tp_traverse, heap_type_traverse_type},

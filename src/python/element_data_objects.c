@@ -534,28 +534,14 @@ static PyObject *mesh_geometry_new(PyTypeObject *type, PyObject *args, PyObject 
     return (PyObject *)self;
 }
 
-static int mesh_geometry_traverse(mesh_geometry_object *self, visitproc visit, void *arg)
-{
-    Py_VISIT(Py_TYPE(self));
-    for (Py_ssize_t i = 0; i < self->count; ++i)
-        Py_VISIT(self->maps[i]);
-    return 0;
-}
-
-static int mesh_geometry_clear(mesh_geometry_object *self)
-{
-    for (Py_ssize_t i = 0; i < self->count; ++i)
-        Py_CLEAR(self->maps[i]);
-    self->count = 0;
-    return 0;
-}
-
 static void mesh_geometry_dealloc(mesh_geometry_object *self)
 {
     PyObject_GC_UnTrack(self);
-    mesh_geometry_clear(self);
     if (self->maps)
     {
+        for (Py_ssize_t i = 0; i < self->count; ++i)
+            Py_CLEAR(self->maps[i]);
+        self->count = 0;
         PyMem_Free(self->maps);
         self->maps = NULL;
     }
@@ -603,8 +589,7 @@ PyType_Spec mesh_geometry_type_spec = {.name = FDG_TYPE_NAME("MeshGeometry"),
                                        .slots = (PyType_Slot[]){
                                            {Py_tp_new, mesh_geometry_new},
                                            {Py_tp_doc, (void *)mesh_geometry_docstring},
-                                           {Py_tp_traverse, mesh_geometry_traverse},
-                                           {Py_tp_clear, mesh_geometry_clear},
+                                           {Py_tp_traverse, heap_type_traverse_type},
                                            {Py_tp_dealloc, mesh_geometry_dealloc},
                                            {Py_tp_methods, mesh_geometry_methods},
                                            {Py_tp_getset, mesh_geometry_getset},
@@ -3124,35 +3109,14 @@ static PyObject *element_dofs_new(PyTypeObject *type, PyObject *args, PyObject *
     return (PyObject *)self;
 }
 
-static int element_dofs_traverse(element_dofs_object *self, visitproc visit, void *arg)
+static void element_dofs_dealloc(element_dofs_object *self)
 {
-    Py_VISIT(Py_TYPE(self));
-    if (self->option_objects)
-    {
-        const size_t count = (size_t)element_dofs_option_count(self->data);
-        for (size_t i = 0; i < count; ++i)
-            Py_VISIT(self->option_objects[i]);
-    }
-    return 0;
-}
-
-static int element_dofs_clear(element_dofs_object *self)
-{
+    PyObject_GC_UnTrack(self);
     if (self->option_objects)
     {
         const size_t count = (size_t)element_dofs_option_count(self->data);
         for (size_t i = 0; i < count; ++i)
             Py_CLEAR(self->option_objects[i]);
-    }
-    return 0;
-}
-
-static void element_dofs_dealloc(element_dofs_object *self)
-{
-    PyObject_GC_UnTrack(self);
-    element_dofs_clear(self);
-    if (self->option_objects)
-    {
         PyMem_Free(self->option_objects);
         self->option_objects = NULL;
     }
@@ -3225,8 +3189,7 @@ PyType_Spec element_dofs_type_spec = {.name = FDG_TYPE_NAME("ElementDoFs"),
                                       .slots = (PyType_Slot[]){
                                           {Py_tp_new, element_dofs_new},
                                           {Py_tp_doc, (void *)element_dofs_docstring},
-                                          {Py_tp_traverse, element_dofs_traverse},
-                                          {Py_tp_clear, element_dofs_clear},
+                                          {Py_tp_traverse, heap_type_traverse_type},
                                           {Py_tp_dealloc, element_dofs_dealloc},
                                           {Py_tp_methods, element_dofs_methods},
                                           {Py_tp_getset, element_dofs_getset},

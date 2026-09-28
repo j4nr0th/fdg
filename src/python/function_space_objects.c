@@ -646,6 +646,14 @@ static PyObject *function_space_rich_compare(PyObject *self, PyObject *other, co
     return PyBool_FromLong(op == Py_EQ ? equal : !equal);
 }
 
+static void function_space_dealloc(function_space_object *self)
+{
+    PyObject_GC_UnTrack(self);
+    PyTypeObject *const type = Py_TYPE(self);
+    type->tp_free((PyObject *)self);
+    Py_DECREF(type);
+}
+
 PyType_Spec function_space_type_spec = {
     .name = FDG_TYPE_NAME("FunctionSpace"),
     .basicsize = sizeof(function_space_object),
@@ -653,6 +661,7 @@ PyType_Spec function_space_type_spec = {
     .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HEAPTYPE | Py_TPFLAGS_HAVE_GC | Py_TPFLAGS_IMMUTABLETYPE,
     .slots = (PyType_Slot[]){
         {Py_tp_traverse, heap_type_traverse_type},
+        {Py_tp_dealloc, function_space_dealloc},
         {Py_tp_new, function_space_new},
         {Py_tp_doc, (void *)function_space_type_docstring},
         {Py_tp_richcompare, function_space_rich_compare},
