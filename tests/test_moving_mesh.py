@@ -21,6 +21,7 @@ from fdg import (
 ORDER_BASIS = 6
 AMPLITUDE = 0.1
 OMEGA = 1.0
+CURVATURE = 1.5
 
 GEOMETRY_SPACE = FunctionSpace(BasisSpecs(BasisType.LAGRANGE_UNIFORM, ORDER_BASIS))
 INTEGRATION = IntegrationSpace(IntegrationSpecs(2 * ORDER_BASIS, IntegrationMethod.GAUSS))
@@ -331,6 +332,152 @@ def test_free_stream_preservation_top_form() -> None:
     # accumulates over the run at roughly n_steps times the tolerance per
     # slab; two hundred steps stay far below the mesh scale.
     assert np.max(np.abs(result.final_state - initial)) < 1e-8
+
+
+def _curved_mesh(step_size: float, n_steps: int, stages: int = 2) -> MovingMesh:
+    """Return a mesh of one element deformed by a cubic term."""
+
+    def geometry(t: float) -> np.ndarray:
+        """Return the geometry degrees of freedom at time ``t``."""
+        return (REFERENCE + CURVATURE * np.sin(OMEGA * t) * REFERENCE**3).reshape(
+            1, 1, -1
+        )
+
+    return MovingMesh(
+        geometry,
+        step_size,
+        n_steps,
+        element_count=1,
+        geometry_space=GEOMETRY_SPACE,
+        integration=INTEGRATION,
+        stages=stages,
+    )
+
+
+def test_free_stream_preservation_on_curved_mesh() -> None:
+    """A comoving density is stationary on a curved, deforming element.
+
+    The element is deformed strongly enough that its Jacobian determinant
+    varies by a factor of five along it, so the metric factors genuinely vary
+    from point to point. A density carried along by the mesh has a zero
+    relative velocity and must not move in the reference frame, which is the
+    discrete geometric conservation law for a genuinely non-affine mesh.
+    """
+    step_size, n_steps = 0.005, 200
+    mesh = _curved_mesh(step_size, n_steps)
+    factory = mesh.mass_factory(TOP_FORM)
+
+    def residual(state: np.ndarray, t: float) -> np.ndarray:
+        """Advect by the relative velocity, which vanishes for a comoving density.
+
+        A comoving density moves with the mesh, so the relative velocity is
+        exactly zero and the reference-frame state must not change.
+        """
+        step, stage = _stage_index(mesh, t)
+        smap = mesh.space_maps(step, stage)[0]
+        operator = advection_operator(smap, TOP_FORM, mesh.velocity(step, stage)[0])
+        return -(operator - operator) @ state
+
+    initial = _form_dofs(np.ones(NODES.size))
+    result = march(
+        residual,
+        initial,
+        step_size,
+        n_steps,
+        stages=2,
+        tolerance=1e-13,
+        mass=factory,
+    )
+
+    assert np.max(np.abs(result.final_state - initial)) < 1e-12
+
+
+def test_velocity_on_curved_mesh() -> None:
+    """The mesh velocity of a curved element is the derivative of its motion.
+
+    The motion is a sine in time, which the stage interpolant of a two-stage
+    rule does not represent exactly, so the velocity is resolved to the order
+    of the time scheme rather than to round-off. The curvature along the
+    element is exact.
+    """
+    mesh = _curved_mesh(0.005, 4)
+    for step in range(4):
+        velocity = mesh.velocity(step, 1)[0, 0]
+        # x(xi, t) = xi + A sin(t) xi^3, so dx/dt = A cos(t) xi^3
+        exact = CURVATURE * OMEGA * np.cos(OMEGA * mesh.stage_time(step, 1)) * NODES**3
+        assert np.max(np.abs(velocity - exact)) < 1e-5
+
+    # A motion that is a polynomial of degree at most stages - 1 in time is
+    # differentiated exactly.
+    reference = np.linspace(-1.0, 1.0, ORDER_BASIS + 1)
+
+    def linear_motion(t: float) -> np.ndarray:
+        """Return the geometry of a linear stretch in time."""
+        return ((1.0 + t) * reference).reshape(1, 1, -1)
+
+    exact_mesh = MovingMesh(
+        linear_motion,
+        0.005,
+        4,
+        element_count=1,
+        geometry_space=GEOMETRY_SPACE,
+        integration=INTEGRATION,
+        stages=2,
+    )
+    assert np.max(np.abs(exact_mesh.velocity(0, 0)[0, 0] - NODES)) < 1e-12
+
+
+@pytest.mark.parametrize("stages", [1, 2])
+def test_convergence_on_curved_mesh(stages: int) -> None:
+    """A moving mesh on a curved element keeps the order of two per stage."""
+    speed = 0.5
+
+    def march_reference(step_size: float, stage_count: int) -> np.ndarray:
+        """March the density on the curved mesh and return the final state."""
+        n_steps = int(round(1.0 / step_size))
+        mesh = _curved_mesh(step_size, n_steps, stage_count)
+        factory = mesh.mass_factory(TOP_FORM)
+
+        def residual(state: np.ndarray, t: float) -> np.ndarray:
+            """Advect by a fixed reference-frame velocity, carried by the mesh."""
+            step, stage = _stage_index_for(mesh, n_steps, stage_count, t)
+            smap = mesh.space_maps(step, stage)[0]
+            determinant = np.asarray(smap.determinant).reshape(-1)
+            velocity = np.ascontiguousarray((speed / determinant).reshape(1, -1))
+            return -advection_operator(smap, TOP_FORM, velocity) @ state
+
+        initial = _form_dofs(np.exp(-(NODES**2)))
+        return march(
+            residual,
+            initial,
+            step_size,
+            n_steps,
+            stages=stage_count,
+            tolerance=1e-13,
+            mass=factory,
+        ).final_state
+
+    reference = march_reference(0.0005, 3)
+    errors = [
+        np.max(np.abs(march_reference(step_size, stages) - reference))
+        for step_size in (0.02, 0.01)
+    ]
+    observed = np.log2(errors[0] / errors[1])
+    assert 2 * stages - 0.4 <= observed <= 2 * stages + 0.4
+
+
+def _stage_index_for(
+    mesh: MovingMesh, n_steps: int, stages: int, t: float
+) -> tuple[int, int]:
+    """Return the step and stage index of a stage time of ``mesh``."""
+    times = np.array(
+        [
+            [mesh.stage_time(step, stage) for stage in range(stages)]
+            for step in range(n_steps)
+        ]
+    )
+    index = np.unravel_index(np.argmin(np.abs(times - t)), times.shape)
+    return int(index[0]), int(index[1])
 
 
 def _stage_index(mesh: MovingMesh, t: float) -> tuple[int, int]:
