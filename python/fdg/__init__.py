@@ -82,3 +82,9 @@ from fdg.integration import projection_kform_l2_dual as projection_kform_l2_dual
 from fdg.integration import projection_kform_l2_primal as projection_kform_l2_primal
 from fdg.integration import projection_l2_dual as projection_l2_dual
 from fdg.integration import projection_l2_primal as projection_l2_primal
+
+# Time marching
+from fdg.time_marching import CollocationTableau as CollocationTableau
+from fdg.time_marching import MarchResult as MarchResult
+from fdg.time_marching import collocation_tableau as collocation_tableau
+from fdg.time_marching import march as march
