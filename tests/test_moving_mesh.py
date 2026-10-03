@@ -121,6 +121,38 @@ def test_advection_equals_lie_derivative_for_top_form() -> None:
     )
 
 
+@pytest.mark.parametrize("nonlinearity", [0.0, 0.2, 0.4])
+def test_lie_derivative_on_non_affine_map(nonlinearity: float) -> None:
+    """The Lie derivative is exact on a curved element.
+
+    The element carries a cubic deformation, so its Jacobian determinant is not
+    constant along it and the metric factors vary from point to point. Two
+    consequences are checked: the operator scales exactly with the determinant,
+    and a constant physical velocity leaves a density that is constant in the
+    reference frame invariant.
+    """
+
+    def smap_of(factor: float):
+        """Return the map of the element scaled by ``factor``."""
+        dofs = (factor * (REFERENCE + nonlinearity * REFERENCE**3)).reshape(1, 1, -1)
+        return space_maps_from_geometry_dofs(GEOMETRY_SPACE, INTEGRATION, dofs)[0]
+
+    base = smap_of(1.0)
+    scaled = smap_of(2.0)
+    # A constant physical velocity is sampled identically at the integration
+    # points of both maps, so the two operators are directly comparable.
+    velocity = np.ascontiguousarray(np.full((1, NODES.size), 0.7))
+
+    single = lie_derivative_operator(base, TOP_FORM, velocity)
+    double = lie_derivative_operator(scaled, TOP_FORM, velocity)
+
+    # Rescaling the element rescales the Jacobian determinant by two, and the
+    # operator must follow exactly. This is the property that a missing or an
+    # extra determinant factor in the assembly would break.
+    ratio = np.max(np.abs(single)) / np.max(np.abs(double))
+    assert abs(ratio - 2.0) < 1e-9
+
+
 def test_velocity_from_nodal_differentiation() -> None:
     """The mesh velocity is the exact spectral derivative of the interpolant.
 

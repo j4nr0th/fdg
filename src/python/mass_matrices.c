@@ -1092,7 +1092,9 @@ static void compute_interior_product_component_weights(
     // k == n → right transform is all 1 / determinant (transform_array_right NULL), one right component.
     if (k == 1)
     {
-        // TODO: check for special case when n and k are both 1
+        // In one dimension this branch also covers k == n_maps, and it is taken first.
+        // Its transform is 1 / determinant, which the final scaling in
+        // compute_interior_product_weights cancels for this branch.
         CUTL_ASSERT(transform_array_left == NULL, "Left transform array should be NULL for k = 1.");
         CUTL_ASSERT(transform_array_right != NULL, "Right transform array for right component should not be NULL.");
         // Add contributions of left, right, and vector field (but left is always 1)
@@ -1213,9 +1215,14 @@ static void compute_interior_product_weights(
         }
     }
 
-    // Finally, scale all resulting weights by integration rule weights and determinant
+    // Finally, scale all resulting weights by integration rule weights and determinant.
+    // The determinant is only dropped for the k == n_maps branch, whose transform is
+    // 1 / determinant and therefore cancels it out. The k == 1 branch does not cancel
+    // anything, and it is the branch taken when n_maps == order == 1 (the k == 1 case is
+    // tested first in compute_interior_product_component_weights), so it must keep the
+    // determinant.
     size_t integration_pt_idx = 0;
-    if (order != n_maps)
+    if (order != n_maps || order == 1)
     {
         for (multidim_iterator_set_to_start(iter_int_pts); !multidim_iterator_is_at_end(iter_int_pts);
              multidim_iterator_advance(iter_int_pts, n_dims - 1, 1), ++integration_pt_idx)

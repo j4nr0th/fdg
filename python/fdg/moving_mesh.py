@@ -34,14 +34,10 @@ collocation nodes of every slab, which makes the mesh velocity an exact
 spectral derivative of that interpolant rather than a finite difference. The
 same tableau that integrates the state differentiates the geometry.
 
-The mesh motion is currently exact for elements whose Jacobian determinant is
-constant along the element, which covers the uniform stretch and translation of
-an affine element, the case that one-dimensional mesh r-refinement produces.
-The interior product of the library reproduces the contraction of a vector
-field exactly in that case but not for a determinant that varies along the
-element, so the operators here inherit that limitation; a non-affine moving
-element needs a correction in the C core before the terms above are exact for
-it.
+The mesh motion is exact for an arbitrary element: the velocity is passed to
+the interior product as its physical components, and the map applies its own
+metric factors, so uniform stretch, translation and non-affine deformation are
+all covered.
 
 The fluid-structure pattern uses the same primitives with the geometry as part
 of the state: the geometry degrees of freedom are appended to the marched
@@ -165,20 +161,19 @@ def _raised_space(space: FunctionSpace, delta: int) -> FunctionSpace:
     )
 
 
-def _scaled_velocity(
+def _velocity(
     smap: SpaceMap, velocity_points: npt.NDArray[np.double]
 ) -> npt.NDArray[np.double]:
-    """Scale physical velocity components for the interior product.
+    """Return the physical velocity components in the expected shape.
 
-    The interior product contracts the components of the form, whose DoFs carry
-    the metric of the map, so the physical vector field must be scaled
-    pointwise by the determinant of the Jacobian to contract into the physical
-    components of the form.
+    :func:`~fdg.compute_kform_interior_product_matrix` contracts the physical
+    components of the vector field directly and applies the metric factors of
+    the map itself, so the components are passed through unscaled.
 
     Parameters
     ----------
     smap : SpaceMap
-        Map whose determinant scales the components.
+        Map providing the integration points.
     velocity_points : array
         Physical components of the vector field at the integration points of
         the map.
@@ -186,39 +181,19 @@ def _scaled_velocity(
     Returns
     -------
     array
-        Scaled components with the shape expected by
+        Components with the shape expected by
         :func:`~fdg.compute_kform_interior_product_matrix`.
     """
-    components = np.asarray(velocity_points, np.double)
-    determinant = np.asarray(smap.determinant, np.double).reshape(-1)
+    components = np.ascontiguousarray(velocity_points, np.double)
+    expected = np.asarray(smap.determinant, np.double).size
     flat = components.reshape(components.shape[0], -1) if components.ndim > 1 else None
     values = flat if flat is not None else components.reshape(1, -1)
-    if values.shape[1] != determinant.size:
+    if values.shape[1] != expected:
         raise ValueError(
             f"Velocity must have one value per integration point of the map: "
-            f"expected {determinant.size}, got {values.shape[1]}."
+            f"expected {expected}, got {values.shape[1]}."
         )
-    scaled = values * determinant
-    if flat is None:
-        scaled = scaled[0]
-    return np.ascontiguousarray(scaled.reshape(components.shape))
-
-
-def _interior(
-    smap: SpaceMap,
-    order: int,
-    basis_left: FunctionSpace,
-    basis_right: FunctionSpace,
-    velocity_points: npt.NDArray[np.double],
-) -> npt.NDArray[np.double]:
-    """Assemble the interior-product pairing of the scaled velocity field."""
-    return compute_kform_interior_product_matrix(
-        smap,
-        order,
-        basis_left,
-        basis_right,
-        _scaled_velocity(smap, velocity_points),
-    )
+    return components
 
 
 def lie_derivative_operator(
@@ -233,13 +208,13 @@ def lie_derivative_operator(
     Parameters
     ----------
     smap : SpaceMap
-        Map of the element, whose determinant scales the velocity.
+        Map of the element.
     specs : KFormSpecs
         Specification of the form the operator acts on.
     velocity_points : array
-        Physical components of the mesh velocity at the integration points of
-        the map, of shape ``(n_axes, n_points)``. The scaling by the
-        determinant is applied internally.
+        Physical components of the mesh velocity at the integration points
+        of the map, of shape ``(n_axes, n_points)``, passed through
+        unscaled.
 
     Returns
     -------
@@ -260,7 +235,9 @@ def lie_derivative_operator(
     # The interior product lowers the form order but keeps the space of the
     # form itself, so its test space is the base space and the exterior
     # derivative of the result is the incidence of that same base space.
-    interior = _interior(smap, max(order, 1), basis, basis, velocity_points)
+    interior = compute_kform_interior_product_matrix(
+        smap, max(order, 1), basis, basis, _velocity(smap, velocity_points)
+    )
     first = incidence_matrix(basis.basis_specs[0]) @ np.linalg.solve(
         _mass(KFormSpecs(max(order - 1, 0), basis), smap), interior
     )
@@ -270,7 +247,9 @@ def lie_derivative_operator(
     if order >= dimension:
         return first
     upper_basis = _raised_space(basis, 1)
-    upper_interior = _interior(smap, order + 1, basis, upper_basis, velocity_points)
+    upper_interior = compute_kform_interior_product_matrix(
+        smap, order + 1, basis, upper_basis, _velocity(smap, velocity_points)
+    )
     second = np.linalg.solve(
         _mass(KFormSpecs(order, basis), smap), upper_interior
     ) @ incidence_matrix(basis.basis_specs[0])
@@ -287,12 +266,13 @@ def advection_operator(
     Parameters
     ----------
     smap : SpaceMap
-        Map of the element, whose determinant scales the velocity.
+        Map of the element.
     specs : KFormSpecs
         Specification of the form that is transported.
     velocity_points : array
         Physical components of the transport velocity at the integration
-        points of the map, of shape ``(n_axes, n_points)``.
+        points of the map, of shape ``(n_axes, n_points)``, passed through
+        unscaled.
 
     Returns
     -------
@@ -301,7 +281,9 @@ def advection_operator(
     """
     order = int(specs.order)
     basis = specs.base_space
-    interior = _interior(smap, max(order, 1), basis, basis, velocity_points)
+    interior = compute_kform_interior_product_matrix(
+        smap, max(order, 1), basis, basis, _velocity(smap, velocity_points)
+    )
     return incidence_matrix(basis.basis_specs[0]) @ np.linalg.solve(
         _mass(KFormSpecs(max(order - 1, 0), basis), smap), interior
     )
