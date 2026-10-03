@@ -189,13 +189,40 @@ def collocation_tableau(
     )
 
 
+def _factor_mass(mass: npt.NDArray[np.double], n_dofs: int) -> MassFactors:
+    r"""Validate and LU-factorize a dense mass matrix.
+
+    Parameters
+    ----------
+    mass : array
+        Candidate mass matrix.
+    n_dofs : int
+        Number of degrees of freedom the system is expected to have.
+
+    Returns
+    -------
+    tuple of arrays
+        Factors of the factorization.
+    """
+    matrix = np.ascontiguousarray(mass, np.double)
+    if matrix.shape != (n_dofs, n_dofs):
+        raise ValueError(
+            f"Mass matrix must have shape {(n_dofs, n_dofs)}, got {matrix.shape}."
+        )
+    lu, pivots = lu_factor(matrix)
+    return (
+        np.ascontiguousarray(lu, np.double),
+        np.ascontiguousarray(pivots, np.int32),
+    )
+
+
 def _stage_residuals(
     residual: Callable[[npt.NDArray[np.double], float], npt.NDArray[np.double]],
     stage_dofs: npt.NDArray[np.double],
     stage_times: npt.NDArray[np.double],
-    mass_factors: MassFactors,
+    stage_factors: list[MassFactors],
 ) -> npt.NDArray[np.double]:
-    """Evaluate the residual on the stages and solve the mass matrix.
+    r"""Evaluate the residual on the stages and solve the mass matrices.
 
     Parameters
     ----------
@@ -205,25 +232,23 @@ def _stage_residuals(
         Stage states with one row per stage.
     stage_times : array
         Times of the stages.
-    mass_factors : tuple of arrays or None
-        Factors of the factorization of the mass matrix, or None for an
-        identity mass matrix.
+    stage_factors : list of tuple of arrays
+        Factors of the mass matrix for each stage, with ``None`` in a slot
+        meaning an identity mass matrix.
 
     Returns
     -------
     array
         Right-hand side :math:`M^{-1} r` with one row per stage.
     """
-    stages, n_dofs = stage_dofs.shape
+    stages, _ = stage_dofs.shape
     values = np.empty_like(stage_dofs)
     for k in range(stages):
         values[k] = residual(np.ascontiguousarray(stage_dofs[k]), float(stage_times[k]))
-
-    if mass_factors is not None:
         # scipy.linalg.lu_solve takes a single right-hand side, so the stage
         # systems are solved one after another.
-        for k in range(stages):
-            values[k] = lu_solve(mass_factors, values[k])
+        if stage_factors[k] is not None:
+            values[k] = lu_solve(stage_factors[k], values[k])
 
     return values
 
@@ -300,7 +325,9 @@ def march(
     t0: float = 0.0,
     stages: int = 2,
     method: IntegrationMethod = IntegrationMethod.GAUSS,
-    mass: npt.NDArray[np.double] | None = None,
+    mass: (
+        npt.NDArray[np.double] | Callable[[float], npt.NDArray[np.double]] | None
+    ) = None,
     tolerance: float = 1e-12,
     max_iterations: int = 100,
     anderson_depth: int = 4,
@@ -339,8 +366,12 @@ def march(
         Number of collocation stages, equal to the accuracy knob of the scheme.
     method : IntegrationMethod, default: "gauss"
         Method of the integration rule in time.
-    mass : array or None, default: None
-        Dense mass matrix of the system, None for an identity mass matrix.
+    mass : array or callable or None, default: None
+        Dense mass matrix of the system, or a callable mapping a time to one,
+        which is what a moving mesh requires; None for an identity mass
+        matrix. A callable is evaluated at the exact stage times and must
+        return a dense matrix of the shape of the state, and it must raise
+        rather than interpolate silently for a time it cannot serve.
     tolerance : float, default: 1e-12
         Relative tolerance on the fixed-point defect of every step.
     max_iterations : int, default: 100
@@ -373,22 +404,16 @@ def march(
     if np.any(sizes <= 0.0):
         raise ValueError("Step sizes must be positive.")
 
-    mass_factors: MassFactors = None
+    n_dofs = initial.size
+    mass_factory: Callable[[float], npt.NDArray[np.double]] | None = None
+    constant_factors: MassFactors = None
     if mass is not None:
-        mass_matrix = np.ascontiguousarray(mass, np.double)
-        if mass_matrix.shape != (initial.size, initial.size):
-            raise ValueError(
-                f"Mass matrix must have shape {(initial.size, initial.size)}, "
-                f"got {mass_matrix.shape}."
-            )
-        lu, pivots = lu_factor(mass_matrix)
-        mass_factors = (
-            np.ascontiguousarray(lu, np.double),
-            np.ascontiguousarray(pivots, np.int32),
-        )
+        if callable(mass):
+            mass_factory = mass
+        else:
+            constant_factors = _factor_mass(mass, n_dofs)
 
     tableau = collocation_tableau(stages, method)
-    n_dofs = initial.size
 
     times = np.empty(n_steps + 1)
     states = np.empty((n_steps + 1, n_dofs))
@@ -409,11 +434,21 @@ def march(
         next_time = time + step_size
         scale = 0.5 * step_size
         stage_times = time + scale * (tableau.nodes + 1.0)
+        # A constant mass matrix is factored once and shared by every stage; a
+        # time-dependent one is factored per stage of this slab, so the
+        # repeated fixed-point calls below never re-factorize.
+        if mass_factory is None:
+            stage_factors = [constant_factors] * tableau.stages
+        else:
+            stage_factors = [
+                _factor_mass(mass_factory(float(stage_times[k])), n_dofs)
+                for k in range(tableau.stages)
+            ]
 
         def fixed_point(iterate: npt.NDArray[np.double]) -> npt.NDArray[np.double]:
             """Apply the slab stage equations to a flattened stage vector."""
             stage_dofs = iterate.reshape(tableau.stages, n_dofs)
-            rhs = _stage_residuals(residual, stage_dofs, stage_times, mass_factors)
+            rhs = _stage_residuals(residual, stage_dofs, stage_times, stage_factors)
             return (state + scale * (tableau.integration_matrix @ rhs)).ravel()
 
         try:
@@ -430,7 +465,10 @@ def march(
             ) from error
 
         rhs = _stage_residuals(
-            residual, converged.reshape(tableau.stages, n_dofs), stage_times, mass_factors
+            residual,
+            converged.reshape(tableau.stages, n_dofs),
+            stage_times,
+            stage_factors,
         )
         state = state + scale * (tableau.weights @ rhs)
         time = next_time
