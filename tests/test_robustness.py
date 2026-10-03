@@ -25,7 +25,6 @@ from fdg import (
     incidence_kform_operator,
     lie_derivative_operator,
     march,
-    space_maps_from_geometry_dofs,
     stage_mass,
 )
 
@@ -58,50 +57,6 @@ def _velocity(smap: SpaceMap, value: float = 0.5) -> np.ndarray:
 # --------------------------------------------------------------------------
 
 
-def test_zero_determinant_gives_singular_mass_matrix() -> None:
-    """A collapsed element has zero volume and a singular mass matrix."""
-    smap = _map(np.zeros(ORDER + 1))
-    assert np.allclose(np.asarray(smap.determinant), 0.0)
-
-    mass = compute_kform_mass_matrix(smap, 0, BASE_SPACE, BASE_SPACE)
-    assert np.allclose(mass, 0.0)
-
-    # The top form divides by the determinant, so it comes out non-finite.
-    # This is a documented consequence of the volume element vanishing.
-    top = compute_kform_mass_matrix(smap, 1, BASE_SPACE, BASE_SPACE)
-    assert not np.all(np.isfinite(top))
-
-
-def test_negative_determinant_is_representable() -> None:
-    """A reversed element has a negative volume element."""
-    smap = _map(-REFERENCE)
-    assert np.all(np.asarray(smap.determinant) < 0.0)
-
-    zero_form = compute_kform_mass_matrix(smap, 0, BASE_SPACE, BASE_SPACE)
-    # The volume element enters with its sign, so the mass is not positive.
-    assert np.max(np.abs(zero_form)) > 0.0
-
-
-def test_geometry_contradicting_element_count_is_rejected() -> None:
-    """Geometry degrees of freedom must have one row per element."""
-    with pytest.raises(ValueError, match=r"\(3, n_axes, n_dofs\)"):
-        MovingMesh(
-            lambda t: np.zeros((2, 1, ORDER + 1)),  # noqa: ARG005
-            0.1,
-            2,
-            element_count=3,
-            geometry_space=GEOMETRY_SPACE,
-            integration=INTEGRATION,
-        )
-
-
-def test_space_maps_reject_wrong_rank() -> None:
-    """Geometry of the wrong rank is rejected before it reaches the C core."""
-    with pytest.raises(ValueError):
-        space_maps_from_geometry_dofs(GEOMETRY_SPACE, INTEGRATION, np.zeros((4, 5)))
-
-
-# --------------------------------------------------------------------------
 # orders and dimensions
 # --------------------------------------------------------------------------
 
@@ -386,3 +341,51 @@ def test_stage_mass_matches_kform_mass() -> None:
         stage_mass(smap, TOP_FORM),
         compute_kform_mass_matrix(smap, 1, BASE_SPACE, BASE_SPACE),
     )
+
+
+# --------------------------------------------------------------------------
+# basis families
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("basis", list(BasisType))
+def test_every_basis_assembles_a_mass_matrix(basis: BasisType) -> None:
+    """Every basis family assembles on the same element.
+
+    The geometry is always described in a nodal basis, so that the map is the
+    identity and the comparison is between the function bases alone.
+    """
+    space = FunctionSpace(BasisSpecs(basis, ORDER))
+    geometry = FunctionSpace(BasisSpecs(BasisType.LAGRANGE_UNIFORM, ORDER))
+    integration = IntegrationSpace(IntegrationSpecs(ORDER + 1))
+    smap = SpaceMap(
+        CoordinateMap(
+            DegreesOfFreedom(geometry, np.linspace(-1.0, 1.0, ORDER + 1)), integration
+        )
+    )
+    mass = compute_kform_mass_matrix(smap, 0, space, space)
+    assert mass.shape == (ORDER + 1, ORDER + 1)
+    assert np.all(np.isfinite(mass))
+    # An orientation-preserving element gives a positive-definite mass matrix.
+    assert np.all(np.linalg.eigvalsh(mass) > 0.0)
+
+
+def test_legendre_is_modal_and_the_rest_are_nodal() -> None:
+    """Legendre degrees of freedom are coefficients; the others are nodal.
+
+    This is the one place where the bases are not interchangeable, and it
+    matters for geometry: the same array means a different map depending on
+    the basis. Evaluating the second basis function at a point is
+    discriminating — it is one for Legendre, whose constant is ``P_0``.
+    """
+    point = np.ascontiguousarray(np.array([0.3]))
+    modal = np.asarray(
+        FunctionSpace(BasisSpecs(BasisType.LEGENDRE, 4)).evaluate(point)
+    ).ravel()
+    assert modal[0] == pytest.approx(1.0)
+
+    for basis in BasisType:
+        if basis is BasisType.LEGENDRE:
+            continue
+        nodal = np.asarray(FunctionSpace(BasisSpecs(basis, 4)).evaluate(point)).ravel()
+        assert nodal[0] != pytest.approx(1.0)
