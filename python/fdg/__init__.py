@@ -82,3 +82,10 @@ from fdg.integration import projection_kform_l2_dual as projection_kform_l2_dual
 from fdg.integration import projection_kform_l2_primal as projection_kform_l2_primal
 from fdg.integration import projection_l2_dual as projection_l2_dual
 from fdg.integration import projection_l2_primal as projection_l2_primal
+
+# Hybridized solves
+from fdg.solve import ElementBlockBuilder as ElementBlockBuilder
+from fdg.solve import HybridizedSolution as HybridizedSolution
+from fdg.solve import laplace_stiffness as laplace_stiffness
+from fdg.solve import mixed_block as mixed_block
+from fdg.solve import solve_hybridized as solve_hybridized

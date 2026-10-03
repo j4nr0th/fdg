@@ -35,8 +35,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
 import pyvista as pv
-import scipy.sparse
-import scipy.sparse.linalg
 from fdg import (
     BasisSpecs,
     BasisType,
@@ -49,11 +47,13 @@ from fdg import (
     IntegrationSpecs,
     KFormSpecs,
     Mesh,
+    MeshGeometry,
+    MeshKFormSpecs,
     SpaceMap,
     compute_kform_boundary_load,
-    compute_kform_mass_matrix,
-    incidence_kform_operator,
+    mixed_block,
     projection_kform_l2_dual,
+    solve_hybridized,
     transform_kform_to_target,
 )
 from fdg.degrees_of_freedom import reconstruct
@@ -65,14 +65,6 @@ LENGTHS = np.asarray((2.0 * pi, 2.0 * pi, 1.0))
 INTEGRATION_ORDER = 4
 ORDERS = (1, 2, 3, 4, 5, 6)
 VISUAL_ORDER = 12
-
-PackedRows = tuple[
-    npt.NDArray[np.uintp],
-    npt.NDArray[np.uint64],
-    npt.NDArray[np.uint32],
-    npt.NDArray[np.uintp],
-    npt.NDArray[np.double],
-]
 
 
 # %%
@@ -268,49 +260,13 @@ def make_flux_test_specs(
 
 # %%
 #
-# Pack the global trace rows
-# --------------------------
-#
-# The mesh method returns row offsets plus element/component/DoF entries. The
-# small adapter below turns that representation into a sparse matrix whose
-# columns contain all element-local flux DoFs in element-major order.
-
-
-def packed_to_sparse(
-    packed: PackedRows, specs_q: KFormSpecs, element_count: int
-) -> scipy.sparse.csr_matrix:
-    """Materialize global packed rows as a sparse flux operator."""
-    row_offsets, element_ids, components, local_dofs, coefficients = packed
-    n_rows = row_offsets.size - 1
-    nq = int(np.sum(specs_q.component_dof_counts))
-    component_offsets = np.asarray(
-        [
-            int(specs_q.get_component_slice(c).start)
-            for c in range(specs_q.component_count)
-        ],
-        dtype=np.uintp,
-    )
-    element_offsets = np.arange(element_count, dtype=np.uintp) * nq
-    columns = element_offsets[element_ids] + component_offsets[components] + local_dofs
-    row_indices = np.repeat(
-        np.arange(n_rows, dtype=np.intp),
-        np.diff(row_offsets).astype(np.intp, copy=False),
-    )
-    return scipy.sparse.coo_matrix(
-        (coefficients, (row_indices, columns)),
-        shape=(n_rows, element_count * nq),
-    ).tocsr()
-
-
-# %%
-#
 # Assemble the mixed system
 # -------------------------
 #
-# For each element, the mixed block has the form
-# ``[[M_q, E.T], [E, 0]]``. The global matrix is block diagonal until the
-# packed q-trace rows are appended as Lagrange-multiplier equations. Weak
-# Dirichlet data enter the q right-hand side through the boundary load.
+# For each element, the mixed block has the form ``[[M_q, E.T], [E, 0]]``.
+# Unlike the 0-form case it is already nonsingular, so it needs no border:
+# the packed q-trace rows go into blocks of their own and hybsol eliminates
+# the element blocks first. Weak Dirichlet data enter the q right-hand side.
 
 
 def solve(
@@ -325,107 +281,60 @@ def solve(
     """Assemble and solve the mixed system with periodic flux rows."""
     element_count = mesh.element_count
     nq = int(np.sum(specs_q.component_dof_counts))
-    nu = int(np.sum(specs_u.component_dof_counts))
-    q_total = element_count * nq
-    u_total = element_count * nu
 
-    q_masses: list[np.ndarray] = []
-    derivatives: list[np.ndarray] = []
-    derivative_transposes: list[np.ndarray] = []
-    rhs_q = np.zeros(q_total)
-    rhs_u = np.zeros(u_total)
+    element_rhs: list[np.ndarray] = []
     for element_id, element_map in enumerate(maps):
-        q_mass = np.asarray(
-            compute_kform_mass_matrix(
-                element_map, specs_q.order, specs_q.base_space, specs_q.base_space
-            )
-        )
-        u_mass = np.asarray(
-            compute_kform_mass_matrix(
-                element_map, specs_u.order, specs_u.base_space, specs_u.base_space
-            )
-        )
-        q_masses.append(q_mass)
-        derivatives.append(
-            np.asarray(incidence_kform_operator(specs_q, u_mass, right=True))
-        )
-        derivative_transposes.append(
-            np.asarray(incidence_kform_operator(specs_q, u_mass, transpose=True))
-        )
-        rhs_u[element_id * nu : (element_id + 1) * nu] = np.asarray(
+        rhs_q = np.zeros(nq)
+        rhs_u = np.asarray(
             projection_kform_l2_dual([manufactured_source], specs_u, element_map)[0]
         ).reshape(-1)
+        # u=0 on z=0 and z=L; the datum is zero, but the call shows the
+        # natural mixed boundary interface.
+        for face_id, face_element, _ in z_faces:
+            if face_element != element_id:
+                continue
+            rhs_q += compute_kform_boundary_load(
+                face_test,
+                specs_q,
+                element_map,
+                mesh.collections,
+                mesh.point_count,
+                element_id,
+                face_id,
+                [zero_dirichlet],
+            )
+        element_rhs.append(np.concatenate((rhs_q, rhs_u)))
 
-    # u=0 on z=0 and z=L is a weak Dirichlet condition. The datum is zero,
-    # but the call is retained to show the natural mixed boundary interface.
-    for face_id, element_id, _ in z_faces:
-        rhs_q[element_id * nq : (element_id + 1) * nq] += compute_kform_boundary_load(
-            face_test,
-            specs_q,
-            maps[element_id],
-            mesh.collections,
-            mesh.point_count,
-            element_id,
-            face_id,
-            [zero_dirichlet],
-        )
-
-    q_mass_global = scipy.sparse.block_diag(
-        [scipy.sparse.csc_matrix(block) for block in q_masses], format="csc"
-    )
-    derivative_global = scipy.sparse.block_diag(
-        [scipy.sparse.csc_matrix(block) for block in derivatives], format="csc"
-    )
-    derivative_transpose_global = scipy.sparse.block_diag(
-        [scipy.sparse.csc_matrix(block) for block in derivative_transposes],
-        format="csc",
-    )
-    zero_u = scipy.sparse.csc_matrix((u_total, u_total))
-    mixed = scipy.sparse.bmat(
-        [
-            [q_mass_global, derivative_transpose_global],
-            [derivative_global, zero_u],
-        ],
-        format="csc",
-    )
-
-    packed, constraint_rhs = mesh.compute_kform_global_constraints(
+    constraints, constraint_rhs = mesh.compute_kform_global_constraints(
         [specs_q] * element_count,
         maps,
         None,
         periodic,
     )
-    constraints = packed_to_sparse(packed, specs_q, element_count)
-    zero_constraints = scipy.sparse.csc_matrix(
-        (
-            constraints.shape[0],
-            constraints.shape[0],
-        )
+    geometry = MeshGeometry.from_elements(*maps)
+    structure = MeshKFormSpecs.from_space(
+        NDIM,
+        [("q", specs_q.order), ("u", specs_u.order)],
+        specs_q.base_space,
+        element_count,
     )
-    constraint_operator = scipy.sparse.hstack(
-        [constraints, scipy.sparse.csc_matrix((constraints.shape[0], u_total))],
-        format="csc",
+    result = solve_hybridized(
+        geometry,
+        structure,
+        np.concatenate(element_rhs),
+        constraints,
+        constraint_rhs,
+        mixed_block,
     )
-    saddle = scipy.sparse.bmat(
-        [[mixed, constraint_operator.T], [constraint_operator, zero_constraints]],
-        format="csc",
-    )
-    rhs = np.concatenate((rhs_q, rhs_u, constraint_rhs))
-    solution = scipy.sparse.linalg.splu(saddle).solve(rhs)
-    q_values = solution[:q_total]
-    u_values = solution[q_total : q_total + u_total]
-    constraint_residual = float(
-        np.max(np.abs(constraints @ q_values - constraint_rhs), initial=0.0)
-    )
+    q_dofs = [dofs[:nq] for dofs in result.element_dofs]
+    u_dofs = [dofs[nq:] for dofs in result.element_dofs]
+    constraint_residual = result.constraint_residual
 
     error_squared = 0.0
-    q_dofs: list[np.ndarray] = []
-    u_dofs: list[np.ndarray] = []
     for element_id, element_map in enumerate(maps):
-        q_dofs.append(q_values[element_id * nq : (element_id + 1) * nq])
-        u_element = u_values[element_id * nu : (element_id + 1) * nu]
-        u_dofs.append(u_element)
-        u_component = DegreesOfFreedom(specs_u.get_component_function_space(0), u_element)
+        u_component = DegreesOfFreedom(
+            specs_u.get_component_function_space(0), u_dofs[element_id]
+        )
         reference_values = u_component.reconstruct_at_integration_points(
             element_map.integration_space
         )

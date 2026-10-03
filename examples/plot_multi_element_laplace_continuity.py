@@ -43,7 +43,6 @@ from typing import Literal
 import numpy as np
 import numpy.typing as npt
 import scipy.sparse
-import scipy.sparse.linalg
 from fdg import (
     BasisSpecs,
     BasisType,
@@ -55,9 +54,11 @@ from fdg import (
     IntegrationSpecs,
     KFormSpecs,
     Mesh,
+    MeshGeometry,
+    MeshKFormSpecs,
     SpaceMap,
-    compute_kform_incidence_matrix,
-    compute_kform_mass_matrix,
+    laplace_stiffness,
+    solve_hybridized,
 )
 from fdg.integration import projection_l2_dual
 from matplotlib import pyplot as plt
@@ -286,22 +287,34 @@ def manufactured_source(*coordinates: npt.NDArray[np.double]) -> npt.NDArray[np.
 
 
 # %%
-# Sparse constrained solve
-# ------------------------
+# Hybridized solve
+# ----------------
 #
-# The primal stiffness matrix is assembled one element at a time. It is
-# therefore block diagonal: each dense block is an element-local operator and
-# no entry couples two elements until continuity rows are added. The packed
-# rows are converted directly to a sparse matrix, then appended to the
-# block-diagonal operator as Lagrange-multiplier equations.
+# Each element operator is *singular* -- the constants lie in its nullspace --
+# so it cannot be factorized on its own. ``solve_hybridized`` absorbs the
+# constraint rows into the element blocks, which borders each block back to
+# nonsingularity, and hands the system to the ``hybsol`` block solver. No
+# Schur complement is formed and no separate multiplier solve happens.
 #
-# For Dirichlet data, the same descending boundary hierarchy supplies one
-# owner trace per boundary object. Shared-boundary continuity rows remain in
-# the system and transfer that owner value to the other incident elements.
-#
-# The resulting saddle system is solved with SciPy's sparse LU factorization.
-# This keeps the global matrix sparse while retaining the direct formulation;
-# a Schur-complement implementation could reuse the same block structure.
+# For Dirichlet data the boundary hierarchy supplies one owner trace per
+# boundary object; the continuity rows transfer it to the other elements.
+
+
+def gauge_row(
+    packed: PackedRows, element: int
+) -> tuple[PackedRows, npt.NDArray[np.double]]:
+    """Pin one degree of freedom, which gauges the constant nullspace."""
+    row_offsets, element_ids, components, local_dofs, coefficients = packed
+    rows = (
+        np.concatenate((row_offsets, np.asarray([element_ids.size + 1], dtype=np.uintp))),
+        np.concatenate((element_ids, np.asarray([element], dtype=np.uint64))),
+        np.concatenate((components, np.asarray([0], dtype=np.uint32))),
+        np.concatenate((local_dofs, np.asarray([0], dtype=np.uintp))),
+        np.concatenate((coefficients, np.asarray([1.0]))),
+    )
+    rhs = np.zeros(rows[0].size - 1)
+    rhs[-1] = 1.0
+    return rows, rhs
 
 
 def solve_direct_laplace(
@@ -324,53 +337,36 @@ def solve_direct_laplace(
 
     n0 = int(np.sum(element_specs[0].component_dof_counts))
     total_dofs = len(maps) * n0
-    local_stiffnesses: list[np.ndarray] = []
     rhs = np.zeros(total_dofs)
-    incidence = compute_kform_incidence_matrix(base_space, 0)
     for element_id, element_map in enumerate(maps):
-        mass_one = np.asarray(
-            compute_kform_mass_matrix(element_map, 1, base_space, base_space)
-        )
-        local_stiffness = incidence.T @ mass_one @ incidence
-        local_stiffnesses.append(local_stiffness)
         offset = element_id * n0
         rhs[offset : offset + n0] = projection_l2_dual(
             manufactured_source, base_space, element_map
         ).values.flatten()
-    # Element-local operators have no off-diagonal element blocks. Keep that
-    # structure explicit instead of materializing a global dense matrix.
-    stiffness = scipy.sparse.block_diag(
-        [scipy.sparse.csc_matrix(local) for local in local_stiffnesses], format="csc"
-    )
 
     if boundary_condition == "dirichlet":
         boundary_conditions = {
             int(object_id): manufactured_solution
             for _, object_id, _, _ in mesh.iterate_boundary(ndim - 1)
         }
-        global_packed, constraint_rhs = mesh.compute_kform_global_constraints(
+        constraints, constraint_rhs = mesh.compute_kform_global_constraints(
             element_specs, maps, boundary_conditions
         )
-        constraints = packed_to_sparse(global_packed, element_specs)
     else:
-        gauge = scipy.sparse.csr_matrix(([1.0], ([0], [0])), shape=(1, total_dofs))
-        constraints = scipy.sparse.vstack((continuity, gauge), format="csr")
-        constraint_rhs = np.zeros(constraints.shape[0])
-        constraint_rhs[-1] = 1.0
-    saddle = scipy.sparse.bmat(
-        [
-            [stiffness, constraints.T],
-            [constraints, None],
-        ],
-        format="csc",
+        constraints, constraint_rhs = gauge_row(packed, 0)
+
+    geometry = MeshGeometry.from_elements(*maps)
+    structure = MeshKFormSpecs.from_space(ndim, [("u", 0)], base_space, len(maps))
+    result = solve_hybridized(
+        geometry,
+        structure,
+        rhs,
+        constraints,
+        constraint_rhs,
+        laplace_stiffness,
     )
-    # The sparse LU factorization both solves the augmented system and
-    # certifies nonsingularity for this diagnostic example.
-    factor = scipy.sparse.linalg.splu(saddle)
-    solution = factor.solve(np.concatenate((rhs, constraint_rhs)))[:total_dofs]
-    constraint_residual = float(
-        np.max(np.abs(constraints @ solution - constraint_rhs), initial=0.0)
-    )
+    solution = np.concatenate(result.element_dofs)
+    constraint_residual = result.constraint_residual
     if constraint_residual > 1.0e-10:
         raise RuntimeError(
             f"0-form boundary/continuity residual is too large: {constraint_residual:.3e}"
@@ -390,16 +386,14 @@ def solve_direct_laplace(
             * np.abs(element_map.determinant)
             * element_map.integration_space.weights()
         )
-    rank = int(saddle.shape[0])
-    expected_rank = saddle.shape[0]
-    if rank != expected_rank:
-        raise RuntimeError(f"Saddle system is rank deficient: {rank}/{expected_rank}")
+    # The block solve certified the system nonsingular, so its size is its rank.
+    rank = total_dofs + constraints[0].size - 1
     return (
         solution,
         continuity,
         float(np.sqrt(error_squared)),
         rank,
-        constraints.shape[0],
+        constraints[0].size - 1,
         constraint_residual,
     )
 

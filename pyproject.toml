@@ -5,11 +5,18 @@ authors = [{ name = "Jan Roth", email = "r0th.j4n@gmail.com" }]
 description = "Finite Differential Geometry library for Python."
 requires-python = ">=3.11"
 dependencies = [
+    "hybsol",
     "numpy>=2.0.0",
     "pillow>=10.0",
     "pyvista>=0.48.4",
     "scipy>=1.17.1",
 ]
+
+
+[tool.uv.sources]
+# The block solver is a submodule of this repository; build it from the
+# checkout so the two move together.
+hybsol = { path = "hybridized-solver", editable = true }
 
 
 [build-system]
@@ -72,7 +79,14 @@ skip = "sandbox/*"
 count = true
 
 [tool.ruff]
-exclude = [".venv", ".nox", ".pytest_cache", ".vscode", "doc"]
+exclude = [
+    ".venv",
+    ".nox",
+    ".pytest_cache",
+    ".vscode",
+    "doc",
+    "hybridized-solver",
+]
 line-length = 90
 
 [tool.ruff.format]
@@ -92,7 +106,7 @@ unfixable = []
 convention = "numpy"
 
 [tool.pytest]
-addopts = ["--doctest-modules", "-ra", "--cov=fdg", "--ignore=cpyutl"]
+addopts = ["--doctest-modules", "-ra", "--cov=fdg", "--ignore=hybridized-solver/cpyutl"]
 testpaths = ["tests", "src"]
 console_output_style = "count"
 

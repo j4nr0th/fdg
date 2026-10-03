@@ -101,13 +101,13 @@ sphinx_gallery_conf = {
 # https://hawkmoth.readthedocs.io/en/stable/extension.html#configuration
 hawkmoth_root = str((Path(__file__).parent.parent / "src").absolute())
 hawkmoth_transform_default = "javadoc"
-# The repository root and the cutl submodule header directory are on the
-# include path so that headers referencing the cutl submodule
-# (`#include <cutl/...>`) parse correctly.
+# The repository root and the cutl header directory are on the include path so
+# that headers referencing cutl (`#include <cutl/...>`) parse correctly. cutl
+# ships with the hybridized-solver submodule.
 hawkmoth_clang = [
     "--std=c17",
     "-I",
     str((Path(__file__).parent.parent).absolute()),
     "-I",
-    str((Path(__file__).parent.parent / "cutl" / "include").absolute()),
+    str((Path(__file__).parent.parent / "hybridized-solver" / "cutl" / "include").absolute()),
 ]

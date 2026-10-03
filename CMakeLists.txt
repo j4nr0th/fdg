@@ -126,10 +126,19 @@ add_library(fdg STATIC
         ${TOPOLOGY_SOURCE_FILES}
 )
 
-add_subdirectory(cutl)
+# hybridized-solver has own cutl and cpyutl
+set(HYBSOL_BUILD_PYTHON OFF CACHE BOOL "" FORCE)
+set(HYBSOL_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+
+# cutl's checks are CUTL_ASSERTs
+option(CUTL_ASSERTS "Enable cutl's internal consistency checks." ON)
+add_subdirectory(hybridized-solver EXCLUDE_FROM_ALL)
+
+# hybsol only adds cpyutl for its Python bindings
+add_subdirectory(hybridized-solver/cpyutl)
 
 set_property(TARGET fdg PROPERTY C_STANDARD 17)
-target_link_libraries(fdg PUBLIC m OpenMP::OpenMP_C cutl)
+target_link_libraries(fdg PUBLIC m OpenMP::OpenMP_C hybsol::hybsol)
 if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
     target_compile_options(fdg PRIVATE -Wall -Wextra -Werror -fanalyzer -Werror)
 endif ()
@@ -156,9 +165,7 @@ Python_add_library(_fdg MODULE
         ${PYTHON_NUMERICS_SOURCE_FILES}
         WITH_SOABI)
 
-add_subdirectory(cpyutl)
-
-target_link_libraries(_fdg PRIVATE fdg cpyutl cutl)
+target_link_libraries(_fdg PRIVATE fdg cpyutl)
 set_property(TARGET _fdg PROPERTY C_STANDARD 17)
 set_property(TARGET _fdg PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
 install(TARGETS _fdg DESTINATION ${SKBUILD_PROJECT_NAME})
@@ -167,7 +174,7 @@ target_compile_definitions(_fdg PRIVATE CPYUTL_ENABLE_ASSERTS)
 if ("${NumPy_INCLUDE_DIRS}" STREQUAL "")
     message(FATAL_ERROR "NumPy_INCLUDE_DIRS was empty.")
 endif ()
-target_include_directories(_fdg PRIVATE ${NumPy_INCLUDE_DIRS} ${Python_INCLUDE_DIRS} cpyutl/src)
+target_include_directories(_fdg PRIVATE ${NumPy_INCLUDE_DIRS} ${Python_INCLUDE_DIRS})
 
 if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
     target_compile_options(_fdg PRIVATE -Wall -Wextra -Werror)
