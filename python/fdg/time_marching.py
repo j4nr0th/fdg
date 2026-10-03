@@ -26,6 +26,15 @@ a run grows like :math:`n_{\text{steps}} \cdot \text{tolerance}`. Gauss--Lobatto
 nodes give the Lobatto collocation methods, which are supported but do not
 carry the quadratic invariant guarantee.
 
+Time-varying boundary conditions and other time-dependent forcing are carried
+by the second argument of the residual, which is evaluated at the exact time
+of every stage. The order :math:`2s` is retained for a residual that depends
+on :math:`t`. The conservation guarantee applies to the invariants of the
+resulting system: a system driven by time-dependent data has no quadratic
+invariant, because the forcing changes the energy, and the scheme then
+conserves whatever the extended system does conserve rather than the
+unforced energy.
+
 A hybridized 1-form variant in time, which introduces trace unknowns on the
 slab interfaces, is a planned sibling of this module and reuses the fixed-point
 driver and the driver loop below.
@@ -299,7 +308,7 @@ def march(
 ) -> MarchResult:
     r"""March a semi-discrete system in time with a geometric scheme.
 
-    The system is given as :math:`M \\, \\mathrm{d}y / \\mathrm{d}t = r(y, t)`
+    The system is given as :math:`M \, \mathrm{d}y / \mathrm{d}t = r(y, t)`
     with an initial state. On every time slab the state is discretized as a
     0-form on the integration rule of the collocation tableau, and the slab
     system is solved by fixed-point iteration with Anderson acceleration. The
@@ -308,10 +317,16 @@ def march(
     semi-discrete system are conserved up to the iteration tolerance and
     round-off; Gauss--Lobatto rules conserve only linear invariants.
 
+    The residual receives the exact time of each stage, so time-varying
+    boundary conditions and other time-dependent data are expressed directly
+    in it, and the order of the scheme is unaffected by that dependence.
+
     Parameters
     ----------
     residual : callable
-        Function computing :math:`r(y, t)` for a state and a time.
+        Function computing :math:`r(y, t)` for a state and a time. The time
+        argument carries the exact stage time, which allows the residual to
+        depend on time-varying boundary data.
     y0 : array
         Initial state at time :math:`t_0`.
     dt : float or sequence of float

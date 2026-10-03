@@ -247,3 +247,54 @@ def test_invalid_mass_shape_raises() -> None:
             2,
             mass=np.eye(3),
         )
+
+
+def test_residual_sees_exact_stage_times() -> None:
+    """The residual is evaluated at the exact stage times of every slab."""
+    seen: list[float] = []
+
+    def probe(y: np.ndarray, t: float) -> np.ndarray:
+        seen.append(float(t))
+        return -y
+
+    result = march(probe, np.array([1.0]), 0.1, 2, stages=3, tolerance=1e-12)
+    tableau = collocation_tableau(3)
+
+    expected = {
+        round(float(t), 10)
+        for base in (0.0, 0.1)
+        for t in (base + 0.05 * (tableau.nodes + 1.0))
+    }
+    assert {round(t, 10) for t in seen} == expected
+    assert result.states.shape == (3, 1)
+
+
+@pytest.mark.parametrize("stages", [1, 2, 3])
+def test_time_dependent_forcing_keeps_order(stages: int) -> None:
+    """A residual depending on time retains the order of two per stage."""
+    decay = np.array([-1.0, -2.0])
+    offset = np.array([1.0, 0.5])
+    slope = np.array([0.7, -0.3])
+
+    # Forcing chosen so the exact solution is known in closed form:
+    #     y(t) = offset * exp(decay * t) * (1 + slope * t)
+    def forcing(t: float) -> np.ndarray:
+        return offset * slope * np.exp(decay * t)
+
+    def exact(t: float) -> np.ndarray:
+        return offset * np.exp(decay * t) * (1.0 + slope * t)
+
+    errors = []
+    for step_size in (0.2, 0.1):
+        result = march(
+            lambda y, t: decay * y + forcing(t),
+            offset.copy(),
+            step_size,
+            int(round(1.0 / step_size)),
+            stages=stages,
+            tolerance=1e-13,
+        )
+        errors.append(np.max(np.abs(result.final_state - exact(1.0))))
+
+    observed = np.log2(errors[0] / errors[1])
+    assert 2 * stages - 0.3 <= observed <= 2 * stages + 0.5

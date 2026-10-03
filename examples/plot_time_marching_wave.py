@@ -277,6 +277,72 @@ plt.show()
 
 # %%
 #
+# # Time-varying boundary conditions
+# #
+# # The residual receives the exact time of every stage, so time-varying data
+# # enters directly through it and the order of the scheme is unaffected. The
+# # energy is no longer an invariant here: the forcing supplies it. What the
+# # scheme still guarantees is that the energy follows the discrete balance law
+# # of the semi-discrete system, and that the solution converges at order
+# # :math:`2s` against a known closed form.
+#
+# # The system below is driven by :math:`g(t)`, chosen so that
+# # :math:`y(t) = c \, e^{\lambda t} (1 + b t)` is the exact solution.
+#
+
+print("\nTime-varying boundary conditions")
+print("--------------------------------")
+
+decay = np.array([-1.0, -2.0])
+offset = np.array([1.0, 0.5])
+slope = np.array([0.7, -0.3])
+
+
+def forcing(t: float) -> np.ndarray:
+    """Return the time-dependent boundary forcing at time ``t``."""
+    return offset * slope * np.exp(decay * t)
+
+
+def exact_solution(t: float) -> np.ndarray:
+    """Return the closed-form solution of the forced system."""
+    return offset * np.exp(decay * t) * (1.0 + slope * t)
+
+
+fig, ax = plt.subplots()
+for stages in (1, 2, 3):
+    errors = []
+    for size in STEP_SIZES:
+        steps = int(round(FINAL_TIME / size))
+        run = march(
+            lambda y, t: decay * y + forcing(t),
+            offset.copy(),
+            size,
+            steps,
+            stages=stages,
+            tolerance=1e-13,
+        )
+        errors.append(np.max(np.abs(run.final_state - exact_solution(1.0))))
+
+    observed = [np.log2(errors[i] / errors[i + 1]) for i in range(len(errors) - 1)]
+    print(
+        f"stages {stages}: errors "
+        f"{['%.3e' % e for e in errors]} "
+        f"observed order {['%.2f' % o for o in observed]}"
+    )
+    ax.loglog(STEP_SIZES, errors, "o-", label=rf"$s = {stages}$")
+
+ax.set(
+    xlabel=r"$\Delta t$",
+    ylabel=r"$L^\infty$ error",
+    title="Convergence with time-varying forcing",
+)
+ax.legend()
+ax.grid()
+fig.tight_layout()
+plt.show()
+
+# %%
+#
 # # The tableau in time
 # #
 # # The stage values of the scheme are the values of a 0-form on the nodes of
