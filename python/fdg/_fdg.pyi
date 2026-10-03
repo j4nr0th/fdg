@@ -2438,7 +2438,7 @@ def incidence_kform_operator(
     Parameters
     ----------
     specs : KFormSpecs
-        Specifications of the input k-form on which this operator is to be applied on.
+        Specifications of the input k-form on which this operator is applied.
 
     values : array
         Degrees of freedom of all components of the input, flattened into one axis.
@@ -2502,7 +2502,7 @@ def incidence_operator(
         selected by ``axis`` must have size ``specs.order + 1``.
 
     specs : BasisSpecs
-        Specifications for basis that determine what set of polynomial is used to take
+        Specifications for the basis that determines which polynomials are used to take
         the derivative.
 
     axis : int, default: 0
@@ -2612,11 +2612,7 @@ def compute_gradient_mass_matrix(
     integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
     basis_registry: BasisRegistry = DEFAULT_BASIS_REGISTRY,
 ) -> npt.NDArray[np.double]:
-    """Compute the mass matrix between two function spaces.
-
-    The purpose of this function is to compute the matrix, which transfers
-    the contribution of derivative along the reference space dimension
-    to the physical space derivative.
+    """Compute the mass matrix that transfers a reference derivative to a physical one.
 
     Parameters
     ----------

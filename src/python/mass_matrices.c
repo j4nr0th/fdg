@@ -550,11 +550,7 @@ PyDoc_STRVAR(compute_gradient_mass_matrix_docstring,
              "IntegrationSpace | SpaceMap, /, idx_in: int, idx_out: int, *, "
              "integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY, basis_registry: BasisRegistry "
              "= DEFAULT_BASIS_REGISTRY) -> numpy.typing.NDArray[numpy.double]\n"
-             "Compute the mass matrix between two function spaces.\n"
-             "\n"
-             "The purpose of this function is to compute the matrix, which transfers\n"
-             "the contribution of derivative along the reference space dimension\n"
-             "to the physical space derivative.\n"
+             "Compute the mass matrix that transfers a reference derivative to a physical one.\n"
              "\n"
              "Parameters\n"
              "----------\n"
@@ -1092,16 +1088,13 @@ static void compute_interior_product_component_weights(
     // k == n → right transform is all 1 / determinant (transform_array_right NULL), one right component.
     if (k == 1)
     {
-        // In one dimension this branch also covers k == n_maps, and it is taken first.
-        // Its transform is 1 / determinant, which the final scaling in
-        // compute_interior_product_weights cancels for this branch.
+        // In 1D this branch also covers k == n_maps, and it is tested first.
         CUTL_ASSERT(transform_array_left == NULL, "Left transform array should be NULL for k = 1.");
         CUTL_ASSERT(transform_array_right != NULL, "Right transform array for right component should not be NULL.");
-        // Add contributions of left, right, and vector field (but left is always 1)
+        // The left transform is one here, so only the right one and the field contribute.
         for (size_t i = 0; i < int_pts; ++i)
         {
-            const double dp =
-                /*transform_array_left[i] **/ transform_array_right[i] * vector_field_components[idim * int_pts + i];
+            const double dp = transform_array_right[i] * vector_field_components[idim * int_pts + i];
             if (!negate)
             {
                 integration_weights[i] += dp;
@@ -1215,12 +1208,9 @@ static void compute_interior_product_weights(
         }
     }
 
-    // Finally, scale all resulting weights by integration rule weights and determinant.
-    // The determinant is only dropped for the k == n_maps branch, whose transform is
-    // 1 / determinant and therefore cancels it out. The k == 1 branch does not cancel
-    // anything, and it is the branch taken when n_maps == order == 1 (the k == 1 case is
-    // tested first in compute_interior_product_component_weights), so it must keep the
-    // determinant.
+    // Scale by the integration rule weight. The determinant cancels only in the k == n_maps
+    // branch, whose transform is 1 / determinant; the k == 1 branch keeps it, and in 1D that is
+    // the branch that runs (it is tested first in the component weights).
     size_t integration_pt_idx = 0;
     if (order != n_maps || order == 1)
     {
@@ -1233,7 +1223,7 @@ static void compute_interior_product_weights(
     }
     else // if (order == n_maps)
     {
-        // Here we do not multiply with determinant, since we implicitly canceled it out when computing weights
+        // The determinant was already canceled by the 1 / determinant transform.
         for (multidim_iterator_set_to_start(iter_int_pts); !multidim_iterator_is_at_end(iter_int_pts);
              multidim_iterator_advance(iter_int_pts, n_dims - 1, 1), ++integration_pt_idx)
         {

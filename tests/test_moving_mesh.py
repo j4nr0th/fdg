@@ -91,16 +91,13 @@ def test_lie_derivative_of_volume_form() -> None:
     smap = maps[0]
     volume = _form_dofs(np.full(NODES.size, scale))
 
-    # A constant physical velocity has vanishing divergence, so it leaves the
-    # volume form invariant.
+    # A constant physical velocity has vanishing divergence.
     constant = lie_derivative_operator(
         smap, TOP_FORM, np.ascontiguousarray(np.full((1, NODES.size), 0.7))
     )
     assert np.max(np.abs(constant @ volume)) < 1e-10
 
-    # A velocity linear in the physical coordinate has constant divergence,
-    # so the Lie derivative of the volume form is that gradient times the
-    # volume form.
+    # A velocity linear in the physical coordinate has constant divergence.
     gradient = 0.3
     linear = lie_derivative_operator(
         smap,
@@ -140,16 +137,13 @@ def test_lie_derivative_on_non_affine_map(nonlinearity: float) -> None:
 
     base = smap_of(1.0)
     scaled = smap_of(2.0)
-    # A constant physical velocity is sampled identically at the integration
-    # points of both maps, so the two operators are directly comparable.
+    # A constant velocity is sampled identically at both maps' points.
     velocity = np.ascontiguousarray(np.full((1, NODES.size), 0.7))
 
     single = lie_derivative_operator(base, TOP_FORM, velocity)
     double = lie_derivative_operator(scaled, TOP_FORM, velocity)
 
-    # Rescaling the element rescales the Jacobian determinant by two, and the
-    # operator must follow exactly. This is the property that a missing or an
-    # extra determinant factor in the assembly would break.
+    # A wrong determinant factor in the assembly would break this ratio.
     ratio = np.max(np.abs(single)) / np.max(np.abs(double))
     assert abs(ratio - 2.0) < 1e-9
 
@@ -259,8 +253,7 @@ def test_mass_follows_the_stretch() -> None:
 
 def test_march_with_time_dependent_mass() -> None:
     """A march with a moving mesh keeps the order of two per stage."""
-    # The system is M(t) y' = -M(t) D y with D diagonal, so the exact solution
-    # is componentwise exponential decay. Only the mass matrix depends on time.
+    # M(t) y' = -M(t) D y with D diagonal decays componentwise exponentially.
     decay = np.linspace(0.1, 0.5, ORDER_BASIS)
 
     def march_decaying(step_size: float, stages: int) -> np.ndarray:
@@ -311,8 +304,7 @@ def test_free_stream_preservation_top_form() -> None:
     factory = mesh.mass_factory(TOP_FORM)
 
     def residual(state: np.ndarray, t: float) -> np.ndarray:
-        # Transport by the mesh velocity alone: in the reference frame this is
-        # exactly the Lie derivative term of the moving mesh.
+        # Transport by the mesh velocity alone: the Lie derivative term.
         step, stage = _stage_index(mesh, t)
         smap = mesh.space_maps(step, stage)[0]
         velocity = mesh.velocity(step, stage)[0]
@@ -328,9 +320,7 @@ def test_free_stream_preservation_top_form() -> None:
         tolerance=1e-12,
         mass=factory,
     )
-    # The scheme stops each slab at the fixed-point tolerance, so the defect
-    # accumulates over the run at roughly n_steps times the tolerance per
-    # slab; two hundred steps stay far below the mesh scale.
+    # The defect accumulates at roughly n_steps times the tolerance.
     assert np.max(np.abs(result.final_state - initial)) < 1e-8
 
 
@@ -407,8 +397,7 @@ def test_velocity_on_curved_mesh() -> None:
         exact = CURVATURE * OMEGA * np.cos(OMEGA * mesh.stage_time(step, 1)) * NODES**3
         assert np.max(np.abs(velocity - exact)) < 1e-5
 
-    # A motion that is a polynomial of degree at most stages - 1 in time is
-    # differentiated exactly.
+    # A motion of degree at most stages - 1 in time is differentiated exactly.
     reference = np.linspace(-1.0, 1.0, ORDER_BASIS + 1)
 
     def linear_motion(t: float) -> np.ndarray:

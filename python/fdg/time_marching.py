@@ -138,9 +138,7 @@ def _integration_matrix(
         Entries :math:`A_{kj}` of the integration matrix.
     """
     stages = nodes.size
-    # Columns of the Vandermonde matrix are the Legendre polynomials of
-    # increasing degree evaluated at the nodes; the last column is needed for
-    # the primitive of the highest monomial.
+    # The last column is the extra one the primitive of the highest monomial needs.
     vander = legvander(nodes, stages)
     degrees = np.arange(stages)
     coefficients = 0.5 * (2.0 * degrees + 1.0) * vander[:, :stages] * weights[:, None]
@@ -245,8 +243,7 @@ def _stage_residuals(
     values = np.empty_like(stage_dofs)
     for k in range(stages):
         values[k] = residual(np.ascontiguousarray(stage_dofs[k]), float(stage_times[k]))
-        # scipy.linalg.lu_solve takes a single right-hand side, so the stage
-        # systems are solved one after another.
+        # lu_solve takes one right-hand side at a time.
         if stage_factors[k] is not None:
             values[k] = lu_solve(stage_factors[k], values[k])
 
@@ -431,12 +428,14 @@ def march(
 
     for step in range(n_steps):
         step_size = float(sizes[step])
-        next_time = time + step_size
+        # Derived from the cumulative step sizes so that a caller comparing
+        # against its own stage times sees bit-identical values.
+        time = float(t0) + float(np.sum(sizes[:step]))
+        next_time = float(t0) + float(np.sum(sizes[: step + 1]))
         scale = 0.5 * step_size
         stage_times = time + scale * (tableau.nodes + 1.0)
-        # A constant mass matrix is factored once and shared by every stage; a
-        # time-dependent one is factored per stage of this slab, so the
-        # repeated fixed-point calls below never re-factorize.
+        # A constant mass is factored once; a time-dependent one is factored per stage
+        # here, so the fixed-point calls below never refactorize.
         if mass_factory is None:
             stage_factors = [constant_factors] * tableau.stages
         else:

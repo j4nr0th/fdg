@@ -522,7 +522,7 @@ class MovingMesh:
         """
         return self._stage(step, stage).velocity
 
-    def stage_masses(self, specs: KFormSpecs) -> list[list[npt.NDArray[np.double]]]:
+    def stage_masses(self, specs: KFormSpecs) -> list[list[list[npt.NDArray[np.double]]]]:
         """Return the per-element mass matrices at every stage.
 
         Parameters
@@ -532,14 +532,15 @@ class MovingMesh:
 
         Returns
         -------
-        list of list of array
-            One entry per step, each with one mass matrix per stage and
-            element.
+        list of list of list of array
+            One entry per step, then per stage, then per element.
         """
         return [
-            [stage_mass(smap, specs) for smap in self.space_maps(step, stage)]
+            [
+                [stage_mass(smap, specs) for smap in self.space_maps(step, stage)]
+                for stage in range(self._stages)
+            ]
             for step in range(self._stage_times.shape[0])
-            for stage in [0]
         ]
 
     def mass_factory(
