@@ -34,10 +34,10 @@ collocation nodes of every slab, which makes the mesh velocity an exact
 spectral derivative of that interpolant rather than a finite difference. The
 same tableau that integrates the state differentiates the geometry.
 
-The mesh motion is exact for an arbitrary element: the velocity is passed to
-the interior product as its physical components, and the map applies its own
-metric factors, so uniform stretch, translation and non-affine deformation are
-all covered.
+The velocity is passed to the interior product as its physical components,
+which is what that function documents; the map then applies its own metric
+factors. Uniform stretch, translation and curved deformation are all covered
+for the mesh motion itself; see the scope note below for the operators.
 
 The fluid-structure pattern uses the same primitives with the geometry as part
 of the state: the geometry degrees of freedom are appended to the marched
@@ -45,6 +45,38 @@ vector, and the residual rebuilds the maps of the current iterate with
 :func:`space_maps_from_geometry_dofs`. The coupled system is autonomous in that
 case, so its quadratic invariants are conserved exactly by the Gauss
 collocation scheme.
+
+.. _fdg_moving_mesh_scope:
+
+Scope of the operators
+----------------------
+
+:func:`lie_derivative_operator` and :func:`advection_operator` are assembled and
+verified for the top form of a one-dimensional element, which is the case the
+moving-mesh march uses. The building blocks they compose are all available for every
+``0 <= k <= ndim``, and the shapes work out in higher dimensions: an incidence
+matrix built from ``incidence_kform_operator(specs, np.eye(n_k))`` is
+``(n_{k+1}, n_k)``, an empty ``(0, n_k)`` when ``k == ndim``, and the interior
+product returns the weak pairing ``(n_{k-1}, n_k)`` for a ``k`` form.
+
+What is still open is the metric the strong form has to undo. Two facts are
+established and are worth keeping:
+
+* the incidence operator is exact on the standard degrees of freedom, in the
+  sense that ``incidence_kform_operator(KFormSpecs(0, b), eye(n_0)) @ dofs(f)``
+  reproduces ``dofs(f')`` to about 1e-13, and
+* the interior product reproduces the weak pairing
+  ``int psi_a (w . phi_b) dxi`` to about 1e-16 with the vector field supplied
+  as unscaled physical components, which is what
+  :func:`~fdg.compute_kform_interior_product_matrix` documents.
+
+Turning the weak pairing into strong degrees of freedom inverts the row mass
+that pairs with it, and that mass is where the determinant enters. On an affine
+map the determinant is constant and any consistent choice gives the same
+operator to machine precision; on a curved map the choices differ, and the one
+that reproduces :math:`\mathrm{d}(c\,w)` has not yet been pinned down. Until it
+is, these two operators are documented as one-dimensional and affine only,
+rather than being reported as general.
 """
 
 from collections.abc import Callable, Sequence
