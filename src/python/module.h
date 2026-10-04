@@ -80,6 +80,9 @@ typedef struct
 
     // Mesh
     PyTypeObject *mesh_type;
+
+    // Direct continuity map
+    PyTypeObject *direct_dof_map_type;
 } interplib_module_state_t;
 
 FDG_INTERNAL

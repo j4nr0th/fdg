@@ -22,6 +22,11 @@ to the `hybsol <https://github.com/j4nr0th/hybridized-solver>`_ block solver.
 No Schur complement is formed, and the multipliers come out of the same solve
 rather than from a second, condensed system.
 
+The :ref:`direct formulation <fdg_direct_continuity>` assembles the same
+continuity the other way round: it keeps the degrees of freedom of a shared
+object instead of eliminating them, which removes the multiplier block
+entirely at the cost of a transfer of the element matrices.
+
 The block structure
 -------------------
 

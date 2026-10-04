@@ -140,6 +140,10 @@ add_executable(test_constraints operations/test_constraints.c)
 target_link_libraries(test_constraints PRIVATE test_common)
 add_test(NAME constraints COMMAND test_constraints)
 
+add_executable(test_direct_continuity constraints/test_direct_continuity.c)
+target_link_libraries(test_direct_continuity PRIVATE test_common)
+add_test(NAME direct_continuity COMMAND test_direct_continuity)
+
 ## Boundary space map resample
 add_executable(test_boundary_space_map_resample operations/test_boundary_space_map_resample.c)
 target_link_libraries(test_boundary_space_map_resample PRIVATE test_common)

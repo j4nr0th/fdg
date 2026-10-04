@@ -5,6 +5,7 @@
 #include "constraints.h"
 #include "cpyutl.h"
 #include "cutl/iterators/combination_iterator.h"
+#include "direct_continuity.h"
 #include "kform_objects.h"
 #include "mappings.h"
 #include "module.h"
@@ -2074,6 +2075,52 @@ static PyMethodDef mesh_methods[] = {
                   "rhs : array\n"
                   "    ``double`` prescribed value per packed constraint row. Shared and\n"
                   "    periodic rows have zero right-hand side.\n",
+    },
+    {
+        .ml_name = "compute_kform_direct_dof_map",
+        .ml_meth = (void *)mesh_compute_kform_direct_dof_map,
+        .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
+        .ml_doc = "compute_kform_direct_dof_map(element_specs, /, *, "
+                  "integration_registry=DEFAULT_INTEGRATION_REGISTRY, "
+                  "basis_registry=DEFAULT_BASIS_REGISTRY) -> DirectDofMap\n"
+                  "Build the element-to-global transfer of one direct continuity map.\n"
+                  "\n"
+                  "Unlike :meth:`compute_kform_continuity_constraints`, which returns\n"
+                  "rows to eliminate, this numbers every degree of freedom of the mesh\n"
+                  "once and expresses each element-local degree of freedom in that\n"
+                  "numbering directly, so no constraint elimination is needed. Every\n"
+                  "degree of freedom of the global space lives on the shared object it\n"
+                  "belongs to; a degree of freedom whose element carries a higher order\n"
+                  "than the object's common space gets several entries whose weighted\n"
+                  "combination reconstructs it.\n"
+                  "\n"
+                  "The map is built in reference space, so no geometry is involved. It\n"
+                  "locates every degree of freedom by the node it sits on, so each axis\n"
+                  "of every element specification must name a Lagrange family with a\n"
+                  "positive order, and all elements must carry the same order on an axis.\n"
+                  "\n"
+                  "Parameters\n"
+                  "----------\n"
+                  "element_specs : Sequence[KFormSpecs]\n"
+                  "    One volume k-form specification per mesh element. The sequence\n"
+                  "    must contain exactly ``element_count`` entries. All specifications\n"
+                  "    must have the mesh dimension and the same k-form degree, and all\n"
+                  "    must carry the same basis order on every axis.\n"
+                  "\n"
+                  "integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY\n"
+                  "    Registry to get the transfer's quadrature from.\n"
+                  "\n"
+                  "basis_registry : BasisRegistry, default: DEFAULT_BASIS_REGISTRY\n"
+                  "    Registry to get the transfer's basis tables from.\n"
+                  "\n"
+                  "Returns\n"
+                  "-------\n"
+                  "DirectDofMap\n"
+                  "    The transfer, with the sizes ``global_dof_count``,\n"
+                  "    ``element_dof_count`` and ``entry_count``, the per-element offsets\n"
+                  "    ``element_offsets`` and ``element_interior_offsets``, and the\n"
+                  "    row-compressed entries ``entry_offsets``, ``entry_index`` and\n"
+                  "    ``entry_value``.\n",
     },
     {},
 };

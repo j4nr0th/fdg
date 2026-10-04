@@ -1453,6 +1453,77 @@ class KForm:
         """
         ...
 
+@final
+class DirectDofMap:
+    """Element-to-global transfer of one direct continuity map.
+
+    Degrees of freedom are numbered once, on the shared objects the elements
+    share plus their element-private ones. The transfer is row-compressed:
+    element-local degree of freedom ``l`` owns the entries
+    ``[entry_offsets[l], entry_offsets[l + 1])``, each naming one global
+    degree of freedom in :attr:`entry_index` with a coefficient in
+    :attr:`entry_value`; a degree of freedom whose element carries a higher
+    order than the object's common space owns several entries whose weighted
+    combination reconstructs it.
+
+    The type cannot be instantiated directly; use
+    :meth:`Mesh.compute_kform_direct_dof_map`.
+    """
+
+    @property
+    def global_dof_count(self) -> int:
+        """Size of the global unknown vector the map numbers."""
+        ...
+
+    @property
+    def element_dof_count(self) -> int:
+        """Sum of the elements' local degree-of-freedom counts."""
+        ...
+
+    @property
+    def entry_count(self) -> int:
+        """Nonzeros of the transfer."""
+        ...
+
+    @property
+    def element_offsets(self) -> npt.NDArray[np.int64]:
+        """Local degree-of-freedom offsets of every element.
+
+        The array has ``element_count + 1`` entries: the degrees of freedom of
+        element ``i`` are numbered from ``element_offsets[i]`` up to but
+        excluding ``element_offsets[i + 1]`` in :attr:`entry_offsets`.
+        """
+        ...
+
+    @property
+    def element_interior_offsets(self) -> npt.NDArray[np.int64]:
+        """Element-private degree-of-freedom offsets of every element.
+
+        The array has ``element_count + 1`` entries, uses the same numbering
+        as :attr:`element_offsets` and starts after the last shared object's
+        block.
+        """
+        ...
+
+    @property
+    def entry_offsets(self) -> npt.NDArray[np.int64]:
+        """Row offsets of the transfer.
+
+        The array has ``element_dof_count + 1`` entries. Entry ``i`` belongs to
+        ``[entry_offsets[i], entry_offsets[i + 1])``.
+        """
+        ...
+
+    @property
+    def entry_index(self) -> npt.NDArray[np.int64]:
+        """Global degree of freedom of every entry."""
+        ...
+
+    @property
+    def entry_value(self) -> npt.NDArray[np.float64]:
+        """Coefficient of every entry."""
+        ...
+
 # Fields of a mesh iteration tuple: (mdim, object_id, element_ids, orientations).
 # ``orientations`` has shape (element_count, ndim); row ``i`` is the orientation
 # record of ``element_ids[i]``.
@@ -1783,6 +1854,55 @@ class Mesh:
         rhs : array
             ``double`` prescribed value per packed constraint row. Shared and
             periodic rows have zero right-hand side.
+        """
+        ...
+    def compute_kform_direct_dof_map(
+        self,
+        element_specs: Sequence[KFormSpecs],
+        /,
+        *,
+        integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
+        basis_registry: BasisRegistry = DEFAULT_BASIS_REGISTRY,
+    ) -> DirectDofMap:
+        """Build the element-to-global transfer of one direct continuity map.
+
+        Every degree of freedom of the mesh is numbered once, so a continuous
+        global solution is assembled without any constraint elimination.
+
+        The map is built in reference space, so no geometry is involved.
+        Degrees of freedom are located by the node they sit on, so every axis
+        of every specification must name a Lagrange family with a positive
+        order. Elements may disagree on the order of an axis: a shared object
+        takes the minimum over its incident elements, and an element above
+        that minimum has its trace projected onto the common space, which is
+        what gives one element-local degree of freedom several entries.
+
+        Parameters
+        ----------
+        element_specs : Sequence[KFormSpecs]
+            One volume k-form specification per mesh element. All must have
+            the mesh dimension and the same k-form degree.
+
+        integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY
+            Registry to get the transfer's quadrature from.
+
+        basis_registry : BasisRegistry, default: DEFAULT_BASIS_REGISTRY
+            Registry to get the transfer's basis tables from.
+
+        Returns
+        -------
+        DirectDofMap
+            The row-compressed transfer.
+
+        Raises
+        ------
+        TypeError
+            If a registry is of the wrong type.
+        ValueError
+            If the specification count, the dimensions, the k-form degrees,
+            the basis family or a basis order do not fit one map.
+        RuntimeError
+            If the core fails to build the map.
         """
         ...
 

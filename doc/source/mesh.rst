@@ -85,6 +85,15 @@ The same layout is accepted by :meth:`Mesh.from_collections`, which takes
 the collections of every dimension together with an explicit point count and
 computes the immersion information from them.
 
+.. note::
+
+   Unresolved, deferred to a later session: for an ordinary grid from
+   :meth:`Mesh.from_corners`, the last collection's boundary IDs were observed
+   to exceed :attr:`Mesh.point_count`, where the paragraph above says only the
+   dimension-1 collection holds point IDs. Either this view is misaligned with
+   the C array or the constructor writes out-of-range IDs into it. Code that
+   walks immersions rather than collections is unaffected.
+
 Immersion and orientation
 -------------------------
 
@@ -140,6 +149,11 @@ The mesh offers three iteration families:
   reduced by two on axes that do not carry one of the component's covector
   axes, so shared objects are never over-constrained by higher-order
   neighbours. Components whose reduced order would go negative are skipped.
+- :meth:`Mesh.compute_kform_direct_dof_map` takes the other route: it keeps
+  the degrees of freedom of a shared object and numbers every element-local
+  degree of freedom onto the object that carries it, so element matrices
+  assemble straight onto the global numbering without multipliers.  See
+  :ref:`fdg_direct_continuity`.
 - :meth:`Mesh.iterate_boundary` and :meth:`Mesh.iterate_boundary_all` visit
   the objects that lie on the outer boundary of the mesh: an object lies on
   the boundary when it is contained in a *boundary face*, an object of

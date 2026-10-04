@@ -12,6 +12,7 @@
 // Internal C headers
 #include "../common/error.h"
 #include "basis_objects.h"
+#include "direct_continuity.h"
 #include "integration_objects.h"
 #include "kform_objects.h"
 #include "mappings.h"
@@ -135,6 +136,8 @@ static int interplib_add_types(PyObject *mod)
         (module_state->mesh_type = cpyutl_add_type_from_spec_to_module(mod, &mesh_type_spec, NULL)) == NULL ||
         (module_state->mesh_geometry_type = cpyutl_add_type_from_spec_to_module(mod, &mesh_geometry_type_spec, NULL)) ==
             NULL ||
+        (module_state->direct_dof_map_type =
+             cpyutl_add_type_from_spec_to_module(mod, &direct_dof_map_type_spec, NULL)) == NULL ||
         (module_state->mesh_kform_specs_type =
              cpyutl_add_type_from_spec_to_module(mod, &mesh_kform_specs_type_spec, NULL)) == NULL ||
         (module_state->element_kforms_type =

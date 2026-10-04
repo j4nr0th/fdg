@@ -45,7 +45,8 @@ set(COMMON_HEADER_FILES
 )
 set(CONSTRAINT_SOURCE_FILES
         src/constraints/constraints.c
-        src/constraints/constraints.h
+        src/constraints/direct.c
+        src/constraints/direct.h
 )
 set(KFORM_SOURCE_FILES
         src/kforms/kform_values.c
@@ -153,6 +154,7 @@ set(PYTHON_NUMERICS_SOURCE_FILES
         src/python/mappings.c
         src/python/constraints.c
         src/python/incidence.c
+        src/python/direct_continuity.c
         src/python/covector_basis.c
         src/python/kform_objects.c
         src/python/mesh_objects.c

@@ -29,3 +29,11 @@ pullback, because the load is a metric-free chain integral
 (see :ref:`fdg_boundary_constraints`).
 
 .. c:autodoc:: constraints/constraints.h
+
+The same module also carries the *direct* alternative to hybridized
+continuity, :file:`constraints/direct.h`: it introduces the degrees of freedom
+of a shared object explicitly instead of eliminating them into multipliers,
+and hands back the element-to-global transfer that assembles element matrices
+onto them.  Its concepts are described in :ref:`fdg_direct_continuity`.
+
+.. c:autodoc:: constraints/direct.h

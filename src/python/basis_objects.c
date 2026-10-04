@@ -48,7 +48,8 @@ basis_set_type_t basis_type_from_string(const char *str)
     return get_basis_type(str);
 }
 
-static const char *basis_type_string(const basis_set_type_t type)
+FDG_INTERNAL
+const char *basis_type_to_string(const basis_set_type_t type)
 {
     switch (type)
     {
@@ -288,7 +289,7 @@ static PyObject *basis_specs_get_order(const basis_specs_object *self, void *Py_
 
 static PyObject *basis_specs_get_type(const basis_specs_object *self, void *Py_UNUSED(closure))
 {
-    return PyUnicode_FromString(basis_type_string(self->spec.type));
+    return PyUnicode_FromString(basis_type_to_string(self->spec.type));
 }
 
 /* Get-set table */

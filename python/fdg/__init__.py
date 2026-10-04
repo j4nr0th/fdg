@@ -8,6 +8,7 @@ from fdg._fdg import BasisSpecs as BasisSpecs
 from fdg._fdg import CoordinateMap as CoordinateMap
 from fdg._fdg import CovectorBasis as CovectorBasis
 from fdg._fdg import DegreesOfFreedom as DegreesOfFreedom
+from fdg._fdg import DirectDofMap as DirectDofMap
 from fdg._fdg import ElementDoFs as ElementDoFs
 from fdg._fdg import ElementKForms as ElementKForms
 from fdg._fdg import FunctionSpace as FunctionSpace

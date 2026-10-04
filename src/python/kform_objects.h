@@ -15,9 +15,11 @@ typedef struct
 
 static inline kform_spec_t kform_specs_from_python(const kform_spec_object *this)
 {
-    const Py_ssize_t ndim = Py_SIZE(this);
+    // The variable-length tail of this object holds the component offsets, so Py_SIZE is the component count
+    // plus one; the dimension lives on the base function space.
+    const Py_ssize_t ndim = this->function_space ? Py_SIZE(this->function_space) : 0;
     return (kform_spec_t){
-        .ndim = ndim,
+        .ndim = (unsigned)ndim,
         .order = this->order,
         .basis = ndim ? this->function_space->specs : NULL,
     };

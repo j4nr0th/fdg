@@ -32,6 +32,14 @@
  * the caller must not free them afterwards; every array must have been
  * allocated with the same allocator, and @ref topo_mesh_free releases all of
  * the memory it owns with it.
+ *
+ * Unresolved, deferred to a later session: for an ordinary grid built by
+ * @ref topo_mesh_create_from_corners, the entries of a top-dimension
+ * @ref topo_obj_collection_t::boundary_ids were seen to hold IDs beyond
+ * point_count, so either that Python-facing view is misaligned with this array
+ * or the constructor writes out-of-range IDs into it. Consumers that read the
+ * immersions rather than the collections are unaffected and produce exact
+ * results, which is what narrows it down.
  */
 typedef struct topo_mesh
 {

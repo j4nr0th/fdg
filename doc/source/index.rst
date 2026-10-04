@@ -22,4 +22,5 @@ light on the implementation details and does not include the C code.
    interior_product
    boundary_constraints
    hybridized_solves
+   direct_continuity
    c_api
