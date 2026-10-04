@@ -1,11 +1,8 @@
 """Randomised hunt for crashes and invariant violations in the direct transfer.
 
-Every case is drawn from one seed, so a failure names the seed that reproduces
-it; each case also prints the corners, the per-element orders and the k-form
-order, so it can be rebuilt without rerunning the fuzzer. The suite asserts the
-structural invariants of a conforming transfer, not expected values: it says
-nothing about how big the map ought to be, only about what must hold for any
-size. A violation is a wrong answer unless the process died.
+Every case is drawn from one seed and printed, so a failure reproduces without
+the fuzzer. Only structural invariants are asserted, never expected sizes; a
+violation is a wrong answer unless the process died.
 """
 
 import random
@@ -20,6 +17,8 @@ FAMILIES = (
     BasisType.LAGRANGE_GAUSS,
     BasisType.LAGRANGE_GAUSS_LOBATTO,
     BasisType.LAGRANGE_CHEBYSHEV_GAUSS,
+    BasisType.LEGENDRE,
+    BasisType.BERNSTEIN,
 )
 
 SEED_COUNT = 240
@@ -28,20 +27,7 @@ UNUSED_POINT_SEED_COUNT = 24
 
 
 def grid_corners(ndim: int, cells: int) -> np.ndarray:
-    """Corner point IDs of a structured grid, ``2**ndim`` per element.
-
-    Parameters
-    ----------
-    ndim : int
-        Dimension of the mesh.
-    cells : int
-        Number of cells on every axis.
-
-    Returns
-    -------
-    numpy.ndarray
-        Flat uint64 corner array.
-    """
+    """Corner point IDs of a structured grid, ``2**ndim`` per element."""
     lattice = cells + 1
     corners = np.zeros(cells**ndim * 2**ndim, dtype=np.uint64)
     for element in range(cells**ndim):
@@ -63,18 +49,6 @@ def vertex_fan_corners(ndim: int, element_count: int) -> np.ndarray:
 
     One orthant of the even-parity code per element, so any two elements differ
     on at least two axes.
-
-    Parameters
-    ----------
-    ndim : int
-        Dimension of the mesh.
-    element_count : int
-        Number of orthants to place.
-
-    Returns
-    -------
-    numpy.ndarray
-        Flat uint64 corner array.
     """
     corners: list[int] = []
     seen: dict[tuple[int, ...], int] = {}
@@ -98,22 +72,7 @@ def vertex_fan_corners(ndim: int, element_count: int) -> np.ndarray:
 def draw_case(
     rng: random.Random, max_order: int, max_cells: int
 ) -> tuple[int, np.ndarray, list[tuple[int, ...]], int, BasisType]:
-    """Draw one mesh, one order per element and axis, and one k-form order.
-
-    Parameters
-    ----------
-    rng : random.Random
-        Source of the draw.
-    max_order : int
-        Largest basis order an axis may be drawn with.
-    max_cells : int
-        Largest number of cells a grid may have on an axis.
-
-    Returns
-    -------
-    tuple
-        ``(ndim, corners, orders, kform_order, family)``.
-    """
+    """Draw one mesh, one order per element and axis, and one k-form order."""
     ndim = rng.choice((1, 2, 3))
     kform_order = rng.randrange(ndim + 1)
     family = rng.choice(FAMILIES)
@@ -132,22 +91,7 @@ def draw_case(
 def specs_of(
     orders: list[tuple[int, ...]], kform_order: int, family: BasisType
 ) -> list[KFormSpecs]:
-    """One specification per element, every axis on the given Lagrange family.
-
-    Parameters
-    ----------
-    orders : list of tuple of int
-        Basis order of every axis of every element.
-    kform_order : int
-        Degree of the k-form every element carries.
-    family : BasisType
-        Lagrange family of every axis.
-
-    Returns
-    -------
-    list of KFormSpecs
-        The specifications.
-    """
+    """One specification per element, every axis on the given basis family."""
     return [
         KFormSpecs(kform_order, FunctionSpace(*(BasisSpecs(family, o) for o in axes)))
         for axes in orders
@@ -155,22 +99,7 @@ def specs_of(
 
 
 def relabelled(corners: np.ndarray, ndim: int, permutation: list[int]) -> np.ndarray:
-    """Build the same physical mesh under a different element numbering.
-
-    Parameters
-    ----------
-    corners : numpy.ndarray
-        Flat corner array of the original mesh.
-    ndim : int
-        Dimension of the mesh.
-    permutation : list of int
-        Old element ID that each new element ID carries.
-
-    Returns
-    -------
-    numpy.ndarray
-        Flat uint64 corner array.
-    """
+    """Build the same physical mesh under a different element numbering."""
     block = corners.reshape(-1, 2**ndim)
     return block[np.array(permutation, dtype=np.intp)].reshape(-1)
 
@@ -183,28 +112,7 @@ def describe(
     kform_order: int,
     family: BasisType,
 ) -> str:
-    """Describe the full case, so a failure can be rebuilt without the fuzzer.
-
-    Parameters
-    ----------
-    label : int or str
-        Seed the case was drawn from, or a name for a hand-built case.
-    ndim : int
-        Dimension of the mesh.
-    corners : numpy.ndarray
-        Flat corner array.
-    orders : list of tuple of int
-        Basis order of every axis of every element.
-    kform_order : int
-        Degree of the k-form every element carries.
-    family : BasisType
-        Lagrange family of every axis.
-
-    Returns
-    -------
-    str
-        One reproducible description.
-    """
+    """Describe the full case, so a failure can be rebuilt without the fuzzer."""
     return (
         f"{label}: ndim={ndim} kform_order={kform_order} family={family.name}\n"
         f"corners={np.array2string(corners, threshold=corners.size + 1)}\n"
@@ -220,28 +128,7 @@ def build(
     family: BasisType,
     context: str,
 ) -> DirectDofMap:
-    """Build the map, turning any exception into a failure that names the case.
-
-    Parameters
-    ----------
-    corners : numpy.ndarray
-        Flat corner array.
-    ndim : int
-        Dimension of the mesh.
-    orders : list of tuple of int
-        Basis order of every axis of every element.
-    kform_order : int
-        Degree of the k-form every element carries.
-    family : BasisType
-        Lagrange family of every axis.
-    context : str
-        Case description, appended to the failure.
-
-    Returns
-    -------
-    DirectDofMap
-        The map of the mesh.
-    """
+    """Build the map, turning any exception into a failure that names the case."""
     mesh = Mesh.from_corners(ndim, corners)
     try:
         return mesh.compute_kform_direct_dof_map(specs_of(orders, kform_order, family))
@@ -250,15 +137,7 @@ def build(
 
 
 def check_invariants(dof_map: DirectDofMap, context: str) -> None:
-    """Assert the structural invariants every conforming transfer must satisfy.
-
-    Parameters
-    ----------
-    dof_map : DirectDofMap
-        Map to check.
-    context : str
-        Case description, appended to every failed assertion.
-    """
+    """Assert the structural invariants every conforming transfer must satisfy."""
     element_dofs = dof_map.element_dof_count
     globals_ = dof_map.global_dof_count
     offsets = dof_map.entry_offsets
@@ -309,7 +188,7 @@ def test_random_mesh_holds_every_invariant(seed: int) -> None:
 
 @pytest.mark.parametrize("seed", range(WIDE_ORDER_SEED_COUNT))
 def test_wide_order_gap_holds_every_invariant(seed: int) -> None:
-    """A wide gap to the common order may not overflow the transfer projected through."""
+    """A wide gap between the element and the common order stays well scaled."""
     rng = random.Random(seed + 50_000)
     ndim, corners, orders, kform, family = draw_case(rng, 8, 2)
     context = describe(seed, ndim, corners, orders, kform, family)
@@ -338,8 +217,9 @@ def test_declared_but_unused_points_add_no_unknowns(seed: int) -> None:
 def test_two_quads_project_onto_a_finite_common_space() -> None:
     """A wide order gap must still give finite transfer weights.
 
-    The order-six axis is projected onto the order-five common space of the shared
-    edge; the Gram solve used to overflow here and store infinite weights.
+    The elimination pairs against a Legendre object Gram, so the equispaced-Gram
+    overflow this case once exposed is structurally impossible; finiteness
+    stays pinned.
     """
     corners = np.array([0, 1, 3, 2, 2, 3, 5, 4], dtype=np.uint64)
     orders: list[tuple[int, ...]] = [(5, 1), (6, 1)]

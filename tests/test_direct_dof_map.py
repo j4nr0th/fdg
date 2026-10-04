@@ -1,4 +1,9 @@
-"""Check the direct element-to-global transfer of Mesh.compute_kform_direct_dof_map."""
+"""Check the direct element-to-global transfer of Mesh.compute_kform_direct_dof_map.
+
+Shared objects carry the coefficients of their common windowed Legendre test
+space, each element's transfer combines them with its private free modes, and
+any basis family is accepted while a zero basis order is not.
+"""
 
 import numpy as np
 import pytest
@@ -46,59 +51,116 @@ MESH_2X2 = Mesh.from_corners(2, CORNERS_2X2)
 # Three intervals of the unit interval sharing their end points.
 MESH_LINE = Mesh.from_corners(1, np.array([0, 1, 1, 2, 2, 3], dtype=np.uint64))
 
+# Two intervals [0, 1] and [1, 2] sharing their middle point.
+MESH_LINE_TWO = Mesh.from_corners(1, np.array([0, 1, 1, 2], dtype=np.uint64))
 
-def uniform_space(ndim: int, order: int) -> FunctionSpace:
+
+def uniform_space(
+    ndim: int, order: int, family: BasisType = BasisType.LAGRANGE_UNIFORM
+) -> FunctionSpace:
     """Build a tensor space of the given order on every axis."""
-    return FunctionSpace(
-        *(BasisSpecs(BasisType.LAGRANGE_UNIFORM, order) for _ in range(ndim))
-    )
+    return FunctionSpace(*(BasisSpecs(family, order) for _ in range(ndim)))
 
 
-def specs_of(mesh: Mesh, order: int, kform_order: int = 0) -> list[KFormSpecs]:
+def specs_of(
+    mesh: Mesh,
+    order: int,
+    kform_order: int = 0,
+    family: BasisType = BasisType.LAGRANGE_UNIFORM,
+) -> list[KFormSpecs]:
     """One specification of the given k-form order per element of the mesh."""
-    space = uniform_space(mesh.ndim, order)
+    space = uniform_space(mesh.ndim, order, family)
     return [KFormSpecs(kform_order, space) for _ in range(mesh.element_count)]
 
 
-def global_of_node(dof_map: DirectDofMap, side: int) -> dict[tuple[float, float], int]:
-    """Map every node of the 2x2 grid to the global DoF the elements agree on."""
-    numbered: dict[tuple[float, float], int] = {}
-    for element in range(MESH_2X2.element_count):
-        element_x, element_y = element % 2, element // 2
-        for digit_x in range(side):
-            for digit_y in range(side):
-                local = int(dof_map.element_offsets[element]) + digit_x * side + digit_y
-                entries = list(
-                    range(
-                        int(dof_map.entry_offsets[local]),
-                        int(dof_map.entry_offsets[local + 1]),
-                    )
-                )
-                assert len(entries) == 1
-                entry = entries[0]
-                # Equal basis orders make the transfer the identity: unit coefficients.
-                assert dof_map.entry_value[entry] == pytest.approx(1.0)
-                node = (
-                    element_x + digit_x / (side - 1),
-                    element_y + digit_y / (side - 1),
-                )
-                numbered[node] = int(dof_map.entry_index[entry])
-    return numbered
+def test_line_hand_case_is_exact() -> None:
+    """Two Legendre line elements pin the whole elimination by hand.
+
+    The shared point's window is one constant, so every element degree of
+    freedom maps onto its endpoint unknowns with coefficients 1/2 and +-1/2.
+    """
+    dof_map = MESH_LINE_TWO.compute_kform_direct_dof_map(
+        specs_of(MESH_LINE_TWO, 1, family=BasisType.LEGENDRE)
+    )
+
+    assert dof_map.global_dof_count == 3
+    assert dof_map.element_dof_count == 4
+    # One shared object block per element, nothing element-private.
+    assert dof_map.element_interior_offsets.tolist() == [3, 3, 3]
+    assert dof_map.entry_offsets.tolist() == [0, 2, 4, 6, 8]
+    assert dof_map.entry_index.tolist() == [0, 1, 0, 1, 1, 2, 1, 2]
+    # Element 0 evaluates x=0 as (u0-u1)/2 and x=1 as (u0+u1)/2, matching element 1.
+    assert dof_map.entry_value.tolist() == pytest.approx(
+        [0.5, 0.5, -0.5, 0.5, 0.5, 0.5, -0.5, 0.5], abs=1.0e-12
+    )
+
+    assert dof_map.entry_offsets[-1] == dof_map.entry_count == 8
 
 
 @pytest.mark.parametrize("order", [1, 2, 3])
-def test_scalar_map_numbers_every_node_once(order: int) -> None:
-    """A scalar map is the nodal numbering of the grid, shared by the elements."""
+def test_scalar_map_counts_the_lattice(order: int) -> None:
+    """The shared windows of a uniform grid save exactly the duplicated modes."""
     dof_map = MESH_2X2.compute_kform_direct_dof_map(specs_of(MESH_2X2, order))
 
     assert isinstance(dof_map, DirectDofMap)
     assert dof_map.global_dof_count == (2 * order + 1) ** 2
     assert dof_map.element_dof_count == 4 * (order + 1) ** 2
     assert dof_map.global_dof_count <= dof_map.element_dof_count
+    # Every global unknown is reached, so no row of the system stays empty.
+    assert np.unique(dof_map.entry_index).size == dof_map.global_dof_count
 
-    numbered = global_of_node(dof_map, order + 1)
-    assert len(numbered) == dof_map.global_dof_count
-    assert len(set(numbered.values())) == dof_map.global_dof_count
+
+@pytest.mark.parametrize(
+    "family", [BasisType.LAGRANGE_UNIFORM, BasisType.LAGRANGE_GAUSS_LOBATTO]
+)
+@pytest.mark.parametrize("kform_order", [0, 1])
+def test_first_order_nodal_map_is_a_signed_identity(
+    family: BasisType, kform_order: int
+) -> None:
+    """Order-one Lagrange elements share their nodes, so the map is +-1."""
+    dof_map = MESH_2X2.compute_kform_direct_dof_map(
+        specs_of(MESH_2X2, 1, kform_order=kform_order, family=family)
+    )
+
+    expected_globals = {0: 9, 1: 12}[kform_order]
+    assert dof_map.global_dof_count == expected_globals
+    assert dof_map.element_dof_count == 16
+    # Every degree of freedom keeps exactly one entry of magnitude one.
+    assert dof_map.entry_count == dof_map.element_dof_count
+    assert np.all(np.diff(dof_map.entry_offsets) == 1)
+    assert np.all(np.abs(dof_map.entry_value) == 1.0)
+    # Nothing is element-private: the shared windows span the whole trace.
+    assert np.all(dof_map.element_interior_offsets == expected_globals)
+
+
+@pytest.mark.parametrize("family", list(BasisType))
+@pytest.mark.parametrize("order", [1, 2, 3])
+def test_top_form_map_is_an_exact_identity(family: BasisType, order: int) -> None:
+    """A form of full degree shares nothing: every DoF is its own unknown."""
+    dof_map = MESH_2X2.compute_kform_direct_dof_map(
+        specs_of(MESH_2X2, order, kform_order=2, family=family)
+    )
+
+    assert dof_map.global_dof_count == dof_map.element_dof_count
+    assert dof_map.entry_count == dof_map.element_dof_count
+    assert np.all(np.diff(dof_map.entry_offsets) == 1)
+    assert np.all(np.abs(dof_map.entry_value) == 1.0)
+    assert dof_map.element_interior_offsets.tolist() == list(
+        range(0, dof_map.global_dof_count + 1, order**2)
+    )
+
+
+def test_legendre_and_lagrange_count_the_same_globals() -> None:
+    """The family changes the coefficients, not the size of the common space."""
+    legendre = MESH_2X2.compute_kform_direct_dof_map(
+        specs_of(MESH_2X2, 2, family=BasisType.LEGENDRE)
+    )
+    lagrange = MESH_2X2.compute_kform_direct_dof_map(specs_of(MESH_2X2, 2))
+
+    assert legendre.global_dof_count == lagrange.global_dof_count == 25
+    # Non-nodal families mix the shared windows densely instead of relabelling.
+    assert legendre.entry_count > legendre.element_dof_count
+    assert np.all(np.isfinite(legendre.entry_value))
 
 
 @pytest.mark.parametrize("order", [1, 2])
@@ -136,11 +198,13 @@ def test_map_arrays_have_the_documented_layout(order: int) -> None:
 
 
 def test_line_map_counts_its_intervals() -> None:
-    """A one-dimensional mesh of three intervals has seven nodes at order two."""
+    """Three order-two intervals share four points and keep one free mode each."""
     dof_map = MESH_LINE.compute_kform_direct_dof_map(specs_of(MESH_LINE, 2))
 
     assert dof_map.global_dof_count == 3 * 2 + 1
     assert dof_map.element_dof_count == 3 * 3
+    # The interior mode is orthogonal to the point windows and survives privately.
+    assert dof_map.element_interior_offsets.tolist() == [4, 5, 6, 7]
     assert dof_map.entry_count == dof_map.element_dof_count
 
 
@@ -188,17 +252,43 @@ def test_element_specs_must_share_the_k_form_degree() -> None:
         MESH_2X2.compute_kform_direct_dof_map(specs)
 
 
-def test_non_nodal_basis_is_rejected() -> None:
-    """A Legendre or Bernstein basis has no nodes to transfer to."""
-    space = FunctionSpace(*(BasisSpecs(BasisType.LEGENDRE, 2) for _ in range(2)))
-    specs = [KFormSpecs(0, space) for _ in range(MESH_2X2.element_count)]
+@pytest.mark.parametrize("family", [BasisType.LEGENDRE, BasisType.BERNSTEIN])
+def test_any_basis_family_is_accepted(family: BasisType) -> None:
+    """The elimination pairs inner products, so it needs no nodes at all."""
+    dof_map = MESH_2X2.compute_kform_direct_dof_map(specs_of(MESH_2X2, 2, family=family))
 
-    with pytest.raises(ValueError, match="needs a nodal basis family"):
-        MESH_2X2.compute_kform_direct_dof_map(specs)
+    assert dof_map.global_dof_count == 25
+    assert np.unique(dof_map.entry_index).size == dof_map.global_dof_count
+    assert np.all(np.isfinite(dof_map.entry_value))
+
+
+def test_a_mixed_family_mesh_is_accepted() -> None:
+    """Different families on different elements share the same Legendre windows."""
+    specs = specs_of(MESH_2X2, 2)
+    specs[0] = KFormSpecs(
+        0,
+        FunctionSpace(
+            BasisSpecs(BasisType.LEGENDRE, 2),
+            BasisSpecs(BasisType.LAGRANGE_GAUSS_LOBATTO, 2),
+        ),
+    )
+    specs[3] = KFormSpecs(
+        0,
+        FunctionSpace(
+            BasisSpecs(BasisType.LAGRANGE_GAUSS, 2),
+            BasisSpecs(BasisType.BERNSTEIN, 2),
+        ),
+    )
+
+    dof_map = MESH_2X2.compute_kform_direct_dof_map(specs)
+
+    assert np.unique(dof_map.entry_index).size == dof_map.global_dof_count
+    assert np.all(np.isfinite(dof_map.entry_value))
+    assert dof_map.global_dof_count <= dof_map.element_dof_count
 
 
 def test_order_zero_basis_is_rejected() -> None:
-    """An axis without functions cannot carry a degree of freedom."""
+    """An axis without functions has no test space: the object is degenerate."""
     space = uniform_space(2, 0)
     specs = [KFormSpecs(0, space) for _ in range(MESH_2X2.element_count)]
 

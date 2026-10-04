@@ -351,6 +351,25 @@ void constraint_boundary_mass_pack(const constraint_boundary_mass_spec_t *spec, 
                                    double out_coefficients[], size_t out_row_offsets[]);
 
 /**
+ * @brief Gram matrix of one shared object's common boundary test space.
+ *
+ * Pairs the windowed test rows of every component with themselves under the common quadrature: the same row
+ * blocks #constraint_boundary_mass_assemble builds, on both sides. A zero-dimensional boundary yields the
+ * one-by-one matrix `[1.0]`.
+ *
+ * @param spec Filled matrix specification.
+ * @param boundary_basis_sets [bdim] Boundary basis at the common rules.
+ * @param boundary_basis_sets_lower [bdim] Order-1 sets, NULL when order == 0.
+ * @param point_weights [point_count] Common tensor quadrature weights.
+ * @param work Caller-provided scratch; the row value tables are used and overwritten.
+ * @param out_gram [row_count * row_count] Dense row-major Gram matrix, zero-initialized first.
+ */
+void constraint_boundary_mass_gram(const constraint_boundary_mass_spec_t *spec,
+                                   const basis_set_t *const *boundary_basis_sets,
+                                   const basis_set_t *const *boundary_basis_sets_lower, const double *point_weights,
+                                   constraint_boundary_mass_work_t *work, double *out_gram);
+
+/**
  * @brief Inputs of the per-element boundary constraint mass matrices of one
  *        shared object.
  */

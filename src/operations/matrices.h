@@ -21,7 +21,7 @@ typedef struct
  *
  * The input matrix `ar` is reduced in place to the upper-triangular matrix
  * R, and the orthogonal matrix Q is written into `q` such that the original
- * input satisfies A = Q R. The decomposition always succeeds for any
+ * input satisfies A = Q^T R. The decomposition always succeeds for any
  * rectangular input; columns whose remaining rows are numerically zero are
  * skipped.
  *

@@ -4,28 +4,20 @@ r"""
 Direct continuity for a multi-element Laplace solve.
 =====================================================
 
-The previous example made a field continuous by *equations*: it compared the
-physical traces of neighboring elements and let ``solve_hybridized`` carry the
-multipliers. :meth:`Mesh.compute_kform_direct_dof_map` offers the complementary
-route. It walks the same shared objects, but instead of contrasting two
-element-local fields it solves for one *global* field. Every local degree of
-freedom is mapped onto the global unknowns of the object it belongs to, so
-continuity holds by construction and no continuity rows are needed at all.
+Where :func:`solve_hybridized` enforces continuity with one multiplier per
+constraint row, :meth:`Mesh.compute_kform_direct_dof_map` numbers one global
+field directly: every shared object carries the coefficients of its common
+Legendre test window, every element transfer combines them with its private
+free modes, and no continuity rows are needed. The map is purely topological,
+so curved elements enter only through the element operators scattered through
+the transfer, and every basis family pairs against the same windows.
 
-The map is purely topological and never looks at coordinates, so it works for
-curved elements as well; the geometry enters only through the stiffness and
-mass matrices scattered through the transfer. Global unknowns are numbered per
-shared object, from the highest-dimensional faces down to points, followed by
-the element-private degrees of freedom.
-
-Both formulations run below on the same mesh, maps, and polynomial order. The
-hybridized path spends one unknown per element-local degree of freedom plus one
-multiplier per constraint row, the direct path one unknown per global degree of
-freedom. The printed tables compare those counts and the two physical
-:math:`L^2` errors under p- and h-refinement, and the closing plot shows the
-p-refinement rate of both formulations. The two systems are not compared entry
-by entry: the direct path keeps the physical trace equations implicit in the
-numbering, the hybridized path states them.
+Both formulations run below on the same mesh, maps, and polynomial order; the
+printed tables compare unknown counts and physical :math:`L^2` errors under
+p- and h-refinement, and the closing plot shows the p-refinement rates.
+Dirichlet data enter the direct path as the :math:`L^2` projection onto each
+outer-boundary object's window -- the same dual moments the hybridized path
+prescribes -- so the two solves reproduce one another to solver tolerance.
 """  # noqa: D205 D400
 
 from __future__ import annotations
@@ -43,6 +35,7 @@ from fdg import (
     DirectDofMap,
     FunctionSpace,
     IntegrationMethod,
+    IntegrationRegistry,
     IntegrationSpace,
     IntegrationSpecs,
     KFormSpecs,
@@ -52,6 +45,14 @@ from fdg import (
     SpaceMap,
     laplace_stiffness,
     solve_hybridized,
+)
+
+# The projection reuses the exact window moments the hybridized path prescribes.
+from fdg.boundary_conditions import (
+    _restrict_map,
+    _windowed_component_basis,
+    _windowed_dual_values,
+    _windowed_row_counts,
 )
 from fdg.integration import projection_l2_dual
 from matplotlib import pyplot as plt
@@ -72,9 +73,8 @@ GEO_ORDER = 2
 # The shared problem
 # ------------------
 #
-# A structured partition with ``cells`` cells per axis. The corner IDs come from
-# one global ``(cells + 1) x ...`` point lattice, so neighboring elements share
-# point IDs and the mesh derives every face, edge, and vertex from them.
+# A structured partition with ``cells`` cells per axis whose corner IDs come
+# from one global lattice, so neighboring elements share points.
 
 
 def point_id(index: tuple[int, ...], cells: int) -> int:
@@ -215,7 +215,7 @@ def physical_error(
 # Hybridized solve
 # ----------------
 #
-# The path of the previous example, kept so both run on the same mesh.
+# The constraint-row path, kept so both formulations run on the same mesh.
 
 
 def build_continuity_rows(
@@ -231,6 +231,8 @@ def solve_hybridized_continuity(
     ndim: int,
     order: int,
     cells: int,
+    *,
+    basis_type: BasisType = BasisType.LAGRANGE_GAUSS_LOBATTO,
 ) -> tuple[float, int, int, int]:
     """Solve the problem with continuity and Dirichlet rows.
 
@@ -239,9 +241,7 @@ def solve_hybridized_continuity(
     """
     mesh = make_mesh(ndim, cells)
     maps = make_element_maps(ndim, order + 4, cells)
-    base_space = FunctionSpace(
-        *(BasisSpecs(BasisType.LAGRANGE_GAUSS_LOBATTO, order) for _ in range(ndim))
-    )
+    base_space = FunctionSpace(*(BasisSpecs(basis_type, order) for _ in range(ndim)))
     element_specs = [KFormSpecs(0, base_space) for _ in maps]
     continuity = build_continuity_rows(mesh, maps, element_specs)
 
@@ -285,15 +285,11 @@ def solve_hybridized_continuity(
 # Direct transfer
 # ---------------
 #
-# The second path starts from ``Mesh.compute_kform_direct_dof_map``, which
-# describes a sparse element-to-global transfer: ``entry_offsets`` slices it into
-# one block per element-local degree of freedom, ``entry_index`` names the global
-# unknown of every entry, ``entry_value`` is its coefficient. One local degree of
-# freedom may reach several global unknowns, which is what lets a higher-order
-# trace project onto the common space. ``element_offsets`` splits the
-# element-local numbering into one block per element; ``element_interior_offsets``
-# counts the element-private degrees of freedom, which the map places behind
-# every shared object rather than inside ``element_offsets``.
+# ``Mesh.compute_kform_direct_dof_map`` returns a sparse element-to-global
+# transfer: ``entry_offsets`` slices it into one block per element-local degree
+# of freedom, ``entry_index`` names the global unknown of every entry, and
+# ``element_interior_offsets`` counts the element-private free modes that follow
+# the shared objects' unknowns.
 
 
 def element_entries(
@@ -314,71 +310,96 @@ def element_entries(
     )
 
 
-def physical_node_coordinates(
-    ndim: int,
+def object_row_count(order: int, mdim: int) -> int:
+    """Return the window size of one shared object for a scalar field.
+
+    A scalar trace has no covector axis, so every object axis drops its two
+    highest Legendre functions, mirroring the C boundary mass assembly.
+    """
+    common = KFormSpecs(
+        0, FunctionSpace(*(BasisSpecs(BasisType.LEGENDRE, order) for _ in range(mdim)))
+    )
+    return int(_windowed_row_counts(common)[0])
+
+
+def boundary_object_globals(
+    transfer: DirectDofMap,
+    mesh: Mesh,
+    maps: list[SpaceMap],
     order: int,
     cells: int,
-) -> list[tuple[npt.NDArray[np.double], ...]]:
-    """Return the physical coordinates of every element's field basis nodes.
+) -> tuple[npt.NDArray[np.intp], npt.NDArray[np.double]]:
+    """Project the boundary datum onto every outer-boundary object window.
 
-    The field basis is nodal on the Gauss--Lobatto points, so the quadrature of
-    the same rule evaluates the element geometry exactly where the field degrees
-    of freedom live.
+    A boundary unknown is the coefficient of one function of the object's
+    common Legendre window, so the datum enters as its :math:`L^2` projection;
+    a point object takes the traced value itself, its window being the constant
+    one. Returns the global DoFs and their prescribed coefficients.
     """
-    space = geometry_space(ndim)
-    nodes = IntegrationSpace(
-        *(IntegrationSpecs(order, IntegrationMethod.GAUSS_LOBATTO) for _ in range(ndim))
-    )
-    return [
-        tuple(
-            DegreesOfFreedom(space, coordinate.ravel()).reconstruct_at_integration_points(
-                nodes
-            )
-            for coordinate in element_coordinates
-        )
-        for element_coordinates in deformed_element_coordinates(ndim, cells)
+    ndim = mesh.ndim
+    rows = [object_row_count(order, mdim) for mdim in range(ndim)]
+    counts = [(cells + 1) ** ndim] + [
+        len(mesh.collections[mdim - 1]) for mdim in range(1, ndim)
     ]
+    offsets = {}
+    base = 0
+    for mdim in range(ndim):
+        offsets[mdim] = base
+        base += counts[mdim] * rows[mdim]
 
-
-def boundary_global_dofs(
-    transfer: DirectDofMap,
-    coordinates: list[tuple[npt.NDArray[np.double], ...]],
-) -> npt.NDArray[np.intp]:
-    """Return the global DoFs that stand for a point of the outer boundary.
-
-    The transfer is topological and does not say which unknowns lie on the
-    outer boundary; the geometry does, because the deformation vanishes there.
-    """
-    boundary = np.zeros(transfer.global_dof_count, dtype=bool)
-    for element_id, element_coordinates in enumerate(coordinates):
-        local_dofs, global_dofs, _ = element_entries(transfer, element_id)
-        points = np.stack(
-            [coordinate.ravel() for coordinate in element_coordinates], axis=-1
-        )[local_dofs]
-        boundary[global_dofs] = np.any(np.abs(np.abs(points) - 1.0) < 1.0e-12, axis=-1)
-    return np.flatnonzero(boundary)
-
-
-def prescribed_values(
-    transfer: DirectDofMap,
-    coordinates: list[tuple[npt.NDArray[np.double], ...]],
-    global_dofs: npt.NDArray[np.intp],
-) -> npt.NDArray[np.double]:
-    """Return the manufactured solution at the given global DoFs.
-
-    Every element reaching a global DoF evaluates the solution at the same
-    physical point, since the element maps agree on the shared objects. The
-    values are averaged away the last floating-point difference between two
-    elements describing one node.
-    """
-    totals = np.zeros(transfer.global_dof_count)
-    counts = np.zeros(transfer.global_dof_count)
-    for element_id, element_coordinates in enumerate(coordinates):
-        local_dofs, global_indices, _ = element_entries(transfer, element_id)
-        exact = manufactured_solution(*element_coordinates).ravel()[local_dofs]
-        np.add.at(totals, global_indices, exact)
-        np.add.at(counts, global_indices, 1.0)
-    return totals[global_dofs] / counts[global_dofs]
+    registry = IntegrationRegistry()
+    globals_: list[int] = []
+    values: list[float] = []
+    for mdim, object_id, element_ids, orientations in mesh.iterate_boundary_all():
+        count = rows[mdim]
+        if count == 0:
+            # An empty window carries no unknown and prescribes nothing.
+            continue
+        boundary_map = _restrict_map(
+            maps[int(element_ids[0])],
+            orientations[0],
+            ndim,
+            mdim,
+            integration_registry=registry,
+        )
+        common = KFormSpecs(
+            0,
+            FunctionSpace(*(BasisSpecs(BasisType.LEGENDRE, order) for _ in range(mdim))),
+        )
+        integration = boundary_map.integration_space
+        moments = _windowed_dual_values(
+            manufactured_solution,
+            common,
+            boundary_map,
+            integration,
+            ndim,
+            mdim,
+            integration_registry=registry,
+        )[0]
+        if mdim == 0:
+            data = moments
+        else:
+            basis = np.asarray(
+                _windowed_component_basis(
+                    common, integration, (), integration_registry=registry
+                )
+            )
+            weights = np.asarray(integration.weights(registry)) * np.abs(
+                np.asarray(boundary_map.determinant)
+            )
+            table = basis.reshape((count, *weights.shape)) * weights
+            gram = table.reshape(count, -1) @ basis.reshape(count, -1).T
+            data = np.linalg.solve(gram, moments)
+        first = offsets[mdim] + int(object_id) * count
+        globals_.extend(range(first, first + count))
+        values.extend(np.asarray(data).reshape(-1))
+    private = int(np.sum(np.diff(transfer.element_interior_offsets)))
+    if base + private != transfer.global_dof_count:
+        raise RuntimeError(
+            f"object layout covers {base} of {transfer.global_dof_count - private} "
+            "shared unknowns"
+        )
+    return np.asarray(globals_, dtype=np.intp), np.asarray(values, dtype=np.double)
 
 
 def assemble_global_laplace(
@@ -435,6 +456,8 @@ def solve_direct_continuity(
     ndim: int,
     order: int,
     cells: int,
+    *,
+    basis_type: BasisType = BasisType.LAGRANGE_GAUSS_LOBATTO,
 ) -> tuple[float, int, np.ndarray]:
     """Assemble and solve the global system of the direct formulation.
 
@@ -443,23 +466,20 @@ def solve_direct_continuity(
     """
     mesh = make_mesh(ndim, cells)
     maps = make_element_maps(ndim, order + 4, cells)
-    base_space = FunctionSpace(
-        *(BasisSpecs(BasisType.LAGRANGE_GAUSS_LOBATTO, order) for _ in range(ndim))
-    )
+    base_space = FunctionSpace(*(BasisSpecs(basis_type, order) for _ in range(ndim)))
     element_specs = [KFormSpecs(0, base_space) for _ in maps]
 
     transfer = mesh.compute_kform_direct_dof_map(element_specs)
     matrix, rhs = assemble_global_laplace(transfer, maps, element_specs, base_space)
 
-    coordinates = physical_node_coordinates(ndim, order, cells)
-    boundary = boundary_global_dofs(transfer, coordinates)
+    boundary, data = boundary_object_globals(transfer, mesh, maps, order, cells)
     solution = np.zeros(transfer.global_dof_count)
-    solution[boundary] = prescribed_values(transfer, coordinates, boundary)
+    solution[boundary] = data
 
-    # Eliminating the Dirichlet rows and columns leaves a system on the free unknowns.
+    # Boundary unknowns carry the projection; free unknowns solve the reduced system.
     free = np.setdiff1d(np.arange(transfer.global_dof_count), boundary)
     reduced = matrix[np.ix_(free, free)]
-    reduced_rhs = rhs[free] - matrix[np.ix_(free, boundary)] @ solution[boundary]
+    reduced_rhs = rhs[free] - matrix[np.ix_(free, boundary)] @ data
     solution[free] = np.linalg.solve(reduced, reduced_rhs)
 
     local = element_solution(transfer, solution, len(maps))
@@ -470,8 +490,7 @@ def solve_direct_continuity(
 # Comparison
 # ----------
 #
-# The direct system is symmetric by construction, since a symmetric element
-# matrix stays symmetric under a transfer applied in both of its indices.
+# A symmetric element matrix stays symmetric under a transfer applied in both indices.
 
 
 def compare(ndim: int, order: int, cells: int) -> tuple[float, float, int, int]:
@@ -495,12 +514,19 @@ def compare(ndim: int, order: int, cells: int) -> tuple[float, float, int, int]:
         raise RuntimeError(f"the direct system is not symmetric: {asymmetry:.3e}")
     if not np.isfinite(direct_error):
         raise RuntimeError("the direct error is not finite")
+    # Both formulations span the same constraint space with the same Dirichlet projection.
+    agreement = abs(direct_error - hybrid_error) / hybrid_error
+    if agreement > 1.0e-10:
+        raise RuntimeError(
+            f"direct and hybridized errors disagree: {agreement:.3e} relative"
+        )
     print(
         f"{ndim}D, {cells} cell{'s' if cells > 1 else ''} per axis, p={order}: "
         f"direct unknowns={direct_unknowns}, hybridized unknowns={hybrid_unknowns} "
         f"({hybrid_unknowns / direct_unknowns:.2f}x), rows={continuity_rows} continuity "
         f"+ {rows - continuity_rows} boundary, "
         f"direct L2={direct_error:.6e}, hybridized L2={hybrid_error:.6e}, "
+        f"agreement={agreement:.1e}, "
         f"direct={direct_elapsed:.2f}s, hybridized={hybrid_elapsed:.2f}s",
         flush=True,
     )
@@ -540,12 +566,43 @@ def main() -> None:
     if not _decreasing(refinement_errors):
         raise RuntimeError("the direct L2 error did not decrease under h-refinement")
 
+    # Pure Legendre is singular in the hybridized solver; equal-order GLL is valid there.
+    print("p-refinement, 2D curved mesh, Legendre elements (direct only):", flush=True)
+    legendre_errors: list[float] = []
+    orders_2d = order_sweeps[2]
+    for order, reference in zip(orders_2d, convergence[2][2]):
+        started = perf_counter()
+        direct_error, direct_unknowns, matrix = solve_direct_continuity(
+            2, order, 2, basis_type=BasisType.LEGENDRE
+        )
+        elapsed = perf_counter() - started
+        agreement = abs(direct_error - reference) / reference
+        if agreement > 1.0e-10:
+            raise RuntimeError(
+                f"Legendre direct error disagrees with hybridized: {agreement:.3e}"
+            )
+        asymmetry = np.max(np.abs(matrix - matrix.T))
+        if asymmetry > 1.0e-10 * np.max(np.abs(matrix)):
+            raise RuntimeError(f"the direct system is not symmetric: {asymmetry:.3e}")
+        legendre_errors.append(direct_error)
+        print(
+            f"2D, 2 cells per axis, p={order}: direct unknowns={direct_unknowns}, "
+            f"direct L2={direct_error:.6e}, hybridized L2={reference:.6e}, "
+            f"agreement={agreement:.1e}, direct={elapsed:.2f}s",
+            flush=True,
+        )
+    if not _decreasing(legendre_errors):
+        raise RuntimeError("the direct L2 error did not decrease under p-refinement")
+
     fig, axis = plt.subplots()
     for ndim, (orders, direct_errors, hybrid_errors) in convergence.items():
         axis.semilogy(orders, direct_errors, marker="o", label=f"{ndim}D direct")
         axis.semilogy(
             orders, hybrid_errors, marker="x", linestyle="--", label=f"{ndim}D hybridized"
         )
+    axis.semilogy(
+        orders_2d, legendre_errors, marker="s", linestyle=":", label="2D direct, Legendre"
+    )
     axis.set(
         xlabel="polynomial order p",
         ylabel=r"$\|u_h - u\|_{L^2}$",

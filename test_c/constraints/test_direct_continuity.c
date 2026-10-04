@@ -2,14 +2,20 @@
  * @file test_direct_continuity.c
  * @brief Tests of the direct shared-DoF continuity map.
  *
- * The map's contract is checked against counts a conforming nodal space must have, and against continuity
- * itself: two elements sharing an object must land on the very same global DoFs. That is the property the whole
- * formulation exists for, so it is asserted directly rather than inferred from a solve.
+ * The map's contract is checked against the unknown counts the window formula prescribes, against continuity
+ * itself — two elements sharing an object must reach the very same global DoFs — and against the L2 elimination
+ * identity: an element's stacked constraint blocks times its emitted transfer must reproduce the objects' test
+ * Gram matrices. A hierarchic (Legendre) element of the common order transfers its paired modes with exactly
+ * one signed coefficient; Lagrange families legitimately produce dense mixtures, which are pinned through the
+ * identity rather than through coefficients.
  */
 
+#include <math.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include <cutl/iterators/combination_iterator.h>
 
 #include "../../src/basis/basis_set.h"
 #include "../../src/constraints/direct.h"
@@ -26,7 +32,7 @@
 enum
 {
     DIRECT_TEST_MAX_AXES = 8,
-    DIRECT_TEST_MAX_ENTRIES = 4096,
+    DIRECT_TEST_MAX_ENTRIES = 65536,
     DIRECT_TEST_MAX_CORNERS = 8,
     DIRECT_TEST_MAX_ELEMENTS = 64,
 };
@@ -376,9 +382,10 @@ static void direct_test_teardown(direct_test_t *const test)
     free(test->spec_storage);
     free(test->basis_storage);
     free(test->specs);
+    // The plan holds registry references, so it releases before the registries die.
+    direct_continuity_plan_release(&test->plan);
     integration_rule_registry_destroy(test->integration_registry);
     basis_set_registry_destroy(test->basis_registry);
-    direct_continuity_plan_release(&test->plan);
     free(test->plan_memory);
     free(test->work_memory);
     topo_mesh_free(test->mesh, &TEST_ALLOCATOR);
@@ -610,28 +617,102 @@ static void direct_test_check_continuity(const direct_test_t *const test)
 }
 
 /**
- * @brief A conforming nodal scalar space on an axis-aligned mesh has one DoF per lattice point.
+ * @brief Binomial coefficient of small arguments.
+ */
+static size_t test_choose(const unsigned n, const unsigned k)
+{
+    size_t result = 1;
+    for (unsigned i = 0; i < k; ++i)
+    {
+        result = result * (n - i) / (i + 1u);
+    }
+    return result;
+}
+
+/**
+ * @brief The unknown count of a uniform equal-order mesh follows from the test window.
+ *
+ * A shared object of dimension `d` carries one unknown per window function: per k-form component `p^k` active
+ * functions and `(p - 1)^(d - k)` inactive ones, on a `cells^(ndim-d) (cells+1)^d` lattice of such objects.
+ * Every element additionally keeps its private free modes: its `C(ndim,k) p^k (p+1)^(ndim-k)` local DoFs minus
+ * the constraint rows its own objects stack, `C(ndim,d) cells^(ndim-d) C(d,k) p^k (p-1)^(d-k)` per dimension.
+ */
+static size_t test_expected_globals(const unsigned ndim, const unsigned kform_order, const unsigned cells,
+                                    const unsigned order)
+{
+    size_t globals = 0;
+    for (unsigned d = kform_order; d < ndim; ++d)
+    {
+        size_t objects = test_choose(ndim, d);
+        for (unsigned axis = 0; axis < ndim; ++axis)
+        {
+            // An object sits at lattice coordinates along its normal axes and at cells along the ones it spans.
+            objects *= axis < d ? (size_t)cells : (size_t)cells + 1u;
+        }
+        size_t window = 1;
+        for (unsigned axis = 0; axis < d; ++axis)
+        {
+            window *= axis < kform_order ? (size_t)order : (size_t)(order > 1u ? order - 1u : 0u);
+        }
+        globals += objects * test_choose(d, kform_order) * window;
+    }
+    size_t element_dofs = test_choose(ndim, kform_order);
+    for (unsigned axis = 0; axis < ndim; ++axis)
+    {
+        element_dofs *= axis < kform_order ? (size_t)order : (size_t)order + 1u;
+    }
+    size_t element_rows = 0;
+    for (unsigned d = kform_order; d < ndim; ++d)
+    {
+        // One element's own objects of dimension d: C(ndim,d) of them, each a face at `cells` slots along its
+        // normal axes.
+        size_t objects = test_choose(ndim, d);
+        size_t window = 1;
+        for (unsigned axis = 0; axis < ndim; ++axis)
+        {
+            objects *= axis < d ? 1u : (size_t)cells;
+        }
+        for (unsigned axis = 0; axis < d; ++axis)
+        {
+            window *= axis < kform_order ? (size_t)order : (size_t)(order > 1u ? order - 1u : 0u);
+        }
+        element_rows += objects * test_choose(d, kform_order) * window;
+    }
+    uint64_t elements = 1;
+    for (unsigned axis = 0; axis < ndim; ++axis)
+    {
+        elements *= cells;
+    }
+    return globals + (size_t)elements * (element_dofs - element_rows);
+}
+
+/**
+ * @brief A uniform equal-order mesh has exactly the shared unknowns its test windows occupy.
+ *
+ * For every k-form order the count is `C(ndim, k) p^k (2p + 1)^(ndim - k)` on a two-cell-per-axis grid; the
+ * scalar case is `(2p + 1)^ndim` — one unknown per lattice point at order one, plus the higher object windows
+ * above it. A top-order form has no shared object, so every DoF stays element-private.
  */
 static void test_scalar_counts_match_the_lattice(void)
 {
     static const unsigned basis_orders[] = {1u, 2u, 3u};
     for (unsigned ndim = 1; ndim <= 3; ++ndim)
     {
-        for (unsigned i = 0; i < sizeof(basis_orders) / sizeof(basis_orders[0]); ++i)
+        for (unsigned k = 0; k <= ndim; ++k)
         {
-            direct_test_t test;
-            direct_test_setup(ndim, 2u, 0u, basis_orders[i], &test);
-            uint64_t expected = 1;
-            for (unsigned axis = 0; axis < ndim; ++axis)
+            for (unsigned i = 0; i < sizeof(basis_orders) / sizeof(basis_orders[0]); ++i)
             {
-                expected *= 2u * basis_orders[i] + 1u;
+                direct_test_t test;
+                direct_test_setup(ndim, 2u, k, basis_orders[i], &test);
+                const size_t expected =
+                    k == ndim ? test.layout.element_dof_count : test_expected_globals(ndim, k, 2u, basis_orders[i]);
+                TEST_ASSERTION(test.layout.global_dof_count == expected,
+                               "A %uD order-%u mesh of two cells at basis order %u has %zu global DoFs, expected %zu.",
+                               ndim, k, basis_orders[i], test.layout.global_dof_count, expected);
+                direct_test_check_transfer(&test);
+                direct_test_check_continuity(&test);
+                direct_test_teardown(&test);
             }
-            TEST_ASSERTION(test.layout.global_dof_count == (size_t)expected,
-                           "A %uD scalar mesh of two cells at basis order %u has %zu global DoFs, expected %llu.", ndim,
-                           basis_orders[i], test.layout.global_dof_count, (unsigned long long)expected);
-            direct_test_check_transfer(&test);
-            direct_test_check_continuity(&test);
-            direct_test_teardown(&test);
         }
     }
 }
@@ -668,65 +749,291 @@ static void test_direct_is_never_larger(void)
 }
 
 /**
- * @brief A shared DoF may only be reached by one coefficient sign.
+ * @brief Assemble one element's stacked constraints and their Gram blocks with the public kernel.
  *
- * A sign error on one of the two sides would double the coupling instead of matching the fields, so every side
- * must transfer a shared DoF with the same `+1` or `-1`.
+ * Mirrors the build walk: the objects' boundary mass blocks and test Grams are assembled per pair and stacked
+ * in the plan's pair order. `stacked` receives `rows * dof_count` constraints, `gram_blocks` the block-diagonal
+ * stack of `rows * rows`, and `block` (`rows * dof_count`) is pair assembly scratch. The plan's embedded mass
+ * scratch and weights are reused, so the map must already be built and must not be walked concurrently.
+ */
+static void direct_test_element_constraints(direct_test_t *const test, const uint64_t element, double *const stacked,
+                                            double *const gram_blocks, double *const block)
+{
+    const direct_continuity_plan_t *const plan = &test->plan;
+    const unsigned ndim = plan->ndim;
+    const unsigned order = plan->order;
+    const kform_spec_t *const spec = test->request.elements[element];
+    const size_t dof_count = plan->element_dof_offsets[element + 1u] - plan->element_dof_offsets[element];
+    const size_t rows = plan->element_rows[element + 1u] - plan->element_rows[element];
+    const bool with_lower = order > 0u;
+    const unsigned components = combination_total_count((uint8_t)ndim, (uint8_t)order);
+    kform_spec_component_offsets(spec, components + 1u, test->work.component_offsets);
+    for (size_t value = 0; value < rows * dof_count; ++value)
+    {
+        stacked[value] = 0.0;
+    }
+    for (size_t value = 0; value < rows * rows; ++value)
+    {
+        gram_blocks[value] = 0.0;
+    }
+    for (size_t entry = plan->element_object_offsets[element]; entry < plan->element_object_offsets[element + 1u];
+         ++entry)
+    {
+        const size_t pair = plan->element_pair_slots[entry];
+        const size_t index = (size_t)plan->pair_entities[pair];
+        const size_t pair_row = plan->pair_rows[pair];
+        unsigned dim = 0;
+        while (plan->entity_dim_offsets[dim + 1u] <= index)
+        {
+            dim += 1;
+        }
+        const size_t object_rows = plan->entity_block_offsets[index + 1u] - plan->entity_block_offsets[index];
+        const constraint_boundary_mass_spec_t mass_spec = {.ndim = ndim,
+                                                           .bdim = dim,
+                                                           .order = order,
+                                                           .element_spec = spec,
+                                                           .boundary_basis = plan->entity_basis + index * ndim,
+                                                           .boundary_integration =
+                                                               plan->entity_integration + index * ndim,
+                                                           .orientation = plan->pair_records[pair]};
+        const basis_set_t **const boundary_sets = plan->entity_sets + index * ndim;
+        constraint_boundary_mass_work_sizes_t sizes;
+        constraint_boundary_mass_work_size(&mass_spec, &test->work.mass, &sizes);
+        constraint_boundary_mass_work_init(&test->work.mass, &mass_spec, &sizes, test->work.mass_memory);
+        size_t assembled_rows;
+        size_t assembled_cols;
+        size_t assembled_entries;
+        constraint_boundary_mass_layout(&mass_spec, &test->work.mass, false, &assembled_rows, &assembled_cols,
+                                        &assembled_entries);
+        TEST_ASSERTION(assembled_rows == object_rows, "Object %zu assembles %zu rows against a block of %zu.", index,
+                       assembled_rows, object_rows);
+        TEST_ASSERTION(assembled_rows * assembled_cols <= rows * dof_count,
+                       "The pair block %zu by %zu exceeds the tests' scratch.", assembled_rows, assembled_cols);
+        integration_rule_tensor_weights(dim, plan->entity_rules + index * ndim, test->work.weights);
+        const constraint_boundary_mass_request_t mass_request = {
+            .spec = &mass_spec,
+            .boundary_basis_sets = boundary_sets,
+            .boundary_basis_sets_lower = with_lower ? plan->entity_sets_lower + index * ndim : NULL,
+            .element_basis_sets = plan->pair_element_sets + pair * ndim,
+            .element_basis_sets_lower = with_lower ? plan->pair_element_sets_lower + pair * ndim : NULL,
+            .element_endpoints = plan->pair_element_endpoints + pair * ndim,
+            .element_endpoints_lower = with_lower ? plan->pair_element_endpoints_lower + pair * ndim : NULL,
+            .point_weights = test->work.weights,
+            .surface_weights = NULL,
+            .test_pullback = NULL,
+            .element_pullback = NULL,
+            .factor = 1.0,
+            .work = &test->work.mass,
+            .out_matrix = block,
+        };
+        constraint_boundary_mass_assemble(&mass_request);
+        const unsigned pair_components = combination_total_count((uint8_t)dim, (uint8_t)order);
+        for (unsigned component = 0; component < pair_components; ++component)
+        {
+            const size_t col_dofs =
+                test->work.mass.col_offsets[component + 1u] - test->work.mass.col_offsets[component];
+            const size_t element_column = test->work.component_offsets[test->work.mass.element_components[component]];
+            for (size_t row = 0; row < object_rows; ++row)
+            {
+                for (size_t dof = 0; dof < col_dofs; ++dof)
+                {
+                    stacked[(pair_row + row) * dof_count + element_column + dof] =
+                        block[row * assembled_cols + test->work.mass.col_offsets[component] + dof];
+                }
+            }
+        }
+        double *const gram = block;
+        TEST_ASSERTION(object_rows * object_rows <= rows * dof_count, "The object Gram exceeds the tests' scratch.");
+        constraint_boundary_mass_gram(&mass_spec, boundary_sets,
+                                      with_lower ? plan->entity_sets_lower + index * ndim : NULL, test->work.weights,
+                                      &test->work.mass, gram);
+        for (size_t row = 0; row < object_rows; ++row)
+        {
+            for (size_t other = 0; other < object_rows; ++other)
+            {
+                gram_blocks[(pair_row + row) * rows + pair_row + other] = gram[row * object_rows + other];
+            }
+        }
+    }
+}
+
+/**
+ * @brief The one-dimensional hand case: two line elements, Legendre order one, scalar unknowns.
+ *
+ * The three lattice points carry one unknown each. An element's constant mode evaluates to one at both ends, so
+ * its min-norm split transfers `+0.5` onto each; the linear mode evaluates to one of one end and minus one on
+ * the other, so it transfers `+0.5` and `-0.5`. Nothing is element-private. The endpoint values of any element
+ * field reconstruct exactly and single-valued through those coefficients.
  */
 static void test_shared_coefficients_agree(void)
 {
-    const unsigned ndim = 3;
+    direct_case_t c;
+    direct_case_uniform(&c, 1u, 2u, 0u, 1u);
+    c.family = BASIS_LEGENDRE;
     direct_test_t test;
-    direct_test_setup(ndim, 2u, 1u, 2u, &test);
-    const topo_mesh_t *const mesh = test.plan.mesh;
-    for (unsigned dim = 0; dim < ndim; ++dim)
+    direct_test_build(&c, &test);
+    TEST_ASSERTION(test.layout.global_dof_count == 3u, "The hand case has %zu unknowns instead of three points.",
+                   test.layout.global_dof_count);
+    TEST_ASSERTION(test.plan.element_interior_offsets[2] == test.layout.global_dof_count,
+                   "The hand case keeps a private degree of freedom.");
+    for (uint64_t element = 0; element < 2; ++element)
     {
-        const topo_obj_immersion_t *const immersion = mesh->immersions + dim;
-        for (unsigned object = 0; object < immersion->object_count; ++object)
+        const size_t base = test.plan.element_dof_offsets[element];
+        TEST_ASSERTION(test.plan.element_dof_offsets[element + 1u] - base == 2u,
+                       "An order-one line element carries %zu degrees of freedom instead of two.",
+                       test.plan.element_dof_offsets[element + 1u] - base);
+        // The constant mode reaches both of the element's points with +0.5; the linear mode reaches them with
+        // +0.5 and -0.5. The point numbering runs with the mesh, so the first element owns points 0 and 1 and
+        // the second points 1 and 2.
+        const size_t first = test.entry_offsets[base];
+        const size_t first_count = test.entry_offsets[base + 1u] - first;
+        const size_t second = test.entry_offsets[base + 1u];
+        const size_t second_count = test.entry_offsets[base + 2u] - second;
+        TEST_ASSERTION(first_count == 2u && second_count == 2u,
+                       "The hand case transfers %zu and %zu entries instead of two and two.", first_count,
+                       second_count);
+        const double a0 = test.entry_value[first];
+        const double a1 = test.entry_value[first + 1u];
+        const double b0 = test.entry_value[second];
+        const double b1 = test.entry_value[second + 1u];
+        TEST_ASSERTION(fabs(fabs(a0) - 0.5) <= 1e-12 && fabs(fabs(a1) - 0.5) <= 1e-12 &&
+                           fabs(fabs(b0) - 0.5) <= 1e-12 && fabs(fabs(b1) - 0.5) <= 1e-12,
+                       "The hand case transfers %.17g, %.17g, %.17g, %.17g instead of halves.", a0, a1, b0, b1);
+        TEST_ASSERTION(a0 == a1, "The constant mode transfers unequal halves %g and %g.", a0, a1);
+        TEST_ASSERTION(b0 == -b1, "The linear mode transfers %g and %g instead of opposite halves.", b0, b1);
+        // The shared point must be reached by both of the element's modes, and the constant mode may not leak
+        // outside the element's own endpoints.
+        TEST_ASSERTION(test.entry_index[first + 1u] == test.entry_index[second + 1u],
+                       "The element's two modes do not meet on the inner point.");
+    }
+    direct_test_teardown(&test);
+}
+
+/**
+ * @brief The emitted transfer solves the L2 elimination: its constraints reproduce the test Grams.
+ *
+ * No basis family spans the windowed Legendre test space with matching normalization — not even Legendre
+ * itself once an element's objects' windows overlap in its own degrees of freedom — so the transfer
+ * coefficients are dense mixtures for every family. What the formulation guarantees is `C_e R_map = B_e`: the
+ * element's stacked constraint blocks applied to the emitted object-coefficient columns must reproduce the
+ * objects' test Gram matrices, and applied to the free columns must vanish. Both are reassembled here with the
+ * public kernel from the same plan the map used, and the transfer columns are reconstructed from the
+ * row-compressed entries with pruned coefficients read as zero.
+ */
+static void test_lagrange_transfer_reproduces_the_gram(void)
+{
+    // Uniform and mixed-order Gauss-Lobatto meshes, and equal-order Legendre ones, both scalar and one-form.
+    static const struct
+    {
+        unsigned ndim;
+        unsigned kform_order;
+        unsigned even_order;
+        unsigned odd_order;
+        basis_set_type_t family;
+    } cases[] = {{2u, 0u, 2u, 2u, BASIS_LAGRANGE_GAUSS_LOBATTO},
+                 {2u, 1u, 2u, 2u, BASIS_LAGRANGE_GAUSS_LOBATTO},
+                 {2u, 0u, 3u, 2u, BASIS_LAGRANGE_GAUSS_LOBATTO},
+                 {3u, 1u, 2u, 2u, BASIS_LAGRANGE_GAUSS_LOBATTO},
+                 {1u, 0u, 1u, 1u, BASIS_LEGENDRE},
+                 {2u, 0u, 3u, 3u, BASIS_LEGENDRE},
+                 {3u, 1u, 2u, 2u, BASIS_LEGENDRE},
+                 {2u, 1u, 3u, 2u, BASIS_LEGENDRE}};
+    for (unsigned variant = 0; variant < sizeof(cases) / sizeof(cases[0]); ++variant)
+    {
+        direct_test_t test;
+        direct_test_setup_pattern(cases[variant].ndim, 2u, cases[variant].kform_order, cases[variant].even_order,
+                                  cases[variant].odd_order, false, cases[variant].family, &test);
+        const direct_continuity_plan_t *const plan = &test.plan;
+        for (uint64_t element = 0; element < test.element_count; ++element)
         {
-            uint64_t incident;
-            const uint64_t *ids;
-            const int8_t *orientations;
-            topo_obj_immersion_of_object(immersion, object, &incident, &ids, &orientations);
-            if (incident < 2)
+            const size_t dof_count = plan->element_dof_offsets[element + 1u] - plan->element_dof_offsets[element];
+            const size_t rows = plan->element_rows[element + 1u] - plan->element_rows[element];
+            TEST_ASSERTION(dof_count * dof_count <= DIRECT_TEST_MAX_ENTRIES, "Element %llu exceeds the tests' scratch.",
+                           (unsigned long long)element);
+            double *const stacked = malloc(sizeof(double) * rows * dof_count);
+            double *const gram_blocks = malloc(sizeof(double) * rows * rows);
+            double *const block = malloc(sizeof(double) * rows * dof_count);
+            direct_test_element_constraints(&test, element, stacked, gram_blocks, block);
+
+            // Reconstruct the emitted map: object-coefficient columns from the row-compressed entries, free
+            // columns from the element-private range, pruned coefficients read as zero.
+            double *const constrained = calloc(rows * dof_count, sizeof(double));
+            double *const free_modes = calloc(dof_count * (dof_count - rows), sizeof(double));
+            const size_t interior_base = plan->element_interior_offsets[element];
+            const size_t pair_start = plan->element_object_offsets[element];
+            const size_t pair_end = plan->element_object_offsets[element + 1u];
+            for (size_t local = 0; local < dof_count; ++local)
             {
-                continue;
-            }
-            const size_t index = direct_entity_index(&test.plan, dim, object);
-            const size_t block = test.plan.entity_block_offsets[index];
-            const size_t block_size = test.plan.entity_block_offsets[index + 1u] - block;
-            for (size_t global = block; global < block + block_size; ++global)
-            {
-                int8_t seen = 0;
-                for (uint64_t side = 0; side < incident; ++side)
+                for (size_t entry = test.entry_offsets[plan->element_dof_offsets[element] + local];
+                     entry < test.entry_offsets[plan->element_dof_offsets[element] + local + 1u]; ++entry)
                 {
-                    const size_t base = test.plan.element_dof_offsets[ids[side]];
-                    const size_t count = test.plan.element_dof_offsets[ids[side] + 1u] - base;
-                    for (size_t local = 0; local < count; ++local)
+                    const size_t global = test.entry_index[entry];
+                    if (global >= interior_base && global < interior_base + dof_count - rows)
                     {
-                        for (size_t entry = test.entry_offsets[base + local];
-                             entry < test.entry_offsets[base + local + 1u]; ++entry)
+                        free_modes[local * (dof_count - rows) + (global - interior_base)] = test.entry_value[entry];
+                        continue;
+                    }
+                    for (size_t pair_slot = pair_start; pair_slot < pair_end; ++pair_slot)
+                    {
+                        const size_t pair = plan->element_pair_slots[pair_slot];
+                        const size_t index = (size_t)plan->pair_entities[pair];
+                        const size_t block = plan->entity_block_offsets[index];
+                        const size_t block_size = plan->entity_block_offsets[index + 1u] - block;
+                        if (global >= block && global < block + block_size)
                         {
-                            if (test.entry_index[entry] != global)
-                            {
-                                continue;
-                            }
-                            const double value = test.entry_value[entry];
-                            TEST_ASSERTION(value == 1.0 || value == -1.0,
-                                           "Object %u of dimension %u transfers the coefficient %g.", object, dim,
-                                           value);
-                            const int8_t sign = value < 0.0 ? -1 : 1;
-                            seen = seen == 0 ? sign : seen;
-                            TEST_ASSERTION(seen == sign,
-                                           "Element %llu reaches object %u's DoF %zu with a different sign.",
-                                           (unsigned long long)ids[side], object, global - block);
+                            constrained[local * rows + plan->pair_rows[pair] + (global - block)] =
+                                test.entry_value[entry];
+                            break;
                         }
                     }
                 }
             }
+
+            // C_e R_map against B_e, and C_e against the free complement.
+            double worst_identity = 0.0;
+            double worst_nullity = 0.0;
+            double gram_scale = 0.0;
+            for (size_t row = 0; row < rows; ++row)
+            {
+                for (size_t column = 0; column < rows; ++column)
+                {
+                    double identity = 0.0;
+                    for (size_t inner = 0; inner < dof_count; ++inner)
+                    {
+                        identity += stacked[row * dof_count + inner] * constrained[inner * rows + column];
+                    }
+                    const double error = fabs(identity - gram_blocks[row * rows + column]);
+                    worst_identity = error > worst_identity ? error : worst_identity;
+                    gram_scale =
+                        gram_blocks[row * rows + column] > gram_scale ? gram_blocks[row * rows + column] : gram_scale;
+                }
+                for (size_t column = 0; column < dof_count - rows; ++column)
+                {
+                    double nullity = 0.0;
+                    for (size_t inner = 0; inner < dof_count; ++inner)
+                    {
+                        nullity += stacked[row * dof_count + inner] * free_modes[inner * (dof_count - rows) + column];
+                    }
+                    worst_nullity = fabs(nullity) > worst_nullity ? fabs(nullity) : worst_nullity;
+                }
+            }
+            // Pruned coefficients hide up to 1e-12 of the block's magnitude per omitted entry, so the
+            // reconstruction identity holds to a small multiple of that pruning threshold.
+            TEST_ASSERTION(worst_identity <= 1e-9 * gram_scale,
+                           "Element %llu's transfer misses the test Grams by %.3g of a %.3g scale.",
+                           (unsigned long long)element, worst_identity, gram_scale);
+            TEST_ASSERTION(worst_nullity <= 1e-9 * gram_scale,
+                           "Element %llu's free modes leave the constraints by %.3g of a %.3g scale.",
+                           (unsigned long long)element, worst_nullity, gram_scale);
+            free(stacked);
+            free(gram_blocks);
+            free(block);
+            free(constrained);
+            free(free_modes);
         }
+        direct_test_check_conforming(&test);
+        direct_test_teardown(&test);
     }
-    direct_test_teardown(&test);
 }
 
 /**
@@ -763,8 +1070,12 @@ static void test_scatter_preserves_symmetry(void)
         TEST_ASSERTION(assembled[i * global + i] > 0.0, "Global DoF %zu carries no diagonal.", i);
         for (size_t j = 0; j < global; ++j)
         {
-            TEST_ASSERTION(assembled[i * global + j] == assembled[j * global + i],
-                           "The assembled matrix is not symmetric at (%zu, %zu): %g against %g.", i, j,
+            // Dense transfer coefficients make the two triangles accumulate the same terms in a different
+            // order, so they agree only to rounding. A sign or pairing error puts them a whole factor apart,
+            // which no rounding tolerance can hide.
+            TEST_ASSERTION(fabs(assembled[i * global + j] - assembled[j * global + i]) <=
+                               1e-9 * (1.0 + fabs(assembled[i * global + j]) + fabs(assembled[j * global + i])),
+                           "The assembled matrix is not symmetric at (%zu, %zu): %.17g against %.17g.", i, j,
                            assembled[i * global + j], assembled[j * global + i]);
         }
     }
@@ -806,11 +1117,12 @@ static void test_every_global_dof_is_reachable(void)
 }
 
 /**
- * @brief A mesh whose elements disagree on an axis order still maps, dropping what cannot be represented.
+ * @brief A mesh whose elements disagree on an axis order still maps, keeping what cannot be shared free.
  *
  * The common space of a shared object is the per-axis minimum over its incident elements, so a higher-order
- * element's extra trace freedom is projected away. Where the common space is empty on an axis the element's DoF
- * simply has no global counterpart, and the walk must still produce a valid row compression.
+ * element's extra trace freedom is not representable in the object's window — those degrees of freedom stay
+ * element-private free modes instead of being dropped. Where the common window is empty on an axis the walk
+ * must still produce a valid row compression.
  */
 static void test_mixed_element_orders(void)
 {
@@ -967,8 +1279,8 @@ static void test_adversarial_distinct_order_per_element(void)
     {
         direct_case_t c;
         direct_case_uniform(&c, 3u, 2u, k, 1u);
-        // The first element stays at order one, which has no face-interior function at all, so its trace
-        // projects onto an empty common space and its face degrees of freedom leave the system.
+        // The first element stays at order one, which has no face-interior function at all, so its face trace
+        // has an empty common window and its face degrees of freedom stay element-private free modes.
         for (uint64_t element = 0; element < c.element_count; ++element)
         {
             const unsigned orders[3] = {2u + (unsigned)element, 2u, 1u + (unsigned)(c.element_count - element)};
@@ -1068,7 +1380,7 @@ static void test_adversarial_rich_pair_next_to_poor(void)
  * @brief The two extreme order ratios, which drive the projection path harder than anything else.
  *
  * A poor element among rich ones gives the object a common axis of order one, whose window is empty, so the
- * rich elements' face degrees of freedom drop out of the system. A rich element among poor ones gives the
+ * rich elements' face degrees of freedom stay element-private free modes. A rich element among poor ones gives the
  * object a tiny common space the rich element has to project onto. Both have to leave a valid row compression.
  */
 static void test_adversarial_extreme_order_ratios(void)
@@ -1167,9 +1479,9 @@ static void test_adversarial_element_relabelling_is_invariant(void)
         TEST_ASSERTION(moved.layout.global_dof_count == plain.layout.global_dof_count,
                        "Renumbering the elements changes the global count from %zu to %zu.",
                        plain.layout.global_dof_count, moved.layout.global_dof_count);
-        TEST_ASSERTION(moved.layout.entry_count == plain.layout.entry_count,
-                       "Renumbering the elements changes the entry count from %zu to %zu.", plain.layout.entry_count,
-                       moved.layout.entry_count);
+        // The entry count is not an exact invariant any more: renumbering the elements reorders the QR's
+        // pivots, and coefficients within rounding of the relative prune threshold flip in and out. The
+        // unknown count, the element count, and every structural invariant stay exact.
         TEST_ASSERTION(moved.layout.element_dof_count == plain.layout.element_dof_count,
                        "Renumbering the elements changes the element degree-of-freedom count from %zu to %zu.",
                        plain.layout.element_dof_count, moved.layout.element_dof_count);
@@ -1196,9 +1508,6 @@ static void test_adversarial_element_relabelling_is_invariant(void)
         TEST_ASSERTION(test.layout.global_dof_count == reference.layout.global_dof_count,
                        "Moving the rich element to %llu changes the global count from %zu to %zu.",
                        (unsigned long long)rich, reference.layout.global_dof_count, test.layout.global_dof_count);
-        TEST_ASSERTION(test.layout.entry_count == reference.layout.entry_count,
-                       "Moving the rich element to %llu changes the entry count from %zu to %zu.",
-                       (unsigned long long)rich, reference.layout.entry_count, test.layout.entry_count);
         direct_test_check_conforming(&test);
         direct_test_teardown(&test);
         direct_test_teardown(&reference);
@@ -1225,9 +1534,7 @@ static void test_adversarial_axis_permutation_is_invariant(void)
     TEST_ASSERTION(test.layout.global_dof_count == reference.layout.global_dof_count,
                    "Exchanging the mesh axes changes the global count from %zu to %zu.",
                    reference.layout.global_dof_count, test.layout.global_dof_count);
-    TEST_ASSERTION(test.layout.entry_count == reference.layout.entry_count,
-                   "Exchanging the mesh axes changes the entry count from %zu to %zu.", reference.layout.entry_count,
-                   test.layout.entry_count);
+    // As with element relabelling, the entry count only agrees to the prune threshold's rounding.
     direct_test_check_conforming(&reference);
     direct_test_check_conforming(&test);
     direct_test_teardown(&reference);
@@ -1244,9 +1551,6 @@ static void test_adversarial_axis_permutation_is_invariant(void)
     TEST_ASSERTION(test.layout.global_dof_count == reference.layout.global_dof_count,
                    "Rotating the mesh axes changes the global count from %zu to %zu.",
                    reference.layout.global_dof_count, test.layout.global_dof_count);
-    TEST_ASSERTION(test.layout.entry_count == reference.layout.entry_count,
-                   "Rotating the mesh axes changes the entry count from %zu to %zu.", reference.layout.entry_count,
-                   test.layout.entry_count);
     direct_test_check_conforming(&reference);
     direct_test_check_conforming(&test);
     direct_test_teardown(&reference);
@@ -1289,30 +1593,37 @@ static void test_adversarial_projected_dof_owns_several_entries(void)
 }
 
 /**
- * @brief A degree of freedom on a space-matching object owns exactly one entry, with the orientation's sign.
+ * @brief A top-order form has no trace on any object, so every DoF transfers with exactly one `+1`.
+ *
+ * With no shared object of dimension at least the form order, every element's stacked constraints are empty
+ * and all its degrees of freedom stay element-private. That holds for every basis family.
  */
 static void test_adversarial_matching_dof_owns_one_signed_entry(void)
 {
+    static const basis_set_type_t families[] = {
+        BASIS_LAGRANGE_UNIFORM,         BASIS_LAGRANGE_GAUSS, BASIS_LAGRANGE_GAUSS_LOBATTO,
+        BASIS_LAGRANGE_CHEBYSHEV_GAUSS, BASIS_LEGENDRE,       BASIS_BERNSTEIN};
     for (unsigned ndim = 1; ndim <= 3; ++ndim)
     {
-        for (unsigned k = 0; k <= ndim; ++k)
+        for (unsigned family = 0; family < sizeof(families) / sizeof(families[0]); ++family)
         {
             direct_case_t c;
-            direct_case_uniform(&c, ndim, 2u, k, 3u);
+            direct_case_uniform(&c, ndim, 2u, ndim, 3u);
+            c.family = families[family];
             direct_test_t test;
             direct_test_build(&c, &test);
             TEST_ASSERTION(test.layout.entry_count == test.layout.element_dof_count,
-                           "The %uD order-%u uniform map has %zu entries for %zu element degrees of freedom.", ndim, k,
+                           "The %uD top-order map has %zu entries for %zu element degrees of freedom.", ndim,
                            test.layout.entry_count, test.layout.element_dof_count);
             for (size_t local = 0; local < test.layout.element_dof_count; ++local)
             {
                 const size_t to = test.entry_offsets[local + 1u];
                 TEST_ASSERTION(to - test.entry_offsets[local] == 1u,
-                               "Element DoF %zu of the uniform map owns %zu entries instead of one.", local,
+                               "Element DoF %zu of the top-order map owns %zu entries instead of one.", local,
                                to - test.entry_offsets[local]);
                 const double value = test.entry_value[test.entry_offsets[local]];
-                TEST_ASSERTION(value == 1.0 || value == -1.0,
-                               "Element DoF %zu of the uniform map carries the coefficient %g.", local, value);
+                TEST_ASSERTION(value == 1.0, "Element DoF %zu of the top-order map carries the coefficient %.17g.",
+                               local, value);
             }
             direct_test_check_conforming(&test);
             direct_test_teardown(&test);
@@ -1407,11 +1718,11 @@ static void test_adversarial_scatter_stays_symmetric_under_mixed_orders(void)
 }
 
 /**
- * @brief A specification the map cannot honour is reported, not walked into.
+ * @brief A basis order of zero has no test functions and is reported, not walked into.
  *
- * Both rejections have to happen before any work is done, so the case is prepared and only the result is read:
- * a basis with no nodes or no functions at all would otherwise size the scratch with an order of zero and walk
- * an element that has no degrees of freedom.
+ * Any basis family is accepted now — the object test space is always Legendre — so the only rejection is the
+ * degenerate one, and it has to happen before any work is done: the case is prepared and only the result is
+ * read. A family that used to be turned away is pinned as accepted beside it.
  */
 static void test_adversarial_invalid_specs_are_rejected(void)
 {
@@ -1419,17 +1730,18 @@ static void test_adversarial_invalid_specs_are_rejected(void)
     direct_case_uniform(&c, 2u, 2u, 0u, 2u);
     c.family = BASIS_LEGENDRE;
     direct_test_t test;
-    TEST_ASSERTION(direct_test_prepare(&c, &test) == FDG_ERROR_NOT_IN_DOMAIN,
-                   "A Legendre basis was accepted by the direct map.");
+    TEST_ASSERTION(direct_test_prepare(&c, &test) == FDG_SUCCESS,
+                   "A Legendre basis was rejected by the direct map, though any family works now.");
     direct_test_teardown(&test);
 
-    // One offending element among sound ones is enough; the map has no valid global space for the object it
-    // shares with its neighbours either.
     direct_case_uniform(&c, 2u, 2u, 0u, 2u);
-    c.family = BASIS_LAGRANGE_GAUSS_LOBATTO;
-    TEST_ASSERTION(direct_test_prepare(&c, &test) == FDG_SUCCESS, "The sound case was rejected.");
+    c.family = BASIS_BERNSTEIN;
+    TEST_ASSERTION(direct_test_prepare(&c, &test) == FDG_SUCCESS,
+                   "A Bernstein basis was rejected by the direct map, though any family works now.");
     direct_test_teardown(&test);
 
+    // One offending element among sound ones is enough; the object it shares with its neighbours has no test
+    // function on that axis either.
     direct_case_uniform(&c, 2u, 2u, 0u, 2u);
     const unsigned degenerate[2] = {0u, 2u};
     direct_case_set_element(&c, 3u, degenerate);
@@ -1438,9 +1750,8 @@ static void test_adversarial_invalid_specs_are_rejected(void)
     direct_test_teardown(&test);
 
     direct_case_uniform(&c, 2u, 2u, 0u, 2u);
-    c.family = BASIS_BERNSTEIN;
-    TEST_ASSERTION(direct_test_prepare(&c, &test) == FDG_ERROR_NOT_IN_DOMAIN,
-                   "A Bernstein basis was accepted by the direct map.");
+    c.family = BASIS_LAGRANGE_GAUSS_LOBATTO;
+    TEST_ASSERTION(direct_test_prepare(&c, &test) == FDG_SUCCESS, "The sound case was rejected.");
     direct_test_teardown(&test);
 }
 
@@ -1481,6 +1792,7 @@ int main(void)
     test_scalar_counts_match_the_lattice();
     test_direct_is_never_larger();
     test_shared_coefficients_agree();
+    test_lagrange_transfer_reproduces_the_gram();
     test_scatter_preserves_symmetry();
     test_every_global_dof_is_reachable();
     test_mixed_element_orders();

@@ -2,350 +2,50 @@
  * @file direct.c
  * @brief Implementation of the direct shared-DoF continuity formulation.
  *
- * See direct.h for the formulation. The walk enumerates each element's DoFs in its own numbering, which is what
- * keeps the transfer's row compression a valid partition. The transfer is separable, so the tensor product of
- * one-dimensional L2 projections is the whole thing; matching axes short-circuit to the identity.
+ * See direct.h for the formulation. Per element the objects' boundary mass blocks are stacked into one constraint
+ * matrix; the QR of its transpose splits the element's DoFs into the object-coefficient part and an orthogonal
+ * complement of element-private DoFs. The transfer is emitted once per nonzero, grouped by ascending local and
+ * global index, with coefficients below a relative roundoff threshold dropped.
  */
-
-#include <math.h>
 
 #include "direct.h"
 
 #include <cutl/iterators/combination_iterator.h>
 
+#include "../operations/matrices.h"
 #include "constraint_common.h"
 
 /**
- * @brief Largest element dimension the mesh layer supports, and so the widest digit tuple a walk carries.
+ * @brief Coefficients at most 2^-#DIRECT_PRUNE_SHIFT of their part's maximum magnitude count as roundoff and
+ *        are dropped.
  */
 enum
 {
-    DIRECT_MAX_AXES = 64,
+    DIRECT_PRUNE_SHIFT = 40,
 };
 
-/**
- * @brief Which two one-dimensional bases one object axis pairs.
- *
- * The window counts and offsets follow from the specifications and the active flag, so these identify the
- * operator.
- */
-typedef struct
-{
-    basis_spec_t element; ///< Element-axis basis specification.
-    basis_spec_t entity;  ///< Object-axis common basis specification.
-    bool active;          ///< The component carries a covector along this axis.
-} direct_axis_key_t;
+static void direct_continuity_walk(const direct_continuity_request_t *request, const direct_continuity_plan_t *plan,
+                                   direct_continuity_work_t *work, direct_entry_fn emit, void *param);
 
 /**
- * @brief One axis' run of basis functions a transfer operates on.
- */
-typedef struct
-{
-    basis_spec_t spec; ///< Basis the run belongs to.
-    unsigned offset;   ///< First function of the run.
-    unsigned count;    ///< Functions in the run.
-} direct_axis_window_t;
-
-/**
- * @brief State of one transfer enumeration.
- */
-typedef struct
-{
-    const direct_continuity_request_t *request;
-    const direct_continuity_plan_t *plan;
-    direct_continuity_work_t *work;
-    const kform_spec_t *spec;     ///< Current element's k-form spec.
-    uint64_t element;             ///< Current element.
-    unsigned component;           ///< Current element component.
-    unsigned dim;                 ///< Current object dimension, equal to `ndim` for the private DoFs.
-    uint64_t object_id;           ///< Current object.
-    const int8_t *record;         ///< Object's orientation record in the element, NULL for the private DoFs.
-    double sign;                  ///< Orientation sign of the current component.
-    size_t local;                 ///< Element-local flat index of the DoF being emitted.
-    size_t object_base;           ///< Global offset of the object's component block.
-    size_t interior;              ///< Next element-private DoF of the current element.
-    unsigned lo[DIRECT_MAX_AXES]; ///< First element digit of every axis.
-    unsigned hi[DIRECT_MAX_AXES]; ///< Last element digit of every axis.
-    direct_entry_fn emit;         ///< Nonzero sink.
-    void *param;                  ///< Sink's caller data.
-} direct_walk_t;
-
-/**
- * @brief Whether a basis family resolves its functions at distinct nodes.
+ * @brief Test function count one object axis contributes to a component.
  *
- * Orthogonal and Bernstein bases do not localize, so the direct numbering cannot place a DoF on them.
+ * An active covector axis reads the order-one basis; any other axis reads the leading functions of the full
+ * basis with the last #SKIPPED_BASIS dropped. This is `boundary_mass_row_axis_counts` as a bare count.
  */
-static bool direct_basis_is_nodal(const basis_set_type_t type)
-{
-    return type == BASIS_LAGRANGE_GAUSS_LOBATTO || type == BASIS_LAGRANGE_GAUSS || type == BASIS_LAGRANGE_UNIFORM ||
-           type == BASIS_LAGRANGE_CHEBYSHEV_GAUSS;
-}
-
-/**
- * @brief Run of basis functions one axis contributes, on either side of a transfer.
- *
- * A covector axis reads the order-one basis; any other axis reads the full basis without its endpoint functions,
- * which live on the faces perpendicular to that axis.
- *
- * Preconditions: an active axis has order at least one, an inactive one at least two.
- */
-static direct_axis_window_t direct_axis_window(const basis_spec_t spec, const bool active)
+static unsigned direct_axis_test_count(const basis_spec_t spec, const bool active)
 {
     if (active)
     {
-        return (direct_axis_window_t){
-            .spec = {.type = spec.type, .order = spec.order - 1u}, .offset = 0u, .count = spec.order};
+        return spec.order;
     }
-    return (direct_axis_window_t){.spec = spec, .offset = 1u, .count = spec.order - 1u};
+    return spec.order + 1u > SKIPPED_BASIS ? spec.order + 1u - SKIPPED_BASIS : 0u;
 }
 
 /**
- * @brief Whether two one-dimensional windows read the same functions.
- */
-static bool direct_windows_match(const direct_axis_window_t element, const direct_axis_window_t entity)
-{
-    return element.count == entity.count && element.offset == entity.offset && element.spec.type == entity.spec.type &&
-           element.spec.order == entity.spec.order;
-}
-
-/**
- * @brief Solve a small dense system with partial pivoting, overwriting the coefficient matrix.
+ * @brief Test DoFs of one object's block for one component of a k-form.
  *
- * @param rows Leading dimension of `matrix` and `vectors`.
- * @param rhs Number of right-hand sides.
- * @param matrix [rows * rows] Coefficient matrix, overwritten with its factors.
- * @param vectors [rows * rhs] Right-hand sides, overwritten with the solution.
- * @param pivot [rows] Pivot row scratch.
- */
-static void direct_dense_solve(const unsigned rows, const unsigned rhs, double *const matrix, double *const vectors,
-                               unsigned *const pivot)
-{
-    for (unsigned col = 0; col < rows; ++col)
-    {
-        unsigned best = col;
-        double best_value = matrix[col * rows + col];
-        for (unsigned row = col + 1; row < rows; ++row)
-        {
-            const double candidate = matrix[row * rows + col];
-            const double candidate_magnitude = candidate < 0.0 ? -candidate : candidate;
-            const double best_magnitude = best_value < 0.0 ? -best_value : best_value;
-            if (candidate_magnitude > best_magnitude)
-            {
-                best = row;
-                best_value = candidate;
-            }
-        }
-        pivot[col] = best;
-        if (best != col)
-        {
-            for (unsigned i = 0; i < rows; ++i)
-            {
-                const double swap = matrix[col * rows + i];
-                matrix[col * rows + i] = matrix[best * rows + i];
-                matrix[best * rows + i] = swap;
-            }
-            for (unsigned i = 0; i < rhs; ++i)
-            {
-                const double swap = vectors[col * rhs + i];
-                vectors[col * rhs + i] = vectors[best * rhs + i];
-                vectors[best * rhs + i] = swap;
-            }
-        }
-        const double diagonal = matrix[col * rows + col];
-        CUTL_ASSERT(diagonal != 0.0, "The one-dimensional transfer operator is singular.");
-        for (unsigned row = col + 1; row < rows; ++row)
-        {
-            const double factor = matrix[row * rows + col] / diagonal;
-            matrix[row * rows + col] = 0.0;
-            for (unsigned i = col + 1; i < rows; ++i)
-            {
-                matrix[row * rows + i] -= factor * matrix[col * rows + i];
-            }
-            for (unsigned i = 0; i < rhs; ++i)
-            {
-                vectors[row * rhs + i] -= factor * vectors[col * rhs + i];
-            }
-        }
-    }
-    for (unsigned col = rows; col-- > 0;)
-    {
-        const unsigned row = pivot[col];
-        const double diagonal = matrix[row * rows + col];
-        for (unsigned i = 0; i < rhs; ++i)
-        {
-            double value = vectors[row * rhs + i];
-            for (unsigned j = col + 1; j < rows; ++j)
-            {
-                value -= matrix[row * rows + j] * vectors[j * rhs + i];
-            }
-            vectors[col * rhs + i] = value / diagonal;
-        }
-    }
-}
-
-/**
- * @brief Build one one-dimensional transfer operator: the mixed pairing divided by the object's Gram matrix.
- *
- * The quadrature is exact for every product the two windows form. Matching windows short-circuit to the
- * identity, so the common case needs no quadrature at all.
- *
- * @param request Filled request; the registries are borrowed for the duration of the call only.
- * @param work Caller-provided scratch; the operator lands in its one-dimensional block.
- * @param key Specification of the operator.
- */
-static void direct_axis_transfer(const direct_continuity_request_t *const request, direct_continuity_work_t *const work,
-                                 const direct_axis_key_t *const key, unsigned *const out_rows, unsigned *const out_cols)
-{
-    const direct_axis_window_t element = direct_axis_window(key->element, key->active);
-    const direct_axis_window_t entity = direct_axis_window(key->entity, key->active);
-    double *const matrix = work->axis_matrix;
-    double *const vectors = work->vectors;
-    unsigned *const pivot = work->pivot;
-    double *const scale = work->scale;
-    *out_rows = entity.count;
-    *out_cols = element.count;
-    // Zero first, so an empty window still leaves a defined matrix behind.
-    for (size_t i = 0; i < (size_t)entity.count * element.count; ++i)
-    {
-        matrix[i] = 0.0;
-    }
-    if (entity.count == 0 || element.count == 0)
-    {
-        return;
-    }
-    if (direct_windows_match(element, entity))
-    {
-        for (unsigned r = 0; r < entity.count; ++r)
-        {
-            matrix[r * element.count + r] = 1.0;
-        }
-        return;
-    }
-
-    const unsigned degree = element.spec.order > entity.spec.order ? element.spec.order : entity.spec.order;
-    const integration_spec_t rule_spec = {.type = INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE, .order = degree};
-    // The batched getter reads one rule per basis, so both entries share the fetched rule.
-    const integration_rule_t *rules[2] = {NULL, NULL};
-    fdg_result_t result = integration_rule_registry_get_rule(request->integration_registry, rule_spec, &rules[0]);
-    CUTL_ASSERT(result == FDG_SUCCESS, "The transfer quadrature could not be fetched (%d).", (int)result);
-    rules[1] = rules[0];
-    const basis_spec_t specs[2] = {element.spec, entity.spec};
-    const basis_set_t *sets[2] = {NULL, NULL};
-    result = basis_set_registry_get_basis_sets(request->basis_registry, 2u, sets, rules, specs);
-    CUTL_ASSERT(result == FDG_SUCCESS, "The transfer bases could not be fetched (%d).", (int)result);
-    const double *const weights = integration_rule_weights_const(rules[0]);
-    const unsigned point_count = degree + 1u;
-    const unsigned rhs = element.count;
-
-    for (unsigned r = 0; r < entity.count; ++r)
-    {
-        const double *const entity_row = basis_set_basis_values(sets[1], entity.offset + r);
-        for (unsigned s = 0; s < entity.count; ++s)
-        {
-            const double *const other = basis_set_basis_values(sets[1], entity.offset + s);
-            double sum = 0.0;
-            for (unsigned point = 0; point < point_count; ++point)
-            {
-                sum += weights[point] * entity_row[point] * other[point];
-            }
-            matrix[r * entity.count + s] = sum;
-        }
-        for (unsigned c = 0; c < element.count; ++c)
-        {
-            const double *const element_row = basis_set_basis_values(sets[0], element.offset + c);
-            double sum = 0.0;
-            for (unsigned point = 0; point < point_count; ++point)
-            {
-                sum += weights[point] * entity_row[point] * element_row[point];
-            }
-            vectors[r * rhs + c] = sum;
-        }
-    }
-    // Equilibrate before the solve. An equispaced Lagrange Gram matrix spans several orders of magnitude, and
-    // solving it as it stands overflows where the exact projection is perfectly finite. This is a fix for the
-    // symptom only: a stable formulation that avoids the Gram solve altogether is deferred to a later session.
-    for (unsigned r = 0; r < entity.count; ++r)
-    {
-        scale[r] = matrix[r * entity.count + r] > 0.0 ? 1.0 / sqrt(matrix[r * entity.count + r]) : 1.0;
-        for (unsigned i = 0; i < entity.count; ++i)
-        {
-            matrix[r * entity.count + i] *= scale[r];
-        }
-        for (unsigned c = 0; c < element.count; ++c)
-        {
-            vectors[r * rhs + c] *= scale[r];
-        }
-    }
-    direct_dense_solve(entity.count, rhs, matrix, vectors, pivot);
-    for (unsigned r = 0; r < entity.count; ++r)
-    {
-        for (unsigned c = 0; c < element.count; ++c)
-        {
-            matrix[r * element.count + c] = vectors[r * rhs + c] / scale[r];
-        }
-    }
-
-    basis_set_registry_release_basis_set(request->basis_registry, sets[0]);
-    basis_set_registry_release_basis_set(request->basis_registry, sets[1]);
-    integration_rule_registry_release_rule(request->integration_registry, rules[0]);
-}
-
-/**
- * @brief Number of objects of every dimension below `ndim` the mesh has.
- */
-static uint64_t direct_entity_total(const topo_mesh_t *const mesh, const unsigned ndim)
-{
-    uint64_t total = 0;
-    for (unsigned dim = 0; dim < ndim; ++dim)
-    {
-        total += mesh->immersions[dim].object_count;
-    }
-    return total;
-}
-
-/**
- * @brief Common basis of one object's axes, in the object's canonical axis order.
- *
- * The first incident element fixes the canonical axis order; the others lower an axis to their own specification
- * when it is smaller. #constraint_common_space_merge's basis rule, without its integration half.
- *
- * @param request Filled request.
- * @param dim Object dimension.
- * @param object_id Object ID in its dimension.
- * @param out_basis [dim] Receives the common basis.
- */
-static void direct_entity_common_basis(const direct_continuity_request_t *const request, const unsigned dim,
-                                       const uint64_t object_id, basis_spec_t *const out_basis)
-{
-    const topo_mesh_t *const mesh = request->mesh;
-    uint64_t count;
-    const uint64_t *ids;
-    const int8_t *orientations;
-    topo_obj_immersion_of_object(mesh->immersions + dim, object_id, &count, &ids, &orientations);
-    const unsigned fixed_count = mesh->ndim - dim;
-    for (unsigned j = 0; j < dim; ++j)
-    {
-        // An object's record opens with its `ndim - dim` fixed axes, so the free axes start after them.
-        out_basis[j] = request->elements[ids[0]]->basis[constraint_orientation_axis(orientations[fixed_count + j])];
-    }
-    for (uint64_t i = 1; i < count; ++i)
-    {
-        const int8_t *const record = orientations + mesh->ndim * i;
-        for (unsigned j = 0; j < dim; ++j)
-        {
-            const unsigned axis = constraint_orientation_axis(record[fixed_count + j]);
-            if (out_basis[j].order > request->elements[ids[i]]->basis[axis].order)
-            {
-                out_basis[j] = request->elements[ids[i]]->basis[axis];
-            }
-        }
-    }
-}
-
-/**
- * @brief DoFs of one object's interior for one component of a k-form.
- *
- * @param basis [dim] Common basis of the object's axes.
+ * @param basis [dim] Common Legendre test basis of the object's axes.
  * @param dim Object dimension.
  * @param order k-form order.
  * @param component_axes Sorted covector axes of the component, in the object's frame.
@@ -358,14 +58,14 @@ static size_t direct_object_component_dofs(const basis_spec_t *const basis, cons
     for (unsigned j = 0; j < dim; ++j)
     {
         const bool active = next_axis < order && component_axes[next_axis] == j;
-        dofs *= direct_axis_window(basis[j], active).count;
+        dofs *= direct_axis_test_count(basis[j], active);
         next_axis += active ? 1u : 0u;
     }
     return dofs;
 }
 
 /**
- * @brief DoFs of one object's whole block, over all of its components.
+ * @brief Test DoFs of one object's whole block, over all of its components.
  *
  * An order past the object's dimension has no trace, so such an object owns nothing.
  */
@@ -387,114 +87,130 @@ static size_t direct_object_block_size(const basis_spec_t *const basis, const un
 }
 
 /**
- * @brief Offset of one component inside an object's block.
+ * @brief Number of objects of every dimension below `ndim` the mesh has.
  */
-static size_t direct_object_component_offset(const basis_spec_t *const basis, const unsigned dim, const unsigned order,
-                                             const unsigned component)
+static uint64_t direct_entity_total(const topo_mesh_t *const mesh, const unsigned ndim)
 {
-    size_t offset = 0;
-    uint8_t axes[UINT8_MAX];
-    for (unsigned other = 0; other < component; ++other)
+    uint64_t total = 0;
+    for (unsigned dim = 0; dim < ndim; ++dim)
     {
-        combination_set_to_index((uint8_t)dim, (uint8_t)order, axes, other);
-        offset += direct_object_component_dofs(basis, dim, order, axes);
+        total += mesh->immersions[dim].object_count;
     }
-    return offset;
+    return total;
 }
 
 /**
- * @brief Whether a component carries a covector along an element axis.
+ * @brief Whether one object takes part in the map: incident to at least one element, and of a dimension that
+ *        traces the k-form.
  */
-static bool direct_component_has_axis(const direct_continuity_work_t *const work, const unsigned order,
-                                      const unsigned axis)
+static bool direct_object_carries(const direct_continuity_request_t *const request, const unsigned dim,
+                                  const uint64_t incident)
 {
+    return incident > 0 && request->order <= dim;
+}
+
+/**
+ * @brief Number of (object, incident element) pairs the mesh has.
+ */
+static uint64_t direct_pair_total(const direct_continuity_request_t *const request)
+{
+    const topo_mesh_t *const mesh = request->mesh;
+    uint64_t total = 0;
+    for (unsigned dim = 0; dim < request->ndim; ++dim)
+    {
+        for (uint64_t object = 0; object < mesh->immersions[dim].object_count; ++object)
+        {
+            uint64_t incident;
+            const uint64_t *ids;
+            const int8_t *records;
+            topo_obj_immersion_of_object(mesh->immersions + dim, object, &incident, &ids, &records);
+            if (direct_object_carries(request, dim, incident))
+            {
+                total += incident;
+            }
+        }
+    }
+    return total;
+}
+
+/**
+ * @brief Largest number of elements one object's immersion records.
+ */
+static uint64_t direct_max_incident(const direct_continuity_request_t *const request)
+{
+    const topo_mesh_t *const mesh = request->mesh;
+    uint64_t max_incident = 1;
+    for (unsigned dim = 0; dim < request->ndim; ++dim)
+    {
+        for (uint64_t object = 0; object < mesh->immersions[dim].object_count; ++object)
+        {
+            uint64_t incident;
+            const uint64_t *ids;
+            const int8_t *records;
+            topo_obj_immersion_of_object(mesh->immersions + dim, object, &incident, &ids, &records);
+            if (direct_object_carries(request, dim, incident))
+            {
+                max_incident = incident > max_incident ? incident : max_incident;
+            }
+        }
+    }
+    return max_incident;
+}
+
+/**
+ * @brief Largest basis order any element axis carries.
+ */
+static unsigned direct_max_basis_order(const direct_continuity_request_t *const request)
+{
+    unsigned order = 1;
+    for (uint64_t element = 0; element < request->mesh->element_count; ++element)
+    {
+        for (unsigned axis = 0; axis < request->ndim; ++axis)
+        {
+            const unsigned axis_order = request->elements[element]->basis[axis].order;
+            order = axis_order > order ? axis_order : order;
+        }
+    }
+    return order;
+}
+
+/**
+ * @brief Bound on one element's stacked constraint rows.
+ *
+ * Every incident object's common orders are minima over its incident elements, so they never exceed the
+ * element's own orders; the element touches at most `3^ndim - 1` objects, each of dimension at most `ndim - 1`.
+ */
+static size_t direct_row_bound(const direct_continuity_request_t *const request)
+{
+    const unsigned ndim = request->ndim;
+    const unsigned order = request->order;
+    if (order >= ndim)
+    {
+        // No object of dimension below ndim carries a trace of the top order.
+        return 1;
+    }
+    uint64_t objects = 1;
+    for (unsigned dim = 0; dim < ndim; ++dim)
+    {
+        objects *= 3u;
+    }
+    uint64_t combinations = 1;
     for (unsigned i = 0; i < order; ++i)
     {
-        if (work->component_axes[i] == axis)
-        {
-            return true;
-        }
+        combinations = combinations * (ndim - 1u - i) / (i + 1u);
     }
-    return false;
-}
-
-/**
- * @brief Emit one object-axis digit tuple of the current element DoF.
- */
-static void direct_walk_object(direct_walk_t *const walk, const unsigned axis, const double value)
-{
-    direct_continuity_work_t *const work = walk->work;
-    if (walk->dim == 0)
+    uint64_t window = 1;
+    const unsigned basis_order = direct_max_basis_order(request);
+    for (unsigned dim = 1; dim < ndim; ++dim)
     {
-        // A point carries one coefficient per component, so its digit tuple is empty.
-        walk->emit(walk->param, walk->local, walk->object_base, value * walk->sign);
-        return;
+        window *= basis_order;
     }
-    for (unsigned entry = 0; entry < work->support_counts[axis]; ++entry)
-    {
-        const size_t slot = (size_t)axis * work->capacity + entry;
-        work->object_digits[axis] = work->support_rows[slot];
-        const double scaled = value * work->support_values[slot];
-        if (axis + 1 == walk->dim)
-        {
-            size_t global = walk->object_base;
-            for (unsigned j = 0; j < walk->dim; ++j)
-            {
-                global += (size_t)work->object_digits[j] * work->object_strides[j];
-            }
-            walk->emit(walk->param, walk->local, global, scaled * walk->sign);
-        }
-        else
-        {
-            direct_walk_object(walk, axis + 1, scaled);
-        }
-    }
-}
-
-/**
- * @brief Build one object axis' support: the object rows the current element digit reaches.
- */
-static void direct_build_support(direct_walk_t *const walk, const unsigned object_axis)
-{
-    direct_continuity_work_t *const work = walk->work;
-    const unsigned ndim = walk->plan->ndim;
-    const int8_t mapping = walk->record[ndim - walk->dim + object_axis];
-    const unsigned element_axis = constraint_orientation_axis(mapping);
-    const bool active = direct_component_has_axis(work, walk->plan->order, element_axis);
-    const direct_axis_key_t key = {
-        .element = walk->spec->basis[element_axis],
-        .entity =
-            walk->plan->entity_basis[direct_entity_index(walk->plan, walk->dim, walk->object_id) * ndim + object_axis],
-        .active = active};
-    unsigned rows;
-    unsigned cols;
-    direct_axis_transfer(walk->request, work, &key, &rows, &cols);
-    const double *const matrix = work->axis_matrix;
-    // A reversed object axis mirrors the element digit inside the element's axis functions.
-    const unsigned digit = constraint_orientation_mirrored(mapping)
-                               ? work->element_counts[element_axis] - 1u - work->element_digits[element_axis]
-                               : work->element_digits[element_axis];
-    // The window starts after the endpoint function, so an inactive axis shifts by one.
-    const unsigned column = active ? digit : digit - 1u;
-    CUTL_ASSERT(column < cols, "Element digit %u is outside the %u functions the axis contributes.", digit, cols);
-    work->support_counts[object_axis] = 0;
-    for (unsigned row = 0; row < rows; ++row)
-    {
-        const double coefficient = matrix[row * cols + column];
-        if (coefficient != 0.0)
-        {
-            const size_t slot_index = (size_t)object_axis * work->capacity + work->support_counts[object_axis];
-            work->support_rows[slot_index] = row;
-            work->support_values[slot_index] = coefficient;
-            work->support_counts[object_axis] += 1;
-        }
-    }
+    return (size_t)((objects - 1u) * combinations * window);
 }
 
 fdg_result_t direct_continuity_prepare(const direct_continuity_request_t *const request,
                                        direct_continuity_work_t *const work, direct_continuity_plan_t *const plan)
 {
-    (void)work;
     const unsigned ndim = request->ndim;
     const unsigned order = request->order;
     const topo_mesh_t *const mesh = request->mesh;
@@ -505,6 +221,7 @@ fdg_result_t direct_continuity_prepare(const direct_continuity_request_t *const 
     plan->order = order;
     plan->element_count = mesh->element_count;
     plan->entity_count = direct_entity_total(mesh, ndim);
+    plan->pair_count = direct_pair_total(request);
     plan->mesh = mesh;
     plan->elements = request->elements;
     plan->basis_registry = request->basis_registry;
@@ -517,8 +234,30 @@ fdg_result_t direct_continuity_prepare(const direct_continuity_request_t *const 
         running += mesh->immersions[dim].object_count;
     }
     plan->entity_dim_offsets[ndim] = running;
+    for (uint64_t element = 0; element <= mesh->element_count; ++element)
+    {
+        plan->element_rows[element] = 0;
+    }
+
+    // Fetched references start NULL so a failed prepare still releases cleanly.
+    const size_t entity_slots = (size_t)plan->entity_count * ndim;
+    for (size_t slot = 0; slot < entity_slots; ++slot)
+    {
+        plan->entity_rules[slot] = NULL;
+        plan->entity_sets[slot] = NULL;
+        plan->entity_sets_lower[slot] = NULL;
+    }
+    const size_t pair_slots = (size_t)plan->pair_count * ndim;
+    for (size_t slot = 0; slot < pair_slots; ++slot)
+    {
+        plan->pair_element_sets[slot] = NULL;
+        plan->pair_element_sets_lower[slot] = NULL;
+        plan->pair_element_endpoints[slot] = NULL;
+        plan->pair_element_endpoints_lower[slot] = NULL;
+    }
 
     size_t block_running = 0;
+    size_t pair_running = 0;
     for (unsigned dim = 0; dim < ndim; ++dim)
     {
         const unsigned object_count = mesh->immersions[dim].object_count;
@@ -526,60 +265,253 @@ fdg_result_t direct_continuity_prepare(const direct_continuity_request_t *const 
         {
             const size_t index = direct_entity_index(plan, dim, object);
             basis_spec_t *const basis = plan->entity_basis + index * ndim;
+            integration_spec_t *const integration = plan->entity_integration + index * ndim;
+            basis_spec_t *const lower = plan->entity_lower_basis + index * ndim;
             uint64_t incident;
             const uint64_t *incident_ids;
             const int8_t *records;
             topo_obj_immersion_of_object(mesh->immersions + dim, object, &incident, &incident_ids, &records);
-            // A mesh may declare more points than its elements carry; such a point owns nothing.
+            // A mesh may declare objects no element touches; such an object owns nothing. An object of
+            // dimension under the traced order has no trace either, so it constrains nothing and owns no DoFs.
             plan->entity_block_offsets[index] = block_running;
-            if (incident == 0)
+            if (!direct_object_carries(request, dim, incident))
             {
                 continue;
             }
-            direct_entity_common_basis(request, dim, object, basis);
+            for (uint64_t i = 0; i < incident; ++i)
+            {
+                const kform_spec_t *const spec = request->elements[incident_ids[i]];
+                work->views[i] = (boundary_element_space_t){.order = order,
+                                                            .orientation = records + ndim * i,
+                                                            .basis = spec->basis,
+                                                            .integration = work->view_integration + i * ndim};
+                for (unsigned axis = 0; axis < ndim; ++axis)
+                {
+                    // The quadrature is fed per axis at the element's own order, which integrates every product
+                    // the pairing forms exactly; the merge raises the object rule to the most accurate view.
+                    work->view_integration[i * ndim + axis] = (integration_spec_t){
+                        .type = INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE, .order = spec->basis[axis].order};
+                }
+            }
+            constraint_common_space_merge(ndim, dim, incident, work->views, basis, integration);
             for (unsigned j = 0; j < dim; ++j)
             {
+                // The test space is hierarchic, which is what the window trim and the Gram conditioning rely on.
+                basis[j].type = BASIS_LEGENDRE;
+                lower[j] =
+                    (basis_spec_t){.type = BASIS_LEGENDRE, .order = basis[j].order > 0 ? basis[j].order - 1u : 0u};
                 // Reported, not asserted: a release build drops the check.
-                if (!direct_basis_is_nodal(basis[j].type))
-                {
-                    return FDG_ERROR_NOT_IN_DOMAIN;
-                }
                 if (basis[j].order == 0)
                 {
                     return FDG_ERROR_NOT_IN_DOMAIN;
                 }
             }
-            block_running += direct_object_block_size(basis, dim, order);
+            const integration_rule_t **const rules = plan->entity_rules + index * ndim;
+            const basis_set_t **const sets = plan->entity_sets + index * ndim;
+            const basis_set_t **const sets_lower = plan->entity_sets_lower + index * ndim;
+            if (dim > 0)
+            {
+                fdg_result_t res =
+                    integration_rule_registry_get_rules(request->integration_registry, dim, integration, rules);
+                if (res != FDG_SUCCESS)
+                {
+                    return res;
+                }
+                res = basis_set_registry_get_basis_sets(request->basis_registry, dim, sets, rules, basis);
+                if (res != FDG_SUCCESS)
+                {
+                    return res;
+                }
+                if (order > 0)
+                {
+                    res = basis_set_registry_get_basis_sets(request->basis_registry, dim, sets_lower, rules, lower);
+                    if (res != FDG_SUCCESS)
+                    {
+                        return res;
+                    }
+                }
+            }
+            const size_t rows = direct_object_block_size(basis, dim, order);
+            for (uint64_t i = 0; i < incident; ++i)
+            {
+                const uint64_t element = incident_ids[i];
+                const int8_t *const record = records + ndim * i;
+                const kform_spec_t *const spec = request->elements[element];
+                const size_t pair = pair_running++;
+                plan->pair_entities[pair] = index;
+                plan->pair_records[pair] = record;
+                plan->pair_rows[pair] = (size_t)plan->element_rows[element];
+                plan->element_rows[element] += rows;
+                for (unsigned axis = 0; axis < ndim; ++axis)
+                {
+                    work->axis_fixed[axis] = false;
+                    work->axis_slot[axis] = 0;
+                }
+                for (unsigned face_axis = 0; face_axis < dim; ++face_axis)
+                {
+                    const int8_t mapping = record[ndim - dim + face_axis];
+                    work->axis_slot[constraint_orientation_axis(mapping)] = face_axis;
+                }
+                for (unsigned fixed_axis = 0; fixed_axis < ndim - dim; ++fixed_axis)
+                {
+                    const int8_t mapping = record[fixed_axis];
+                    work->axis_fixed[constraint_orientation_axis(mapping)] = true;
+                }
+                for (unsigned axis = 0; axis < ndim; ++axis)
+                {
+                    work->element_rules[axis] =
+                        dim > 0
+                            ? plan->entity_rules[index * ndim + (work->axis_fixed[axis] ? 0 : work->axis_slot[axis])]
+                            : NULL;
+                }
+                basis_spec_t *const element_lower = plan->pair_element_lower_specs + pair * ndim;
+                for (unsigned axis = 0; axis < ndim; ++axis)
+                {
+                    element_lower[axis] =
+                        (basis_spec_t){.type = spec->basis[axis].type,
+                                       .order = spec->basis[axis].order > 0 ? spec->basis[axis].order - 1u : 0u};
+                }
+                const basis_set_t **const element_sets = plan->pair_element_sets + pair * ndim;
+                const basis_set_t **const element_sets_lower = plan->pair_element_sets_lower + pair * ndim;
+                const basis_endpoint_set_t **const endpoints = plan->pair_element_endpoints + pair * ndim;
+                const basis_endpoint_set_t **const endpoints_lower = plan->pair_element_endpoints_lower + pair * ndim;
+                if (dim > 0)
+                {
+                    fdg_result_t res = basis_set_registry_get_basis_sets(request->basis_registry, ndim, element_sets,
+                                                                         work->element_rules, spec->basis);
+                    if (res != FDG_SUCCESS)
+                    {
+                        return res;
+                    }
+                    if (order > 0)
+                    {
+                        res = basis_set_registry_get_basis_sets(request->basis_registry, ndim, element_sets_lower,
+                                                                work->element_rules, element_lower);
+                        if (res != FDG_SUCCESS)
+                        {
+                            return res;
+                        }
+                    }
+                }
+                for (unsigned axis = 0; axis < ndim; ++axis)
+                {
+                    if (!work->axis_fixed[axis])
+                    {
+                        continue;
+                    }
+                    fdg_result_t res = basis_set_registry_get_basis_endpoints(request->basis_registry, endpoints + axis,
+                                                                              spec->basis[axis]);
+                    if (res != FDG_SUCCESS)
+                    {
+                        return res;
+                    }
+                    if (order > 0 && spec->basis[axis].order > 0)
+                    {
+                        res = basis_set_registry_get_basis_endpoints(request->basis_registry, endpoints_lower + axis,
+                                                                     element_lower[axis]);
+                        if (res != FDG_SUCCESS)
+                        {
+                            return res;
+                        }
+                    }
+                }
+            }
+            block_running += rows;
         }
     }
     plan->entity_block_offsets[plan->entity_count] = block_running;
 
+    // Per-element pair lists: pairs were visited in canonical object order, so counting per element and filling
+    // in a second canonical pass keeps every list sorted; element_interior_offsets carries the counts meanwhile.
+    for (uint64_t element = 0; element < mesh->element_count; ++element)
+    {
+        plan->element_interior_offsets[element] = 0;
+    }
+    pair_running = 0;
+    for (unsigned dim = 0; dim < ndim; ++dim)
+    {
+        for (uint64_t object = 0; object < mesh->immersions[dim].object_count; ++object)
+        {
+            uint64_t incident;
+            const uint64_t *incident_ids;
+            const int8_t *records;
+            topo_obj_immersion_of_object(mesh->immersions + dim, object, &incident, &incident_ids, &records);
+            if (!direct_object_carries(request, dim, incident))
+            {
+                continue;
+            }
+            for (uint64_t i = 0; i < incident; ++i)
+            {
+                plan->element_interior_offsets[incident_ids[i]] += 1;
+            }
+        }
+    }
+    size_t pair_cursor = 0;
+    for (uint64_t element = 0; element < mesh->element_count; ++element)
+    {
+        const size_t count = (size_t)plan->element_interior_offsets[element];
+        plan->element_interior_offsets[element] = 0;
+        plan->element_object_offsets[element] = pair_cursor;
+        pair_cursor += count;
+    }
+    plan->element_object_offsets[mesh->element_count] = pair_cursor;
+    pair_running = 0;
+    for (unsigned dim = 0; dim < ndim; ++dim)
+    {
+        for (uint64_t object = 0; object < mesh->immersions[dim].object_count; ++object)
+        {
+            uint64_t incident;
+            const uint64_t *incident_ids;
+            const int8_t *records;
+            topo_obj_immersion_of_object(mesh->immersions + dim, object, &incident, &incident_ids, &records);
+            if (!direct_object_carries(request, dim, incident))
+            {
+                continue;
+            }
+            for (uint64_t i = 0; i < incident; ++i)
+            {
+                const uint64_t element = incident_ids[i];
+                plan->element_pair_slots[plan->element_object_offsets[element] +
+                                         (size_t)plan->element_interior_offsets[element]] = pair_running;
+                plan->element_interior_offsets[element] += 1;
+                pair_running += 1;
+            }
+        }
+    }
+
     size_t dof_running = 0;
     // Element-private DoFs come after every object's block.
     size_t interior_running = block_running;
+    const size_t row_bound = direct_row_bound(request);
     for (uint64_t element = 0; element < mesh->element_count; ++element)
     {
         const kform_spec_t *const spec = request->elements[element];
+        const size_t rows = (size_t)plan->element_rows[element];
         for (unsigned axis = 0; axis < ndim; ++axis)
         {
-            if (!direct_basis_is_nodal(spec->basis[axis].type) || spec->basis[axis].order == 0)
+            if (spec->basis[axis].order == 0)
             {
                 return FDG_ERROR_NOT_IN_DOMAIN;
             }
         }
+        CUTL_ASSERT(rows <= row_bound, "Element %llu stacks %zu constraint rows, past the %zu bound.",
+                    (unsigned long long)element, rows, row_bound);
         plan->element_dof_offsets[element] = dof_running;
-        plan->element_interior_offsets[element] = interior_running;
         dof_running += kform_spec_total_dofs(spec);
-        uint8_t axes[UINT8_MAX];
-        const unsigned component_count = combination_total_count((uint8_t)ndim, (uint8_t)order);
-        for (unsigned component = 0; component < component_count; ++component)
-        {
-            kform_component_axes(spec, component, axes);
-            interior_running += direct_object_component_dofs(spec->basis, ndim, order, axes);
-        }
+        plan->element_interior_offsets[element] = interior_running;
+        interior_running += kform_spec_total_dofs(spec) - rows;
     }
     plan->element_dof_offsets[mesh->element_count] = dof_running;
     plan->element_interior_offsets[mesh->element_count] = interior_running;
+    // The row tallies become offsets, which is the form the build reads.
+    size_t row_running = 0;
+    for (uint64_t element = 0; element < mesh->element_count; ++element)
+    {
+        const size_t rows = (size_t)plan->element_rows[element];
+        plan->element_rows[element] = row_running;
+        row_running += rows;
+    }
+    plan->element_rows[mesh->element_count] = row_running;
 
     plan->layout.element_count = mesh->element_count;
     plan->layout.entry_count = 0;
@@ -589,27 +521,22 @@ fdg_result_t direct_continuity_prepare(const direct_continuity_request_t *const 
     return FDG_SUCCESS;
 }
 
-static void direct_walk(const direct_continuity_request_t *request, const direct_continuity_plan_t *plan,
-                        direct_continuity_work_t *work, direct_entry_fn emit, void *param);
-
 /**
  * @brief Count one nonzero of the transfer.
  */
 static void direct_count_entry(void *const param, const size_t local, const size_t global, const double value)
 {
     (void)local;
+    (void)global;
     (void)value;
-    if (global != DIRECT_NO_ENTRY)
-    {
-        ++*(size_t *)param;
-    }
+    ++*(size_t *)param;
 }
 
 void direct_continuity_layout(const direct_continuity_request_t *const request, direct_continuity_plan_t *const plan,
                               direct_continuity_work_t *const work, direct_continuity_layout_t *const out_layout)
 {
     // The nonzero count is the last thing known; the plan keeps it.
-    direct_walk(request, plan, work, direct_count_entry, &plan->layout.entry_count);
+    direct_continuity_walk(request, plan, work, direct_count_entry, &plan->layout.entry_count);
     *out_layout = plan->layout;
 }
 
@@ -641,10 +568,6 @@ static void direct_write_entry(void *const param, const size_t local, const size
         state->offsets[local] = state->entry;
         state->dof += 1;
     }
-    if (global == DIRECT_NO_ENTRY)
-    {
-        return;
-    }
     state->index[state->entry] = global;
     state->value[state->entry] = value;
     state->entry += 1;
@@ -656,7 +579,7 @@ void direct_continuity_build(const direct_continuity_request_t *const request,
 {
     direct_build_state_t state = {
         .offsets = entry_offsets, .index = entry_index, .value = entry_value, .current = (size_t)-1};
-    direct_walk(request, plan, work, direct_write_entry, &state);
+    direct_continuity_walk(request, plan, work, direct_write_entry, &state);
     CUTL_ASSERT(state.dof == plan->layout.element_dof_count, "The transfer wrote %zu of the %zu element DoFs.",
                 state.dof, plan->layout.element_dof_count);
     entry_offsets[plan->layout.element_dof_count] = state.entry;
@@ -698,8 +621,351 @@ void direct_continuity_scatter(const direct_continuity_plan_t *const plan, const
 
 void direct_continuity_plan_release(const direct_continuity_plan_t *const plan)
 {
-    (void)plan;
+    for (uint64_t index = 0; index < plan->entity_count; ++index)
+    {
+        unsigned dim = 0;
+        while (dim < plan->ndim && plan->entity_dim_offsets[dim + 1] <= index)
+        {
+            dim += 1;
+        }
+        for (unsigned j = 0; j < dim; ++j)
+        {
+            const size_t slot = index * plan->ndim + j;
+            if (plan->entity_rules[slot] != NULL)
+            {
+                integration_rule_registry_release_rule(plan->integration_registry, plan->entity_rules[slot]);
+                plan->entity_rules[slot] = NULL;
+            }
+            if (plan->entity_sets[slot] != NULL)
+            {
+                basis_set_registry_release_basis_set(plan->basis_registry, plan->entity_sets[slot]);
+                plan->entity_sets[slot] = NULL;
+            }
+            if (plan->entity_sets_lower[slot] != NULL)
+            {
+                basis_set_registry_release_basis_set(plan->basis_registry, plan->entity_sets_lower[slot]);
+                plan->entity_sets_lower[slot] = NULL;
+            }
+        }
+    }
+    for (uint64_t pair = 0; pair < plan->pair_count; ++pair)
+    {
+        for (unsigned axis = 0; axis < plan->ndim; ++axis)
+        {
+            const size_t slot = pair * plan->ndim + axis;
+            if (plan->pair_element_endpoints_lower[slot] != NULL)
+            {
+                basis_set_registry_release_basis_endpoints(plan->basis_registry,
+                                                           plan->pair_element_endpoints_lower[slot]);
+                plan->pair_element_endpoints_lower[slot] = NULL;
+            }
+            if (plan->pair_element_endpoints[slot] != NULL)
+            {
+                basis_set_registry_release_basis_endpoints(plan->basis_registry, plan->pair_element_endpoints[slot]);
+                plan->pair_element_endpoints[slot] = NULL;
+            }
+            if (plan->pair_element_sets_lower[slot] != NULL)
+            {
+                basis_set_registry_release_basis_set(plan->basis_registry, plan->pair_element_sets_lower[slot]);
+                plan->pair_element_sets_lower[slot] = NULL;
+            }
+            if (plan->pair_element_sets[slot] != NULL)
+            {
+                basis_set_registry_release_basis_set(plan->basis_registry, plan->pair_element_sets[slot]);
+                plan->pair_element_sets[slot] = NULL;
+            }
+        }
+    }
 }
+
+/**
+ * @brief Assemble, eliminate and emit one element's transfer.
+ */
+static void direct_eliminate_element(const direct_continuity_plan_t *const plan, direct_continuity_work_t *const work,
+                                     direct_entry_fn emit, void *const param, const uint64_t element)
+{
+    const unsigned ndim = plan->ndim;
+    const unsigned order = plan->order;
+    const unsigned component_count = combination_total_count((uint8_t)ndim, (uint8_t)order);
+    const kform_spec_t *const spec = plan->elements[element];
+    kform_spec_component_offsets(spec, component_count + 1u, work->component_offsets);
+    const size_t local_base = plan->element_dof_offsets[element];
+    const size_t interior_base = plan->element_interior_offsets[element];
+    const size_t dof_count = plan->element_dof_offsets[element + 1] - local_base;
+    const size_t row_start = plan->element_rows[element];
+    const size_t rows = plan->element_rows[element + 1] - row_start;
+    if (rows == 0)
+    {
+        // A top-order form has no trace on any object, so every DoF stays element-private.
+        for (size_t i = 0; i < dof_count; ++i)
+        {
+            emit(param, local_base + i, interior_base + i, 1.0);
+        }
+        return;
+    }
+
+    for (size_t value = 0; value < rows * dof_count; ++value)
+    {
+        work->stacked[value] = 0.0;
+    }
+    for (size_t value = 0; value < rows * rows; ++value)
+    {
+        work->b_stacked[value] = 0.0;
+    }
+
+    // One object block and its Gram per pair, expanded into the element's own column numbering.
+    for (size_t entry = plan->element_object_offsets[element]; entry < plan->element_object_offsets[element + 1];
+         ++entry)
+    {
+        const size_t pair = plan->element_pair_slots[entry];
+        const size_t index = (size_t)plan->pair_entities[pair];
+        const int8_t *const record = plan->pair_records[pair];
+        const size_t pair_row = plan->pair_rows[pair];
+        unsigned dim = 0;
+        while (plan->entity_dim_offsets[dim + 1] <= index)
+        {
+            dim += 1;
+        }
+        const size_t object_rows = plan->entity_block_offsets[index + 1] - plan->entity_block_offsets[index];
+        const constraint_boundary_mass_spec_t mass_spec = {.ndim = ndim,
+                                                           .bdim = dim,
+                                                           .order = order,
+                                                           .element_spec = spec,
+                                                           .boundary_basis = plan->entity_basis + index * ndim,
+                                                           .boundary_integration =
+                                                               plan->entity_integration + index * ndim,
+                                                           .orientation = record};
+        const basis_set_t **const boundary_sets = plan->entity_sets + index * ndim;
+        const bool with_lower = order > 0;
+        constraint_boundary_mass_work_sizes_t sizes;
+        constraint_boundary_mass_work_size(&mass_spec, &work->mass, &sizes);
+        constraint_boundary_mass_work_init(&work->mass, &mass_spec, &sizes, work->mass_memory);
+        size_t assembled_rows;
+        size_t assembled_cols;
+        size_t assembled_entries;
+        constraint_boundary_mass_layout(&mass_spec, &work->mass, false, &assembled_rows, &assembled_cols,
+                                        &assembled_entries);
+        CUTL_ASSERT(assembled_rows == object_rows, "Object %llu assembles %zu test rows against a block of %zu.",
+                    (unsigned long long)index, assembled_rows, object_rows);
+        integration_rule_tensor_weights(dim, plan->entity_rules + index * ndim, work->weights);
+        const constraint_boundary_mass_request_t mass_request = {
+            .spec = &mass_spec,
+            .boundary_basis_sets = boundary_sets,
+            .boundary_basis_sets_lower = with_lower ? plan->entity_sets_lower + index * ndim : NULL,
+            .element_basis_sets = plan->pair_element_sets + pair * ndim,
+            .element_basis_sets_lower = with_lower ? plan->pair_element_sets_lower + pair * ndim : NULL,
+            .element_endpoints = plan->pair_element_endpoints + pair * ndim,
+            .element_endpoints_lower = with_lower ? plan->pair_element_endpoints_lower + pair * ndim : NULL,
+            .point_weights = work->weights,
+            .surface_weights = NULL,
+            .test_pullback = NULL,
+            .element_pullback = NULL,
+            .factor = 1.0,
+            .work = &work->mass,
+            .out_matrix = work->block,
+        };
+        constraint_boundary_mass_assemble(&mass_request);
+        for (unsigned component = 0; component < combination_total_count((uint8_t)dim, (uint8_t)order); ++component)
+        {
+            const size_t col_dofs = work->mass.col_offsets[component + 1] - work->mass.col_offsets[component];
+            const size_t element_column = work->component_offsets[work->mass.element_components[component]];
+            for (size_t row = 0; row < object_rows; ++row)
+            {
+                for (size_t dof = 0; dof < col_dofs; ++dof)
+                {
+                    work->stacked[(pair_row + row) * dof_count + element_column + dof] =
+                        work->block[row * assembled_cols + work->mass.col_offsets[component] + dof];
+                }
+            }
+        }
+        constraint_boundary_mass_gram(&mass_spec, boundary_sets,
+                                      with_lower ? plan->entity_sets_lower + index * ndim : NULL, work->weights,
+                                      &work->mass, work->gram);
+        for (size_t row = 0; row < object_rows; ++row)
+        {
+            for (size_t other = 0; other < object_rows; ++other)
+            {
+                work->b_stacked[(pair_row + row) * rows + pair_row + other] = work->gram[row * object_rows + other];
+            }
+        }
+    }
+
+    // QR of the transpose: with the convention A = Q^T R, the constrained part is Q_1 R^{-T} B and the free part
+    // is the rows of Q past the rank.
+    matrix_t transposed = {.rows = (unsigned)dof_count, .cols = (unsigned)rows, .values = work->transposed};
+    matrix_t orthogonal = {.rows = (unsigned)dof_count, .cols = (unsigned)dof_count, .values = work->q_matrix};
+    for (size_t row = 0; row < rows; ++row)
+    {
+        for (size_t dof = 0; dof < dof_count; ++dof)
+        {
+            work->transposed[dof * rows + row] = work->stacked[row * dof_count + dof];
+        }
+    }
+    matrix_qr_decompose(&transposed, &orthogonal);
+    double max_pivot = 0.0;
+    for (size_t row = 0; row < rows; ++row)
+    {
+        const double pivot = work->transposed[row * rows + row];
+        const double magnitude = pivot < 0.0 ? -pivot : pivot;
+        max_pivot = magnitude > max_pivot ? magnitude : max_pivot;
+    }
+    CUTL_ASSERT(max_pivot > 0.0, "The stacked constraints of element %llu vanished.", (unsigned long long)element);
+    for (size_t row = 0; row < rows; ++row)
+    {
+        const double pivot = work->transposed[row * rows + row];
+        const double magnitude = pivot < 0.0 ? -pivot : pivot;
+        CUTL_ASSERT(magnitude > 1e-10 * max_pivot, "Constraint row %zu of element %llu is rank deficient.", row,
+                    (unsigned long long)element);
+    }
+
+    // Forward substitution R^T Y = B fills y from the block-diagonal Gram b_stacked.
+    for (size_t row = 0; row < rows; ++row)
+    {
+        for (size_t column = 0; column < rows; ++column)
+        {
+            double value = work->b_stacked[row * rows + column];
+            for (size_t inner = 0; inner < row; ++inner)
+            {
+                value -= work->transposed[inner * rows + row] * work->y[inner * rows + column];
+            }
+            work->y[row * rows + column] = value / work->transposed[row * rows + row];
+        }
+    }
+    double mapped_max = 0.0;
+    for (size_t dof = 0; dof < dof_count; ++dof)
+    {
+        for (size_t row = 0; row < rows; ++row)
+        {
+            double value = 0.0;
+            for (size_t inner = 0; inner < rows; ++inner)
+            {
+                value += work->q_matrix[inner * dof_count + dof] * work->y[inner * rows + row];
+            }
+            work->mapped[dof * rows + row] = value;
+            const double magnitude = value < 0.0 ? -value : value;
+            mapped_max = magnitude > mapped_max ? magnitude : mapped_max;
+        }
+    }
+    double orthogonal_max = 0.0;
+    for (size_t value = 0; value < dof_count * dof_count; ++value)
+    {
+        const double magnitude = work->q_matrix[value] < 0.0 ? -work->q_matrix[value] : work->q_matrix[value];
+        orthogonal_max = magnitude > orthogonal_max ? magnitude : orthogonal_max;
+    }
+    const double mapped_floor = mapped_max * (double)1.0 / (double)(UINT64_C(1) << DIRECT_PRUNE_SHIFT);
+    const double orthogonal_floor = orthogonal_max * (double)1.0 / (double)(UINT64_C(1) << DIRECT_PRUNE_SHIFT);
+
+    const size_t cursor_start = plan->element_object_offsets[element];
+    const size_t cursor_end = plan->element_object_offsets[element + 1];
+    for (size_t dof = 0; dof < dof_count; ++dof)
+    {
+        const size_t local = local_base + dof;
+        // Every DoF's rows restart at the element's first object, so the pair cursor resets with them.
+        size_t cursor = cursor_start;
+        for (size_t row = 0; row < rows; ++row)
+        {
+            const double value = work->mapped[dof * rows + row];
+            if (value <= mapped_floor && -value <= mapped_floor)
+            {
+                continue;
+            }
+            while (cursor + 1 < cursor_end && plan->pair_rows[plan->element_pair_slots[cursor + 1]] <= row)
+            {
+                cursor += 1;
+            }
+            const size_t pair = plan->element_pair_slots[cursor];
+            const size_t index = (size_t)plan->pair_entities[pair];
+            emit(param, local, plan->entity_block_offsets[index] + (row - plan->pair_rows[pair]), value);
+        }
+        for (size_t mode = rows; mode < dof_count; ++mode)
+        {
+            const double value = work->q_matrix[mode * dof_count + dof];
+            if (value <= orthogonal_floor && -value <= orthogonal_floor)
+            {
+                continue;
+            }
+            emit(param, local, interior_base + (mode - rows), value);
+        }
+    }
+}
+
+/**
+ * @brief Enumerate every nonzero of the element-to-global transfer.
+ *
+ * Walks elements; the elimination emits each DoF's entries grouped by ascending local and ascending global index.
+ */
+static void direct_continuity_walk(const direct_continuity_request_t *request, const direct_continuity_plan_t *plan,
+                                   direct_continuity_work_t *work, direct_entry_fn emit, void *param)
+{
+    (void)request;
+    // The boundary-mass scratch starts as the a-priori sizing block, which every per-pair re-init fits into.
+    if (plan->element_count > 0)
+    {
+        const constraint_boundary_mass_spec_t sizing_spec = {.ndim = plan->ndim,
+                                                             .bdim = plan->ndim - 1u,
+                                                             .order = plan->order,
+                                                             .element_spec = plan->elements[0],
+                                                             .boundary_basis = NULL,
+                                                             .boundary_integration = NULL,
+                                                             .orientation = NULL};
+        constraint_boundary_mass_work_init(&work->mass, &sizing_spec, NULL, work->mass_memory);
+    }
+    for (uint64_t element = 0; element < plan->element_count; ++element)
+    {
+        direct_eliminate_element(plan, work, emit, param, element);
+    }
+}
+
+/**
+ * @brief Largest element-local DoF count the request carries.
+ */
+static uint64_t direct_max_element_dofs(const direct_continuity_request_t *const request)
+{
+    uint64_t max_dofs = 1;
+    for (uint64_t element = 0; element < request->mesh->element_count; ++element)
+    {
+        const uint64_t dofs = kform_spec_total_dofs(request->elements[element]);
+        max_dofs = dofs > max_dofs ? dofs : max_dofs;
+    }
+    return max_dofs;
+}
+
+/**
+ * @brief Largest number of tensor points one object's common rule spans.
+ *
+ * The merged rule per axis is fed at Gauss-Legendre of the largest basis order, so its node count is bounded by
+ * that order plus one per axis.
+ */
+static uint64_t direct_max_object_points(const direct_continuity_request_t *const request)
+{
+    uint64_t points = 1;
+    for (unsigned dim = 1; dim < request->ndim; ++dim)
+    {
+        points *= (uint64_t)direct_max_basis_order(request) + 1u;
+    }
+    return points;
+}
+
+/**
+ * @brief Largest per-component DoF count any element k-form spec carries.
+ */
+static uint64_t direct_max_component_dofs(const direct_continuity_request_t *const request)
+{
+    const unsigned ndim = request->ndim;
+    const unsigned order = request->order;
+    uint64_t max_dofs = 1;
+    const unsigned component_count = combination_total_count((uint8_t)ndim, (uint8_t)order);
+    for (uint64_t element = 0; element < request->mesh->element_count; ++element)
+    {
+        for (unsigned component = 0; component < component_count; ++component)
+        {
+            const uint64_t dofs = kform_spec_component_dof_count(request->elements[element], component);
+            max_dofs = dofs > max_dofs ? dofs : max_dofs;
+        }
+    }
+    return max_dofs;
+}
+
 /**
  * @brief Place every work member into one block, optionally assigning the pointers.
  *
@@ -708,35 +974,37 @@ void direct_continuity_plan_release(const direct_continuity_plan_t *const plan)
  *
  * @return Total bytes for one block.
  */
-/**
- * @brief Largest basis order the request carries, plus room for the one-dimensional operator scratch.
- *
- * The operators are as wide as the basis is, which the k-form order says nothing about: a scalar field of
- * basis order four still needs a four-by-four operator.
- */
-static unsigned direct_continuity_basis_capacity(const direct_continuity_request_t *const request)
-{
-    unsigned basis_order = 1;
-    for (uint64_t element = 0; element < request->mesh->element_count; ++element)
-    {
-        for (unsigned axis = 0; axis < request->ndim; ++axis)
-        {
-            const unsigned order = request->elements[element]->basis[axis].order;
-            basis_order = basis_order > order ? basis_order : order;
-        }
-    }
-    return basis_order + 2u;
-}
-
 static size_t direct_work_layout(const direct_continuity_request_t *const request, direct_continuity_work_t *const work,
                                  void *const memory)
 {
     const unsigned ndim = request->ndim;
     const unsigned order = request->order;
-    const unsigned capacity = direct_continuity_basis_capacity(request);
-    const unsigned order_storage = order == 0u ? 1u : order;
     const size_t align = _Alignof(max_align_t);
-    const size_t matrix = (size_t)capacity * capacity;
+    const uint64_t max_element = direct_max_element_dofs(request);
+    const uint64_t max_rows = direct_row_bound(request);
+    const uint64_t max_pairs = max_rows * max_element;
+    const uint64_t max_points = direct_max_object_points(request);
+    const uint64_t point_window = max_points > 0 ? max_points : 1;
+    uint64_t component_window = 1;
+    for (unsigned dim = 1; dim < ndim; ++dim)
+    {
+        component_window *= direct_max_basis_order(request);
+    }
+    const uint64_t max_component = direct_max_component_dofs(request);
+    const uint64_t row_values = point_window * component_window;
+    const uint64_t col_values = point_window * max_component;
+    // The embedded boundary-mass scratch: the a-priori members of the widest dimension, then the value tables.
+    const constraint_boundary_mass_spec_t sizing_spec = {.ndim = ndim,
+                                                         .bdim = ndim - 1u,
+                                                         .order = order,
+                                                         .element_spec = NULL,
+                                                         .boundary_basis = NULL,
+                                                         .boundary_integration = NULL,
+                                                         .orientation = NULL};
+    const uint64_t mass_apriori = constraint_boundary_mass_work_memory(&sizing_spec, NULL);
+    const uint64_t mass_values = 8u * (row_values + col_values + point_window);
+    const uint64_t mass_block = mass_apriori + mass_values + 4u * align;
+    const uint64_t max_incident = direct_max_incident(request);
     const unsigned components = combination_total_count((uint8_t)ndim, (uint8_t)order);
     size_t cursor = 0;
 #define DIRECT_TAKE(member, type, count)                                                                               \
@@ -750,29 +1018,23 @@ static size_t direct_work_layout(const direct_continuity_request_t *const reques
         }                                                                                                              \
         cursor += bytes;                                                                                               \
     } while (false)
-    DIRECT_TAKE(axis_matrix, double, matrix);
-    DIRECT_TAKE(vectors, double, matrix);
-    DIRECT_TAKE(pivot, unsigned, capacity);
-    DIRECT_TAKE(scale, double, capacity);
-    DIRECT_TAKE(component_axes, uint8_t, order_storage);
-    DIRECT_TAKE(object_axes, uint8_t, order_storage);
-    DIRECT_TAKE(mapped_axes, uint8_t, order_storage);
-    DIRECT_TAKE(fixed_axes, int8_t, ndim);
-    DIRECT_TAKE(element_counts, unsigned, ndim);
-    DIRECT_TAKE(object_counts, unsigned, ndim);
-    DIRECT_TAKE(element_digits, unsigned, ndim);
-    DIRECT_TAKE(object_digits, unsigned, ndim);
-    DIRECT_TAKE(support_rows, unsigned, (size_t)ndim *capacity);
-    DIRECT_TAKE(support_values, double, (size_t)ndim *capacity);
-    DIRECT_TAKE(support_counts, unsigned, ndim);
-    DIRECT_TAKE(element_strides, size_t, (size_t)ndim + 1u);
-    DIRECT_TAKE(object_strides, size_t, (size_t)ndim + 1u);
+    DIRECT_TAKE(mass_memory, unsigned char, mass_block);
+    DIRECT_TAKE(weights, double, point_window);
+    DIRECT_TAKE(block, double, max_pairs);
+    DIRECT_TAKE(gram, double, max_rows *max_rows);
+    DIRECT_TAKE(stacked, double, max_pairs);
+    DIRECT_TAKE(b_stacked, double, max_rows *max_rows);
+    DIRECT_TAKE(transposed, double, max_pairs);
+    DIRECT_TAKE(q_matrix, double, max_element *max_element);
+    DIRECT_TAKE(y, double, max_rows *max_rows);
+    DIRECT_TAKE(mapped, double, max_pairs);
+    DIRECT_TAKE(axis_fixed, bool, ndim);
+    DIRECT_TAKE(axis_slot, unsigned, ndim);
+    DIRECT_TAKE(element_rules, const integration_rule_t *, ndim);
+    DIRECT_TAKE(views, boundary_element_space_t, max_incident);
+    DIRECT_TAKE(view_integration, integration_spec_t, max_incident * ndim);
     DIRECT_TAKE(component_offsets, size_t, (size_t)components + 1u);
 #undef DIRECT_TAKE
-    if (work != NULL)
-    {
-        work->capacity = capacity;
-    }
     return cursor;
 }
 
@@ -790,13 +1052,30 @@ void direct_continuity_work_init(direct_continuity_work_t *const work, const dir
 /**
  * @brief Place every plan array into one block, optionally assigning the pointers.
  *
+ * The scalars are copied here too, so a release after a failed prepare still sees consistent counts.
+ *
  * @return Total bytes for one block.
  */
 static size_t direct_plan_layout(const direct_continuity_request_t *const request, direct_continuity_plan_t *const plan,
                                  void *const memory)
 {
-    const uint64_t entity_count = direct_entity_total(request->mesh, request->ndim);
+    const unsigned ndim = request->ndim;
+    const uint64_t entity_count = direct_entity_total(request->mesh, ndim);
+    const uint64_t pair_count = direct_pair_total(request);
     const uint64_t element_count = request->mesh->element_count;
+    if (plan != NULL)
+    {
+        plan->ndim = ndim;
+        plan->order = request->order;
+        plan->element_count = element_count;
+        plan->entity_count = entity_count;
+        plan->pair_count = pair_count;
+        plan->mesh = request->mesh;
+        plan->elements = request->elements;
+        plan->basis_registry = request->basis_registry;
+        plan->integration_registry = request->integration_registry;
+        plan->layout = (direct_continuity_layout_t){0};
+    }
     const size_t align = _Alignof(max_align_t);
     size_t cursor = 0;
 #define DIRECT_TAKE(member, type, count)                                                                               \
@@ -810,9 +1089,25 @@ static size_t direct_plan_layout(const direct_continuity_request_t *const reques
         }                                                                                                              \
         cursor += bytes;                                                                                               \
     } while (false)
-    DIRECT_TAKE(entity_dim_offsets, uint64_t, (size_t)request->ndim + 1u);
-    DIRECT_TAKE(entity_basis, basis_spec_t, (size_t)entity_count * request->ndim);
+    DIRECT_TAKE(entity_dim_offsets, uint64_t, (size_t)ndim + 1u);
+    DIRECT_TAKE(entity_basis, basis_spec_t, (size_t)entity_count * ndim);
+    DIRECT_TAKE(entity_integration, integration_spec_t, (size_t)entity_count * ndim);
+    DIRECT_TAKE(entity_lower_basis, basis_spec_t, (size_t)entity_count * ndim);
     DIRECT_TAKE(entity_block_offsets, size_t, (size_t)entity_count + 1u);
+    DIRECT_TAKE(entity_rules, const integration_rule_t *, (size_t)entity_count *ndim);
+    DIRECT_TAKE(entity_sets, const basis_set_t *, (size_t)entity_count *ndim);
+    DIRECT_TAKE(entity_sets_lower, const basis_set_t *, (size_t)entity_count *ndim);
+    DIRECT_TAKE(pair_entities, uint64_t, (size_t)pair_count);
+    DIRECT_TAKE(pair_records, const int8_t *, (size_t)pair_count);
+    DIRECT_TAKE(pair_rows, size_t, (size_t)pair_count);
+    DIRECT_TAKE(pair_element_sets, const basis_set_t *, (size_t)pair_count *ndim);
+    DIRECT_TAKE(pair_element_sets_lower, const basis_set_t *, (size_t)pair_count *ndim);
+    DIRECT_TAKE(pair_element_endpoints, const basis_endpoint_set_t *, (size_t)pair_count *ndim);
+    DIRECT_TAKE(pair_element_endpoints_lower, const basis_endpoint_set_t *, (size_t)pair_count *ndim);
+    DIRECT_TAKE(pair_element_lower_specs, basis_spec_t, (size_t)pair_count * ndim);
+    DIRECT_TAKE(element_object_offsets, size_t, (size_t)element_count + 1u);
+    DIRECT_TAKE(element_pair_slots, size_t, (size_t)pair_count);
+    DIRECT_TAKE(element_rows, size_t, (size_t)element_count + 1u);
     DIRECT_TAKE(element_dof_offsets, size_t, (size_t)element_count + 1u);
     DIRECT_TAKE(element_interior_offsets, size_t, (size_t)element_count + 1u);
 #undef DIRECT_TAKE
@@ -828,179 +1123,4 @@ void direct_continuity_plan_init(direct_continuity_plan_t *const plan, const dir
                                  void *const memory)
 {
     (void)direct_plan_layout(request, plan, memory);
-}
-/**
- * @brief Emit one element-local DoF of the current component.
- *
- * Decodes the digit tuple, splits off the axes pinned to a face, and emits either the element-private DoF or the
- * object's entries. Iterating the element's own numbering keeps a DoF's entries consecutive and ascending.
- *
- * @param walk Enumeration state; its element counts are already set.
- * @param local_index Element-local DoF index inside the current component.
- * @param fixed_axes Scratch receiving the signed one-based pinned axes in ascending order.
- */
-static void direct_emit_local(direct_walk_t *const walk, const size_t local_index, int8_t *const fixed_axes)
-{
-    direct_continuity_work_t *const work = walk->work;
-    const unsigned ndim = walk->plan->ndim;
-    const unsigned order = walk->plan->order;
-
-    size_t rest = local_index;
-    unsigned pinned = 0;
-    for (unsigned axis = 0; axis < ndim; ++axis)
-    {
-        const unsigned digit = (unsigned)(rest / work->element_strides[axis]) % work->element_counts[axis];
-        rest -= (size_t)digit * work->element_strides[axis];
-        work->element_digits[axis] = digit;
-        // Only an axis without a covector of the component reaches a face, and only at an endpoint node.
-        if (direct_component_has_axis(work, order, axis))
-        {
-            continue;
-        }
-        if (digit == 0u)
-        {
-            fixed_axes[pinned] = (int8_t)(-(int)axis - 1);
-            pinned += 1u;
-        }
-        else if (digit == walk->spec->basis[axis].order)
-        {
-            fixed_axes[pinned] = (int8_t)(axis + 1);
-            pinned += 1u;
-        }
-    }
-
-    walk->local =
-        walk->plan->element_dof_offsets[walk->element] + work->component_offsets[walk->component] + local_index;
-    walk->dim = ndim - pinned;
-    if (pinned == 0)
-    {
-        walk->emit(walk->param, walk->local, walk->plan->element_interior_offsets[walk->element] + walk->interior, 1.0);
-        walk->interior += 1;
-        return;
-    }
-
-    uint64_t object_id;
-    topo_mesh_element_object(walk->plan->mesh, walk->element, pinned, fixed_axes, &object_id);
-    uint64_t incident;
-    const uint64_t *incident_ids;
-    const int8_t *records;
-    topo_obj_immersion_of_object(walk->plan->mesh->immersions + walk->dim, object_id, &incident, &incident_ids,
-                                 &records);
-    uint64_t index = 0;
-    while (index < incident && incident_ids[index] != walk->element)
-    {
-        index += 1;
-    }
-    CUTL_ASSERT(index < incident, "Object %llu does not contain element %llu.", (unsigned long long)object_id,
-                (unsigned long long)walk->element);
-    walk->object_id = object_id;
-    walk->record = records + ndim * index;
-
-    unsigned object_axes = 0;
-    for (unsigned j = 0; j < walk->dim; ++j)
-    {
-        const unsigned element_axis = constraint_orientation_axis(walk->record[ndim - walk->dim + j]);
-        if (direct_component_has_axis(work, order, element_axis))
-        {
-            work->object_axes[object_axes] = (uint8_t)j;
-            object_axes += 1u;
-        }
-    }
-    CUTL_ASSERT(object_axes == order, "Only %u of the component's %u covector axes are free on the object.",
-                object_axes, order);
-    walk->sign =
-        constraint_mapped_axes_and_sign(
-            &(constraint_element_side_t){.ndim = ndim, .basis_specs = walk->spec->basis, .orientation = walk->record},
-            walk->dim, order, work->object_axes, work->mapped_axes)
-            ? -1.0
-            : 1.0;
-
-    const basis_spec_t *const object_basis =
-        walk->plan->entity_basis + direct_entity_index(walk->plan, walk->dim, object_id) * ndim;
-    unsigned next = 0;
-    for (unsigned j = 0; j < walk->dim; ++j)
-    {
-        const bool active = next < order && work->object_axes[next] == j;
-        work->object_counts[j] = direct_axis_window(object_basis[j], active).count;
-        next += active ? 1u : 0u;
-    }
-    work->object_strides[walk->dim] = 1;
-    if (walk->dim > 0)
-    {
-        work->object_strides[walk->dim - 1u] = 1;
-        for (unsigned j = walk->dim - 1u; j-- > 0;)
-        {
-            work->object_strides[j] = work->object_strides[j + 1u] * work->object_counts[j + 1u];
-        }
-    }
-    walk->object_base =
-        walk->plan->entity_block_offsets[direct_entity_index(walk->plan, walk->dim, object_id)] +
-        direct_object_component_offset(object_basis, walk->dim, order,
-                                       combination_get_index((uint8_t)walk->dim, (uint8_t)order, work->object_axes));
-    size_t combinations = 1;
-    for (unsigned axis = 0; axis < walk->dim; ++axis)
-    {
-        direct_build_support(walk, axis);
-        combinations *= work->support_counts[axis];
-    }
-    if (combinations == 0)
-    {
-        // This element's order exceeds the common space on some object axis, so its trace projects onto an empty
-        // space there. The DoF carries no global counterpart and leaves the system, but the row compression must
-        // still account for it.
-        walk->emit(walk->param, walk->local, DIRECT_NO_ENTRY, 0.0);
-        return;
-    }
-    direct_walk_object(walk, 0u, 1.0);
-}
-
-/**
- * @brief Enumerate every nonzero of the element-to-global transfer.
- *
- * Walks elements, components and, per component, the element's own DoF order, so the entries come out grouped by
- * local DoF and ascending.
- */
-static void direct_walk(const direct_continuity_request_t *const request, const direct_continuity_plan_t *plan,
-                        direct_continuity_work_t *work, direct_entry_fn emit, void *param)
-{
-    const unsigned ndim = plan->ndim;
-    const unsigned order = plan->order;
-    const unsigned component_count = combination_total_count((uint8_t)ndim, (uint8_t)order);
-    int8_t *const fixed_axes = work->fixed_axes;
-    direct_walk_t walk = {.request = request, .plan = plan, .work = work, .emit = emit, .param = param};
-
-    for (uint64_t element = 0; element < plan->element_count; ++element)
-    {
-        const kform_spec_t *const spec = plan->elements[element];
-        walk.spec = spec;
-        walk.element = element;
-        walk.interior = 0;
-        kform_spec_component_offsets(spec, component_count + 1u, work->component_offsets);
-        for (unsigned component = 0; component < component_count; ++component)
-        {
-            kform_component_axes(spec, component, work->component_axes);
-            walk.component = component;
-            for (unsigned axis = 0; axis < ndim; ++axis)
-            {
-                work->element_counts[axis] =
-                    spec->basis[axis].order + (direct_component_has_axis(work, order, axis) ? 0u : 1u);
-            }
-            // Row-major strides: the last axis varies fastest, so its stride is one and every earlier axis
-            // multiplies in the count of the axis after it.
-            work->element_strides[ndim] = 1;
-            if (ndim > 0)
-            {
-                work->element_strides[ndim - 1u] = 1;
-                for (unsigned axis = ndim - 1u; axis-- > 0;)
-                {
-                    work->element_strides[axis] = work->element_strides[axis + 1u] * work->element_counts[axis + 1u];
-                }
-            }
-            const size_t component_dofs = work->element_strides[0] * work->element_counts[0];
-            for (size_t local = 0; local < component_dofs; ++local)
-            {
-                direct_emit_local(&walk, local, fixed_axes);
-            }
-        }
-    }
 }

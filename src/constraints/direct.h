@@ -1,35 +1,13 @@
 /**
  * @file direct.h
- * @brief Direct continuity: shared objects' DoFs are explicit unknowns rather than eliminated multipliers.
+ * @brief Direct shared-DoF continuity: boundary DoFs introduced, element DoFs eliminated by L2 projection.
  *
- * The hybridized formulation (constraints.h) keeps every element's local DoFs and adds a multiplier per
- * interface equation. This one replaces each element-local DoF that a shared object carries by the object's own
- * DoF and transfers the element matrices straight onto that numbering. What no object reaches stays element
- * private, so the global space is element-interior DoFs plus, for every object of dimension `ndim - 1` down to
- * `0`, the DoFs interior to that object: faces, edges, nodes. That is the fewest unknowns that still enforce
- * continuity exactly.
- *
- * @section direct_ownership Which object owns a DoF
- *
- * Component `I` of a `k`-form is `dxi_I` tensored with the element's function space: a covector axis `a` of `I`
- * reads the order-one basis (`order` functions), any other axis reads the full basis (`order + 1`). Only an
- * endpoint function lives on an object, so component `I` reaches the face perpendicular to axis `a` exactly when
- * `a` is not a covector axis and its digit is `0` (start) or `order` (end). Those faces name the smallest object
- * carrying the DoF, and it is numbered there. Because the endpoints are nodal, this needs a Lagrange family;
- * orthogonal and Bernstein bases do not localize and are rejected. Lifting that is deferred: a non-localizing
- * family needs its own decomposition in place of node support.
- *
- * @section direct_common An object's common space
- *
- * Per axis the order is the minimum over the incident elements, read from the object's free axes, so the block
- * is the largest space every incident element can represent. An axis carrying a covector keeps its whole
- * order-one space; an axis without one keeps only the functions between the endpoints. An element above the
- * minimum enters by L2 projection, and where the common space is empty on an axis the element-local DoF reaches
- * no global DoF and leaves the system.
- *
- * That projection is the weakest path in the module: it is a small Gram solve, and an equispaced Lagrange Gram
- * matrix is badly scaled enough to overflow unscaled. The solve is equilibrated for that reason; a stable
- * formulation that avoids it is deferred to a later session.
+ * Every mesh object of dimension below the element dimension carries one global unknown per function of its
+ * common test space: the windowed Legendre space the hybridized trace constraints pair against, of per-axis
+ * order the minimum over the incident elements. Each element's constraint rows are its objects' boundary mass
+ * blocks stacked, and a QR of the transpose eliminates the element's DoFs against the object unknowns: the
+ * constrained part maps the object coefficients, the orthogonal complement stays element-private. Any basis
+ * family works; a basis order of zero is rejected as degenerate.
  */
 
 #pragma once
@@ -52,8 +30,8 @@ typedef struct
     unsigned order;                                    ///< Traced k-form order, at most `ndim`.
     const topo_mesh_t *mesh;                           ///< Hypercubic mesh; borrowed, must outlive the map.
     const kform_spec_t *const *elements;               ///< [element_count] Per-element k-form spec; borrowed.
-    basis_set_registry_t *basis_registry;              ///< Registry the transfer's one-dimensional bases come from.
-    integration_rule_registry_t *integration_registry; ///< Registry the transfer's quadrature comes from.
+    basis_set_registry_t *basis_registry;              ///< Registry the object and element tables come from.
+    integration_rule_registry_t *integration_registry; ///< Registry the object quadrature comes from.
 } direct_continuity_request_t;
 
 /**
@@ -72,68 +50,83 @@ typedef struct
  * @brief Scratch of one direct continuity map.
  *
  * Caller-provided throughout; #direct_continuity_work_memory sizes one block and
- * #direct_continuity_work_init points every member into it.
+ * #direct_continuity_work_init points every member into it. Buffers size off the worst element: `q_matrix` by
+ * the largest local DoF count, `gram`, `b_stacked` and `y` by the largest stacked row count, the row-by-column
+ * buffers by their product.
  */
 typedef struct
 {
-    double *axis_matrix;       ///< Backing store of the one-dimensional transfer operator.
-    unsigned capacity;         ///< Longest side of a one-dimensional operator; sized by the largest basis order.
-    double *vectors;           ///< [capacity * capacity] Right-hand sides of the dense solve.
-    unsigned *pivot;           ///< [capacity] Pivot scratch of the dense solve.
-    double *scale;             ///< [capacity] Row scaling of the dense solve.
-    uint8_t *component_axes;   ///< [max(order, 1)] Covector axes of the current element component.
-    uint8_t *object_axes;      ///< [max(order, 1)] The same axes in the object's frame.
-    uint8_t *mapped_axes;      ///< [max(order, 1)] Scratch for the orientation sign helper.
-    int8_t *fixed_axes;        ///< [ndim] Signed one-based axes the object is pinned to in the element.
-    unsigned *element_counts;  ///< [ndim] Function count of every element axis.
-    unsigned *object_counts;   ///< [ndim] Function count of every object axis.
-    unsigned *element_digits;  ///< [ndim] Current element digit tuple.
-    unsigned *object_digits;   ///< [ndim] Current object digit tuple.
-    unsigned *support_rows;    ///< [ndim * capacity] Object rows one element digit reaches.
-    double *support_values;    ///< [ndim * capacity] Their coefficients.
-    unsigned *support_counts;  ///< [ndim] Entries in each support.
-    size_t *element_strides;   ///< [ndim + 1] Row-major strides of the element's digit tuple.
-    size_t *object_strides;    ///< [ndim + 1] Row-major strides of the object's digit tuple.
-    size_t *component_offsets; ///< [C(ndim, order) + 1] Element component offsets.
+    constraint_boundary_mass_work_t mass;     ///< Boundary-mass scratch, re-initialized per object and element.
+    unsigned char *mass_memory;               ///< Backing block of #mass, sized for the worst pair.
+    double *weights;                          ///< [max object points] Common tensor quadrature weights.
+    double *block;                            ///< [pairs] One pair's dense assembly, rows by element trace DoFs.
+    double *gram;                             ///< [rows * rows] One object's test Gram.
+    double *stacked;                          ///< [pairs] The element's stacked constraints, rows by element DoFs.
+    double *b_stacked;                        ///< [rows * rows] The objects' Grams block-diagonal.
+    double *transposed;                       ///< [pairs] The stacked transpose the QR reduces.
+    double *q_matrix;                         ///< [element * element] Orthogonal factor of the transpose.
+    double *y;                                ///< [rows * rows] Solved lower-triangular system.
+    double *mapped;                           ///< [pairs] The constrained part of the transfer.
+    bool *axis_fixed;                         ///< [ndim] Fixed normal axis classification of the current pair.
+    unsigned *axis_slot;                      ///< [ndim] Canonical object slot of every free axis.
+    const integration_rule_t **element_rules; ///< [ndim] The pair's common rules in element axis order.
+    boundary_element_space_t *views;          ///< [max incident] Merge views of one object's elements.
+    integration_spec_t *view_integration;     ///< [max incident * ndim] Per-view rules for the merge.
+    size_t *component_offsets;                ///< [C(ndim, order) + 1] Element component offsets.
 } direct_continuity_work_t;
 
 /**
  * @brief Intermediates of one direct continuity map.
+ *
+ * The object arrays live per shared object, indexed by #direct_entity_index and strided by `ndim` with only the
+ * object's dimension entries valid. The pair arrays live per (object, incident element) pair, packed by object in
+ * canonical order; every element's pairs are listed in canonical order through #element_object_offsets.
  */
 typedef struct
 {
-    unsigned ndim;                                     ///< Element dimension.
-    unsigned order;                                    ///< Traced k-form order.
-    uint64_t element_count;                            ///< Number of elements.
-    uint64_t entity_count;                             ///< Number of shared objects of every dimension.
-    const topo_mesh_t *mesh;                           ///< Borrowed mesh.
-    const kform_spec_t *const *elements;               ///< Borrowed per-element spec.
-    basis_set_registry_t *basis_registry;              ///< Borrowed basis registry.
-    integration_rule_registry_t *integration_registry; ///< Borrowed quadrature registry.
-    uint64_t *entity_dim_offsets;                      ///< [ndim + 1] Flat object numbering offsets.
-    basis_spec_t *entity_basis;                        ///< [entity_count * ndim] Common per-axis basis.
-    size_t *entity_block_offsets;                      ///< [entity_count + 1] Object block offsets.
-    size_t *element_dof_offsets;                       ///< [element_count + 1] Local DoF offsets.
-    size_t *element_interior_offsets;                  ///< [element_count + 1] Element-private DoF offsets.
-    direct_continuity_layout_t layout;                 ///< Sizes from #direct_continuity_layout.
+    unsigned ndim;                                       ///< Element dimension.
+    unsigned order;                                      ///< Traced k-form order.
+    uint64_t element_count;                              ///< Number of elements.
+    uint64_t entity_count;                               ///< Shared objects of every dimension below `ndim`.
+    const topo_mesh_t *mesh;                             ///< Borrowed mesh.
+    const kform_spec_t *const *elements;                 ///< Borrowed per-element spec.
+    basis_set_registry_t *basis_registry;                ///< Borrowed basis registry.
+    integration_rule_registry_t *integration_registry;   ///< Borrowed quadrature registry.
+    uint64_t *entity_dim_offsets;                        ///< [ndim + 1] Flat object numbering offsets.
+    basis_spec_t *entity_basis;                          ///< [entity_count * ndim] Common Legendre test basis.
+    integration_spec_t *entity_integration;              ///< [entity_count * ndim] Common rules.
+    basis_spec_t *entity_lower_basis;                    ///< [entity_count * ndim] Order-1 test basis.
+    size_t *entity_block_offsets;                        ///< [entity_count + 1] Object block offsets.
+    const integration_rule_t **entity_rules;             ///< [entity_count * ndim] Fetched common rules.
+    const basis_set_t **entity_sets;                     ///< [entity_count * ndim] Fetched test tables.
+    const basis_set_t **entity_sets_lower;               ///< [entity_count * ndim] Order-one tables or NULL.
+    uint64_t pair_count;                                 ///< Number of (object, incident element) pairs.
+    uint64_t *pair_entities;                             ///< [pair_count] Flat object index of every pair.
+    const int8_t **pair_records;                         ///< [pair_count] The element's orientation record.
+    size_t *pair_rows;                                   ///< [pair_count] Pair row offset in its element's stack.
+    const basis_set_t **pair_element_sets;               ///< [pair_count * ndim] Element tables on the common rules.
+    const basis_set_t **pair_element_sets_lower;         ///< [pair_count * ndim] Order-1 tables, NULL for order 0.
+    const basis_endpoint_set_t **pair_element_endpoints; ///< [pair_count * ndim] Fixed-axis endpoints or NULL.
+    const basis_endpoint_set_t **pair_element_endpoints_lower; ///< [pair_count * ndim] Order-1 endpoints, NULL.
+    basis_spec_t *pair_element_lower_specs;                    ///< [pair_count * ndim] Order-1 element specs.
+    size_t *element_object_offsets;                            ///< [element_count + 1] Element's pair list start.
+    size_t *element_pair_slots;                                ///< [pair_count] Pair slots of each element's list.
+    size_t *element_rows;                                      ///< [element_count + 1] Stacked constraint row offsets.
+    size_t *element_dof_offsets;                               ///< [element_count + 1] Local DoF offsets.
+    size_t
+        *element_interior_offsets; ///< [element_count + 1] Global first-private-DoF index; last entry: private total.
+    direct_continuity_layout_t layout; ///< Sizes from #direct_continuity_layout.
 } direct_continuity_plan_t;
-
-/**
- * @brief Marks an element-local DoF with no transfer entry.
- *
- * An element above its neighbours' common order can project onto an empty common space, and such a DoF leaves
- * the system. The walk still has to account for it so that the row compression stays a valid partition.
- */
-#define DIRECT_NO_ENTRY ((size_t)-1)
 
 /**
  * @brief Emit one nonzero of the element-to-global transfer.
  *
- * Called once per nonzero, and once with #DIRECT_NO_ENTRY for a DoF that reaches no global DoF.
+ * Called once per nonzero of every element-local DoF, grouped by ascending local index and ascending global
+ * index. Every DoF owns at least one entry.
  *
  * @param param Caller data of the enumeration.
  * @param local Element-local flat DoF index.
- * @param global Global DoF index, or #DIRECT_NO_ENTRY.
+ * @param global Global DoF index.
  * @param value Transfer coefficient.
  */
 typedef void (*direct_entry_fn)(void *param, size_t local, size_t global, double value);
@@ -141,13 +134,14 @@ typedef void (*direct_entry_fn)(void *param, size_t local, size_t global, double
 /**
  * @brief Prepare the intermediates of a direct continuity map.
  *
- * Records every object's canonical axis order and common basis, sizes each object's block and the elements'
- * local and element-private DoF ranges. Takes no registry reference.
+ * Merges every incident element's space into one common Legendre test space per object, fetches the object and
+ * element tables from the registries, and sizes each object's block and the elements' local and private DoF
+ * ranges. The plan owns the fetched registry references until #direct_continuity_plan_release.
  *
  * @param request Filled request; read-only.
  * @param work Caller-provided scratch; sized by #direct_continuity_work_memory.
  * @param plan Caller-allocated plan; its arrays are sized by #direct_continuity_plan_memory.
- * @return FDG_SUCCESS, or #FDG_ERROR_NOT_IN_DOMAIN for a basis that is not a nodal family of positive order.
+ * @return FDG_SUCCESS, or #FDG_ERROR_NOT_IN_DOMAIN for a basis order of zero, which leaves no test functions.
  *         Reported rather than asserted so the precondition survives a release build.
  */
 fdg_result_t direct_continuity_prepare(const direct_continuity_request_t *request, direct_continuity_work_t *work,
@@ -170,15 +164,15 @@ void direct_continuity_layout(const direct_continuity_request_t *request, direct
  * @brief Build the element-to-global transfer of a direct continuity map.
  *
  * Writes it row-compressed: `entry_offsets` delimits one element-local DoF's global DoFs, `entry_index` the
- * global DoF of each and `entry_value` its coefficient. A space-matching object gives exactly one entry, of
- * coefficient `+1` or `-1`; a richer element gives a weighted combination.
+ * global DoF of each and `entry_value` its coefficient. Coefficients below a relative roundoff threshold are
+ * dropped. Only top-order forms come out as plain +/-1 identities; lower orders mix object and private modes.
  *
  * @param request Filled request; read-only.
- * @param plan Prepared plan; read-only.
+ * @param plan Prepared plan.
  * @param work Caller-provided scratch.
- * @param entry_offsets [element_dof_count + 1] Entry offset of each element-local DoF.
- * @param entry_index [entry_count] Global DoF of each entry.
- * @param entry_value [entry_count] Coefficient of each entry.
+ * @param entry_offsets [element_dof_count + 1] Row-block starts; the last entry is `entry_count`.
+ * @param entry_index [entry_count] Global DoF of every nonzero.
+ * @param entry_value [entry_count] Coefficient of every nonzero.
  */
 void direct_continuity_build(const direct_continuity_request_t *request, const direct_continuity_plan_t *plan,
                              direct_continuity_work_t *work, size_t *entry_offsets, size_t *entry_index,
@@ -187,19 +181,18 @@ void direct_continuity_build(const direct_continuity_request_t *request, const d
 /**
  * @brief Transfer one element matrix onto the global numbering.
  *
- * Accumulates `out[g_i][g_j] += factor * value_i * matrix[i][j] * value_j` through the transfer of `element`,
- * so a DoF with several entries adds the weighted combination.
+ * Applies `out[g_i][g_j] += factor * m_i_j * v_i * v_j` over the element's transfer entries.
  *
- * @param plan Prepared plan; read-only.
- * @param entry_offsets [element_dof_count + 1] Entry offsets from #direct_continuity_build.
- * @param entry_index [entry_count] Global DoF of each entry.
- * @param entry_value [entry_count] Coefficient of each entry.
- * @param element Element whose local numbering `matrix` uses.
- * @param matrix Element matrix.
- * @param stride Row stride of `matrix`, at least that element's local DoF count.
- * @param out Global matrix.
- * @param out_stride Row stride of `out`, at least `plan->layout.global_dof_count`.
- * @param factor Scalar multiplying every contribution.
+ * @param plan Prepared plan.
+ * @param entry_offsets Row-compressed starts from #direct_continuity_build.
+ * @param entry_index Global DoF of every nonzero.
+ * @param entry_value Coefficient of every nonzero.
+ * @param element Element to scatter.
+ * @param matrix [local_count * stride] Element matrix, row-major.
+ * @param stride Column stride of `matrix`.
+ * @param out Global matrix, row-major.
+ * @param out_stride Column stride of `out`.
+ * @param factor Extra scalar.
  */
 void direct_continuity_scatter(const direct_continuity_plan_t *plan, const size_t *entry_offsets,
                                const size_t *entry_index, const double *entry_value, size_t element,
@@ -208,17 +201,15 @@ void direct_continuity_scatter(const direct_continuity_plan_t *plan, const size_
 /**
  * @brief Release a prepared plan.
  *
- * A plan takes no registry reference, so this only clears it for symmetry with the other formulations.
- *
- * @param plan Prepared plan; invalid on return.
+ * Returns every registry reference #direct_continuity_prepare fetched. The plan arrays themselves belong to the
+ * caller.
  */
 void direct_continuity_plan_release(const direct_continuity_plan_t *plan);
 
 /**
  * @brief Bytes of the scratch #direct_continuity_prepare and #direct_continuity_build need.
  *
- * @param request Filled request; reads its dimensions, the mesh's element count and every element's per-axis
- *        basis order, because the transfer operators are as wide as the basis is.
+ * Reads the request's dimensions, every element's basis orders, and the mesh's object and incidence counts.
  */
 size_t direct_continuity_work_memory(const direct_continuity_request_t *request);
 
@@ -235,7 +226,7 @@ void direct_continuity_work_init(direct_continuity_work_t *work, const direct_co
 /**
  * @brief Bytes of the arrays #direct_continuity_prepare fills.
  *
- * @param request Filled request; reads its dimensions and its mesh's object counts.
+ * @param request Filled request; reads its dimensions and its mesh's object and incidence counts.
  */
 size_t direct_continuity_plan_memory(const direct_continuity_request_t *request);
 
@@ -251,10 +242,6 @@ void direct_continuity_plan_init(direct_continuity_plan_t *plan, const direct_co
 
 /**
  * @brief Flat index of one shared object in the plan's numbering.
- *
- * @param plan Prepared plan; read-only.
- * @param dim Object dimension, in `[0, plan->ndim)`.
- * @param object_id Object ID in its dimension's collection.
  */
 static inline size_t direct_entity_index(const direct_continuity_plan_t *plan, unsigned dim, uint64_t object_id)
 {

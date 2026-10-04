@@ -1457,14 +1457,12 @@ class KForm:
 class DirectDofMap:
     """Element-to-global transfer of one direct continuity map.
 
-    Degrees of freedom are numbered once, on the shared objects the elements
-    share plus their element-private ones. The transfer is row-compressed:
-    element-local degree of freedom ``l`` owns the entries
-    ``[entry_offsets[l], entry_offsets[l + 1])``, each naming one global
-    degree of freedom in :attr:`entry_index` with a coefficient in
-    :attr:`entry_value`; a degree of freedom whose element carries a higher
-    order than the object's common space owns several entries whose weighted
-    combination reconstructs it.
+    The map introduces one unknown per function of every shared object's
+    common Legendre test space -- the L2 projection of the element traces
+    onto it must agree across the incident elements -- and eliminates each
+    element's degrees of freedom against those unknowns by a QR of its
+    stacked constraint rows. The orthogonal complement stays element-private,
+    so every degree of freedom of a mesh is numbered once.
 
     The type cannot be instantiated directly; use
     :meth:`Mesh.compute_kform_direct_dof_map`.
@@ -1489,9 +1487,7 @@ class DirectDofMap:
     def element_offsets(self) -> npt.NDArray[np.int64]:
         """Local degree-of-freedom offsets of every element.
 
-        The array has ``element_count + 1`` entries: the degrees of freedom of
-        element ``i`` are numbered from ``element_offsets[i]`` up to but
-        excluding ``element_offsets[i + 1]`` in :attr:`entry_offsets`.
+        The array has ``element_count + 1`` entries.
         """
         ...
 
@@ -1499,9 +1495,9 @@ class DirectDofMap:
     def element_interior_offsets(self) -> npt.NDArray[np.int64]:
         """Element-private degree-of-freedom offsets of every element.
 
-        The array has ``element_count + 1`` entries, uses the same numbering
-        as :attr:`element_offsets` and starts after the last shared object's
-        block.
+        The array has ``element_count + 1`` entries. A private degree of freedom lies in
+        the orthogonal complement the elimination leaves free, not a coordinate range of
+        the element.
         """
         ...
 
@@ -1509,8 +1505,9 @@ class DirectDofMap:
     def entry_offsets(self) -> npt.NDArray[np.int64]:
         """Row offsets of the transfer.
 
-        The array has ``element_dof_count + 1`` entries. Entry ``i`` belongs to
-        ``[entry_offsets[i], entry_offsets[i + 1])``.
+        The array has ``element_dof_count + 1`` entries. A row holds one entry when the
+        element's paired mode maps to a single object unknown, and several when the
+        elimination mixes element degrees of freedom.
         """
         ...
 
@@ -1521,7 +1518,7 @@ class DirectDofMap:
 
     @property
     def entry_value(self) -> npt.NDArray[np.float64]:
-        """Coefficient of every entry."""
+        """Transfer coefficient of every entry."""
         ...
 
 # Fields of a mesh iteration tuple: (mdim, object_id, element_ids, orientations).
@@ -1866,22 +1863,29 @@ class Mesh:
     ) -> DirectDofMap:
         """Build the element-to-global transfer of one direct continuity map.
 
-        Every degree of freedom of the mesh is numbered once, so a continuous
-        global solution is assembled without any constraint elimination.
+        Unlike :meth:`compute_kform_continuity_constraints`, which returns
+        rows to eliminate, this numbers the global degrees of freedom
+        directly: every shared object carries one unknown per function of
+        its common Legendre test space, of per-axis order the minimum over
+        the incident elements. Each element's degrees of freedom are
+        eliminated against those unknowns by a QR of its stacked constraint
+        rows -- the same L2 pairing the hybridized constraints assemble --
+        and the orthogonal complement stays element-private, so every
+        degree of freedom of the mesh is numbered once.
 
-        The map is built in reference space, so no geometry is involved.
-        Degrees of freedom are located by the node they sit on, so every axis
-        of every specification must name a Lagrange family with a positive
-        order. Elements may disagree on the order of an axis: a shared object
-        takes the minimum over its incident elements, and an element above
-        that minimum has its trace projected onto the common space, which is
-        what gives one element-local degree of freedom several entries.
+        The map is built in reference space, so no geometry is involved. It
+        accepts every basis family; each axis of every element
+        specification needs a positive order, and all elements must carry
+        the same k-form degree.
 
         Parameters
         ----------
         element_specs : Sequence[KFormSpecs]
-            One volume k-form specification per mesh element. All must have
-            the mesh dimension and the same k-form degree.
+            One volume k-form specification per mesh element. The sequence
+            must contain exactly ``element_count`` entries. All specifications
+            must have the mesh dimension and the same k-form degree. Per-axis
+            basis orders may differ between elements; shared objects take the
+            minimum.
 
         integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY
             Registry to get the transfer's quadrature from.
@@ -1892,15 +1896,21 @@ class Mesh:
         Returns
         -------
         DirectDofMap
-            The row-compressed transfer.
+            The transfer, with the sizes ``global_dof_count``,
+            ``element_dof_count`` and ``entry_count``, the per-element offsets
+            ``element_offsets`` and ``element_interior_offsets``, and the
+            row-compressed entries ``entry_offsets``, ``entry_index`` and
+            ``entry_value``.
 
         Raises
         ------
         TypeError
-            If a registry is of the wrong type.
+            If ``element_specs`` is not a sequence or an entry is not a
+            ``KFormSpecs``.
         ValueError
-            If the specification count, the dimensions, the k-form degrees,
-            the basis family or a basis order do not fit one map.
+            If the specification count, the dimensions or the k-form degrees
+            do not fit one map, or if a basis order is zero, which leaves the
+            shared objects without test functions.
         RuntimeError
             If the core fails to build the map.
         """

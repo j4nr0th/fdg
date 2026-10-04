@@ -1,4 +1,9 @@
-"""Behavioral tests for the direct element-to-global continuity map."""
+"""Behavioral tests for the direct element-to-global continuity map.
+
+The direct map eliminates every element against the common Legendre window of
+its shared objects, so direct and hybridized solves of the same problem agree
+to solver tolerance. The example module drives both on the same mesh.
+"""
 
 from __future__ import annotations
 
@@ -7,9 +12,7 @@ import pytest
 from fdg import BasisSpecs, BasisType, FunctionSpace, KFormSpecs
 
 from examples.plot_multi_element_laplace_direct_continuity import (
-    boundary_global_dofs,
     make_mesh,
-    physical_node_coordinates,
     solve_direct_continuity,
     solve_hybridized_continuity,
 )
@@ -22,7 +25,7 @@ from examples.plot_multi_element_laplace_direct_continuity import (
 def test_scalar_global_dof_count_matches_the_lattice(
     ndim: int, cells: int, order: int
 ) -> None:
-    """A conforming nodal scalar space has one DoF per lattice point."""
+    """A conforming scalar space has one DoF per lattice point."""
     mesh = make_mesh(ndim, cells)
     base_space = FunctionSpace(
         *(BasisSpecs(BasisType.LAGRANGE_GAUSS_LOBATTO, order) for _ in range(ndim))
@@ -56,31 +59,50 @@ def test_direct_unknowns_never_exceed_the_hybridized_ones(ndim: int) -> None:
     assert split_error < single_error
 
 
-@pytest.mark.parametrize(
-    ("ndim", "cells", "order"), ((1, 3, 1), (2, 2, 2), (2, 3, 2), (3, 2, 2))
-)
-def test_boundary_dofs_are_the_outer_lattice_points(
-    ndim: int, cells: int, order: int
-) -> None:
-    """Exactly the DoFs standing for an outer boundary point are prescribed."""
-    mesh = make_mesh(ndim, cells)
-    base_space = FunctionSpace(
-        *(BasisSpecs(BasisType.LAGRANGE_GAUSS_LOBATTO, order) for _ in range(ndim))
-    )
-    transfer = mesh.compute_kform_direct_dof_map(
-        [KFormSpecs(0, base_space) for _ in range(mesh.element_count)]
-    )
-    boundary = boundary_global_dofs(
-        transfer, physical_node_coordinates(ndim, order, cells)
+def test_boundary_globals_carry_the_window_projection() -> None:
+    """Exactly the outer objects' window unknowns are prescribed, with projected data."""
+    from examples.plot_multi_element_laplace_direct_continuity import (
+        boundary_object_globals,
+        make_element_maps,
     )
 
-    nodes = cells * order + 1
-    assert boundary.size == nodes**ndim - (nodes - 2) ** ndim
-    # Every global DoF is reachable, otherwise its row and column stay zero.
-    assert np.array_equal(
-        np.unique(np.asarray(transfer.entry_index)),
-        np.arange(transfer.global_dof_count),
-    )
+    for ndim, cells, order in ((2, 2, 2), (3, 2, 1), (1, 3, 2)):
+        mesh = make_mesh(ndim, cells)
+        maps = make_element_maps(ndim, order + 4, cells)
+        base_space = FunctionSpace(
+            *(BasisSpecs(BasisType.LAGRANGE_GAUSS_LOBATTO, order) for _ in range(ndim))
+        )
+        transfer = mesh.compute_kform_direct_dof_map(
+            [KFormSpecs(0, base_space) for _ in range(mesh.element_count)]
+        )
+        boundary, data = boundary_object_globals(transfer, mesh, maps, order, cells)
+
+        # A scalar window is max(order - 1, 0) per axis; a point always prescribes one.
+        window = max(order - 1, 0)
+        expected = 0
+        for mdim, _, _, _ in mesh.iterate_boundary_all():
+            expected += window**mdim
+        assert boundary.size == expected
+        assert data.size == boundary.size
+        assert np.all(np.isfinite(data))
+        # The boundary unknowns are the leading globals: objects first, free modes last.
+        assert int(boundary.max()) < transfer.global_dof_count - int(
+            np.diff(transfer.element_interior_offsets).sum()
+        )
+        # Every global unknown is reachable, otherwise its row and column stay zero.
+        assert np.array_equal(
+            np.unique(np.asarray(transfer.entry_index)),
+            np.arange(transfer.global_dof_count),
+        )
+
+
+def test_direct_and_hybridized_agree_to_solver_tolerance() -> None:
+    """Both formulations discretise the same space: their solutions coincide."""
+    for ndim in (2, 3):
+        for order in (1, 2, 3):
+            direct, _, _ = solve_direct_continuity(ndim, order, 2)
+            hybridized, _, _, _ = solve_hybridized_continuity(ndim, order, 2)
+            assert direct == pytest.approx(hybridized, rel=1.0e-10)
 
 
 def test_direct_errors_decrease_under_refinement() -> None:
@@ -94,7 +116,7 @@ def test_direct_errors_decrease_under_refinement() -> None:
     # Both paths approximate the same function on the same spaces.
     assert errors[-1] < 0.1 * errors[0]
     for direct, hybrid in zip(errors, hybridized):
-        assert direct == pytest.approx(hybrid, rel=0.05)
+        assert direct == pytest.approx(hybrid, rel=1.0e-10)
 
 
 def test_direct_system_is_symmetric_with_a_constant_nullspace() -> None:
@@ -105,3 +127,14 @@ def test_direct_system_is_symmetric_with_a_constant_nullspace() -> None:
     assert eigenvalues[0] < 1.0e-12 * eigenvalues[-1]
     # Laplace is singular up to the constants, which the Dirichlet elimination removes.
     assert np.count_nonzero(eigenvalues < 1.0e-12 * eigenvalues[-1]) == 1
+
+
+def test_direct_accepts_a_non_lagrange_family() -> None:
+    """The elimination pairs inner products, so Legendre elements solve too."""
+    direct, _, _ = solve_direct_continuity(2, 3, 2, basis_type=BasisType.LEGENDRE)
+    # Pure Legendre is singular in the hybridized solver; equal-order GLL is valid there.
+    hybridized, _, _, _ = solve_hybridized_continuity(2, 3, 2)
+
+    assert np.isfinite(direct)
+    assert direct > 0.0
+    assert direct == pytest.approx(hybridized, rel=1.0e-8)

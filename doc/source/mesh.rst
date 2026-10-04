@@ -150,9 +150,9 @@ The mesh offers three iteration families:
   axes, so shared objects are never over-constrained by higher-order
   neighbours. Components whose reduced order would go negative are skipped.
 - :meth:`Mesh.compute_kform_direct_dof_map` takes the other route: it keeps
-  the degrees of freedom of a shared object and numbers every element-local
-  degree of freedom onto the object that carries it, so element matrices
-  assemble straight onto the global numbering without multipliers.  See
+  the degrees of freedom of a shared object as explicit unknowns and hands
+  back the element-to-global transfer that assembles element matrices onto
+  them, without multipliers.  See
   :ref:`fdg_direct_continuity`.
 - :meth:`Mesh.iterate_boundary` and :meth:`Mesh.iterate_boundary_all` visit
   the objects that lie on the outer boundary of the mesh: an object lies on

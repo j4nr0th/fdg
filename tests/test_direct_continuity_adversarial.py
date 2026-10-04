@@ -1,15 +1,27 @@
 """Adversarial tests of the direct element-to-global transfer.
 
 Every case asserts a property any conforming map must satisfy, so a wrong
-answer fails rather than merely differing from the expected one. The shared
-helper :func:`assert_conforming` states the structural invariants once.
+answer fails rather than merely differing from an expected one.
+:func:`assert_windowed_projections_agree` checks the defining property of the
+L2 elimination on random global vectors.
 """
 
 from collections.abc import Mapping, Sequence
+from itertools import combinations, product
+from math import comb
 
 import numpy as np
 import pytest
-from fdg import BasisSpecs, DirectDofMap, FunctionSpace, KFormSpecs, Mesh
+from fdg import (
+    BasisSpecs,
+    DirectDofMap,
+    FunctionSpace,
+    IntegrationSpace,
+    IntegrationSpecs,
+    KFormSpecs,
+    Mesh,
+    compute_kform_boundary_trace_moments,
+)
 from fdg.enum_type import BasisType
 
 FAMILIES = (
@@ -17,6 +29,16 @@ FAMILIES = (
     BasisType.LAGRANGE_GAUSS,
     BasisType.LAGRANGE_GAUSS_LOBATTO,
     BasisType.LAGRANGE_CHEBYSHEV_GAUSS,
+    BasisType.LEGENDRE,
+    BasisType.BERNSTEIN,
+)
+
+# Families the boundary kernel evaluates exactly at shared objects for these orders.
+EXACT_PROJECTION_FAMILIES = (
+    "lagrange-uniform",
+    "lagrange-gauss-lobatto",
+    "legendre",
+    "bernstein",
 )
 
 
@@ -166,13 +188,7 @@ def map_of(
 
 
 def assert_conforming(dof_map: DirectDofMap, element_count: int) -> None:
-    """Assert the structural invariants any conforming transfer must satisfy.
-
-    The row compression has to partition the entries, every entry has to name a
-    real unknown, no row may reach one unknown twice, no unknown may be left
-    unreached, and the global space may not be larger than the space the
-    elements bring to it.
-    """
+    """Assert the structural invariants any conforming transfer must satisfy."""
     dofs = dof_map.element_dof_count
     globals_ = dof_map.global_dof_count
     offsets = dof_map.entry_offsets
@@ -215,57 +231,118 @@ def assert_conforming(dof_map: DirectDofMap, element_count: int) -> None:
     )
 
 
-def assert_single_valued_on_nodes(
-    mesh: Mesh,
-    cells: int,
-    orders: Sequence[tuple[int, ...]],
-    dof_map: DirectDofMap,
-) -> None:
-    """Assert every mesh node is reached through the same global degrees of freedom.
+def assert_same_entry_budget(dof_map: DirectDofMap, reference: DirectDofMap) -> None:
+    """Assert two structurally identical maps store nearly the same entry count.
 
-    A scalar DoF sits on the node its digits name, so two elements carrying the
-    same node must reach the same globals. Reading a shared object's common axis
-    off the wrong side of an anisotropic element splits that node across two
-    globals, which every count in the structural checks accepts.
+    Coefficients within the block's relative roundoff threshold are pruned, so
+    the count wobbles with the QR row ordering, never by structure.
     """
-    node_globals: dict[tuple[float, ...], frozenset[int]] = {}
-    for element in range(mesh.element_count):
-        axes = orders[element]
-        counts = [order + 1 for order in axes]
-        strides = [1] * mesh.ndim
-        for axis in range(mesh.ndim - 2, -1, -1):
-            strides[axis] = strides[axis + 1] * counts[axis + 1]
-        rest = element
-        lower = []
-        for _ in range(mesh.ndim):
-            lower.append(rest % cells)
-            rest //= cells
+    budget = max(reference.entry_count, 100)
+    assert abs(int(dof_map.entry_count) - int(reference.entry_count)) <= budget // 100
+
+
+def orientation_record(mesh: Mesh, element: int, object_id: int, mdim: int) -> list[int]:
+    """Build the signed one-based axis permutation mapping ``element`` onto ``object_id``.
+
+    The first ``ndim - mdim`` entries name the fixed normal axes (positive for an
+    end side, negative for a start side); the remaining entries map the free
+    axes in the object's canonical order.
+    """
+    for fixed in combinations(range(mesh.ndim), mesh.ndim - mdim):
+        for signs in product((1, -1), repeat=len(fixed)):
+            fixed_part = [sign * (axis + 1) for axis, sign in zip(fixed, signs)]
+            if mesh.element_object(element, *fixed_part) == object_id:
+                free_part = [axis + 1 for axis in range(mesh.ndim) if axis not in fixed]
+                return fixed_part + free_part
+    pytest.fail(f"element {element} carries no side of object {object_id}")
+
+
+def scattered_element_values(dof_map: DirectDofMap, u_global: np.ndarray) -> np.ndarray:
+    """Apply the transfer to a random global vector, element by element."""
+    u_element = np.zeros(dof_map.element_dof_count)
+    for element in range(dof_map.element_offsets.size - 1):
         first = int(dof_map.element_offsets[element])
         for local in range(int(dof_map.element_offsets[element + 1]) - first):
-            digits = []
-            value = local
-            for axis in range(mesh.ndim):
-                digits.append((value // strides[axis]) % counts[axis])
-                value -= digits[-1] * strides[axis]
-            node = tuple(
-                round(lower[axis] + digits[axis] / axes[axis], 9)
-                for axis in range(mesh.ndim)
-            )
-            entries = range(
+            total = 0.0
+            for entry in range(
                 int(dof_map.entry_offsets[first + local]),
                 int(dof_map.entry_offsets[first + local + 1]),
+            ):
+                total += dof_map.entry_value[entry] * u_global[dof_map.entry_index[entry]]
+            u_element[first + local] = total
+    return u_element
+
+
+def assert_windowed_projections_agree(
+    mesh: Mesh,
+    specs: Sequence[KFormSpecs],
+    dof_map: DirectDofMap,
+) -> None:
+    """Assert the defining property of the elimination for a random global vector.
+
+    Every element's transferred trace must give the same window moments on all
+    sides of a shared object. Only 0-forms are covered: the boundary kernel
+    exposes its mapped trace columns in the element's own ordering only there,
+    so the transferred element vector can be paired with the rows directly.
+    """
+    kform_order = specs[0].order
+    assert kform_order == 0
+    family = specs[0].base_space.basis_specs[0].type
+    exact = family in EXACT_PROJECTION_FAMILIES
+    # Otherwise the kernel's integration-node trace evaluation leaves a residual
+    # (measured 5.1e-4 absolute at order 3); the map enforces moments to roundoff.
+    tolerance = 1.0e-10 if exact else 1.0e-3
+    rng = np.random.default_rng(1789)
+    u_element = scattered_element_values(
+        dof_map, rng.standard_normal(dof_map.global_dof_count)
+    )
+    integrations = [
+        IntegrationSpace(
+            *(IntegrationSpecs(2 * order + 2) for order in spec.base_space.orders)
+        )
+        for spec in specs
+    ]
+
+    for mdim in range(mesh.ndim):
+        if mdim < kform_order:
+            # A k-form pulls back to zero on an object of lower dimension:
+            # the window is empty and the kernel rejects the request.
+            continue
+        for _, object_id, elements, _ in mesh.iterate_shared(mdim):
+            records = [
+                orientation_record(mesh, int(element), int(object_id), mdim)
+                for element in elements
+            ]
+            result = compute_kform_boundary_trace_moments(
+                [specs[int(element)] for element in elements],
+                records,
+                [integrations[int(element)] for element in elements],
+                boundary_dimension=mdim,
+                packed=True,
             )
-            reached = frozenset(int(dof_map.entry_index[entry]) for entry in entries)
-            assert reached, (
-                f"element {element} degree of freedom {local} at {node} reaches nothing"
-            )
-            if node in node_globals:
-                assert node_globals[node] == reached, (
-                    f"node {node} reaches {sorted(node_globals[node])}"
-                    f" and {sorted(reached)}"
+            packed = result[3]
+            assert packed is not None
+            moments = []
+            for side, element in enumerate(elements):
+                offsets, index, values = (
+                    np.asarray(packed[side][0]),
+                    np.asarray(packed[side][3]),
+                    np.asarray(packed[side][4]),
                 )
-            else:
-                node_globals[node] = reached
+                base = int(dof_map.element_offsets[int(element)])
+                local = u_element[base + index]
+                rows = offsets.size - 1
+                moment = np.empty(rows)
+                for row in range(rows):
+                    span = range(int(offsets[row]), int(offsets[row + 1]))
+                    moment[row] = float(np.dot(values[span], local[span]))
+                moments.append(moment)
+            for side in range(1, len(moments)):
+                assert moments[side] == pytest.approx(moments[0], abs=tolerance), (
+                    f"object {int(object_id)} of dimension {mdim}: elements "
+                    f"{int(elements[0])} and {int(elements[side])} project "
+                    f"{moments[side]} and {moments[0]}"
+                )
 
 
 @pytest.mark.parametrize("ndim", [1, 2, 3])
@@ -295,7 +372,7 @@ def test_every_family_and_kform_order_holds_the_invariants(
 def test_anisotropic_element_keeps_every_node_on_one_global(
     orders: tuple[int, ...],
 ) -> None:
-    """One element's axes disagreeing must not split a node its neighbours share."""
+    """One element's axes disagreeing must not desynchronise a shared neighbour."""
     cells = 3
     mesh = grid_mesh(2, cells)
     pattern = uniform_orders(mesh, 2)
@@ -305,7 +382,9 @@ def test_anisotropic_element_keeps_every_node_on_one_global(
         mixed = list(pattern)
         mixed[position] = orders
         dof_map = map_of(mesh, mixed)
-        assert_single_valued_on_nodes(mesh, cells, mixed, dof_map)
+        assert_windowed_projections_agree(
+            mesh, specs_in(mixed, 0, BasisType.LAGRANGE_GAUSS_LOBATTO), dof_map
+        )
 
 
 @pytest.mark.parametrize(
@@ -332,7 +411,9 @@ def test_anisotropic_element_in_the_middle_of_a_three_dimensional_mesh() -> None
 
     dof_map = map_of(mesh, mixed)
 
-    assert_single_valued_on_nodes(mesh, cells, mixed, dof_map)
+    assert_windowed_projections_agree(
+        mesh, specs_in(mixed, 0, BasisType.LAGRANGE_GAUSS_LOBATTO), dof_map
+    )
 
 
 def test_distinct_order_per_element() -> None:
@@ -344,7 +425,7 @@ def test_distinct_order_per_element() -> None:
 
     three_d = grid_mesh(3, 2)
     for kform_order in range(4):
-        # Element 0 stays at order one, which has no face-interior function at all.
+        # Distinct orders per element, so any two neighbors disagree on a shared axis.
         orders = [
             (2 + element, 2, 1 + three_d.element_count - element)
             for element in range(three_d.element_count)
@@ -412,7 +493,8 @@ def test_single_element_numbers_exactly_its_own_degrees_of_freedom() -> None:
         for kform_order in range(ndim + 1):
             dof_map = map_of(mesh, uniform_orders(mesh, 3), kform_order)
             assert dof_map.global_dof_count == dof_map.element_dof_count
-            assert np.all(np.diff(dof_map.entry_offsets) == 1)
+            # A window is weaker than the element, so a DoF may mix globals but owns one.
+            assert np.all(np.diff(dof_map.entry_offsets) >= 1)
 
 
 @pytest.mark.parametrize("family", FAMILIES)
@@ -446,7 +528,7 @@ def test_relabelling_the_elements_keeps_the_size_of_the_map() -> None:
         relabelled = grid_mesh_relabelled(3, 2, permutation)
         dof_map = map_of(relabelled, [reference_orders[old] for old in permutation], 1)
         assert dof_map.global_dof_count == reference.global_dof_count
-        assert dof_map.entry_count == reference.entry_count
+        assert_same_entry_budget(dof_map, reference)
         assert dof_map.element_dof_count == reference.element_dof_count
 
 
@@ -471,7 +553,7 @@ def test_exchanging_the_axes_exchanges_the_roles_of_the_orders() -> None:
     other = map_of(swapped, [axes[::-1] for axes in orders])
 
     assert other.global_dof_count == reference.global_dof_count
-    assert other.entry_count == reference.entry_count
+    assert_same_entry_budget(other, reference)
 
     three_d = grid_mesh(3, 2)
     triad = uniform_orders(three_d, 2)
@@ -481,7 +563,7 @@ def test_exchanging_the_axes_exchanges_the_roles_of_the_orders() -> None:
     other = map_of(rotated, [axes[1:] + axes[:1] for axes in triad], 2)
 
     assert other.global_dof_count == reference.global_dof_count
-    assert other.entry_count == reference.entry_count
+    assert_same_entry_budget(other, reference)
 
 
 def test_mirroring_an_element_keeps_the_size_of_the_map() -> None:
@@ -502,7 +584,7 @@ def test_mirroring_an_element_keeps_the_size_of_the_map() -> None:
         mirrored = grid_mesh_mirrored(3, 2, flipped)
         dof_map = map_of(mirrored, orders, 1)
         assert dof_map.global_dof_count == reference.global_dof_count
-        assert dof_map.entry_count == reference.entry_count
+        assert_same_entry_budget(dof_map, reference)
 
 
 def test_projected_dof_owns_a_weighted_combination() -> None:
@@ -518,15 +600,58 @@ def test_projected_dof_owns_a_weighted_combination() -> None:
     assert np.any(np.abs(dof_map.entry_value) != pytest.approx(1.0))
 
 
-def test_space_matching_dof_owns_one_signed_entry() -> None:
-    """Where every window matches, the transfer is an identity with a sign."""
+@pytest.mark.parametrize("family", FAMILIES)
+def test_window_matching_order_projects_correctly(family: BasisType) -> None:
+    """Equal-order elements of any family transfer onto a consistent common space."""
     for ndim in (1, 2, 3):
         mesh = grid_mesh(ndim, 2)
-        for kform_order in range(ndim + 1):
-            dof_map = map_of(mesh, uniform_orders(mesh, 3), kform_order)
-            assert dof_map.entry_count == dof_map.element_dof_count
-            assert np.all(np.diff(dof_map.entry_offsets) == 1)
-            assert np.all(np.abs(dof_map.entry_value) == pytest.approx(1.0))
+        dof_map = map_of(mesh, uniform_orders(mesh, 3), 0, family)
+        assert_windowed_projections_agree(
+            mesh, specs_in(uniform_orders(mesh, 3), 0, family), dof_map
+        )
+
+
+@pytest.mark.parametrize("order", [2, 3])
+@pytest.mark.parametrize("cells", [1, 2])
+@pytest.mark.parametrize("ndim", [1, 2, 3])
+def test_kform_globals_follow_the_window_formula(
+    ndim: int, cells: int, order: int
+) -> None:
+    """Every k-form order counts its objects' windows exactly.
+
+    An object of dimension ``d`` carries one Legendre window of size
+    ``order`` on each covector axis of the form and ``max(order - 1, 0)``
+    on every inactive axis, times ``C(d, k)`` components; the globals are
+    the windows of all grid objects of dimension ``k`` and up.
+    """
+    mesh = grid_mesh(ndim, cells)
+    for kform_order in range(ndim + 1):
+        dof_map = map_of(mesh, uniform_orders(mesh, order), kform_order)
+        expected = 0
+        for d in range(kform_order, ndim + 1):
+            objects = comb(ndim, d) * cells**d * (cells + 1) ** (ndim - d)
+            window = 1
+            for axis in range(d):
+                window *= order if axis < kform_order else max(order - 1, 0)
+            expected += objects * comb(d, kform_order) * window
+        assert dof_map.global_dof_count == expected
+
+
+@pytest.mark.parametrize(
+    "family", [BasisType.LAGRANGE_UNIFORM, BasisType.LAGRANGE_GAUSS_LOBATTO]
+)
+@pytest.mark.parametrize("kform_order", [0, 1])
+def test_first_order_nodal_families_transfer_a_signed_identity(
+    family: BasisType,
+    kform_order: int,
+) -> None:
+    """Order-one Lagrange nodes sit on the objects, so the transfer is +-1."""
+    for ndim in (1, 2, 3):
+        mesh = grid_mesh(ndim, 2)
+        dof_map = map_of(mesh, uniform_orders(mesh, 1), kform_order, family)
+        assert dof_map.entry_count == dof_map.element_dof_count
+        assert np.all(np.diff(dof_map.entry_offsets) == 1)
+        assert np.all(np.abs(dof_map.entry_value) == 1.0)
 
 
 def test_a_top_form_has_no_shared_objects() -> None:
@@ -560,7 +685,7 @@ def test_a_top_form_has_no_shared_objects() -> None:
 def test_uniform_anisotropic_grid_counts_the_lattice(
     ndim: int, cells: int, orders: tuple[int, ...]
 ) -> None:
-    """A conforming nodal scalar space on a grid has one unknown per lattice point."""
+    """A scalar field on a uniform grid has one unknown per lattice point."""
     mesh = grid_mesh(ndim, cells)
     expected = 1
     for order in orders:
@@ -569,7 +694,7 @@ def test_uniform_anisotropic_grid_counts_the_lattice(
     dof_map = map_of(mesh, [orders] * mesh.element_count)
 
     assert dof_map.global_dof_count == expected
-    assert dof_map.entry_count == dof_map.element_dof_count
+    assert np.all(np.diff(dof_map.entry_offsets) >= 1)
 
 
 def test_the_map_does_not_depend_on_how_many_times_it_is_built() -> None:
@@ -586,24 +711,17 @@ def test_the_map_does_not_depend_on_how_many_times_it_is_built() -> None:
     assert np.array_equal(first.entry_value, second.entry_value)
 
 
-@pytest.mark.parametrize("family", [BasisType.LEGENDRE, BasisType.BERNSTEIN])
-def test_a_non_lagrange_family_is_rejected(family: BasisType) -> None:
-    """A family with no nodes to transfer to must be reported, not walked into."""
-    mesh = grid_mesh(2, 2)
-    specs = specs_in([(2, 2)] * mesh.element_count, family=family)
-
-    with pytest.raises(ValueError, match="needs a nodal basis family"):
-        mesh.compute_kform_direct_dof_map(specs)
-
-
-def test_a_single_non_lagrange_element_is_enough_to_be_rejected() -> None:
-    """One offending element is enough, even when its neighbours are sound."""
+def test_mixed_families_in_one_mesh_are_accepted() -> None:
+    """Every family pairs against the same Legendre windows, so they mix freely."""
     mesh = grid_mesh(2, 2)
     specs = specs_in(uniform_orders(mesh, 2))
-    specs[3] = KFormSpecs(0, space((2, 2), BasisType.LEGENDRE))
+    specs[0] = KFormSpecs(0, space((2, 2), BasisType.LEGENDRE))
+    specs[3] = KFormSpecs(0, space((2, 2), BasisType.BERNSTEIN))
 
-    with pytest.raises(ValueError, match="needs a nodal basis family"):
-        mesh.compute_kform_direct_dof_map(specs)
+    dof_map = mesh.compute_kform_direct_dof_map(specs)
+    assert_conforming(dof_map, mesh.element_count)
+    assert np.all(np.isfinite(dof_map.entry_value))
+    assert_windowed_projections_agree(mesh, specs, dof_map)
 
 
 def test_a_zero_basis_order_is_rejected() -> None:

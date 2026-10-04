@@ -579,6 +579,48 @@ void constraint_boundary_mass_pack(const constraint_boundary_mass_spec_t *const 
     }
 }
 
+void constraint_boundary_mass_gram(const constraint_boundary_mass_spec_t *const spec,
+                                   const basis_set_t *const *boundary_basis_sets,
+                                   const basis_set_t *const *boundary_basis_sets_lower,
+                                   const double *const point_weights, constraint_boundary_mass_work_t *const work,
+                                   double *const out_gram)
+{
+    const size_t point_count = integration_specs_total_points(spec->bdim, spec->boundary_integration);
+
+    size_t rows;
+    size_t cols;
+    boundary_mass_shape(spec, work, &rows, &cols);
+    (void)cols;
+    for (size_t value = 0; value < rows * rows; ++value)
+    {
+        out_gram[value] = 0.0;
+    }
+
+    if (spec->bdim == 0)
+    {
+        // A zero-dimensional boundary has one scalar test DoF at the single empty-tensor point.
+        out_gram[0] = 1.0;
+        return;
+    }
+
+    combination_iterator_reset(work->components);
+    for (size_t component = 0; !combination_iterator_is_done(work->components);
+         combination_iterator_next(work->components), ++component)
+    {
+        const uint8_t *const component_axes = combination_iterator_current(work->components);
+        const size_t row_dofs = work->row_offsets[component + 1] - work->row_offsets[component];
+        if (row_dofs == 0)
+        {
+            continue;
+        }
+        boundary_mass_row_values(spec, boundary_basis_sets, boundary_basis_sets_lower, component_axes, point_count,
+                                 work);
+        // The rows are point-major, which is the layout the inner-product block consumes.
+        kform_inner_product_block(point_count, row_dofs, row_dofs, work->row_values, work->row_values, point_weights,
+                                  work->row_offsets[component], work->row_offsets[component], rows, out_gram);
+    }
+}
+
 fdg_result_t constrain_elements_on_boundary_prepare(const constrain_elements_on_boundary_request_t *const request,
                                                     constrain_elements_on_boundary_work_t *work,
                                                     basis_spec_t *out_basis, integration_spec_t *out_integration,

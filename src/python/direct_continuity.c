@@ -9,43 +9,25 @@
 #include <numpy/ndarrayobject.h>
 
 /**
- * @brief Whether one basis family has the nodes the one-dimensional transfer needs.
- */
-static int direct_basis_is_nodal(const basis_set_type_t type)
-{
-    return type == BASIS_LAGRANGE_GAUSS_LOBATTO || type == BASIS_LAGRANGE_GAUSS || type == BASIS_LAGRANGE_UNIFORM ||
-           type == BASIS_LAGRANGE_CHEBYSHEV_GAUSS;
-}
-
-/**
  * @brief Reject the element specifications the direct core cannot number.
  *
- * The transfer locates a degree of freedom by the node its digit sits on, so it needs a nodal family and a
- * positive order on every axis. The core reports either as a bare status, so they are checked here to name the
- * offending element and axis.
+ * The elimination needs a positive order on every axis; a zero order leaves no test functions. The core reports
+ * this as a bare status, so it is checked here to name the offending element and axis.
  *
  * @return 0 on success, -1 with a Python exception set otherwise.
  */
-static int direct_check_nodal_basis(kform_spec_object *const *const specs, const size_t count, const unsigned ndim)
+static int direct_check_basis(kform_spec_object *const *const specs, const size_t count, const unsigned ndim)
 {
     for (size_t element = 0; element < count; ++element)
     {
         const basis_spec_t *const basis = kform_specs_from_python(specs[element]).basis;
         for (unsigned axis = 0; axis < ndim; ++axis)
         {
-            if (!direct_basis_is_nodal(basis[axis].type))
-            {
-                PyErr_Format(PyExc_ValueError,
-                             "The direct continuity map needs a nodal basis family; element %zu axis %u uses "
-                             "'%s'. Use one of the Lagrange families.",
-                             element, axis, basis_type_to_string(basis[axis].type));
-                return -1;
-            }
             if (basis[axis].order == 0u)
             {
                 PyErr_Format(PyExc_ValueError,
                              "The direct continuity map needs a positive basis order; element %zu axis %u has "
-                             "order 0.",
+                             "order 0, which leaves no test functions.",
                              element, axis);
                 return -1;
             }
@@ -124,13 +106,13 @@ PyDoc_STRVAR(direct_dof_map_docstring, "DirectDofMap()\n"
                                        "\n"
                                        "    Element-to-global transfer of one direct continuity map.\n"
                                        "\n"
-                                       "    The map numbers every degree of freedom of a mesh once, on\n"
-                                       "    the shared objects its elements share plus the element-\n"
-                                       "    private degrees of freedom, and expresses each element-local\n"
-                                       "    degree of freedom in that numbering. A local degree of\n"
-                                       "    freedom whose transfer comes out empty reaches no global\n"
-                                       "    counterpart: its row is empty and it stays outside the\n"
-                                       "    system.\n"
+                                       "    The map introduces one unknown per function of every shared\n"
+                                       "    object's common Legendre test space -- the L2 projection of the\n"
+                                       "    element traces onto it must agree across the incident elements --\n"
+                                       "    and eliminates each element's degrees of freedom against those\n"
+                                       "    unknowns by a QR of its stacked constraint rows. The orthogonal\n"
+                                       "    complement stays element-private, so every degree of freedom of\n"
+                                       "    a mesh is numbered once.\n"
                                        "\n"
                                        "    The type cannot be instantiated directly; use\n"
                                        "    :meth:`Mesh.compute_kform_direct_dof_map`.\n");
@@ -179,17 +161,18 @@ static PyGetSetDef direct_dof_map_getset[] = {
     {.name = "entry_count", .get = direct_dof_map_get_entry_count, .doc = "int : Nonzeros of the transfer."},
     {.name = "element_offsets",
      .get = direct_dof_map_get_element_offsets,
-     .doc = "numpy.typing.NDArray[numpy.int64] : Local degree-of-freedom offsets of every element, "
-            "``element_count + 1`` entries."},
+     .doc = "numpy.typing.NDArray[numpy.int64] : Local degree-of-freedom offsets of every element. "
+            "The array has ``element_count + 1`` entries."},
     {.name = "element_interior_offsets",
      .get = direct_dof_map_get_element_interior_offsets,
-     .doc = "numpy.typing.NDArray[numpy.int64] : Element-private degree-of-freedom offsets of every element, "
-            "``element_count + 1`` entries."},
+     .doc = "numpy.typing.NDArray[numpy.int64] : Element-private degree-of-freedom offsets of every element. "
+            "The array has ``element_count + 1`` entries. A private degree of freedom lies in the orthogonal "
+            "complement the elimination leaves free, not a coordinate range of the element."},
     {.name = "entry_offsets",
      .get = direct_dof_map_get_entry_offsets,
-     .doc = "numpy.typing.NDArray[numpy.int64] : Row offsets of the transfer, ``element_dof_count + 1`` "
-            "entries. A row is empty when its transfer came out empty, and holds several entries when the "
-            "element is projected onto the common space."},
+     .doc = "numpy.typing.NDArray[numpy.int64] : Row offsets of the transfer. The array has "
+            "``element_dof_count + 1`` entries. A row holds one entry when the element's paired mode maps to a "
+            "single object unknown, and several when the elimination mixes element degrees of freedom."},
     {.name = "entry_index",
      .get = direct_dof_map_get_entry_index,
      .doc = "numpy.typing.NDArray[numpy.int64] : Global degree of freedom of every entry."},
@@ -380,7 +363,7 @@ PyObject *mesh_compute_kform_direct_dof_map(PyObject *self, PyTypeObject *defini
     }
     if (direct_check_element_specs(state, specs_seq, ndim, element_count, &order, spec_objects) < 0)
         goto cleanup;
-    if (direct_check_nodal_basis(spec_objects, (size_t)element_count, ndim) < 0)
+    if (direct_check_basis(spec_objects, (size_t)element_count, ndim) < 0)
         goto cleanup;
     for (uint64_t element = 0; element < element_count; ++element)
     {
@@ -408,6 +391,8 @@ PyObject *mesh_compute_kform_direct_dof_map(PyObject *self, PyTypeObject *defini
     }
     direct_continuity_plan_init(&plan, &request, plan_memory);
     direct_continuity_work_init(&work, &request, work_memory);
+    // The plan counts are set by its init, so a failed prepare can still release what it fetched.
+    plan_ready = true;
 
     fdg_result_t prepare_result;
     direct_continuity_layout_t layout;
@@ -425,7 +410,6 @@ PyObject *mesh_compute_kform_direct_dof_map(PyObject *self, PyTypeObject *defini
         cutl_dealloc(&PYTHON_ALLOCATOR, work_memory);
         goto fail_plan;
     }
-    plan_ready = true;
     if (direct_check_layout_sizes(&layout) < 0)
     {
         cutl_dealloc(&PYTHON_ALLOCATOR, work_memory);
