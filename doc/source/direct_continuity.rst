@@ -148,4 +148,13 @@ The gallery example
 problem both ways and prints, per refinement level, the two unknown counts, their ratio, and both errors against
 the analytic solution.
 
+The map's transfer also feeds a standard sparse assembly: the ``T_i * M[i, j] * T_j``
+products are collected as COO triplets and summed into a CSC matrix, the boundary
+unknowns are eliminated by row and column slicing, and the reduced system goes to
+``scipy.sparse.linalg.splu`` and to the hybsol block solver with one block per
+element or shared object. The gallery example
+:ref:`sphx_glr_auto_examples_plot_direct_continuity_sparse.py` times assemble,
+factorize, and solve for the dense, SciPy, and hybsol paths across cell counts and
+polynomial orders and reports the relative agreement of the solutions.
+
 .. autoclass:: DirectDofMap
