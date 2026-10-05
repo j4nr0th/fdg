@@ -21,4 +21,5 @@ light on the implementation details and does not include the C code.
    incidence
    interior_product
    boundary_constraints
+   moving_mesh
    c_api

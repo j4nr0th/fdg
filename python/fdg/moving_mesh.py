@@ -1,82 +1,78 @@
 r"""Time-dependent space maps for moving-mesh and fluid-structure problems.
 
-Degrees of freedom in :mod:`fdg` live on the fixed reference element, so a
-space map that moves in time does not change the basis: it changes the mass
-matrix and the operators built from it. For a map :math:`F(\xi, t)` with mesh
-velocity :math:`w = \partial_t F`, the pullback identity for time-dependent
-diffeomorphisms reads
+Degrees of freedom live on the fixed reference element, so a map that moves in
+time does not change the basis: it changes the mass and the operators built from
+it. For a map :math:`F(\xi, t)` with mesh velocity :math:`w = \partial_t F`, the
+pullback identity
 
 .. math::
 
-    \partial_t (F_t^* \omega) = F_t^* \big(\partial_t \omega + \mathcal{L}_w
-    \omega\big),
-    \qquad
-    \mathcal{L}_w = \mathrm{d}\,\iota_w + \iota_w\,\mathrm{d}.
+    \partial_t (F_t^* \omega) = F_t^* \big(\partial_t \omega +
+    \mathcal{L}_w \omega\big), \qquad
+    \mathcal{L}_w = \mathrm{d}\,\iota_w + \iota_w\,\mathrm{d}
 
-The mesh motion therefore enters in exactly two ways:
+puts the mesh motion in exactly two places:
 
-1. through the Lie derivative :math:`\mathcal{L}_w` on every :math:`k`-form
-   field of the state, which for a top form reduces to advection by the
-   relative velocity :math:`v - w`, and
-2. through the mass matrix, which becomes :math:`M(t)` and is evaluated at the
-   stage times of every slab.
+1. :math:`\mathcal{L}_w` on every :math:`k`-form field, which for a top form is
+   advection by the relative velocity :math:`v - w`;
+2. the mass, evaluated per stage as :math:`M(t)`.
 
-No explicit :math:`\dot M` is ever assembled: the marcher works with the
-contract :math:`M(t) \dot y = r(y, t)`, so the change of the volume element is
-carried entirely by the stage values of :math:`M`. The discrete geometric
-conservation law is then structural rather than a condition to verify, since
-with a fluid velocity equal to the mesh velocity the advection operator and
-the Lie derivative operator are the same discrete assembly and cancel exactly,
-so free-stream preservation holds to the iteration tolerance.
+No :math:`\dot M` is ever assembled. Under the marcher contract
+:math:`M(t)\dot y = r(y, t)` the change of the volume element is carried entirely
+by the stage values of :math:`M`, which makes the discrete geometric
+conservation law structural: at :math:`v = w` the advection and Lie derivative
+assemblies are identical and cancel exactly, so free-stream preservation holds to
+the iteration tolerance.
 
-Time dependence is specified by geometry degrees of freedom sampled at the
-collocation nodes of every slab, which makes the mesh velocity an exact
-spectral derivative of that interpolant rather than a finite difference. The
-same tableau that integrates the state differentiates the geometry.
+Time dependence enters as geometry degrees of freedom sampled at the collocation
+nodes of every slab, so the mesh velocity is a spectral derivative of that
+interpolant. The tableau that integrates the state differentiates the geometry.
 
-The velocity is passed to the interior product as its physical components,
-which is what that function documents; the map then applies its own metric
-factors. Uniform stretch, translation and curved deformation are all covered
-for the mesh motion itself; see the scope note below for the operators.
+The velocity reaches the interior product as unscaled physical components, which
+is that function's documented convention; the map supplies its own metric
+factors.
 
-The fluid-structure pattern uses the same primitives with the geometry as part
-of the state: the geometry degrees of freedom are appended to the marched
-vector, and the residual rebuilds the maps of the current iterate with
-:func:`space_maps_from_geometry_dofs`. The coupled system is autonomous in that
-case, so its quadratic invariants are conserved exactly by the Gauss
-collocation scheme.
+The fluid-structure pattern reuses the same primitives with the geometry as part
+of the state: append the geometry degrees of freedom to the marched vector and
+rebuild the maps of the current iterate with
+:func:`space_maps_from_geometry_dofs`. The coupled system is then autonomous, so
+Gauss collocation conserves its quadratic invariants exactly.
 
 .. _fdg_moving_mesh_scope:
 
-Scope of the operators
-----------------------
+Operator assembly
+-----------------
 
-:func:`lie_derivative_operator` and :func:`advection_operator` are assembled and
-verified for the top form of a one-dimensional element, which is the case the
-moving-mesh march uses. The building blocks they compose are all available for every
-``0 <= k <= ndim``, and the shapes work out in higher dimensions: an incidence
-matrix built from ``incidence_kform_operator(specs, np.eye(n_k))`` is
-``(n_{k+1}, n_k)``, an empty ``(0, n_k)`` when ``k == ndim``, and the interior
-product returns the weak pairing ``(n_{k-1}, n_k)`` for a ``k`` form.
+:func:`lie_derivative_operator` and :func:`advection_operator` compose three
+library operations whose contracts fix the assembly:
 
-What is still open is the metric the strong form has to undo. Two facts are
-established and are worth keeping:
+* :func:`~fdg.compute_kform_interior_product_matrix` returns the weak pairing
+  ``(n_{k-1}, n_k)``, mapping the ``k``-form of ``basis_right`` onto the
+  ``(k - 1)``-form of ``basis_left``;
+* :func:`~fdg.incidence_kform_operator` applied from the right returns the
+  ``(n_{k+1}, n_k)`` exterior derivative, so coefficients map as ``y @ D``. A
+  form of the ambient dimension has an empty derivative;
+* :func:`~fdg.compute_kform_mass_matrix` gives the mass of a form on the map.
 
-* the incidence operator is exact on the standard degrees of freedom, in the
-  sense that ``incidence_kform_operator(KFormSpecs(0, b), eye(n_0)) @ dofs(f)``
-  reproduces ``dofs(f')`` to about 1e-13, and
-* the interior product reproduces the weak pairing
-  ``int psi_a (w . phi_b) dxi`` to about 1e-16 with the vector field supplied
-  as unscaled physical components, which is what
-  :func:`~fdg.compute_kform_interior_product_matrix` documents.
+Inverting the mass of the ``(k - 1)``-form test space makes the pairing strong;
+the two terms then sit on opposite sides of it, ``D M_{k-1}^{-1} I`` for
+:math:`\mathrm{d}\,\iota_w` and ``M_k^{-1} I D`` for :math:`\iota_w\,\mathrm{d}`.
 
-Turning the weak pairing into strong degrees of freedom inverts the row mass
-that pairs with it, and that mass is where the determinant enters. On an affine
-map the determinant is constant and any consistent choice gives the same
-operator to machine precision; on a curved map the choices differ, and the one
-that reproduces :math:`\mathrm{d}(c\,w)` has not yet been pinned down. Until it
-is, these two operators are documented as one-dimensional and affine only,
-rather than being reported as general.
+Verified in one to four dimensions, all against closed forms built from the
+library's own basis tables: every order assembles and annihilates the constant
+mode; a zero-form gives :math:`w f'` to 1e-12 on a curved element; an axis-aligned
+problem reproduces the one-dimensional operator to 1e-14; and the top form gives
+the divergence to 1e-13 and equals advection exactly. The top-form density is the
+physical divergence times the map determinant, because the interior product scales
+its pairing by that determinant.
+
+These hold to machine precision wherever the polynomial space represents the
+answer; higher-degree input is projected, which is a property of the space.
+
+:class:`MovingMesh` is dimension-agnostic. Geometry degrees of freedom carry one
+row per axis and the integration space one rule per axis, and the velocity comes
+back shaped ``(n_elements, n_axes, npts_0, ..., npts_{ndim-1})``, which is what
+the operators expect per element.
 """
 
 from collections.abc import Callable, Sequence
@@ -86,7 +82,6 @@ import numpy as np
 import numpy.typing as npt
 
 from fdg._fdg import (
-    BasisSpecs,
     CoordinateMap,
     DegreesOfFreedom,
     FunctionSpace,
@@ -95,7 +90,7 @@ from fdg._fdg import (
     SpaceMap,
     compute_kform_interior_product_matrix,
     compute_kform_mass_matrix,
-    incidence_matrix,
+    incidence_kform_operator,
 )
 from fdg.degrees_of_freedom import reconstruct
 from fdg.enum_type import IntegrationMethod
@@ -173,34 +168,13 @@ def _mass(specs: KFormSpecs, smap: SpaceMap) -> npt.NDArray[np.double]:
     )
 
 
-def _raised_space(space: FunctionSpace, delta: int) -> FunctionSpace:
-    """Return the space with every order shifted by ``delta``.
-
-    Parameters
-    ----------
-    space : FunctionSpace
-        Space to shift.
-    delta : int
-        Order increment applied to every dimension.
-
-    Returns
-    -------
-    FunctionSpace
-        Space with the shifted orders.
-    """
-    return FunctionSpace(
-        *[BasisSpecs(spec.type, spec.order + delta) for spec in space.basis_specs]
-    )
-
-
 def _velocity(
     smap: SpaceMap, velocity_points: npt.NDArray[np.double]
 ) -> npt.NDArray[np.double]:
-    """Return the physical velocity components in the expected shape.
+    """Return the physical velocity components in the shape the interior product wants.
 
-    :func:`~fdg.compute_kform_interior_product_matrix` contracts the physical
-    components of the vector field directly and applies the metric factors of
-    the map itself, so the components are passed through unscaled.
+    That function applies the metric factors of the map itself, so the
+    components pass through unscaled.
 
     Parameters
     ----------
@@ -213,19 +187,45 @@ def _velocity(
     Returns
     -------
     array
-        Components with the shape expected by
-        :func:`~fdg.compute_kform_interior_product_matrix`.
+        Components shaped ``(n_axes, npts_0, ..., npts_k)``.
+
+    Raises
+    ------
+    ValueError
+        If a component does not have one value per integration point.
     """
     components = np.ascontiguousarray(velocity_points, np.double)
-    expected = np.asarray(smap.determinant, np.double).size
-    flat = components.reshape(components.shape[0], -1) if components.ndim > 1 else None
-    values = flat if flat is not None else components.reshape(1, -1)
-    if values.shape[1] != expected:
+    expected = int(np.asarray(smap.determinant, np.double).size)
+    # Accepted as (n_axes, npts_0, ..., npts_k) or as any array with one value
+    # per integration point; neither is rescaled.
+    per_component = components[0].size if components.ndim > 1 else components.size
+    if components.ndim < 2:
+        components = components.reshape(1, -1)
+    if per_component != expected:
         raise ValueError(
             f"Velocity must have one value per integration point of the map: "
-            f"expected {expected}, got {values.shape[1]}."
+            f"expected {expected}, got {per_component}."
         )
     return components
+
+
+def _incidence(specs: KFormSpecs) -> npt.NDArray[np.double]:
+    """Return the exterior derivative of a k-form as a dense matrix.
+
+    The matrix maps the degrees of freedom of the k-form to those of its
+    (k + 1)-form derivative, so a coefficient vector transforms as ``y @ D``.
+    Applying it from the right with an identity input returns that matrix
+    directly. A form of the ambient dimension has an empty derivative, which is
+    returned as an empty matrix.
+    """
+    order = int(specs.order)
+    dimension = int(specs.base_space.dimension)
+    if order == dimension:
+        return np.zeros((0, int(sum(specs.component_dof_counts))))
+    n_dofs = int(sum(KFormSpecs(order + 1, specs.base_space).component_dof_counts))
+    return incidence_kform_operator(
+        specs, np.ascontiguousarray(np.eye(n_dofs)), right=True
+    )
 
 
 def lie_derivative_operator(
@@ -235,7 +235,9 @@ def lie_derivative_operator(
 ) -> npt.NDArray[np.double]:
     r"""Assemble the Lie derivative of a form with respect to a mesh velocity.
 
-    This is :math:`\mathcal{L}_w = \mathrm{d}\,\iota_w + \iota_w\,\mathrm{d}`.
+    This is :math:`\mathcal{L}_w = \mathrm{d}\,\iota_w + \iota_w\,\mathrm{d}` for
+    any form order. Each term puts the exterior derivative on the side of the
+    strong-conversion mass matching its own form order.
 
     Parameters
     ----------
@@ -245,7 +247,7 @@ def lie_derivative_operator(
         Specification of the form the operator acts on.
     velocity_points : array
         Physical components of the mesh velocity at the integration points
-        of the map, of shape ``(n_axes, n_points)``, passed through
+        of the map, shaped ``(n_axes, npts_0, ..., npts_k)``, passed through
         unscaled.
 
     Returns
@@ -256,36 +258,36 @@ def lie_derivative_operator(
     Raises
     ------
     ValueError
-        If the form is of the ambient dimension and its Lie derivative is
-        requested for the second term only, or if the velocity shape does not
-        match the map.
+        If the velocity does not have one value per integration point of the
+        map.
     """
     order = int(specs.order)
     dimension = int(specs.dimension)
     basis = specs.base_space
+    velocity = _velocity(smap, velocity_points)
+    n_dofs = int(sum(specs.component_dof_counts))
+    operator = np.zeros((n_dofs, n_dofs))
 
-    # The interior product lowers the form order but keeps the space of the
-    # form itself, so its test space is the base space and the exterior
-    # derivative of the result is the incidence of that same base space.
-    interior = compute_kform_interior_product_matrix(
-        smap, max(order, 1), basis, basis, _velocity(smap, velocity_points)
-    )
-    first = incidence_matrix(basis.basis_specs[0]) @ np.linalg.solve(
-        _mass(KFormSpecs(max(order - 1, 0), basis), smap), interior
-    )
+    # d iota_w: the weak pairing (n_{k-1}, n_k) made strong by the test mass.
+    if order > 0:
+        interior = compute_kform_interior_product_matrix(
+            smap, order, basis, basis, velocity
+        )
+        test = KFormSpecs(order - 1, basis)
+        # The exterior derivative acts on the (k - 1)-form, from the left.
+        operator += _incidence(test) @ np.linalg.solve(_mass(test, smap), interior)
 
-    # iota_w d is zero for a form of the ambient dimension, since its exterior
-    # derivative vanishes.
-    if order >= dimension:
-        return first
-    upper_basis = _raised_space(basis, 1)
-    upper_interior = compute_kform_interior_product_matrix(
-        smap, order + 1, basis, upper_basis, _velocity(smap, velocity_points)
-    )
-    second = np.linalg.solve(
-        _mass(KFormSpecs(order, basis), smap), upper_interior
-    ) @ incidence_matrix(basis.basis_specs[0])
-    return first + second
+    # iota_w d: the trial space is the (k + 1)-form, so D composes from the right.
+    # A form of the ambient dimension has an empty derivative, dropping the term.
+    if order < dimension:
+        upper_interior = compute_kform_interior_product_matrix(
+            smap, order + 1, basis, basis, velocity
+        )
+        operator += np.linalg.solve(_mass(specs, smap), upper_interior) @ _incidence(
+            specs
+        )
+
+    return operator
 
 
 def advection_operator(
@@ -303,8 +305,8 @@ def advection_operator(
         Specification of the form that is transported.
     velocity_points : array
         Physical components of the transport velocity at the integration
-        points of the map, of shape ``(n_axes, n_points)``, passed through
-        unscaled.
+        points of the map, shaped ``(n_axes, npts_0, ..., npts_k)``, passed
+        through unscaled.
 
     Returns
     -------
@@ -312,13 +314,17 @@ def advection_operator(
         Operator on the degrees of freedom of the form.
     """
     order = int(specs.order)
+    if order == 0:
+        raise ValueError(
+            "Advection by d iota_v is undefined for a zero-form, since the "
+            "interior product has no form to contract."
+        )
     basis = specs.base_space
     interior = compute_kform_interior_product_matrix(
-        smap, max(order, 1), basis, basis, _velocity(smap, velocity_points)
+        smap, order, basis, basis, _velocity(smap, velocity_points)
     )
-    return incidence_matrix(basis.basis_specs[0]) @ np.linalg.solve(
-        _mass(KFormSpecs(max(order - 1, 0), basis), smap), interior
-    )
+    test = KFormSpecs(order - 1, basis)
+    return _incidence(test) @ np.linalg.solve(_mass(test, smap), interior)
 
 
 def stage_mass(smap: SpaceMap, specs: KFormSpecs) -> npt.NDArray[np.double]:
@@ -550,7 +556,7 @@ class MovingMesh:
         -------
         array
             Components of the mesh velocity of shape
-            ``(n_elements, n_axes, n_points)``.
+            ``(n_elements, n_axes, npts_0, ..., npts_{ndim-1})``.
         """
         return self._stage(step, stage).velocity
 
@@ -580,11 +586,9 @@ class MovingMesh:
     ) -> Callable[[float], npt.NDArray[np.double]]:
         """Return a callable giving the global mass matrix at a stage time.
 
-        The returned callable serves the exact stage times of the mesh and
-        nothing else, so it raises for any other time rather than
-        interpolating silently. The matrices are block diagonal over the
-        elements; the hybridized coupling of the existing constraint machinery
-        composes with them but is not applied here.
+        The callable serves the exact stage times and raises for anything else
+        rather than interpolating silently. The matrices are block diagonal over
+        the elements; hybridized coupling is not applied here.
 
         Parameters
         ----------

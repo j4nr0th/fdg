@@ -1627,10 +1627,12 @@ PyDoc_STRVAR(
     "    order ``order - 1``.\n"
     "\n"
     "basis_left : FunctionSpace\n"
-    "    Function space of 0-forms used as test forms.\n"
+    "    Function space whose ``(order - 1)``-form components provide the test\n"
+    "    degrees of freedom, which are the rows of the result.\n"
     "\n"
     "basis_right : FunctionSpace\n"
-    "    Function space of 0-forms used as trial forms.\n"
+    "    Function space whose ``order``-form components provide the trial degrees\n"
+    "    of freedom, which are the columns of the result.\n"
     "\n"
     "vector_field_components : array\n"
     "    Vector field components involved in the interior product, sampled at the\n"
@@ -1647,10 +1649,12 @@ PyDoc_STRVAR(
     "Returns\n"
     "-------\n"
     "array\n"
-    "    Mass matrix mapping the degrees of freedom of the k-form built from\n"
-    "    ``basis_right`` to those of the (k - 1)-form built from ``basis_left``,\n"
+    "    Matrix mapping the degrees of freedom of the ``order``-form of\n"
+    "    ``basis_right`` to those of the ``(order - 1)``-form of ``basis_left``,\n"
     "    pairing each test form with the interior product of the trial form and\n"
-    "    the vector field.\n");
+    "    the vector field. Each pairing weight is the integration weight times the\n"
+    "    determinant of the map, except when ``order`` equals the dimension of the\n"
+    "    map and is not ``1``, where the k-form transform cancels the determinant.\n");
 
 PyMethodDef mass_matrices_methods[] = {
     {

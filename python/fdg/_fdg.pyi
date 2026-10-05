@@ -360,8 +360,9 @@ class FunctionSpace:
             Integration space, the nodes of which are used to evaluate basis at.
 
         transpose : bool, default: False
-            Order the array so that axes indexing the integration points come before
-            the ones indexing the bases.
+            Order the array so that axes indexing the bases come before the ones
+            indexing the integration points. By default the integration-point axes
+            come first.
 
         integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY
             Registry used to obtain the integration rules from.
@@ -372,7 +373,9 @@ class FunctionSpace:
         Returns
         -------
         array
-            Array of basis function values at the integration points locations.
+            Array of basis function values at the integration points locations,
+            shaped ``(npts_0, ..., npts_{ndim-1}, order_0 + 1, ..., order_{ndim-1} + 1)``
+            by default, with the two axis groups exchanged when ``transpose`` is set.
         """
         ...
 
@@ -451,7 +454,10 @@ class IntegrationSpace:
         Returns
         -------
         array
-            Array of integration nodes.
+            Array of shape ``(ndim, npts_0, ..., npts_{ndim-1})``, where ``npts_i``
+            is the number of nodes along axis ``i``. Entry ``[a, i_0, ..., i_{ndim-1}]``
+            is node ``i_a`` of the rule for axis ``a``, so ``nodes()[a]`` is the full
+            tensor grid of axis ``a``'s abscissae rather than a one-dimensional array.
         """
         ...
 
@@ -2157,10 +2163,12 @@ def compute_kform_interior_product_matrix(
         order ``order - 1``.
 
     basis_left : FunctionSpace
-        Function space of 0-forms used as test forms.
+        Function space whose ``(order - 1)``-form components provide the test
+        degrees of freedom, which are the rows of the result.
 
     basis_right : FunctionSpace
-        Function space of 0-forms used as trial forms.
+        Function space whose ``order``-form components provide the trial degrees
+        of freedom, which are the columns of the result.
 
     vector_field_components : array
         Vector field components involved in the interior product, sampled at the
@@ -2177,10 +2185,12 @@ def compute_kform_interior_product_matrix(
     Returns
     -------
     array
-        Mass matrix mapping the degrees of freedom of the k-form built from
-        ``basis_right`` to those of the (k - 1)-form built from ``basis_left``,
+        Matrix mapping the degrees of freedom of the ``order``-form of
+        ``basis_right`` to those of the ``(order - 1)``-form of ``basis_left``,
         pairing each test form with the interior product of the trial form and
-        the vector field.
+        the vector field. Each pairing weight is the integration weight times the
+        determinant of the map, except when ``order`` equals the dimension of the
+        map and is not ``1``, where the k-form transform cancels the determinant.
     """
     ...
 
