@@ -360,8 +360,9 @@ class FunctionSpace:
             Integration space, the nodes of which are used to evaluate basis at.
 
         transpose : bool, default: False
-            Order the array so that axes indexing the integration points come before
-            the ones indexing the bases.
+            Order the array so that axes indexing the bases come before the ones
+            indexing the integration points. By default the integration-point axes
+            come first.
 
         integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY
             Registry used to obtain the integration rules from.
@@ -372,7 +373,9 @@ class FunctionSpace:
         Returns
         -------
         array
-            Array of basis function values at the integration points locations.
+            Array of basis function values at the integration points locations,
+            shaped ``(npts_0, ..., npts_{ndim-1}, order_0 + 1, ..., order_{ndim-1} + 1)``
+            by default, with the two axis groups exchanged when ``transpose`` is set.
         """
         ...
 
@@ -451,7 +454,10 @@ class IntegrationSpace:
         Returns
         -------
         array
-            Array of integration nodes.
+            Array of shape ``(ndim, npts_0, ..., npts_{ndim-1})``, where ``npts_i``
+            is the number of nodes along axis ``i``. Entry ``[a, i_0, ..., i_{ndim-1}]``
+            is node ``i_a`` of the rule for axis ``a``, so ``nodes()[a]`` is the full
+            tensor grid of axis ``a``'s abscissae rather than a one-dimensional array.
         """
         ...
 
@@ -2310,10 +2316,12 @@ def compute_kform_interior_product_matrix(
         order ``order - 1``.
 
     basis_left : FunctionSpace
-        Function space of 0-forms used as test forms.
+        Function space whose ``(order - 1)``-form components provide the test
+        degrees of freedom, which are the rows of the result.
 
     basis_right : FunctionSpace
-        Function space of 0-forms used as trial forms.
+        Function space whose ``order``-form components provide the trial degrees
+        of freedom, which are the columns of the result.
 
     vector_field_components : array
         Vector field components involved in the interior product, sampled at the
@@ -2330,10 +2338,12 @@ def compute_kform_interior_product_matrix(
     Returns
     -------
     array
-        Mass matrix mapping the degrees of freedom of the k-form built from
-        ``basis_right`` to those of the (k - 1)-form built from ``basis_left``,
+        Matrix mapping the degrees of freedom of the ``order``-form of
+        ``basis_right`` to those of the ``(order - 1)``-form of ``basis_left``,
         pairing each test form with the interior product of the trial form and
-        the vector field.
+        the vector field. Each pairing weight is the integration weight times the
+        determinant of the map, except when ``order`` equals the dimension of the
+        map and is not ``1``, where the k-form transform cancels the determinant.
     """
     ...
 
@@ -2591,7 +2601,7 @@ def incidence_kform_operator(
     Parameters
     ----------
     specs : KFormSpecs
-        Specifications of the input k-form on which this operator is to be applied on.
+        Specifications of the input k-form on which this operator is applied.
 
     values : array
         Degrees of freedom of all components of the input, flattened into one axis.
@@ -2655,7 +2665,7 @@ def incidence_operator(
         selected by ``axis`` must have size ``specs.order + 1``.
 
     specs : BasisSpecs
-        Specifications for basis that determine what set of polynomial is used to take
+        Specifications for the basis that determines which polynomials are used to take
         the derivative.
 
     axis : int, default: 0
@@ -2765,11 +2775,7 @@ def compute_gradient_mass_matrix(
     integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY,
     basis_registry: BasisRegistry = DEFAULT_BASIS_REGISTRY,
 ) -> npt.NDArray[np.double]:
-    """Compute the mass matrix between two function spaces.
-
-    The purpose of this function is to compute the matrix, which transfers
-    the contribution of derivative along the reference space dimension
-    to the physical space derivative.
+    """Compute the mass matrix that transfers a reference derivative to a physical one.
 
     Parameters
     ----------

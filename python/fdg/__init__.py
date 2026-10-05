@@ -84,6 +84,15 @@ from fdg.integration import projection_kform_l2_primal as projection_kform_l2_pr
 from fdg.integration import projection_l2_dual as projection_l2_dual
 from fdg.integration import projection_l2_primal as projection_l2_primal
 
+# Moving meshes
+from fdg.moving_mesh import MovingMesh as MovingMesh
+from fdg.moving_mesh import advection_operator as advection_operator
+from fdg.moving_mesh import lie_derivative_operator as lie_derivative_operator
+from fdg.moving_mesh import (
+    space_maps_from_geometry_dofs as space_maps_from_geometry_dofs,
+)
+from fdg.moving_mesh import stage_mass as stage_mass
+
 # Hybridized solves
 from fdg.solve import ElementBlockBuilder as ElementBlockBuilder
 from fdg.solve import HybridizedSolution as HybridizedSolution
@@ -93,3 +102,9 @@ from fdg.solve import solve_hybridized as solve_hybridized
 
 # Sparse assembly
 from fdg.sparse import scatter_csc as scatter_csc
+
+# Time marching
+from fdg.time_marching import CollocationTableau as CollocationTableau
+from fdg.time_marching import MarchResult as MarchResult
+from fdg.time_marching import collocation_tableau as collocation_tableau
+from fdg.time_marching import march as march

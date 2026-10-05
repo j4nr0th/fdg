@@ -726,7 +726,10 @@ PyDoc_STRVAR(
     "Returns\n"
     "-------\n"
     "array\n"
-    "    Array of integration nodes.\n");
+    "    Array of shape ``(ndim, npts_0, ..., npts_{ndim-1})``, where ``npts_i``\n"
+    "    is the number of nodes along axis ``i``. Entry ``[a, i_0, ..., i_{ndim-1}]``\n"
+    "    is node ``i_a`` of the rule for axis ``a``, so ``nodes()[a]`` is the full\n"
+    "    tensor grid of axis ``a``'s abscissae rather than a one-dimensional array.\n");
 
 static PyObject *integration_space_nodes(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
                                          const Py_ssize_t nargs, const PyObject *kwnames)

@@ -298,8 +298,9 @@ PyDoc_STRVAR(
     "    Integration space, the nodes of which are used to evaluate basis at.\n"
     "\n"
     "transpose : bool, default: False\n"
-    "    Order the array so that axes indexing the integration points come before\n"
-    "    the ones indexing the bases.\n"
+    "    Order the array so that axes indexing the bases come before the ones\n"
+    "    indexing the integration points. By default the integration-point axes\n"
+    "    come first.\n"
     "\n"
     "integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY\n"
     "    Registry used to obtain the integration rules from.\n"
@@ -310,7 +311,9 @@ PyDoc_STRVAR(
     "Returns\n"
     "-------\n"
     "array\n"
-    "    Array of basis function values at the integration points locations.\n");
+    "    Array of basis function values at the integration points locations,\n"
+    "    shaped ``(npts_0, ..., npts_{ndim-1}, order_0 + 1, ..., order_{ndim-1} + 1)``\n"
+    "    by default, with the two axis groups exchanged when ``transpose`` is set.\n");
 
 static PyObject *function_space_values_at_integration_nodes(PyObject *self, PyTypeObject *defining_class,
                                                             PyObject *const *args, const Py_ssize_t nargs,

@@ -23,4 +23,5 @@ light on the implementation details and does not include the C code.
    boundary_constraints
    hybridized_solves
    direct_continuity
+   moving_mesh
    c_api

@@ -550,11 +550,7 @@ PyDoc_STRVAR(compute_gradient_mass_matrix_docstring,
              "IntegrationSpace | SpaceMap, /, idx_in: int, idx_out: int, *, "
              "integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY, basis_registry: BasisRegistry "
              "= DEFAULT_BASIS_REGISTRY) -> numpy.typing.NDArray[numpy.double]\n"
-             "Compute the mass matrix between two function spaces.\n"
-             "\n"
-             "The purpose of this function is to compute the matrix, which transfers\n"
-             "the contribution of derivative along the reference space dimension\n"
-             "to the physical space derivative.\n"
+             "Compute the mass matrix that transfers a reference derivative to a physical one.\n"
              "\n"
              "Parameters\n"
              "----------\n"
@@ -1092,14 +1088,13 @@ static void compute_interior_product_component_weights(
     // k == n → right transform is all 1 / determinant (transform_array_right NULL), one right component.
     if (k == 1)
     {
-        // TODO: check for special case when n and k are both 1
+        // In 1D this branch also covers k == n_maps, and it is tested first.
         CUTL_ASSERT(transform_array_left == NULL, "Left transform array should be NULL for k = 1.");
         CUTL_ASSERT(transform_array_right != NULL, "Right transform array for right component should not be NULL.");
-        // Add contributions of left, right, and vector field (but left is always 1)
+        // The left transform is one here, so only the right one and the field contribute.
         for (size_t i = 0; i < int_pts; ++i)
         {
-            const double dp =
-                /*transform_array_left[i] **/ transform_array_right[i] * vector_field_components[idim * int_pts + i];
+            const double dp = transform_array_right[i] * vector_field_components[idim * int_pts + i];
             if (!negate)
             {
                 integration_weights[i] += dp;
@@ -1213,9 +1208,11 @@ static void compute_interior_product_weights(
         }
     }
 
-    // Finally, scale all resulting weights by integration rule weights and determinant
+    // Scale by the integration rule weight. The determinant cancels only in the k == n_maps
+    // branch, whose transform is 1 / determinant; the k == 1 branch keeps it, and in 1D that is
+    // the branch that runs (it is tested first in the component weights).
     size_t integration_pt_idx = 0;
-    if (order != n_maps)
+    if (order != n_maps || order == 1)
     {
         for (multidim_iterator_set_to_start(iter_int_pts); !multidim_iterator_is_at_end(iter_int_pts);
              multidim_iterator_advance(iter_int_pts, n_dims - 1, 1), ++integration_pt_idx)
@@ -1226,7 +1223,7 @@ static void compute_interior_product_weights(
     }
     else // if (order == n_maps)
     {
-        // Here we do not multiply with determinant, since we implicitly canceled it out when computing weights
+        // The determinant was already canceled by the 1 / determinant transform.
         for (multidim_iterator_set_to_start(iter_int_pts); !multidim_iterator_is_at_end(iter_int_pts);
              multidim_iterator_advance(iter_int_pts, n_dims - 1, 1), ++integration_pt_idx)
         {
@@ -1630,10 +1627,12 @@ PyDoc_STRVAR(
     "    order ``order - 1``.\n"
     "\n"
     "basis_left : FunctionSpace\n"
-    "    Function space of 0-forms used as test forms.\n"
+    "    Function space whose ``(order - 1)``-form components provide the test\n"
+    "    degrees of freedom, which are the rows of the result.\n"
     "\n"
     "basis_right : FunctionSpace\n"
-    "    Function space of 0-forms used as trial forms.\n"
+    "    Function space whose ``order``-form components provide the trial degrees\n"
+    "    of freedom, which are the columns of the result.\n"
     "\n"
     "vector_field_components : array\n"
     "    Vector field components involved in the interior product, sampled at the\n"
@@ -1650,10 +1649,12 @@ PyDoc_STRVAR(
     "Returns\n"
     "-------\n"
     "array\n"
-    "    Mass matrix mapping the degrees of freedom of the k-form built from\n"
-    "    ``basis_right`` to those of the (k - 1)-form built from ``basis_left``,\n"
+    "    Matrix mapping the degrees of freedom of the ``order``-form of\n"
+    "    ``basis_right`` to those of the ``(order - 1)``-form of ``basis_left``,\n"
     "    pairing each test form with the interior product of the trial form and\n"
-    "    the vector field.\n");
+    "    the vector field. Each pairing weight is the integration weight times the\n"
+    "    determinant of the map, except when ``order`` equals the dimension of the\n"
+    "    map and is not ``1``, where the k-form transform cancels the determinant.\n");
 
 PyMethodDef mass_matrices_methods[] = {
     {
