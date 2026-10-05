@@ -182,6 +182,209 @@ static PyGetSetDef direct_dof_map_getset[] = {
     {},
 };
 
+PyDoc_STRVAR(direct_dof_map_scatter_triplets_doc,
+             "_scatter_triplets(local_matrices, first_element, stop_element, n_threads=0)\n"
+             "\n"
+             "    Scatter a range of row-major per-element local matrices into COO triplets.\n"
+             "\n"
+             "    Element ``e`` contributes ``value_r * m_i_j * value_c`` over every\n"
+             "    entry pair ``r``, ``c`` of every local degree-of-freedom pair ``i``,\n"
+             "    ``j``. ``local_matrices`` is one flat C-contiguous float64 array\n"
+             "    holding one row-major ``n_e x n_e`` block per element in element\n"
+             "    order, and its length must equal the sum of the blocks over every\n"
+             "    element of the map. Elements ``[first_element, stop_element)`` are\n"
+             "    scattered, with the range's block base inside ``local_matrices``\n"
+             "    tracked internally. ``n_threads`` picks the worker count; ``0``\n"
+             "    uses the OpenMP default, and the result is identical for any\n"
+             "    thread count. Returns three arrays ``(rows, cols, values)`` of\n"
+             "    int64 rows, int64 columns, and float64 values.\n");
+
+/**
+ * @brief Scatter one element range's row-major local matrices into COO triplets.
+ *
+ * @return A ``(rows, cols, values)`` tuple of numpy arrays, or NULL with a Python exception set.
+ */
+static PyObject *direct_dof_map_scatter_triplets(PyObject *self, PyObject *const *args, const Py_ssize_t nargs,
+                                                 PyObject *kwnames)
+{
+    PyObject *local_object;
+    Py_ssize_t first_element = 0;
+    Py_ssize_t stop_element = 0;
+    Py_ssize_t n_threads = 0;
+    if (parse_arguments_check(
+            (cpyutl_argument_t[]){
+                {.type = CPYARG_TYPE_PYTHON, .p_val = &local_object},
+                {.type = CPYARG_TYPE_SSIZE, .p_val = &first_element},
+                {.type = CPYARG_TYPE_SSIZE, .p_val = &stop_element},
+                {.type = CPYARG_TYPE_SSIZE, .p_val = &n_threads, .kwname = "n_threads", .optional = 1},
+                {}},
+            args, nargs, kwnames) < 0)
+        return NULL;
+    if (first_element < 0 || first_element > stop_element)
+    {
+        PyErr_Format(PyExc_ValueError,
+                     "the element range must satisfy 0 <= first_element <= stop_element, but got %zd, %zd.",
+                     first_element, stop_element);
+        return NULL;
+    }
+    if (n_threads < 0)
+    {
+        PyErr_Format(PyExc_ValueError, "n_threads must be nonnegative, but got %zd.", n_threads);
+        return NULL;
+    }
+    if (!PyArray_Check(local_object) || PyArray_NDIM((const PyArrayObject *)local_object) != 1 ||
+        PyArray_TYPE((const PyArrayObject *)local_object) != NPY_DOUBLE ||
+        !PyArray_ISCONTIGUOUS((const PyArrayObject *)local_object))
+    {
+        PyErr_SetString(PyExc_TypeError, "local_matrices must be a one-dimensional C-contiguous float64 array.");
+        return NULL;
+    }
+
+    const direct_dof_map_object *const this = (direct_dof_map_object *)self;
+    const npy_intp *const element_offsets = PyArray_DATA(this->element_offsets);
+    const uint64_t element_count = (uint64_t)PyArray_DIM(this->element_offsets, 0) - 1u;
+    const size_t element_dof_count = (size_t)PyArray_DIM(this->entry_offsets, 0) - 1u;
+    const size_t entry_count = this->entry_count;
+    if ((uint64_t)stop_element > element_count)
+    {
+        PyErr_Format(PyExc_ValueError, "the map holds %zu elements, but the range ends at %zd.", (size_t)element_count,
+                     stop_element);
+        return NULL;
+    }
+
+    // The flat array holds one row-major n_e x n_e block per element.
+    size_t expected = 0;
+    for (uint64_t element = 0; element < element_count; ++element)
+    {
+        const size_t local_count = (size_t)(element_offsets[element + 1] - element_offsets[element]);
+        if (local_count != 0 && local_count > SIZE_MAX / local_count)
+        {
+            PyErr_SetString(PyExc_OverflowError, "The local matrices exceed addressable memory.");
+            return NULL;
+        }
+        const size_t block = local_count * local_count;
+        if (block > SIZE_MAX - expected)
+        {
+            PyErr_SetString(PyExc_OverflowError, "The local matrices exceed addressable memory.");
+            return NULL;
+        }
+        expected += block;
+    }
+    if ((uint64_t)PyArray_DIM((const PyArrayObject *)local_object, 0) != (uint64_t)expected)
+    {
+        PyErr_Format(PyExc_ValueError,
+                     "local_matrices must hold %zu entries, one row-major block per element, but got %zd.", expected,
+                     PyArray_DIM((const PyArrayObject *)local_object, 0));
+        return NULL;
+    }
+
+    // The core reads size_t offsets and indices, so the int64 arrays are cast into scratch first.
+    size_t *element_offsets_scratch = NULL;
+    size_t *entry_offsets_scratch = NULL;
+    size_t *entry_index_scratch = NULL;
+    void *const cast_memory = cutl_alloc_group(
+        &PYTHON_ALLOCATOR,
+        (const cutl_alloc_info_t[]){
+            {(element_count + 1u) * sizeof(*element_offsets_scratch), (void **)&element_offsets_scratch},
+            {(element_dof_count + 1u) * sizeof(*entry_offsets_scratch), (void **)&entry_offsets_scratch},
+            {entry_count * sizeof(*entry_index_scratch), (void **)&entry_index_scratch},
+            {}});
+    if (!cast_memory || !element_offsets_scratch || !entry_offsets_scratch || !entry_index_scratch)
+    {
+        PyErr_NoMemory();
+        goto cleanup;
+    }
+    for (size_t i = 0; i <= element_count; ++i)
+        element_offsets_scratch[i] = (size_t)element_offsets[i];
+    {
+        const npy_int64 *const entry_offsets = PyArray_DATA(this->entry_offsets);
+        const npy_int64 *const entry_index = PyArray_DATA(this->entry_index);
+        for (size_t i = 0; i <= element_dof_count; ++i)
+            entry_offsets_scratch[i] = (size_t)entry_offsets[i];
+        for (size_t i = 0; i < entry_count; ++i)
+            entry_index_scratch[i] = (size_t)entry_index[i];
+    }
+
+    {
+        // The range's block base skips every earlier element's block in local_matrices.
+        size_t block_base = 0;
+        size_t triplet_count = 0;
+        for (uint64_t element = 0; element < (uint64_t)stop_element; ++element)
+        {
+            const size_t local_base = element_offsets_scratch[element];
+            const size_t local_count = element_offsets_scratch[element + 1] - local_base;
+            size_t entries = 0;
+            for (size_t dof = 0; dof < local_count; ++dof)
+                entries += entry_offsets_scratch[local_base + dof + 1] - entry_offsets_scratch[local_base + dof];
+            if (entries != 0 && entries > SIZE_MAX / entries)
+            {
+                PyErr_SetString(PyExc_OverflowError, "The triplets exceed addressable memory.");
+                goto cleanup;
+            }
+            const size_t block = local_count * local_count;
+            if (block > SIZE_MAX - block_base)
+            {
+                PyErr_SetString(PyExc_OverflowError, "The local matrices exceed addressable memory.");
+                goto cleanup;
+            }
+            if (element >= (uint64_t)first_element)
+            {
+                if (entries * entries > SIZE_MAX - triplet_count)
+                {
+                    PyErr_SetString(PyExc_OverflowError, "The triplets exceed addressable memory.");
+                    goto cleanup;
+                }
+                triplet_count += entries * entries;
+            }
+            else
+                block_base += block;
+        }
+
+        PyArrayObject *const rows =
+            (PyArrayObject *)PyArray_SimpleNew(1, &(npy_intp){(npy_intp)triplet_count}, NPY_INT64);
+        PyArrayObject *const cols =
+            rows ? (PyArrayObject *)PyArray_SimpleNew(1, &(npy_intp){(npy_intp)triplet_count}, NPY_INT64) : NULL;
+        PyArrayObject *const values =
+            cols ? (PyArrayObject *)PyArray_SimpleNew(1, &(npy_intp){(npy_intp)triplet_count}, NPY_DOUBLE) : NULL;
+        PyObject *const result = values ? Py_BuildValue("(NNN)", rows, cols, values) : NULL;
+        if (result)
+        {
+            // The plan slice keeps the absolute DoF numbering; only the element range shrinks.
+            direct_continuity_plan_t plan = {0};
+            plan.element_count = (size_t)(stop_element - first_element);
+            plan.element_dof_offsets = element_offsets_scratch + first_element;
+            const double *const local_data = PyArray_DATA((PyArrayObject *)local_object);
+            const double *const entry_value = PyArray_DATA(this->entry_value);
+            Py_BEGIN_ALLOW_THREADS;
+            // The int64 index buffers double as the size_t outputs; the counts fit by construction.
+            direct_continuity_scatter_triplets(&plan, entry_offsets_scratch, entry_index_scratch, entry_value,
+                                               local_data + block_base, (unsigned)n_threads, PyArray_DATA(rows),
+                                               PyArray_DATA(cols), PyArray_DATA(values));
+            Py_END_ALLOW_THREADS;
+        }
+        if (!result)
+        {
+            if (!PyErr_Occurred())
+                PyErr_NoMemory();
+            goto cleanup;
+        }
+        cutl_dealloc(&PYTHON_ALLOCATOR, cast_memory);
+        return result;
+    }
+
+cleanup:
+    cutl_dealloc(&PYTHON_ALLOCATOR, cast_memory);
+    return NULL;
+}
+
+static PyMethodDef direct_dof_map_methods[] = {
+    {.ml_name = "_scatter_triplets",
+     .ml_meth = (PyCFunction)(void (*)(void))direct_dof_map_scatter_triplets,
+     .ml_flags = METH_FASTCALL | METH_KEYWORDS,
+     .ml_doc = direct_dof_map_scatter_triplets_doc},
+    {},
+};
+
 PyType_Spec direct_dof_map_type_spec = {.name = FDG_TYPE_NAME("DirectDofMap"),
                                         .basicsize = sizeof(direct_dof_map_object),
                                         .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HEAPTYPE | Py_TPFLAGS_IMMUTABLETYPE |
@@ -192,6 +395,7 @@ PyType_Spec direct_dof_map_type_spec = {.name = FDG_TYPE_NAME("DirectDofMap"),
                                             {Py_tp_traverse, direct_dof_map_traverse},
                                             {Py_tp_dealloc, direct_dof_map_dealloc},
                                             {Py_tp_getset, direct_dof_map_getset},
+                                            {Py_tp_methods, direct_dof_map_methods},
                                             {},
                                         }};
 

@@ -1786,6 +1786,61 @@ static void test_adversarial_random_orders_hold_every_invariant(void)
     }
 }
 
+/**
+ * @brief The triplet emitter reproduces the dense scatter of #direct_continuity_scatter.
+ *
+ * Two hand-built elements exercise the count formula, the emitted values, the explicit zeros, and the thread-count
+ * invariance without a mesh: the scatter reads only the element DoF offsets of the plan.
+ */
+static void test_triplet_scatter_matches_the_dense_scatter(void)
+{
+    direct_continuity_plan_t plan = {0};
+    size_t element_dof_offsets[3] = {0, 2, 3};
+    plan.element_count = 2;
+    plan.element_dof_offsets = element_dof_offsets;
+    size_t entry_offsets[4] = {0, 1, 3, 4};
+    const size_t entry_index[4] = {7, 2, 7, 11};
+    const double entry_value[4] = {0.5, -1.0, 2.0, 0.25};
+    // Element 0: a 2x2 matrix with an explicit zero; element 1: a 1x1 matrix.
+    const double local_matrices[5] = {1.5, 0.0, -2.0, 3.0, 4.0};
+
+    const size_t count = direct_continuity_triplet_count(&plan, entry_offsets);
+    // Element 0 carries 3 entries over 2 DoFs (3^2), element 1 carries one entry (1^2).
+    TEST_ASSERTION(count == 10, "The triplet count formula expected 10, but got %zu.", count);
+
+    size_t rows[16];
+    size_t cols[16];
+    double values[16];
+    direct_continuity_scatter_triplets(&plan, entry_offsets, entry_index, entry_value, local_matrices, 1u, rows, cols,
+                                       values);
+    TEST_ASSERTION(rows[9] == 11 && cols[9] == 11, "The last triplet must come from the second element.");
+
+    double dense[12 * 12] = {0};
+    double matrix[4] = {1.5, 0.0, -2.0, 3.0};
+    direct_continuity_scatter(&plan, entry_offsets, entry_index, entry_value, 0u, matrix, 2u, dense, 12u, 1.0);
+    double single = 4.0;
+    direct_continuity_scatter(&plan, entry_offsets, entry_index, entry_value, 1u, &single, 1u, dense, 12u, 1.0);
+
+    double summed[12 * 12] = {0};
+    for (size_t triplet = 0; triplet < count; ++triplet)
+        summed[rows[triplet] * 12u + cols[triplet]] += values[triplet];
+    for (size_t entry = 0; entry < 12u * 12u; ++entry)
+        TEST_NUMBERS_CLOSE(summed[entry], dense[entry], 1e-14, 1e-14);
+
+    // The static per-element partition must emit identical triplets for any thread count.
+    size_t rows_parallel[16];
+    size_t cols_parallel[16];
+    double values_parallel[16];
+    direct_continuity_scatter_triplets(&plan, entry_offsets, entry_index, entry_value, local_matrices, 4u,
+                                       rows_parallel, cols_parallel, values_parallel);
+    for (size_t triplet = 0; triplet < count; ++triplet)
+    {
+        TEST_ASSERTION(rows_parallel[triplet] == rows[triplet] && cols_parallel[triplet] == cols[triplet] &&
+                           values_parallel[triplet] == values[triplet],
+                       "Triplet %zu differs between one and four threads.", triplet);
+    }
+}
+
 int main(void)
 {
     test_uniform_family();
@@ -1794,6 +1849,7 @@ int main(void)
     test_shared_coefficients_agree();
     test_lagrange_transfer_reproduces_the_gram();
     test_scatter_preserves_symmetry();
+    test_triplet_scatter_matches_the_dense_scatter();
     test_every_global_dof_is_reachable();
     test_mixed_element_orders();
     test_adversarial_every_family_and_kform_order();

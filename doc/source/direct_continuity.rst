@@ -137,6 +137,15 @@ Each element-local degree of freedom owns the contiguous range ``entry_offsets[d
 exactly what :c:func:`direct_continuity_scatter` does in the C core. :class:`DirectDofMap` reports every array
 size, so the loop needs no counts of its own.
 
+:func:`fdg.scatter_csc` performs this reduction: it takes one flat array holding every element's
+raw ``n_e x n_e`` matrix block, row-major in element order, and returns the assembled global system as a
+``scipy.sparse.csc_array``, with the COO-to-CSC conversion summing the duplicate triplets. The triplets
+come from :meth:`DirectDofMap._scatter_triplets`, which scatters one element range through the C core;
+the elements run in batches whose triplets share one buffer, so the working set stays bounded by one batch
+plus the stored result. An element whose own triplets exceed the batch target forms an oversized batch,
+which makes its per-element triplets the memory floor. The batch boundaries are thread-independent, so the
+returned matrix is identical for any ``n_threads``.
+
 .. note::
 
    The *global* operator stays as singular as the element operator: a 0-form Laplacian keeps constants in its
@@ -148,8 +157,9 @@ The gallery example
 problem both ways and prints, per refinement level, the two unknown counts, their ratio, and both errors against
 the analytic solution.
 
-The map's transfer also feeds a standard sparse assembly: the ``T_i * M[i, j] * T_j``
-products are collected as COO triplets and summed into a CSC matrix, the boundary
+The map's transfer also feeds a standard sparse assembly: :func:`fdg.scatter_csc`
+emits the ``T_i * M[i, j] * T_j`` triplets through the C core, in bounded-memory batches, and
+sums them into a CSC matrix; the boundary
 unknowns are eliminated by row and column slicing, and the reduced system goes to
 ``scipy.sparse.linalg.splu`` and to the hybsol block solver with one block per
 element or shared object. The gallery example
@@ -158,3 +168,5 @@ factorize, and solve for the dense, SciPy, and hybsol paths across cell counts a
 polynomial orders and reports the relative agreement of the solutions.
 
 .. autoclass:: DirectDofMap
+
+.. autofunction:: fdg.scatter_csc

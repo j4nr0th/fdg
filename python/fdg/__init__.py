@@ -90,3 +90,6 @@ from fdg.solve import HybridizedSolution as HybridizedSolution
 from fdg.solve import laplace_stiffness as laplace_stiffness
 from fdg.solve import mixed_block as mixed_block
 from fdg.solve import solve_hybridized as solve_hybridized
+
+# Sparse assembly
+from fdg.sparse import scatter_csc as scatter_csc

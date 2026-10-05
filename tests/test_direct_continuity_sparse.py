@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+import numpy.typing as npt
+import pytest
 import scipy.sparse as sp
 import scipy.sparse.linalg as sparse_la
 from fdg import (
@@ -20,6 +22,8 @@ from fdg import (
     KFormSpecs,
     Mesh,
     SpaceMap,
+    laplace_stiffness,
+    scatter_csc,
 )
 
 from examples.plot_direct_continuity_sparse import (
@@ -152,3 +156,124 @@ def test_solve_is_deterministic() -> None:
     first, _, _ = solve_hybsol_reduced(reduced, reduced_rhs, owners, free)
     second, _, _ = solve_hybsol_reduced(reduced, reduced_rhs, owners, free)
     assert np.array_equal(first, second)
+
+
+def _flat_stiffness(
+    transfer: DirectDofMap,
+    maps: list[SpaceMap],
+    element_specs: list[KFormSpecs],
+) -> npt.NDArray[np.double]:
+    """Pack every element's raw stiffness into the flat array scatter_csc consumes."""
+    sizes = np.diff(transfer.element_offsets) ** 2
+    starts = np.concatenate(([0], np.cumsum(sizes)[:-1]))
+    local = np.empty(int(sizes.sum()))
+    for element_id, element_map in enumerate(maps):
+        stiffness = laplace_stiffness(
+            element_id, [element_specs[element_id]], element_map
+        )
+        local[
+            int(starts[element_id]) : int(starts[element_id]) + int(sizes[element_id])
+        ] = stiffness.reshape(-1)
+    return local
+
+
+def _transfer_for(
+    ndim: int, order: int, cells: int
+) -> tuple[DirectDofMap, list[SpaceMap], list[KFormSpecs], FunctionSpace]:
+    """Build the mesh, maps, and specs of one case and return its direct transfer."""
+    mesh = make_mesh(ndim, cells)
+    maps = make_element_maps(ndim, order + 4, cells)
+    base_space = FunctionSpace(
+        *(BasisSpecs(BasisType.LAGRANGE_GAUSS_LOBATTO, order) for _ in range(ndim))
+    )
+    element_specs = [KFormSpecs(0, base_space) for _ in maps]
+    return (
+        mesh.compute_kform_direct_dof_map(element_specs),
+        maps,
+        element_specs,
+        base_space,
+    )
+
+
+def test_scatter_csc_matches_dense_2d() -> None:
+    """The batched C scatter reproduces the dense np.add.at assembly in 2D."""
+    transfer, maps, element_specs, base_space = _transfer_for(2, 2, 3)
+    local = _flat_stiffness(transfer, maps, element_specs)
+    matrix = scatter_csc(transfer, local).toarray()
+    dense, _ = assemble_global_laplace(transfer, maps, element_specs, base_space)
+    scale = float(np.max(np.abs(dense)))
+    assert float(np.max(np.abs(matrix - dense))) <= 1.0e-12 * scale
+
+
+def test_scatter_csc_matches_dense_3d() -> None:
+    """The batched C scatter reproduces the dense np.add.at assembly in 3D."""
+    transfer, maps, element_specs, base_space = _transfer_for(3, 2, 2)
+    local = _flat_stiffness(transfer, maps, element_specs)
+    matrix = scatter_csc(transfer, local).toarray()
+    dense, _ = assemble_global_laplace(transfer, maps, element_specs, base_space)
+    scale = float(np.max(np.abs(dense)))
+    assert float(np.max(np.abs(matrix - dense))) <= 1.0e-12 * scale
+
+
+def test_scatter_csc_is_deterministic_over_threads() -> None:
+    """One and four threads emit byte-identical CSC matrices."""
+    transfer, maps, element_specs, _ = _transfer_for(2, 4, 4)
+    local = _flat_stiffness(transfer, maps, element_specs)
+    first = scatter_csc(transfer, local, n_threads=1)
+    fourth = scatter_csc(transfer, local, n_threads=4)
+    assert np.array_equal(first.indptr, fourth.indptr)
+    assert np.array_equal(first.indices, fourth.indices)
+    assert np.array_equal(first.data, fourth.data)
+
+
+def test_scatter_csc_rejects_bad_input() -> None:
+    """Wrong dtypes, shapes, lengths, and thread counts raise."""
+    transfer, maps, element_specs, _ = _transfer_for(2, 2, 2)
+    local = _flat_stiffness(transfer, maps, element_specs)
+    with pytest.raises(TypeError):
+        scatter_csc(transfer, local.astype(np.float32))
+    with pytest.raises(TypeError):
+        scatter_csc(transfer, local.reshape(1, -1))
+    with pytest.raises(ValueError):
+        scatter_csc(transfer, np.concatenate([local, [1.0]]))
+    with pytest.raises(ValueError):
+        scatter_csc(transfer, local[:-1])
+    with pytest.raises(ValueError):
+        scatter_csc(transfer, local, n_threads=-1)
+
+
+def test_scatter_csc_matches_dense_over_batches() -> None:
+    """The batched C scatter keeps every batch's block base when several batches run."""
+    transfer, maps, element_specs, base_space = _transfer_for(2, 10, 4)
+    local = _flat_stiffness(transfer, maps, element_specs)
+    matrix = scatter_csc(transfer, local).toarray()
+    dense, _ = assemble_global_laplace(transfer, maps, element_specs, base_space)
+    scale = float(np.max(np.abs(dense)))
+    assert float(np.max(np.abs(matrix - dense))) <= 1.0e-12 * scale
+
+
+def test_scatter_csc_batches_match_single_batch(monkeypatch) -> None:
+    """A one-triplet batch target yields the same CSC as one large batch."""
+    transfer, maps, element_specs, _ = _transfer_for(2, 10, 4)
+    local = _flat_stiffness(transfer, maps, element_specs)
+    single = scatter_csc(transfer, local)
+    # One triplet per batch: every element forms its own batch.
+    monkeypatch.setattr("fdg.sparse.BATCH_TRIPLETS", 1)
+    batched = scatter_csc(transfer, local)
+    assert np.array_equal(single.indptr, batched.indptr)
+    assert np.array_equal(single.indices, batched.indices)
+    # The batches sum duplicates in a different order, so only rounding differs.
+    assert float(np.max(np.abs(single.data - batched.data))) <= 1.0e-12 * float(
+        np.max(np.abs(single.data))
+    )
+
+
+def test_scatter_triplets_empty_range_is_empty() -> None:
+    """An empty element range yields three empty typed arrays."""
+    transfer, maps, element_specs, _ = _transfer_for(2, 2, 3)
+    local = _flat_stiffness(transfer, maps, element_specs)
+    rows, cols, values = transfer._scatter_triplets(local, 0, 0)
+    assert rows.size == cols.size == values.size == 0
+    assert rows.dtype == np.int64
+    assert cols.dtype == np.int64
+    assert values.dtype == np.float64

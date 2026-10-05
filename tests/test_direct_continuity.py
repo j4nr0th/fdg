@@ -122,8 +122,9 @@ def test_direct_errors_decrease_under_refinement() -> None:
 def test_direct_system_is_symmetric_with_a_constant_nullspace() -> None:
     """Scattering a symmetric element matrix keeps the global matrix symmetric."""
     _, _, matrix = solve_direct_continuity(2, 2, 2)
-    assert np.allclose(matrix, matrix.T, rtol=0.0, atol=1.0e-14 * np.abs(matrix).max())
-    eigenvalues = np.linalg.eigvalsh(matrix)
+    dense = matrix.toarray()
+    assert np.allclose(dense, dense.T, rtol=0.0, atol=1.0e-14 * np.abs(dense).max())
+    eigenvalues = np.linalg.eigvalsh(dense)
     assert eigenvalues[0] < 1.0e-12 * eigenvalues[-1]
     # Laplace is singular up to the constants, which the Dirichlet elimination removes.
     assert np.count_nonzero(eigenvalues < 1.0e-12 * eigenvalues[-1]) == 1

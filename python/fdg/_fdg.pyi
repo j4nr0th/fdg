@@ -1521,6 +1521,29 @@ class DirectDofMap:
         """Transfer coefficient of every entry."""
         ...
 
+    def _scatter_triplets(
+        self,
+        local_matrices: npt.NDArray[np.float64],
+        first_element: int,
+        stop_element: int,
+        n_threads: int = 0,
+    ) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.int64], npt.NDArray[np.float64]]:
+        """Scatter a range of row-major per-element local matrices into COO triplets.
+
+        Element ``e`` contributes ``value_r * m_i_j * value_c`` over every
+        entry pair ``r``, ``c`` of every local degree-of-freedom pair ``i``,
+        ``j``. ``local_matrices`` is one flat C-contiguous float64 array
+        holding one row-major ``n_e x n_e`` block per element in element
+        order, and its length must equal the sum of the blocks over every
+        element of the map. Elements ``[first_element, stop_element)`` are
+        scattered, with the range's block base inside ``local_matrices``
+        tracked internally. ``n_threads`` picks the worker count; ``0``
+        uses the OpenMP default, and the result is identical for any
+        thread count. Returns three arrays ``(rows, cols, values)`` of
+        int64 rows, int64 columns, and float64 values.
+        """
+        ...
+
 # Fields of a mesh iteration tuple: (mdim, object_id, element_ids, orientations).
 # ``orientations`` has shape (element_count, ndim); row ``i`` is the orientation
 # record of ``element_ids[i]``.

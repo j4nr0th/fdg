@@ -10,7 +10,12 @@
 
 #include "direct.h"
 
+#include <cutl/allocators.h>
 #include <cutl/iterators/combination_iterator.h>
+
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 #include "../operations/matrices.h"
 #include "constraint_common.h"
@@ -617,6 +622,140 @@ void direct_continuity_scatter(const direct_continuity_plan_t *const plan, const
             }
         }
     }
+}
+
+/**
+ * @brief Triplets one element's transfer emits, counting its transfer entries.
+ */
+static size_t direct_element_triplet_count(const direct_continuity_plan_t *const plan,
+                                           const size_t *const entry_offsets, const uint64_t element)
+{
+    const size_t local_base = plan->element_dof_offsets[element];
+    const size_t local_count = plan->element_dof_offsets[element + 1] - local_base;
+    size_t entries = 0;
+    for (size_t dof = 0; dof < local_count; ++dof)
+    {
+        entries += entry_offsets[local_base + dof + 1] - entry_offsets[local_base + dof];
+    }
+    return entries * entries;
+}
+
+/**
+ * @brief Write one element's triplets in local DoF pair, entry pair order.
+ *
+ * @return The number of triplets written.
+ */
+static size_t direct_element_scatter_triplets(const size_t *const entry_offsets, const size_t *const entry_index,
+                                              const double *const entry_value, const double *const block,
+                                              const size_t local_count, size_t *const out_rows, size_t *const out_cols,
+                                              double *const out_values)
+{
+    size_t written = 0;
+    for (size_t i = 0; i < local_count; ++i)
+    {
+        const size_t row_from = entry_offsets[i];
+        const size_t row_to = entry_offsets[i + 1];
+        for (size_t j = 0; j < local_count; ++j)
+        {
+            const double value = block[i * local_count + j];
+            const size_t col_from = entry_offsets[j];
+            const size_t col_to = entry_offsets[j + 1];
+            for (size_t row = row_from; row < row_to; ++row)
+            {
+                const size_t global_row = entry_index[row];
+                const double left = entry_value[row] * value;
+                for (size_t col = col_from; col < col_to; ++col)
+                {
+                    out_rows[written] = global_row;
+                    out_cols[written] = entry_index[col];
+                    out_values[written] = left * entry_value[col];
+                    written += 1;
+                }
+            }
+        }
+    }
+    return written;
+}
+
+size_t direct_continuity_triplet_count(const direct_continuity_plan_t *const plan, const size_t *const entry_offsets)
+{
+    size_t total = 0;
+    for (uint64_t element = 0; element < plan->element_count; ++element)
+    {
+        total += direct_element_triplet_count(plan, entry_offsets, element);
+    }
+    return total;
+}
+
+/**
+ * @brief Worker count for one scatter: 0 requests the OpenMP default.
+ */
+static unsigned direct_scatter_threads(const unsigned n_threads)
+{
+#ifdef _OPENMP
+    if (n_threads == 0u)
+    {
+        return (unsigned)omp_get_max_threads();
+    }
+    return n_threads;
+#else
+    (void)n_threads;
+    return 1u;
+#endif
+}
+
+void direct_continuity_scatter_triplets(const direct_continuity_plan_t *const plan, const size_t *const entry_offsets,
+                                        const size_t *const entry_index, const double *const entry_value,
+                                        const double *const local_matrices, const unsigned n_threads,
+                                        size_t *const out_rows, size_t *const out_cols, double *const out_values)
+{
+    const uint64_t element_count = plan->element_count;
+    // One block holds the per-element triplet starts and the per-element matrix block starts.
+    size_t *const scratch = cutl_alloc(&CUTL_STD_ALLOCATOR, 2u * (size_t)(element_count + 1u) * sizeof(*scratch));
+    if (scratch == NULL)
+    {
+        // No scratch, no static partition: one running cursor keeps the output deterministic.
+        size_t cursor = 0;
+        size_t block_base = 0;
+        for (uint64_t element = 0; element < element_count; ++element)
+        {
+            const size_t local_base = plan->element_dof_offsets[element];
+            const size_t local_count = plan->element_dof_offsets[element + 1] - local_base;
+            cursor += direct_element_scatter_triplets(entry_offsets + local_base, entry_index, entry_value,
+                                                      local_matrices + block_base, local_count, out_rows + cursor,
+                                                      out_cols + cursor, out_values + cursor);
+            block_base += local_count * local_count;
+        }
+        return;
+    }
+    size_t *const starts = scratch;
+    size_t *const blocks = scratch + element_count + 1u;
+
+    starts[0] = 0;
+    blocks[0] = 0;
+#pragma omp parallel for num_threads(direct_scatter_threads(n_threads)) schedule(static)
+    for (uint64_t element = 0; element < element_count; ++element)
+    {
+        starts[element + 1] = direct_element_triplet_count(plan, entry_offsets, element);
+        const size_t local_base = plan->element_dof_offsets[element];
+        blocks[element + 1] = (plan->element_dof_offsets[element + 1] - local_base) *
+                              (plan->element_dof_offsets[element + 1] - local_base);
+    }
+    for (uint64_t element = 0; element < element_count; ++element)
+    {
+        starts[element + 1] += starts[element];
+        blocks[element + 1] += blocks[element];
+    }
+#pragma omp parallel for num_threads(direct_scatter_threads(n_threads)) schedule(static)
+    for (uint64_t element = 0; element < element_count; ++element)
+    {
+        const size_t local_base = plan->element_dof_offsets[element];
+        direct_element_scatter_triplets(entry_offsets + local_base, entry_index, entry_value,
+                                        local_matrices + blocks[element],
+                                        plan->element_dof_offsets[element + 1] - local_base, out_rows + starts[element],
+                                        out_cols + starts[element], out_values + starts[element]);
+    }
+    cutl_dealloc(&CUTL_STD_ALLOCATOR, scratch);
 }
 
 void direct_continuity_plan_release(const direct_continuity_plan_t *const plan)

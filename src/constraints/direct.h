@@ -199,6 +199,43 @@ void direct_continuity_scatter(const direct_continuity_plan_t *plan, const size_
                                const double *matrix, size_t stride, double *out, size_t out_stride, double factor);
 
 /**
+ * @brief COO triplets the transfer scatter of every element matrix emits.
+ *
+ * One element with local DoFs whose transfer rows hold `e_i` entries emits `(sum_i e_i)^2` triplets, one per entry
+ * pair of every local DoF pair, explicit zeros included.
+ *
+ * @param plan Prepared plan.
+ * @param entry_offsets Row-compressed starts from #direct_continuity_build.
+ * @return Total triplet count.
+ */
+size_t direct_continuity_triplet_count(const direct_continuity_plan_t *plan, const size_t *entry_offsets);
+
+/**
+ * @brief Scatter row-major per-element matrices into sparse-system COO triplets.
+ *
+ * Element `e` emits `entry_value[r] * m_i_j * entry_value[c]` at
+ * `(entry_index[r], entry_index[c])` over every entry pair `r`, `c` of every local DoF pair `i`, `j`, explicit zeros
+ * included; summing duplicates recovers the dense scatter. The work splits statically per element through a prefix
+ * sum, so the output is identical for any thread count. Reads only #direct_continuity_plan_t.element_count and
+ * .element_dof_offsets of the plan.
+ *
+ * @param plan Prepared plan.
+ * @param entry_offsets Row-compressed starts from #direct_continuity_build.
+ * @param entry_index Global DoF of every nonzero.
+ * @param entry_value Coefficient of every nonzero.
+ * @param local_matrices [sum of squared local DoF counts] Per-element matrices, row-major, element `e`'s block
+ *                       starting after all smaller-numbered elements' blocks.
+ * @param n_threads Worker count; 0 picks the OpenMP default.
+ * @param out_rows [triplet count] Row (global DoF) of every triplet, int-sized.
+ * @param out_cols [triplet count] Column (global DoF) of every triplet, int-sized.
+ * @param out_values [triplet count] Value of every triplet.
+ */
+void direct_continuity_scatter_triplets(const direct_continuity_plan_t *plan, const size_t *entry_offsets,
+                                        const size_t *entry_index, const double *entry_value,
+                                        const double *local_matrices, unsigned n_threads, size_t *out_rows,
+                                        size_t *out_cols, double *out_values);
+
+/**
  * @brief Release a prepared plan.
  *
  * Returns every registry reference #direct_continuity_prepare fetched. The plan arrays themselves belong to the

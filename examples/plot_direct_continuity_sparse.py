@@ -4,8 +4,9 @@ Sparse solvers for the direct continuity system.
 
 :func:`assemble_global_laplace` in the dense example scatters the element
 operators through the transfer with ``np.add.at``; the same
-``T_i * M[i, j] * T_j`` product collected as COO triplets and summed into a
-CSC matrix is a standard sparse assembly. The example feeds the resulting
+``T_i * M[i, j] * T_j`` product emitted as COO triplets and summed into a
+CSC matrix by :func:`fdg.scatter_csc` is a standard sparse
+assembly. The example feeds the resulting
 reduced system to three solvers -- the dense numpy path of the existing
 example (:func:`numpy.linalg.solve` on the dense scatter) as the reference,
 :func:`scipy.sparse.linalg.splu` as the sparse reference, and
@@ -66,6 +67,7 @@ from fdg import (
     Mesh,
     SpaceMap,
     laplace_stiffness,
+    scatter_csc,
 )
 from fdg.integration import projection_l2_dual
 
@@ -84,36 +86,25 @@ def assemble_sparse_global_laplace(
 ) -> tuple[SparseMatrix, npt.NDArray[np.double]]:
     """Scatter the element operators into a CSC matrix through the transfer.
 
-    Every element contributes ``value_r * stiffness[r, c] * value_c`` over its
-    local DoF pairs; ``tocsc`` sums the duplicate COO triplets.
+    Every element's stiffness lands as one row-major block of the flat array
+    :func:`fdg.scatter_csc` consumes; the transfer's
+    ``value_r * M[i, j] * value_c`` triplets sum into the CSC entries.
     """
-    size = transfer.global_dof_count
-    rows: list[npt.NDArray[np.intp]] = []
-    cols: list[npt.NDArray[np.intp]] = []
-    data: list[npt.NDArray[np.double]] = []
-    rhs = np.zeros(size)
+    sizes = np.diff(transfer.element_offsets) ** 2
+    starts = np.concatenate(([0], np.cumsum(sizes)[:-1]))
+    local = np.empty(int(sizes.sum()))
+    rhs = np.zeros(transfer.global_dof_count)
     for element_id, element_map in enumerate(maps):
         local_dofs, global_dofs, values = element_entries(transfer, element_id)
         stiffness = laplace_stiffness(
             element_id, [element_specs[element_id]], element_map
         )
         load = projection_l2_dual(manufactured_source, base_space, element_map)
-        local_matrix = (
-            stiffness[local_dofs[:, None], local_dofs[None, :]]
-            * values[:, None]
-            * values[None, :]
-        )
-        keep = local_matrix != 0.0
-        rows.append(np.broadcast_to(global_dofs[:, None], local_matrix.shape)[keep])
-        cols.append(np.broadcast_to(global_dofs[None, :], local_matrix.shape)[keep])
-        data.append(local_matrix[keep])
+        local[
+            int(starts[element_id]) : int(starts[element_id]) + int(sizes[element_id])
+        ] = stiffness.reshape(-1)
         np.add.at(rhs, global_dofs, values * load.values.flatten()[local_dofs])
-    # scipy sparse typing is unresolved (every container reduces to sparray in the stubs).
-    triplets: Any = sp.coo_array(
-        (np.concatenate(data), (np.concatenate(rows), np.concatenate(cols))),
-        shape=(size, size),
-    )
-    matrix = triplets.tocsc()
+    matrix = scatter_csc(transfer, local)
     return matrix, rhs
 
 

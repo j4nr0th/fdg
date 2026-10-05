@@ -24,9 +24,11 @@ from __future__ import annotations
 
 from itertools import product
 from time import perf_counter
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
+import scipy.sparse.linalg as sparse_la
 from fdg import (
     BasisSpecs,
     BasisType,
@@ -44,6 +46,7 @@ from fdg import (
     MeshKFormSpecs,
     SpaceMap,
     laplace_stiffness,
+    scatter_csc,
     solve_hybridized,
 )
 
@@ -56,6 +59,9 @@ from fdg.boundary_conditions import (
 )
 from fdg.integration import projection_l2_dual
 from matplotlib import pyplot as plt
+
+# scipy sparse containers: coo/csc matrix vs array is unresolved upstream.
+SparseMatrix = Any
 
 PackedRows = tuple[
     npt.NDArray[np.uintp],
@@ -432,6 +438,36 @@ def assemble_global_laplace(
     return matrix, rhs
 
 
+def assemble_sparse_global_laplace(
+    transfer: DirectDofMap,
+    maps: list[SpaceMap],
+    element_specs: list[KFormSpecs],
+    base_space: FunctionSpace,
+) -> tuple[SparseMatrix, npt.NDArray[np.double]]:
+    r"""Scatter every element operator into a sparse global system through one C call.
+
+    The flat block array holds one row-major :math:`n_e \times n_e` raw stiffness per
+    element; :func:`fdg.scatter_csc` applies the transfer weighting per entry pair.
+    """
+    sizes = np.diff(transfer.element_offsets)
+    squares = np.concatenate(([0], np.cumsum(sizes * sizes)))
+    local = np.empty(int(squares[-1]))
+    for element_id, element_map in enumerate(maps):
+        stiffness = np.asarray(
+            laplace_stiffness(element_id, [element_specs[element_id]], element_map)
+        )
+        local[squares[element_id] : squares[element_id + 1]] = stiffness.reshape(-1)
+    matrix = scatter_csc(transfer, local)
+    rhs = np.zeros(transfer.global_dof_count)
+    for element_id, element_map in enumerate(maps):
+        local_dofs, global_dofs, values = element_entries(transfer, element_id)
+        load = projection_l2_dual(
+            manufactured_source, base_space, element_map
+        ).values.flatten()
+        np.add.at(rhs, global_dofs, values * load[local_dofs])
+    return matrix, rhs
+
+
 def element_solution(
     transfer: DirectDofMap,
     solution: npt.NDArray[np.double],
@@ -458,11 +494,11 @@ def solve_direct_continuity(
     cells: int,
     *,
     basis_type: BasisType = BasisType.LAGRANGE_GAUSS_LOBATTO,
-) -> tuple[float, int, np.ndarray]:
+) -> tuple[float, int, SparseMatrix]:
     """Assemble and solve the global system of the direct formulation.
 
     Returns the physical :math:`L^2` error, the number of global unknowns, and
-    the assembled system matrix.
+    the assembled sparse system matrix.
     """
     mesh = make_mesh(ndim, cells)
     maps = make_element_maps(ndim, order + 4, cells)
@@ -470,7 +506,9 @@ def solve_direct_continuity(
     element_specs = [KFormSpecs(0, base_space) for _ in maps]
 
     transfer = mesh.compute_kform_direct_dof_map(element_specs)
-    matrix, rhs = assemble_global_laplace(transfer, maps, element_specs, base_space)
+    matrix, rhs = assemble_sparse_global_laplace(
+        transfer, maps, element_specs, base_space
+    )
 
     boundary, data = boundary_object_globals(transfer, mesh, maps, order, cells)
     solution = np.zeros(transfer.global_dof_count)
@@ -478,9 +516,9 @@ def solve_direct_continuity(
 
     # Boundary unknowns carry the projection; free unknowns solve the reduced system.
     free = np.setdiff1d(np.arange(transfer.global_dof_count), boundary)
-    reduced = matrix[np.ix_(free, free)]
-    reduced_rhs = rhs[free] - matrix[np.ix_(free, boundary)] @ data
-    solution[free] = np.linalg.solve(reduced, reduced_rhs)
+    reduced = matrix[free][:, free].tocsc()
+    reduced_rhs = rhs[free] - np.asarray(matrix[free][:, boundary] @ data).reshape(-1)
+    solution[free] = sparse_la.splu(reduced).solve(reduced_rhs)
 
     local = element_solution(transfer, solution, len(maps))
     return physical_error(local, maps, element_specs), transfer.global_dof_count, matrix
@@ -509,8 +547,8 @@ def compare(ndim: int, order: int, cells: int) -> tuple[float, float, int, int]:
     direct_error, direct_unknowns, matrix = solve_direct_continuity(ndim, order, cells)
     direct_elapsed = perf_counter() - started
 
-    asymmetry = np.max(np.abs(matrix - matrix.T))
-    if asymmetry > 1.0e-10 * np.max(np.abs(matrix)):
+    asymmetry = abs(matrix - matrix.T).max()
+    if asymmetry > 1.0e-10 * abs(matrix).max():
         raise RuntimeError(f"the direct system is not symmetric: {asymmetry:.3e}")
     if not np.isfinite(direct_error):
         raise RuntimeError("the direct error is not finite")
