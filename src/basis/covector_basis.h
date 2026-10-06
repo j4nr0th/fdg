@@ -1,25 +1,29 @@
 #ifndef FDG_COVECTOR_BASIS_H
 #define FDG_COVECTOR_BASIS_H
 #include "../common/common_defines.h"
+#include "basis_set.h"
 
 #include <stdint.h>
 
+/**
+ * @brief The highest number of basis dimensions and rank.
+ *
+ * This is due to the number of bits that can be packed in an `unsigned`
+ * type. Since `unsigned` is 32 bits basically everywhere, this is unlikely
+ * to ever be too few.
+ */
 enum
 {
-    // The highest number of basis dimensions and rank, due to the number of bits
-    // we can pack in an `unsigned` type. Since `unsigned` is 32 bits basically
-    // everywhere, I do not imagine this ever being too few.
     COVECTOR_BASIS_MAX_DIM = sizeof(unsigned) * 8,
 };
 
 /**
- * Representation of the bundle of basis covectors.
+ * @brief Representation of the bundle of basis covectors.
  *
  * The basis consist of wedge products of individual covectors, such as
  * `dx_1 ^ dx_3 ^ dx_4`, `dx_2 ^ dx_3`. Due to the nature of how the wedge
  * product affects the sign, these basis have their sign, which can change
  * when applying wedge or Hodge to them.
- *
  */
 typedef struct
 {
@@ -28,9 +32,23 @@ typedef struct
     unsigned basis_bits;
 } covector_basis_t;
 
-// When the dimension is zero, the basis is assumed to be zero.
+/**
+ * @brief The zero covector basis, used to represent the result of a wedge
+ * product of bases with overlapping dimensions.
+ *
+ * When the dimension is zero, the basis is assumed to be zero.
+ */
 static const covector_basis_t COVECTOR_BASIS_ZERO = {};
 
+/**
+ * @brief Check whether the basis has the given covariant component.
+ *
+ * @param basis Basis to check.
+ * @param dim Index of the covariant component. Must be less than
+ *        `basis.dimension`.
+ * @return Non-zero if the basis contains the component `dim`, zero
+ *         otherwise.
+ */
 FDG_INTERNAL
 int covector_basis_has_component(covector_basis_t basis, unsigned dim);
 
@@ -65,12 +83,11 @@ unsigned covector_basis_rank(covector_basis_t basis);
 /**
  * Constructs a covector basis representation with the specified parameters.
  *
- * @param dimension The dimension of the covector space. Must be less than COVECTOR_BASIS_MAX_DIM.
+ * @param dimension The dimension of the covector space. Must be in [1, COVECTOR_BASIS_MAX_DIM).
  * @param sign The sign of the covector basis. Negative values mean the basis have a negative sign.
  * @param rank The number of active components in the covector basis. Must not exceed the dimension.
  * @param indices Sorted indices specifying the indices of the components to be set in the basis.
  *           Each index must be within the bounds of the dimension and must be unique.
- *           Behavior is undefined if an index is repeated, out of bounds, or unsorted.
  * @return The constructed covector_basis_t structure representing the basis.
  */
 FDG_INTERNAL
@@ -85,7 +102,6 @@ covector_basis_t covector_basis_create(unsigned dimension, int sign, unsigned ra
  * @param rank The number of active components in the covector basis. Must not exceed the dimension.
  * @param indices Sorted indices specifying the indices of the components to be set in the basis.
  *           Each index must be within the bounds of the dimension and must be unique.
- *           Behavior is undefined if an index is repeated, out of bounds, or unsorted.
  * @return The constructed covector_basis_t structure representing the basis.
  */
 FDG_INTERNAL
@@ -121,6 +137,7 @@ typedef enum
  * @param basis_2 Pointer to the second covector basis.
  * @return A value of type covector_basis_order_relation_t indicating the order
  *         relation between the two bases:
+ *
  *         - COVECTOR_BASIS_ORDER_BEFORE: The first basis is ordered before the second.
  *         - COVECTOR_BASIS_EQUAL: The two bases are equal.
  *         - COVECTOR_BASIS_ORDER_AFTER: The first basis is ordered after the second.
@@ -130,9 +147,27 @@ typedef enum
 FDG_INTERNAL
 covector_basis_order_relation_t covector_basis_determine_order(covector_basis_t basis_1, covector_basis_t basis_2);
 
+/**
+ * @brief Check whether the basis is the zero basis.
+ *
+ * @param basis Basis to check.
+ * @return Non-zero if the basis is zero (its dimension is zero), zero
+ *         otherwise.
+ */
 FDG_INTERNAL
 int covector_basis_is_zero(covector_basis_t basis);
 
+/**
+ * @brief Compute the Hodge dual of the covector basis.
+ *
+ * The result contains the complement of the basis bits within the
+ * dimension, with the sign adjusted according to the number of bit
+ * permutations performed. The dimension of the basis is preserved.
+ *
+ * @param basis Basis to compute the Hodge dual of. If the basis is zero,
+ *        the zero basis is returned unchanged.
+ * @return The Hodge dual of the basis.
+ */
 covector_basis_t covector_basis_hodge(covector_basis_t basis);
 
 #endif // FDG_COVECTOR_BASIS_H

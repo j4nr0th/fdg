@@ -4,15 +4,19 @@
 
 #include "lagrange.h"
 
+#include <cutl/common_defs.h>
+
 FDG_INTERNAL
 void lagrange_polynomial_denominators(unsigned n, const double FDG_ARRAY_ARG(nodes, restrict static n),
                                       double FDG_ARRAY_ARG(denominators, restrict n))
 {
+    // Nodes must be pairwise distinct; asserted on the differences below.
     denominators[0] = 1.0;
     // Compute the first denominator directly
     for (unsigned j = 1; j < n; ++j)
     {
         const double dif = nodes[0] - nodes[j];
+        CUTL_ASSERT(dif != 0.0, "Lagrange nodes must be pairwise distinct; nodes[0] and nodes[%u] are equal.", j);
         denominators[0] *= dif;
         denominators[j] = -dif;
     }
@@ -23,6 +27,8 @@ void lagrange_polynomial_denominators(unsigned n, const double FDG_ARRAY_ARG(nod
         for (unsigned j = i + 1; j < n; ++j)
         {
             const double dif = nodes[i] - nodes[j];
+            CUTL_ASSERT(dif != 0.0, "Lagrange nodes must be pairwise distinct; nodes[%u] and nodes[%u] are equal.", i,
+                        j);
             denominators[i] *= +dif;
             denominators[j] *= -dif;
         }
@@ -33,6 +39,7 @@ FDG_INTERNAL
 void lagrange_polynomial_coefficients(unsigned n, unsigned j, const double FDG_ARRAY_ARG(nodes, restrict static n),
                                       double FDG_ARRAY_ARG(coefficients, restrict n))
 {
+    CUTL_ASSERT(j < n, "Polynomial index %u is out of bounds for %u nodes.", j, n);
     coefficients[0] = 1.0;
     for (unsigned i = 0; i < j; ++i)
     {
@@ -108,6 +115,7 @@ void lagrange_polynomial_values_2(const unsigned n_pos, const double FDG_ARRAY_A
                                   const unsigned n_roots, const double FDG_ARRAY_ARG(p_roots, static n_roots),
                                   double FDG_ARRAY_ARG(values, restrict n_roots *n_pos))
 {
+    CUTL_ASSERT(n_pos >= 1, "A point count of zero would wrap the last-row offset (%u - 1), got %u.", n_pos, n_pos);
     // Special case: n_roots == 1, where there is 1 basis, which is 1 everywhere
     if (n_roots == 1)
     {
@@ -228,6 +236,8 @@ void lagrange_polynomial_values_transposed(const unsigned n_in, const double FDG
     }
 }
 
+// Same as lagrange_polynomial_denominators, but with a strided output; nodes
+// must be pairwise distinct (asserted).
 FDG_INTERNAL
 void lagrange_polynomial_denominators_stride(const unsigned n_roots,
                                              const double FDG_ARRAY_ARG(p_roots, restrict static n_roots),
@@ -241,6 +251,7 @@ void lagrange_polynomial_denominators_stride(const unsigned n_roots,
     for (unsigned j = 1; j < n_roots; ++j)
     {
         const double dif = p_roots[0] - p_roots[j];
+        CUTL_ASSERT(dif != 0.0, "Lagrange nodes must be pairwise distinct; nodes[0] and nodes[%u] are equal.", j);
         denominators[0] *= dif;
         denominators[j * stride] = -dif;
     }
@@ -251,6 +262,8 @@ void lagrange_polynomial_denominators_stride(const unsigned n_roots,
         for (unsigned j = i + 1; j < n_roots; ++j)
         {
             const double dif = p_roots[i] - p_roots[j];
+            CUTL_ASSERT(dif != 0.0, "Lagrange nodes must be pairwise distinct; nodes[%u] and nodes[%u] are equal.", i,
+                        j);
             denominators[i * stride] *= +dif;
             denominators[j * stride] *= -dif;
         }
@@ -279,6 +292,7 @@ void lagrange_polynomial_values_transposed_2(const unsigned n_pos, const double 
                                              const double FDG_ARRAY_ARG(p_roots, static n_roots),
                                              double FDG_ARRAY_ARG(values, restrict n_roots *n_pos))
 {
+    CUTL_ASSERT(n_pos >= 1, "A point count of zero would wrap the last-row offset (%u - 1), got %u.", n_pos, n_pos);
     // Stores denominators as the last element of each row
     lagrange_polynomial_denominators_stride(n_roots, p_roots, n_pos, values + (n_pos - 1));
 
@@ -733,11 +747,11 @@ void lagrange_polynomial_first_derivative_transposed_2(const unsigned n_pos,
 }
 
 FDG_INTERNAL
-fdg_result_t lagrange_polynomial_second_derivative(unsigned n_in, const double FDG_ARRAY_ARG(pos, static n_in),
-                                                   unsigned n_nodes, const double FDG_ARRAY_ARG(x, static n_nodes),
-                                                   double FDG_ARRAY_ARG(weights, restrict n_nodes *n_in),
-                                                   double FDG_ARRAY_ARG(work1, restrict n_nodes),
-                                                   double FDG_ARRAY_ARG(work2, restrict n_nodes))
+void lagrange_polynomial_second_derivative(unsigned n_in, const double FDG_ARRAY_ARG(pos, static n_in),
+                                           unsigned n_nodes, const double FDG_ARRAY_ARG(x, static n_nodes),
+                                           double FDG_ARRAY_ARG(weights, restrict n_nodes *n_in),
+                                           double FDG_ARRAY_ARG(work1, restrict n_nodes),
+                                           double FDG_ARRAY_ARG(work2, restrict n_nodes))
 {
     // compute denominators
     lagrange_polynomial_denominators(n_nodes, x, work1);
@@ -799,6 +813,4 @@ fdg_result_t lagrange_polynomial_second_derivative(unsigned n_in, const double F
             weights[n_nodes * ipos + j] *= work1[j];
         }
     }
-
-    return FDG_SUCCESS;
 }

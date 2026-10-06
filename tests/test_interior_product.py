@@ -19,7 +19,7 @@ from fdg.enum_type import BasisType
 _TEST_CASES_2D = (
     (6, 7, 3, BasisType.LEGENDRE, 4, BasisType.BERNSTEIN),
     (5, 5, 2, BasisType.BERNSTEIN, 2, BasisType.BERNSTEIN),
-    (4, 3, 5, BasisType.LAGRNAGE_GAUSS, 4, BasisType.LAGRANGE_UNIFORM),
+    (4, 3, 5, BasisType.LAGRANGE_GAUSS, 4, BasisType.LAGRANGE_UNIFORM),
 )
 _TEST_CASES_3D = (
     (6, 7, 5, 3, BasisType.LEGENDRE, 4, BasisType.BERNSTEIN, 4, BasisType.BERNSTEIN),
@@ -29,7 +29,7 @@ _TEST_CASES_3D = (
         3,
         5,
         5,
-        BasisType.LAGRNAGE_GAUSS,
+        BasisType.LAGRANGE_GAUSS,
         4,
         BasisType.LAGRANGE_UNIFORM,
         3,
@@ -175,7 +175,10 @@ def test_2d_2form(
     computed_dual_dofs = interprod_mat @ u_dofs.values.flatten()
 
     flattened_dual_dofs = np.concatenate(
-        (dual_dof_values_0.flatten(), dual_dof_values_1.flatten())
+        (
+            dual_dof_values_0.flatten(),
+            dual_dof_values_1.flatten(),
+        )
     )
 
     assert pytest.approx(computed_dual_dofs) == flattened_dual_dofs
@@ -314,7 +317,11 @@ def test_3d_2form(
         basis_registry=b_reg,
     )
     u_dofs = np.concatenate(
-        (u0_dofs.values.flatten(), u1_dofs.values.flatten(), u2_dofs.values.flatten())
+        (
+            u0_dofs.values.flatten(),
+            u1_dofs.values.flatten(),
+            u2_dofs.values.flatten(),
+        )
     )
     computed_dual_dofs = interprod_mat @ u_dofs.flatten()
 
@@ -327,6 +334,80 @@ def test_3d_2form(
     )
 
     assert pytest.approx(computed_dual_dofs) == flattened_dual_dofs
+
+
+@pytest.mark.parametrize("scale", [1.0, 1.2, 0.5, 2.0])
+@pytest.mark.parametrize("order", [2, 4, 6])
+def test_1d_1form_with_scaled_map(
+    scale: float, order: int, bt1: BasisType = BasisType.LEGENDRE
+) -> None:
+    """Check that the 1D interior product of a 1-form is scale independent.
+
+    In one dimension the form order equals the number of dimensions, so the
+    interior product takes the same branch as the two-dimensional case while the
+    final weight keeps the Jacobian determinant. A map that only rescales the
+    element exercises exactly that: the result must be the same pairing as on
+    the reference interval, up to the determinant of the trial form.
+    """
+    i_reg = IntegrationRegistry()
+    b_reg = BasisRegistry()
+    rng = np.random.default_rng(67)
+    int_space = IntegrationSpace(IntegrationSpecs(order + 1))
+    func_space = FunctionSpace(BasisSpecs(bt1, order))
+
+    reference = np.linspace(-1.0, 1.0, order + 1)
+    map_dofs = DegreesOfFreedom(
+        FunctionSpace(BasisSpecs(BasisType.LAGRANGE_UNIFORM, order)),
+        np.ascontiguousarray(scale * reference),
+    )
+    space_map = SpaceMap(CoordinateMap(map_dofs, int_space))
+
+    int_weights = int_space.weights(i_reg)
+    determinant = np.asarray(space_map.determinant)
+
+    v_vals = rng.uniform(-1.0, 1.0, (1, int_space.nodes()[0].size))
+    # The trial space is a 0-form space of order `order`; its k-form version has
+    # `order` degrees of freedom, which is the size of the interior product's
+    # column space.
+    trial_space = func_space
+    u_dofs = DegreesOfFreedom(func_space.lower_order(0), rng.uniform(-1.0, 1.0, order))
+
+    # The basis tables are point major: (n_points, n_dofs).
+    basis_0form = np.asarray(
+        func_space.values_at_integration_nodes(
+            int_space, integration_registry=i_reg, basis_registry=b_reg
+        )
+    ).reshape((-1, order + 1))
+    basis_1form = np.asarray(
+        func_space.lower_order(0).values_at_integration_nodes(
+            int_space, integration_registry=i_reg, basis_registry=b_reg
+        )
+    ).reshape((-1, order))
+
+    # The dual DoFs of the pairing, assembled pointwise like the other tests:
+    # the trial form values times the field times the integration weight, the
+    # Jacobian determinant, and every 0-form test function.
+    # The trial 1-form has reference component `u_dofs`; its physical values are
+    # that component divided by the Jacobian determinant, which the pairing then
+    # multiplies by the determinant of the volume element.
+    trial_values = basis_1form @ np.asarray(u_dofs.values).reshape(-1) / determinant
+    dual_dof_values = np.sum(
+        (v_vals[0] * trial_values * int_weights * determinant)[:, None] * basis_0form,
+        axis=0,
+    )
+
+    interprod_mat = compute_kform_interior_product_matrix(
+        space_map,
+        1,
+        func_space,
+        trial_space,
+        v_vals,
+        integration_registry=i_reg,
+        basis_registry=b_reg,
+    )
+    computed_dual_dofs = interprod_mat @ np.asarray(u_dofs.values).reshape(-1)
+
+    assert pytest.approx(computed_dual_dofs, rel=1e-9, abs=1e-9) == dual_dof_values
 
 
 if __name__ == "__main__":

@@ -16,7 +16,7 @@ _TEST_VALUES_2D = (
     (1, 1, BasisType.BERNSTEIN, BasisType.BERNSTEIN),
     (3, 4, BasisType.BERNSTEIN, BasisType.BERNSTEIN),
     (4, 3, BasisType.BERNSTEIN, BasisType.BERNSTEIN),
-    (3, 2, BasisType.LEGENDRE, BasisType.LAGRNAGE_GAUSS),
+    (3, 2, BasisType.LEGENDRE, BasisType.LAGRANGE_GAUSS),
     (3, 3, BasisType.LAGRANGE_UNIFORM, BasisType.LAGRANGE_CHEBYSHEV_GAUSS),
 )
 
@@ -24,14 +24,14 @@ _TEST_VALUES_3D = (
     (1, 1, 1, BasisType.BERNSTEIN, BasisType.BERNSTEIN, BasisType.BERNSTEIN),
     (3, 4, 5, BasisType.BERNSTEIN, BasisType.BERNSTEIN, BasisType.BERNSTEIN),
     (4, 3, 5, BasisType.BERNSTEIN, BasisType.BERNSTEIN, BasisType.BERNSTEIN),
-    (3, 2, 4, BasisType.LEGENDRE, BasisType.LAGRNAGE_GAUSS, BasisType.LEGENDRE),
+    (3, 2, 4, BasisType.LEGENDRE, BasisType.LAGRANGE_GAUSS, BasisType.LEGENDRE),
     (
         3,
         3,
         3,
         BasisType.LAGRANGE_UNIFORM,
         BasisType.LAGRANGE_CHEBYSHEV_GAUSS,
-        BasisType.LAGRNAGE_GAUSS_LOBATTO,
+        BasisType.LAGRANGE_GAUSS_LOBATTO,
     ),
 )
 
@@ -79,7 +79,10 @@ def test_2d_derivatives(o1: int, o2: int, b1: BasisType, b2: BasisType) -> None:
     ## Try also using the incidence matrix instead
     e12_mat = compute_kform_incidence_matrix(base_space, 1)
     dofs_2 = e12_mat @ np.concatenate(
-        (form_1_0.values.flatten(), form_1_1.values.flatten())
+        (
+            form_1_0.values.flatten(),
+            form_1_1.values.flatten(),
+        )
     )
 
     ## Check that computed values are correct
@@ -158,7 +161,11 @@ def test_3d_derivatives(
     ## Try also using the incidence matrix instead
     e12_mat = compute_kform_incidence_matrix(base_space, 1)
     dofs_2 = e12_mat @ np.concatenate(
-        (form_1_0.values.flatten(), form_1_1.values.flatten(), form_1_2.values.flatten())
+        (
+            form_1_0.values.flatten(),
+            form_1_1.values.flatten(),
+            form_1_2.values.flatten(),
+        )
     )
 
     ## Check that computed values are correct
@@ -198,7 +205,11 @@ def test_3d_derivatives(
     ## Try also using the incidence matrix instead
     e23_mat = compute_kform_incidence_matrix(base_space, 2)
     dofs_3 = e23_mat @ np.concatenate(
-        (form_2_0.values.flatten(), form_2_1.values.flatten(), form_2_2.values.flatten())
+        (
+            form_2_0.values.flatten(),
+            form_2_1.values.flatten(),
+            form_2_2.values.flatten(),
+        )
     )
 
     ## Check that computed values are correct
@@ -246,7 +257,11 @@ def test_3d_operator(
     ## Use the incidence matrix
     e12_mat = compute_kform_incidence_matrix(base_space, 1)
     dofs_1_flattened = np.concatenate(
-        (form_1_0.values.flatten(), form_1_1.values.flatten(), form_1_2.values.flatten())
+        (
+            form_1_0.values.flatten(),
+            form_1_1.values.flatten(),
+            form_1_2.values.flatten(),
+        )
     )
     dofs_2 = e12_mat @ dofs_1_flattened
 
@@ -269,7 +284,11 @@ def test_3d_operator(
     ## Use the incidence matrix
     e23_mat = compute_kform_incidence_matrix(base_space, 2)
     dofs_2_flattened = np.concatenate(
-        (form_2_0.values.flatten(), form_2_1.values.flatten(), form_2_2.values.flatten())
+        (
+            form_2_0.values.flatten(),
+            form_2_1.values.flatten(),
+            form_2_2.values.flatten(),
+        )
     )
     dofs_3 = e23_mat @ dofs_2_flattened
 
@@ -354,7 +373,7 @@ if __name__ == "__main__":
         o2=2,
         o3=2,
         b1=BasisType.LAGRANGE_UNIFORM,  # b1=BasisType.LEGENDRE,
-        b2=BasisType.BERNSTEIN,  # b2=BasisType.LAGRNAGE_GAUSS,
+        b2=BasisType.BERNSTEIN,  # b2=BasisType.LAGRANGE_GAUSS,
         b3=BasisType.BERNSTEIN,  # b3=BasisType.LEGENDRE,
     )
 
@@ -366,7 +385,7 @@ if __name__ == "__main__":
         test_2d_operator_matrix(*args)
 
     test_3d_operator_matrix(
-        3, 2, 4, BasisType.LAGRNAGE_GAUSS, BasisType.LEGENDRE, BasisType.LEGENDRE
+        3, 2, 4, BasisType.LAGRANGE_GAUSS, BasisType.LEGENDRE, BasisType.LEGENDRE
     )
     for args3 in _TEST_VALUES_3D:
         test_3d_operator_matrix(*args3)

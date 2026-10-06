@@ -29,9 +29,11 @@ static PyObject *covector_basis_new(PyTypeObject *type, PyObject *args, PyObject
     if (PyErr_Occurred())
         return NULL;
 
-    if (n_dims < 0 || n_dims >= COVECTOR_BASIS_MAX_DIM)
+    // covector_basis_create() asserts a positive dimension, so zero must be
+    // reported here instead of reaching the C core.
+    if (n_dims < 1 || n_dims >= COVECTOR_BASIS_MAX_DIM)
     {
-        PyErr_Format(PyExc_ValueError, "Expected number of dimensions in range [0, %u), but got %zd.",
+        PyErr_Format(PyExc_ValueError, "Expected number of dimensions in range [1, %u), but got %zd.",
                      COVECTOR_BASIS_MAX_DIM, n_dims);
         return NULL;
     }
@@ -397,7 +399,15 @@ static int ensure_basis_and_state(PyObject *self, PyTypeObject *defining_class, 
 }
 
 PyDoc_STRVAR(covector_basis_normalize_docstring,
-             "normalize() -> tuple[int, CovectorBasis]\nNormalize the basis by splitting the sign.\n");
+             "normalize() -> tuple[int, CovectorBasis]\n"
+             "\n"
+             "Normalize the basis by splitting the sign.\n"
+             "\n"
+             "Returns\n"
+             "-------\n"
+             "tuple of (int, CovectorBasis)\n"
+             "    Sign of the original basis (``-1`` or ``1``) and the same basis with a\n"
+             "    positive sign, so that their product reproduces the original basis.\n");
 
 static PyObject *covector_basis_normalize(PyObject *self, PyTypeObject *defining_class,
                                           PyObject *const *Py_UNUSED(args), const Py_ssize_t nargs,
@@ -486,6 +496,14 @@ static int covector_basis_contains(PyObject *self, PyObject *item)
     return covector_basis_has_component(this->basis, num);
 }
 
+static void covector_basis_dealloc(covector_basis_object *self)
+{
+    PyObject_GC_UnTrack(self);
+    PyTypeObject *const type = Py_TYPE(self);
+    type->tp_free((PyObject *)self);
+    Py_DECREF(type);
+}
+
 PyType_Spec covector_basis_type_spec = {
     .name = FDG_TYPE_NAME("CovectorBasis"),
     .basicsize = sizeof(covector_basis_object),
@@ -494,6 +512,7 @@ PyType_Spec covector_basis_type_spec = {
     .slots =
         (PyType_Slot[]){
             {Py_tp_traverse, heap_type_traverse_type},
+            {Py_tp_dealloc, covector_basis_dealloc},
             {Py_tp_new, covector_basis_new},
             {Py_tp_getset,
              (PyGetSetDef[]){
@@ -533,7 +552,7 @@ PyType_Spec covector_basis_type_spec = {
                  {
                      .ml_name = "normalize",
                      .ml_meth = (void *)covector_basis_normalize,
-                     .ml_flags = METH_FASTCALL | METH_METHOD | METH_KEYWORDS,
+                     .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
                      .ml_doc = covector_basis_normalize_docstring,
                  },
                  {},
@@ -551,27 +570,6 @@ covector_basis_object *covector_basis_object_create(PyTypeObject *type, const co
     // When we init we need to write, and this will upset the compiler. After this, this is all const.
     *(covector_basis_t *)&this->basis = basis;
     return this;
-}
-
-unsigned kform_basis_get_num_dofs(const unsigned ndim, const basis_spec_t basis[static ndim], const unsigned order,
-                                  const uint8_t components[static order])
-{
-    unsigned dofs = 1;
-    for (unsigned idim = 0, icomponent = 0; idim < ndim; ++idim)
-    {
-        unsigned n;
-        if (icomponent != order && idim == components[icomponent])
-        {
-            n = basis[idim].order;
-            icomponent += 1;
-        }
-        else
-        {
-            n = basis[idim].order + 1;
-        }
-        dofs *= n;
-    }
-    return dofs;
 }
 
 void kform_basis_set_iterator(const unsigned ndim, const basis_spec_t basis[static ndim], const unsigned order,

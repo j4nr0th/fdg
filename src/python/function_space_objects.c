@@ -22,12 +22,6 @@ static PyObject *function_space_new(PyTypeObject *type, PyObject *args, PyObject
     }
 
     const unsigned n = PyTuple_GET_SIZE(args);
-    if (n == 0)
-    {
-        PyErr_SetString(PyExc_TypeError, "Constructor requires at least one argument.");
-        return NULL;
-    }
-
     const interplib_module_state_t *state = interplib_get_module_state(type);
     if (!state)
         return NULL;
@@ -41,6 +35,16 @@ static PyObject *function_space_new(PyTypeObject *type, PyObject *args, PyObject
             PyErr_Format(PyExc_TypeError, "Argument %i was not a BasisSpec, but was instead %R.", i, val);
             return NULL;
         }
+    }
+
+    // element_data_add_option() takes the dimension in [1, 63] as a
+    // precondition. Zero-dimensional spaces are valid (they are produced by
+    // boundary()), and cannot reach the option storage on their own, so only
+    // the upper bound is rejected here.
+    if (n > 63)
+    {
+        PyErr_Format(PyExc_ValueError, "Expected ndim of at most 63, got %u.", n);
+        return NULL;
     }
 
     // Allocate the memory
@@ -120,7 +124,7 @@ static int ensure_function_space_state(PyObject *self, PyTypeObject *defining_cl
 
 PyDoc_STRVAR(function_space_evaluate_docstring,
              "evaluate(*x: numpy.typing.NDArray[numpy.double], out: numpy.typing.NDArray[numpy.double] | None = None) "
-             "-> numpy.typing.NDArray[numpy.double]:\n"
+             "-> numpy.typing.NDArray[numpy.double]\n"
              "Evaluate basis functions at given locations.\n"
              "\n"
              "Parameters\n"
@@ -130,14 +134,15 @@ PyDoc_STRVAR(function_space_evaluate_docstring,
              "    Each array corresponds to a dimension in the function space.\n"
              "out : array, optional\n"
              "    Array where the results should be written to. If not given, a new one\n"
-             "    will be created and returned. It should have the same shape as ``x``,\n"
-             "    but with an extra dimension added, the length of which is the total\n"
-             "    number of basis functions in the function space.\n"
+             "    will be created and returned. It must have the shape of the input arrays\n"
+             "    extended by one dimension per function space dimension, of size the order\n"
+             "    of that dimension plus one.\n"
              "\n"
              "Returns\n"
              "-------\n"
              "array\n"
-             "    Array of basis function values at the specified locations.\n");
+             "    Array of basis function values at the specified locations, with one extra\n"
+             "    dimension per dimension of the function space.\n");
 
 static PyObject *function_space_evaluate(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
                                          const Py_ssize_t nargs, const PyObject *kwnames)
@@ -179,17 +184,22 @@ static PyObject *function_space_evaluate(PyObject *self, PyTypeObject *defining_
     }
 
     // Check all input arrays have the same shape, correct dtype, and the same flags
-    npy_intp n_dim_in = 0;
-    const npy_intp *p_dim_in = NULL;
-    for (unsigned i = 0; i < n_basis_dims; ++i)
+    if (check_input_array((PyArrayObject *)args[0], 0, (const npy_intp[0]){}, NPY_DOUBLE,
+                          NPY_ARRAY_C_CONTIGUOUS | NPY_ARRAY_ALIGNED, "input") < 0)
+    {
+        raise_exception_from_current(
+            PyExc_ValueError,
+            "All input arrays must have the exact same shape and have the correct data type and flags.");
+        return NULL;
+    }
+    const npy_intp *const p_dim_in = PyArray_DIMS((PyArrayObject *)args[0]);
+    const npy_int n_dim_in = PyArray_NDIM((PyArrayObject *)args[0]);
+
+    for (unsigned i = 1; i < n_basis_dims; ++i)
     {
 
         const PyArrayObject *const in = (PyArrayObject *)args[i];
-        if (p_dim_in == NULL)
-        {
-            p_dim_in = PyArray_DIMS(in);
-            n_dim_in = PyArray_NDIM(in);
-        }
+
         if (check_input_array(in, n_dim_in, p_dim_in, NPY_DOUBLE, NPY_ARRAY_C_CONTIGUOUS | NPY_ARRAY_ALIGNED, "input") <
             0)
         {
@@ -277,9 +287,9 @@ static PyObject *function_space_evaluate(PyObject *self, PyTypeObject *defining_
 
 PyDoc_STRVAR(
     function_space_values_at_integration_nodes_docstring,
-    "values_at_integration_nodes(integration: IntegrationSpace, /, *, integration_registry: IntegrationRegistry = "
-    "DEFAULT_INTEGRATION_REGISTRY, basis_registry: BasisRegistry = DEFAULT_BASIS_REGISTRY) -> "
-    "numpy.typing.NDArray[numpy.double]\n"
+    "values_at_integration_nodes(integration: IntegrationSpace, /, transpose: bool = False, *, "
+    "integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY, basis_registry: BasisRegistry = "
+    "DEFAULT_BASIS_REGISTRY) -> numpy.typing.NDArray[numpy.double]\n"
     "Return values of basis at integration points.\n"
     "\n"
     "Parameters\n"
@@ -287,7 +297,12 @@ PyDoc_STRVAR(
     "integration : IntegrationSpace\n"
     "    Integration space, the nodes of which are used to evaluate basis at.\n"
     "\n"
-    "integration_registry : IntegrationRegistry, defaul: DEFAULT_INTEGRATION_REGISTRY\n"
+    "transpose : bool, default: False\n"
+    "    Order the array so that axes indexing the bases come before the ones\n"
+    "    indexing the integration points. By default the integration-point axes\n"
+    "    come first.\n"
+    "\n"
+    "integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY\n"
     "    Registry used to obtain the integration rules from.\n"
     "\n"
     "basis_registry : BasisRegistry, default: DEFAULT_BASIS_REGISTRY\n"
@@ -296,7 +311,9 @@ PyDoc_STRVAR(
     "Returns\n"
     "-------\n"
     "array\n"
-    "    Array of basis function values at the integration points locations.\n");
+    "    Array of basis function values at the integration points locations,\n"
+    "    shaped ``(npts_0, ..., npts_{ndim-1}, order_0 + 1, ..., order_{ndim-1} + 1)``\n"
+    "    by default, with the two axis groups exchanged when ``transpose`` is set.\n");
 
 static PyObject *function_space_values_at_integration_nodes(PyObject *self, PyTypeObject *defining_class,
                                                             PyObject *const *args, const Py_ssize_t nargs,
@@ -400,8 +417,9 @@ static PyObject *function_space_values_at_integration_nodes(PyObject *self, PyTy
                       multidim_iterator_total_size(iterator_basis) * multidim_iterator_total_size(iterator_nodes),
                   "Incorrect output size.");
 
-    const basis_set_t **const basis_sets = PyMem_Malloc(ndim * sizeof(*basis_sets));
-    if (!basis_sets)
+    const integration_rule_t **const integration_rules =
+        python_integration_rules_get(ndim, integration_space->specs, integration_registry->registry);
+    if (!integration_rules)
     {
         PyMem_Free(iterator_basis);
         PyMem_Free(iterator_nodes);
@@ -409,35 +427,15 @@ static PyObject *function_space_values_at_integration_nodes(PyObject *self, PyTy
         return NULL;
     }
 
-    for (unsigned idim = 0; idim < ndim; ++idim)
+    const basis_set_t **const basis_sets =
+        python_basis_sets_get(ndim, this->specs, integration_rules, basis_registry->registry);
+    python_integration_rules_release(ndim, integration_rules, integration_registry->registry);
+    if (!basis_sets)
     {
-        const integration_rule_t *int_rule;
-        fdg_result_t res = integration_rule_registry_get_rule(integration_registry->registry,
-                                                              integration_space->specs[idim], &int_rule);
-        if (res == FDG_SUCCESS)
-        {
-            const basis_set_t *basis;
-            res = basis_set_registry_get_basis_set(basis_registry->registry, &basis, int_rule, this->specs[idim]);
-            // Release the rule
-            (void)integration_rule_registry_release_rule(integration_registry->registry, int_rule);
-            basis_sets[idim] = basis;
-        }
-
-        if (res != FDG_SUCCESS)
-        {
-            // Release the basis acquired so far
-            for (unsigned jdim = 0; jdim < idim; ++jdim)
-            {
-                (void)basis_set_registry_release_basis_set(basis_registry->registry, basis_sets[jdim]);
-            }
-            PyMem_Free(basis_sets);
-            PyMem_Free(iterator_basis);
-            PyMem_Free(iterator_nodes);
-            Py_DECREF(out);
-            PyErr_Format(PyExc_ValueError, "Failed to get basis for dimension %u, reason: %s (%s)", idim,
-                         fdg_error_str(res), fdg_error_msg(res));
-            return NULL;
-        }
+        PyMem_Free(iterator_basis);
+        PyMem_Free(iterator_nodes);
+        Py_DECREF(out);
+        return NULL;
     }
 
     size_t basis_stride = 1, node_stride = 1;
@@ -480,7 +478,7 @@ static PyObject *function_space_values_at_integration_nodes(PyObject *self, PyTy
     // Release all the basis now
     for (unsigned idim = 0; idim < ndim; ++idim)
     {
-        (void)basis_set_registry_release_basis_set(basis_registry->registry, basis_sets[idim]);
+        basis_set_registry_release_basis_set(basis_registry->registry, basis_sets[idim]);
     }
     PyMem_Free(basis_sets);
 
@@ -548,8 +546,62 @@ static PyObject *function_space_object_lower_order(PyObject *self, PyTypeObject 
     return (PyObject *)new_space;
 }
 
+PyDoc_STRVAR(function_space_boundary_docstring,
+             "boundary(idim: int) -> FunctionSpace\n"
+             "Return the function space on a boundary perpendicular to one dimension.\n"
+             "\n"
+             "The lower and upper boundaries perpendicular to the same dimension have\n"
+             "the same function space.\n"
+             "\n"
+             "Parameters\n"
+             "----------\n"
+             "idim : int\n"
+             "    Index of the dimension fixed by the boundary.\n"
+             "\n"
+             "Returns\n"
+             "-------\n"
+             "FunctionSpace\n"
+             "    New function space containing the basis specifications of the remaining dimensions.\n");
+
+static PyObject *function_space_boundary(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
+                                         const Py_ssize_t nargs, const PyObject *kwnames)
+{
+    function_space_object *this;
+    const interplib_module_state_t *state;
+    if (ensure_function_space_state(self, defining_class, &this, &state) < 0)
+        return NULL;
+
+    Py_ssize_t idim;
+    if (parse_arguments_check((cpyutl_argument_t[]){{.type = CPYARG_TYPE_SSIZE, .p_val = &idim, .kwname = "idim"}, {}},
+                              args, nargs, kwnames) < 0)
+        return NULL;
+
+    const unsigned ndim = Py_SIZE(this);
+    if (ndim == 0)
+    {
+        PyErr_SetString(PyExc_ValueError, "Cannot get a boundary space from a zero-dimensional function space.");
+        return NULL;
+    }
+    if (idim < 0 || (npy_intp)idim >= (npy_intp)ndim)
+    {
+        PyErr_Format(PyExc_ValueError, "Dimension %zd is out of bounds for a function space with %u dimensions.", idim,
+                     ndim);
+        return NULL;
+    }
+
+    const unsigned face_dim = ndim - 1;
+    function_space_object *const face = function_space_object_create(state->function_space_type, face_dim, this->specs);
+    if (!face)
+        return NULL;
+    if ((unsigned)idim < face_dim)
+    {
+        memmove(face->specs + idim, this->specs + idim + 1, (face_dim - (unsigned)idim) * sizeof(*face->specs));
+    }
+    return (PyObject *)face;
+}
+
 PyDoc_STRVAR(function_space_type_docstring,
-             "FunctionSpace(*specs: BasisSpec)\n"
+             "FunctionSpace(*basis_specs: BasisSpecs)\n"
              "Function space defined with basis.\n"
              "\n"
              "Function space defined by tensor product of basis functions in each dimension.\n"
@@ -594,8 +646,15 @@ static PyObject *function_space_rich_compare(PyObject *self, PyObject *other, co
     const function_space_object *const that = (function_space_object *)other;
 
     const int equal = function_space_equal(this, that);
-
     return PyBool_FromLong(op == Py_EQ ? equal : !equal);
+}
+
+static void function_space_dealloc(function_space_object *self)
+{
+    PyObject_GC_UnTrack(self);
+    PyTypeObject *const type = Py_TYPE(self);
+    type->tp_free((PyObject *)self);
+    Py_DECREF(type);
 }
 
 PyType_Spec function_space_type_spec = {
@@ -605,6 +664,7 @@ PyType_Spec function_space_type_spec = {
     .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HEAPTYPE | Py_TPFLAGS_HAVE_GC | Py_TPFLAGS_IMMUTABLETYPE,
     .slots = (PyType_Slot[]){
         {Py_tp_traverse, heap_type_traverse_type},
+        {Py_tp_dealloc, function_space_dealloc},
         {Py_tp_new, function_space_new},
         {Py_tp_doc, (void *)function_space_type_docstring},
         {Py_tp_richcompare, function_space_rich_compare},
@@ -614,7 +674,7 @@ PyType_Spec function_space_type_spec = {
                 {
                     .name = "dimension",
                     .get = function_space_get_dimensions,
-                    .doc = "int:Number of dimensions in the function space.",
+                    .doc = "int : Number of dimensions in the function space.",
                 },
                 {
                     .name = "basis_specs",
@@ -624,7 +684,7 @@ PyType_Spec function_space_type_spec = {
                 {
                     .name = "orders",
                     .get = function_space_get_orders,
-                    .doc = "tuple[int, ...] : Orders of the basis functions in the function space.",
+                    .doc = "tuple[int, ...] : Orders of the basis in each dimension.",
                 },
                 {},
             },
@@ -648,6 +708,12 @@ PyType_Spec function_space_type_spec = {
                  .ml_meth = (void *)function_space_object_lower_order,
                  .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
                  .ml_doc = function_space_object_lower_order_docstring,
+             },
+             {
+                 .ml_name = "boundary",
+                 .ml_meth = (void *)function_space_boundary,
+                 .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
+                 .ml_doc = function_space_boundary_docstring,
              },
              {},
          }},

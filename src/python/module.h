@@ -64,6 +64,11 @@ typedef struct
     PyTypeObject *degrees_of_freedom_type;
     PyTypeObject *coordinate_mapping_type;
     PyTypeObject *space_mapping_type;
+    PyTypeObject *mesh_geometry_type;
+    PyTypeObject *mesh_kform_specs_type;
+    PyTypeObject *element_kforms_type;
+    PyTypeObject *element_dofs_type;
+    PyTypeObject *sampled_space_mapping_type;
 
     // Default Registries
     PyObject *registry_integration;
@@ -72,6 +77,12 @@ typedef struct
     // K-Forms
     PyTypeObject *kform_specs_type;
     PyTypeObject *kform_type;
+
+    // Mesh
+    PyTypeObject *mesh_type;
+
+    // Direct continuity map
+    PyTypeObject *direct_dof_map_type;
 } interplib_module_state_t;
 
 FDG_INTERNAL
@@ -89,5 +100,8 @@ static inline const interplib_module_state_t *interplib_get_module_state(PyTypeO
 
 FDG_INTERNAL
 int heap_type_traverse_type(PyObject *self, visitproc visit, void *arg);
+
+FDG_INTERNAL
+extern PyMethodDef constraint_methods[];
 
 #endif // FDG_MODULE_H

@@ -1,5 +1,7 @@
 """Check that mass matrix computations are correct."""
 
+import itertools
+
 import numpy as np
 import pytest
 from fdg import (
@@ -69,7 +71,7 @@ def test_mass_matrix_1d_undeformed(
             BasisSpecs(BasisType.LEGENDRE, 2),
             BasisSpecs(BasisType.BERNSTEIN, 3),
             BasisSpecs(BasisType.LAGRANGE_UNIFORM, 2),
-            BasisSpecs(BasisType.LAGRNAGE_GAUSS_LOBATTO, 4),
+            BasisSpecs(BasisType.LAGRANGE_GAUSS_LOBATTO, 4),
         ),
     ),
 )
@@ -122,7 +124,7 @@ def test_mass_matrix_2d(
             BasisSpecs(BasisType.LEGENDRE, 2),
             BasisSpecs(BasisType.BERNSTEIN, 3),
             BasisSpecs(BasisType.LAGRANGE_UNIFORM, 2),
-            BasisSpecs(BasisType.LAGRNAGE_GAUSS_LOBATTO, 4),
+            BasisSpecs(BasisType.LAGRANGE_GAUSS_LOBATTO, 4),
             BasisSpecs(BasisType.LEGENDRE, 2),
             BasisSpecs(BasisType.BERNSTEIN, 3),
         ),
@@ -130,9 +132,9 @@ def test_mass_matrix_2d(
             BasisSpecs(BasisType.LEGENDRE, 2),
             BasisSpecs(BasisType.BERNSTEIN, 3),
             BasisSpecs(BasisType.LAGRANGE_UNIFORM, 2),
-            BasisSpecs(BasisType.LAGRNAGE_GAUSS_LOBATTO, 4),
+            BasisSpecs(BasisType.LAGRANGE_GAUSS_LOBATTO, 4),
             BasisSpecs(BasisType.LAGRANGE_UNIFORM, 2),
-            BasisSpecs(BasisType.LAGRNAGE_GAUSS_LOBATTO, 4),
+            BasisSpecs(BasisType.LAGRANGE_GAUSS_LOBATTO, 4),
         ),
     ),
 )
@@ -178,11 +180,115 @@ def test_mass_matrix_3d(
     assert pytest.approx(mass_matrix) == expected_mass_matrix
 
 
+@pytest.mark.parametrize(
+    (
+        "specs_11",
+        "specs_12",
+        "specs_13",
+        "specs_14",
+        "specs_21",
+        "specs_22",
+        "specs_23",
+        "specs_24",
+    ),
+    (
+        (
+            BasisSpecs(BasisType.LEGENDRE, 2),
+            BasisSpecs(BasisType.BERNSTEIN, 3),
+            BasisSpecs(BasisType.LAGRANGE_UNIFORM, 2),
+            BasisSpecs(BasisType.LEGENDRE, 3),
+            BasisSpecs(BasisType.LAGRANGE_GAUSS_LOBATTO, 3),
+            BasisSpecs(BasisType.LEGENDRE, 2),
+            BasisSpecs(BasisType.BERNSTEIN, 3),
+            BasisSpecs(BasisType.LAGRANGE_GAUSS_LOBATTO, 2),
+        ),
+        (
+            BasisSpecs(BasisType.LEGENDRE, 2),
+            BasisSpecs(BasisType.BERNSTEIN, 3),
+            BasisSpecs(BasisType.LAGRANGE_UNIFORM, 2),
+            BasisSpecs(BasisType.LAGRANGE_GAUSS_LOBATTO, 4),
+            BasisSpecs(BasisType.LEGENDRE, 2),
+            BasisSpecs(BasisType.BERNSTEIN, 3),
+            BasisSpecs(BasisType.LAGRANGE_UNIFORM, 2),
+            BasisSpecs(BasisType.LAGRANGE_GAUSS_LOBATTO, 4),
+        ),
+    ),
+)
+def test_mass_matrix_4d(
+    specs_11: BasisSpecs,
+    specs_12: BasisSpecs,
+    specs_13: BasisSpecs,
+    specs_14: BasisSpecs,
+    specs_21: BasisSpecs,
+    specs_22: BasisSpecs,
+    specs_23: BasisSpecs,
+    specs_24: BasisSpecs,
+) -> None:
+    """Check mass matrix computation in 4D."""
+    order_1 = max(specs_11.order, specs_21.order)
+    order_2 = max(specs_12.order, specs_22.order)
+    order_3 = max(specs_13.order, specs_23.order)
+    order_4 = max(specs_14.order, specs_24.order)
+
+    int_space = IntegrationSpace(
+        IntegrationSpecs(order_1 + 1, IntegrationMethod.GAUSS),
+        IntegrationSpecs(order_2 + 1, IntegrationMethod.GAUSS),
+        IntegrationSpecs(order_3 + 1, IntegrationMethod.GAUSS),
+        IntegrationSpecs(order_4 + 1, IntegrationMethod.GAUSS),
+    )
+    func_space_1 = FunctionSpace(specs_11, specs_12, specs_13, specs_14)
+    func_space_2 = FunctionSpace(specs_21, specs_22, specs_23, specs_24)
+
+    mass_matrix = compute_mass_matrix(func_space_1, func_space_2, int_space)
+
+    int_nodes_1 = int_space.nodes()[0, ...]
+    int_nodes_2 = int_space.nodes()[1, ...]
+    int_nodes_3 = int_space.nodes()[2, ...]
+    int_nodes_4 = int_space.nodes()[3, ...]
+    int_weights = int_space.weights()
+
+    vals_1 = func_space_1.evaluate(
+        int_nodes_1, int_nodes_2, int_nodes_3, int_nodes_4
+    ).reshape(int_weights.shape + (-1,))
+    vals_2 = func_space_2.evaluate(
+        int_nodes_1, int_nodes_2, int_nodes_3, int_nodes_4
+    ).reshape(int_weights.shape + (-1,))
+
+    expected_mass_matrix = np.sum(
+        vals_1[..., None, :] * vals_2[..., :, None] * int_weights[..., None, None],
+        axis=tuple(range(int_weights.ndim)),
+    )
+    assert pytest.approx(mass_matrix) == expected_mass_matrix
+
+
+def test_mass_matrix_6d_legendre_orthogonal() -> None:
+    """Check that a 6D Legendre mass matrix is diagonal by exact orthogonality."""
+    orders = (2, 1, 3, 1, 2, 1)
+    int_space = IntegrationSpace(
+        *(IntegrationSpecs(order + 1, IntegrationMethod.GAUSS) for order in orders)
+    )
+    func_space = FunctionSpace(
+        *(BasisSpecs(BasisType.LEGENDRE, order) for order in orders)
+    )
+
+    mass_matrix = compute_mass_matrix(func_space, func_space, int_space)
+
+    # Gauss with at least order + 1 nodes integrates prod P_a P_b exactly, so the matrix
+    # is exactly diagonal with entries prod 2 / (2 a + 1) for each multi-index degree
+    expected_diagonal = np.array(
+        [
+            np.prod([2.0 / (2 * degree + 1) for degree in multi_index])
+            for multi_index in itertools.product(*(range(order + 1) for order in orders))
+        ]
+    )
+    assert pytest.approx(mass_matrix) == np.diag(expected_diagonal)
+
+
 if __name__ == "__main__":
     # test_mass_matrix_1d(2, BasisType.LEGENDRE, 3, BasisType.LEGENDRE)
     test_mass_matrix_2d(
         BasisSpecs(BasisType.LEGENDRE, 2),
         BasisSpecs(BasisType.BERNSTEIN, 3),
         BasisSpecs(BasisType.LAGRANGE_UNIFORM, 2),
-        BasisSpecs(BasisType.LAGRNAGE_GAUSS_LOBATTO, 4),
+        BasisSpecs(BasisType.LAGRANGE_GAUSS_LOBATTO, 4),
     )

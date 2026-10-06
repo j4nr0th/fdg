@@ -1,6 +1,7 @@
 #include "kform_objects.h"
 #include "covector_basis.h"
 #include "cutl/iterators/combination_iterator.h"
+#include "degrees_of_freedom.h"
 
 static PyObject *kform_spec_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 {
@@ -15,20 +16,17 @@ static PyObject *kform_spec_new(PyTypeObject *type, PyObject *args, PyObject *kw
         return NULL;
 
     unsigned const ndim = Py_SIZE(space);
+    // The option storage asserts a dimension of at most 63; zero-dimensional
+    // spaces are valid (point objects), so only the upper bound is rejected.
+    if (ndim > 63)
+    {
+        PyErr_Format(PyExc_ValueError, "Expected ndim of at most 63, got %u.", ndim);
+        return NULL;
+    }
     if (order < 0 || order > ndim)
     {
         PyErr_Format(PyExc_ValueError, "Expected order in [0, %u], got %zd.", ndim, order);
         return NULL;
-    }
-
-    for (unsigned i = 0; i < ndim; ++i)
-    {
-        const basis_spec_t *const spec = space->specs + i;
-        if (spec->order == 0)
-        {
-            PyErr_Format(PyExc_ValueError, "Expected order > 0 for dimension %u, got 0.", i);
-            return NULL;
-        }
     }
 
     const unsigned component_cnt = combination_total_count(ndim, order);
@@ -37,22 +35,8 @@ static PyObject *kform_spec_new(PyTypeObject *type, PyObject *args, PyObject *kw
     if (!self)
         return NULL;
 
-    combination_iterator_t *const iter = PyMem_Malloc(combination_iterator_required_memory(order));
-    if (!iter)
-    {
-        PyMem_Free(self->component_offsets);
-        return NULL;
-    }
-    self->component_offsets[0] = 0;
-    combination_iterator_init(iter, ndim, order);
-    unsigned i = 0;
-    for (const uint8_t *const basis_components = combination_iterator_current(iter);
-         !combination_iterator_is_done(iter); combination_iterator_next(iter), ++i)
-    {
-        const unsigned ndofs = kform_basis_get_num_dofs(ndim, space->specs, order, basis_components);
-        self->component_offsets[i + 1] = self->component_offsets[i] + ndofs;
-    }
-    PyMem_Free(iter);
+    const kform_spec_t spec = {.ndim = ndim, .order = order, .basis = ndim ? space->specs : NULL};
+    kform_spec_component_offsets(&spec, component_cnt + 1, self->component_offsets);
 
     Py_INCREF(space);
     self->order = order;
@@ -136,12 +120,17 @@ static PyObject *kform_spec_get_component_function_space(PyObject *self, PyTypeO
 
     uint8_t *covector_indices;
     basis_spec_t *out_specs;
-    void *const mem = cutl_alloc_group(&PYTHON_ALLOCATOR,
-                                       (const cutl_alloc_info_t[]){
-                                           {.size = k * sizeof(*covector_indices), .p_ptr = (void **)&covector_indices},
-                                           {.size = n * sizeof(*out_specs), .p_ptr = (void **)&out_specs},
-                                           {},
-                                       });
+    // A 0-dimensional form needs no scratch memory; cutl_alloc would request
+    // zero bytes and return NULL without a Python exception set. Request at
+    // least one byte so the group allocation always succeeds.
+    const size_t covector_bytes = k > 0 ? k * sizeof(*covector_indices) : 1;
+    const size_t specs_bytes = n > 0 ? n * sizeof(*out_specs) : 1;
+    void *const mem =
+        cutl_alloc_group(&PYTHON_ALLOCATOR, (const cutl_alloc_info_t[]){
+                                                {.size = covector_bytes, .p_ptr = (void **)&covector_indices},
+                                                {.size = specs_bytes, .p_ptr = (void **)&out_specs},
+                                                {},
+                                            });
     if (!mem)
         return NULL;
 
@@ -151,6 +140,13 @@ static PyObject *kform_spec_get_component_function_space(PyObject *self, PyTypeO
         const basis_spec_t *const spec = this->function_space->specs + i;
         if (i_covector < k && covector_indices[i_covector] == i)
         {
+            // TODO: check if necessary, I think by construction we should never have a zero-order spec here.
+            if (spec->order == 0)
+            {
+                PyErr_Format(PyExc_ValueError, "Cannot lower order of dimension %u as it has order 0.", i);
+                cutl_dealloc(&PYTHON_ALLOCATOR, mem);
+                return NULL;
+            }
             out_specs[i] = (basis_spec_t){.type = spec->type, .order = spec->order - 1};
             i_covector += 1;
         }
@@ -193,19 +189,10 @@ static PyObject *kform_spec_get_component_covector_basis(PyObject *self, PyTypeO
         return NULL;
     }
 
-    uint8_t *covector_indices = PyMem_Malloc(k * sizeof(*covector_indices));
-    if (!covector_indices)
-        return NULL;
-
+    uint8_t covector_indices[UINT8_MAX];
     combination_set_to_index(n, k, covector_indices, idx);
-    covector_basis_t basis = {.dimension = n, .sign = 0};
-    for (unsigned i_covector = 0; i_covector < k; ++i_covector)
-    {
-        basis.basis_bits |= (1 << covector_indices[i_covector]);
-    }
-
+    const covector_basis_t basis = covector_basis_create_u8(n, 0, k, covector_indices);
     covector_basis_object *const covector_basis = covector_basis_object_create(state->covector_basis_type, basis);
-    PyMem_Free(covector_indices);
 
     return (PyObject *)covector_basis;
 }
@@ -293,7 +280,7 @@ static PyObject *kform_specs_get_component_slice(PyObject *self, PyTypeObject *d
 PyDoc_STRVAR(kform_spec_get_component_function_space_docstring,
              "get_component_function_space(idx: int) -> FunctionSpace\n"
              "Get the function space for a component.\n"
-             "        \n"
+             "\n"
              "Parameters\n"
              "----------\n"
              "idx : int\n"
@@ -323,7 +310,7 @@ PyDoc_STRVAR(kform_specs_get_component_slice_docstring,
              "Get the slice corresponding to degrees of freedom of a k-form component.\n"
              "\n"
              "The resulting slice can be used to index into the flattened array of degrees\n"
-             "of freedom to get the DoFs corresponding to a praticular component.\n"
+             "of freedom to get the DoFs corresponding to a particular component.\n"
              "\n"
              "Parameters\n"
              "----------\n"
@@ -403,7 +390,7 @@ PyType_Spec kform_spec_type_spec = {
              {
                  .ml_name = "get_component_slice",
                  .ml_meth = (void *)kform_specs_get_component_slice,
-                 .ml_flags = METH_FASTCALL | METH_KEYWORDS | METH_METHOD,
+                 .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
                  .ml_doc = kform_specs_get_component_slice_docstring,
              },
              {},
@@ -520,16 +507,20 @@ static PyObject *kform_get_component_dofs(PyObject *self, PyTypeObject *defining
         kform_parse_component_index(self, defining_class, args, nargs, kwnames, &state, &idx, &n, &k);
     if (!this)
         return NULL;
-
     double *const out_dofs = this->values + this->specs->component_offsets[idx];
     uint8_t *covector_indices;
     npy_intp *out_dims;
-    void *const mem = cutl_alloc_group(&PYTHON_ALLOCATOR,
-                                       (const cutl_alloc_info_t[]){
-                                           {.size = k * sizeof(*covector_indices), .p_ptr = (void **)&covector_indices},
-                                           {.size = n * sizeof(*out_dims), .p_ptr = (void **)&out_dims},
-                                           {},
-                                       });
+    // Guard against a zero-byte group allocation (n = k = 0 for point
+    // forms): cutl_alloc returns NULL for zero sizes without a Python
+    // exception set, so request at least one byte per allocation.
+    const size_t covector_bytes = k > 0 ? k * sizeof(*covector_indices) : 1;
+    const size_t dims_bytes = n > 0 ? n * sizeof(*out_dims) : 1;
+    void *const mem =
+        cutl_alloc_group(&PYTHON_ALLOCATOR, (const cutl_alloc_info_t[]){
+                                                {.size = covector_bytes, .p_ptr = (void **)&covector_indices},
+                                                {.size = dims_bytes, .p_ptr = (void **)&out_dims},
+                                                {},
+                                            });
     if (!mem)
         return NULL;
 
@@ -541,6 +532,12 @@ static PyObject *kform_get_component_dofs(PyObject *self, PyTypeObject *defining
         unsigned ndof;
         if (i_covector < k && covector_indices[i_covector] == i)
         {
+            if (spec->order == 0)
+            {
+                PyErr_Format(PyExc_ValueError, "Cannot lower order of dimension %u as it has order 0.", i);
+                cutl_dealloc(&PYTHON_ALLOCATOR, mem);
+                return NULL;
+            }
             ndof = spec->order;
             i_covector += 1;
         }
@@ -552,9 +549,9 @@ static PyObject *kform_get_component_dofs(PyObject *self, PyTypeObject *defining
         total_dofs *= ndof;
     }
     (void)total_dofs;
-    ASSERT(total_dofs == this->specs->component_offsets[idx + 1] - this->specs->component_offsets[idx],
-           "Total number of DoFs did not match number compute by offsets (%zu when expecting %zu).", total_dofs,
-           this->specs->component_offsets[idx + 1] - this->specs->component_offsets[idx]);
+    CUTL_ASSERT(total_dofs == this->specs->component_offsets[idx + 1] - this->specs->component_offsets[idx],
+                "Total number of DoFs did not match number compute by offsets (%zu when expecting %zu).", total_dofs,
+                this->specs->component_offsets[idx + 1] - this->specs->component_offsets[idx]);
 
     PyArrayObject *const out = (PyArrayObject *)PyArray_SimpleNewFromData(n, out_dims, NPY_DOUBLE, out_dofs);
     cutl_dealloc(&PYTHON_ALLOCATOR, mem);
@@ -569,6 +566,81 @@ static PyObject *kform_get_component_dofs(PyObject *self, PyTypeObject *defining
 
     Py_INCREF(this);
     return (PyObject *)out;
+}
+
+static PyObject *kform_get_component_dof_object(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
+                                                const Py_ssize_t nargs, PyObject *kwnames)
+{
+    const interplib_module_state_t *state;
+    Py_ssize_t idx;
+    unsigned n;
+    unsigned k;
+
+    kform_object *const this =
+        kform_parse_component_index(self, defining_class, args, nargs, kwnames, &state, &idx, &n, &k);
+    if (!this)
+        return NULL;
+    double *const out_dofs = this->values + this->specs->component_offsets[idx];
+    uint8_t *covector_indices;
+    basis_spec_t *out_specs;
+    // Guard against a zero-byte group allocation (n = k = 0 for point
+    // forms): cutl_alloc returns NULL for zero sizes without a Python
+    // exception set, so request at least one byte per allocation.
+    const size_t covector_bytes = k > 0 ? k * sizeof(*covector_indices) : 1;
+    const size_t specs_bytes = n > 0 ? n * sizeof(*out_specs) : 1;
+    void *const mem =
+        cutl_alloc_group(&PYTHON_ALLOCATOR, (const cutl_alloc_info_t[]){
+                                                {.size = covector_bytes, .p_ptr = (void **)&covector_indices},
+                                                {.size = specs_bytes, .p_ptr = (void **)&out_specs},
+                                                {},
+                                            });
+    if (!mem)
+        return NULL;
+
+    combination_set_to_index(n, k, covector_indices, idx);
+    size_t total_dofs = 1;
+    for (unsigned i = 0, i_covector = 0; i < n; ++i)
+    {
+        const basis_spec_t *const spec = this->specs->function_space->specs + i;
+        unsigned ndof;
+        out_specs[i] = *spec;
+        if (i_covector < k && covector_indices[i_covector] == i)
+        {
+            if (spec->order == 0)
+            {
+                PyErr_Format(PyExc_ValueError, "Cannot lower order of dimension %u as it has order 0.", i);
+                cutl_dealloc(&PYTHON_ALLOCATOR, mem);
+                return NULL;
+            }
+            ndof = spec->order;
+            out_specs[i].order -= 1;
+            i_covector += 1;
+        }
+        else
+        {
+            ndof = spec->order + 1;
+        }
+        total_dofs *= ndof;
+    }
+    CUTL_ASSERT(total_dofs == this->specs->component_offsets[idx + 1] - this->specs->component_offsets[idx],
+                "Total number of DoFs did not match number compute by offsets (%zu when expecting %zu).", total_dofs,
+                this->specs->component_offsets[idx + 1] - this->specs->component_offsets[idx]);
+
+    // Create new DoF object with the correct function space
+    dof_object *const dof_obj = dof_object_create(state->degrees_of_freedom_type, // subtype
+                                                  n,                              // ndim
+                                                  out_specs                       // specs
+    );
+    cutl_dealloc(&PYTHON_ALLOCATOR, mem);
+    if (!dof_obj)
+    {
+        return NULL;
+    }
+
+    // Copy the DoF values into the new object
+    memcpy(dof_obj->values, out_dofs, total_dofs * sizeof(*dof_obj->values));
+
+    return (PyObject *)dof_obj;
 }
 
 static PyObject *kform_get_specs(PyObject *self, void *Py_UNUSED(closure))
@@ -602,8 +674,28 @@ static PyObject *kform_get_values(PyObject *self, void *Py_UNUSED(closure))
     return (PyObject *)out;
 }
 
+PyDoc_STRVAR(kform_get_component_dof_object_docstring,
+             "get_component(idx: int) -> DegreesOfFreedom\n"
+             "Get the DegreesOfFreedom object corresponding to a k-form component.\n"
+             "\n"
+             "Note that this object contains a copy of the degrees of freedom for\n"
+             "the component, so changing values in it will not change the values of\n"
+             "the k-form. If you wish to change them, consider using the\n"
+             "``get_component_dofs`` method instead.\n"
+             "\n"
+             "Parameters\n"
+             "----------\n"
+             "idx : int\n"
+             "    Index of the k-form component.\n"
+             "\n"
+             "Returns\n"
+             "-------\n"
+             "DegreesOfFreedom\n"
+             "    DegreesOfFreedom object containing the degrees of freedom for the\n"
+             "    specified k-form component.\n");
+
 PyDoc_STRVAR(kform_get_component_dofs_docstring,
-             "get_component_dofs(idx: int) -> numpy.tying.NDArray[numpy.double]\n"
+             "get_component_dofs(idx: int) -> numpy.typing.NDArray[numpy.double]\n"
              "Get the array containing the degrees of freedom for a k-form component.\n"
              "\n"
              "Parameters\n"
@@ -639,8 +731,14 @@ PyType_Spec kform_type_spec = {
              {
                  .ml_name = "get_component_dofs",
                  .ml_meth = (void *)kform_get_component_dofs,
-                 .ml_flags = METH_FASTCALL | METH_KEYWORDS | METH_METHOD,
+                 .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
                  .ml_doc = kform_get_component_dofs_docstring,
+             },
+             {
+                 .ml_name = "get_component",
+                 .ml_meth = (void *)kform_get_component_dof_object,
+                 .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
+                 .ml_doc = kform_get_component_dof_object_docstring,
              },
              {},
          }},

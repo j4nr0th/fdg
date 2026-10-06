@@ -7,14 +7,21 @@ light on the implementation details and does not include the C code.
 .. toctree::
    :maxdepth: 2
 
+   math_background
    integration
    basis_functions
    covector_basis
    degrees_of_freedom
    space_map
    domain_types
+   mesh
    kform_types
    kform_transformations
    inner_product
    incidence
    interior_product
+   boundary_constraints
+   hybridized_solves
+   direct_continuity
+   moving_mesh
+   c_api

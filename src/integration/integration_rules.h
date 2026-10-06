@@ -4,22 +4,79 @@
 #include "../common/error.h"
 #include <cutl/allocators.h>
 
+/**
+ * @brief Types of 1D quadrature rules supported by the library.
+ *
+ * A rule of order `order` has `order + 1` nodes. Gauss-Legendre rules
+ * integrate polynomials of degree up to `2 * order + 1` exactly, while
+ * Gauss-Lobatto rules additionally include the endpoints of the integration
+ * interval and integrate polynomials of degree up to `2 * order - 1`
+ * exactly (the single-node Gauss-Lobatto rule coincides with the one-point
+ * Gauss rule and integrates degree 1).
+ */
 typedef enum
 {
-    INTEGRATION_RULE_TYPE_NONE = 0,
-    INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE,
-    INTEGRATION_RULE_TYPE_GAUSS_LOBATTO,
+    INTEGRATION_RULE_TYPE_NONE = 0,       // No integration rule type.
+    INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE, // Gauss-Legendre quadrature.
+    INTEGRATION_RULE_TYPE_GAUSS_LOBATTO,  // Gauss-Lobatto quadrature.
 } integration_rule_type_t;
 
+/**
+ * @brief Get the name of an integration rule type.
+ *
+ * @param type Type to get the name for.
+ * @return Statically allocated string with the name of the type, such as
+ *         "gauss" or "gauss-lobatto", or "unknown" for invalid values.
+ */
 FDG_INTERNAL
 const char *integration_rule_type_to_str(integration_rule_type_t type);
 
+/**
+ * @brief Specification of a 1D integration rule: its type and order.
+ *
+ * A rule of order `order` has `order + 1` nodes.
+ */
 typedef struct
 {
     integration_rule_type_t type; // Type of the integration rule
     unsigned order;               // Order of the integration rule
 } integration_spec_t;
 
+static inline unsigned integration_spec_accuracy(const integration_spec_t *spec)
+{
+    switch (spec->type)
+    {
+    case INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE:
+        return 2 * spec->order + 1;
+    case INTEGRATION_RULE_TYPE_GAUSS_LOBATTO:
+        return 2 * spec->order - 1;
+    default:
+        return 0;
+    }
+}
+
+/**
+ * @brief Extract the boundary integration rule given its orientation.
+ *
+ * @todo Maybe move this to the operations/boundaries.h file.
+ *
+ * @param ndim Number of dimensions for the element.
+ * @param element_rule Integration rule for the element.
+ * @param orientation Canonical orientation of the boundary.
+ * @param bdim Dimension of the boundary.
+ * @param boundary_rule Output integration rule for the boundary.
+ */
+void integration_rules_to_boundary(unsigned ndim, const integration_spec_t element_rule[static ndim],
+                                   const int8_t orientation[static ndim], unsigned bdim,
+                                   integration_spec_t boundary_rule[static restrict bdim]);
+
+/**
+ * @brief Precomputed 1D quadrature rule: nodes and weights.
+ *
+ * The nodes and weights are stored in the flexible array `_data`, nodes
+ * first followed by weights, each with `n_nodes` entries. Use the inline
+ * accessor functions in this header instead of accessing `_data` directly.
+ */
 typedef struct
 {
     integration_spec_t spec;
@@ -28,30 +85,86 @@ typedef struct
     double _data[];    // Array with nodes, followed by weights
 } integration_rule_t;
 
+/**
+ * @brief Get a pointer to the nodes of the rule.
+ *
+ * @param this Rule to get the nodes of.
+ * @return Pointer to the `n_nodes` nodes of the rule.
+ */
 static inline double *integration_rule_nodes(integration_rule_t *this)
 {
     return this->_data + 0;
 }
 
+/**
+ * @brief Get a const pointer to the nodes of the rule.
+ *
+ * @param this Rule to get the nodes of.
+ * @return Pointer to the `n_nodes` nodes of the rule.
+ */
 static inline const double *integration_rule_nodes_const(const integration_rule_t *this)
 {
     return this->_data + 0;
 }
 
+/**
+ * @brief Get a pointer to the weights of the rule.
+ *
+ * @param this Rule to get the weights of.
+ * @return Pointer to the `n_nodes` weights of the rule.
+ */
 static inline double *integration_rule_weights(integration_rule_t *this)
 {
     return this->_data + this->n_nodes;
 }
 
+/**
+ * @brief Get a const pointer to the weights of the rule.
+ *
+ * @param this Rule to get the weights of.
+ * @return Pointer to the `n_nodes` weights of the rule.
+ */
 static inline const double *integration_rule_weights_const(const integration_rule_t *this)
 {
     return this->_data + this->n_nodes;
 }
 
+/**
+ * @brief Create an integration rule that integrates polynomials of the given degree exactly.
+ *
+ * The rule is created with the smallest order whose accuracy is at least the
+ * requested one, according to integration_rule_spec_get_accuracy.
+ *
+ * @param out Receives the pointer to the newly created rule on success.
+ * @param type Type of the rule.
+ * @param accuracy Degree of the polynomial the rule must integrate exactly.
+ * @param allocator Allocator used to allocate the rule.
+ * @return FDG_SUCCESS on success, FDG_ERROR_FAILED_ALLOCATION if memory
+ *         allocation fails. On failure, `*out` is left unmodified.
+ *
+ * The caller owns the created rule and is responsible for deallocating it
+ * with the same allocator once it is no longer needed.
+ */
 FDG_INTERNAL
 fdg_result_t integration_rule_for_accuracy(integration_rule_t **out, integration_rule_type_t type, unsigned accuracy,
                                            const cutl_allocator_t *allocator);
 
+/**
+ * @brief Create an integration rule of the given order.
+ *
+ * The rule has `order + 1` nodes and weights, computed with a tolerance of
+ * 1e-14 and at most 1000 Newton iterations per node.
+ *
+ * @param out Receives the pointer to the newly created rule on success.
+ * @param type Type of the rule.
+ * @param order Order of the rule; the rule has `order + 1` nodes.
+ * @param allocator Allocator used to allocate the rule.
+ * @return FDG_SUCCESS on success, FDG_ERROR_FAILED_ALLOCATION if memory
+ *         allocation fails. On failure, `*out` is left unmodified.
+ *
+ * The caller owns the created rule and is responsible for deallocating it
+ * with the same allocator once it is no longer needed.
+ */
 FDG_INTERNAL
 fdg_result_t integration_rule_for_order(integration_rule_t **out, integration_rule_type_t type, unsigned order,
                                         const cutl_allocator_t *allocator);
@@ -118,7 +231,7 @@ void integration_rule_registry_destroy(integration_rule_registry_t *this);
  * @return `FDG_SUCCESS` if the rule is successfully retrieved or created.
  *         `FDG_ERROR_FAILED_ALLOCATION` if memory allocation fails during the
  *         operation.
- *         Other `interp_result_t` error codes indicating issues with initialization
+ *         Other `fdg_result_t` error codes indicating issues with initialization
  *         or rule creation may also be returned.
  *
  * The caller is responsible for ensuring that the registry is initialized before calling
@@ -144,7 +257,7 @@ fdg_result_t integration_rule_registry_get_rule(integration_rule_registry_t *thi
  * @return `FDG_SUCCESS` if the rule is successfully retrieved or created.
  *         `FDG_ERROR_FAILED_ALLOCATION` if memory allocation fails during the
  *         operation.
- *         Other `interp_result_t` error codes indicating issues with initialization
+ *         Other `fdg_result_t` error codes indicating issues with initialization
  *         or rule creation may also be returned.
  *
  * The caller is responsible for ensuring that the registry is initialized before calling
@@ -167,17 +280,16 @@ fdg_result_t integration_rule_registry_get_rules(integration_rule_registry_t *th
  * zero, the function deallocates the rule and removes it from the registry.
  *
  * @param[in] this Pointer to the `integration_rule_registry_t` containing the rule.
- * @param[in] rule Pointer to the `integration_rule_t` to be released.
- *
- * @return `FDG_SUCCESS` if the rule was successfully released and, if applicable, removed.
- *         `FDG_ERROR_NOT_IN_REGISTRY` if the specified rule was not found in the registry.
+ * @param[in] rule Pointer to the `integration_rule_t` to be released. It must
+ *        have been obtained from this registry and must not have been released
+ *        already.
  *
  * This operation might modify the internal structure of the registry, specifically the bucket
  * where the rule is located. The caller should ensure thread-safety if the registry is accessed
  * concurrently.
  */
 FDG_INTERNAL
-fdg_result_t integration_rule_registry_release_rule(integration_rule_registry_t *this, const integration_rule_t *rule);
+void integration_rule_registry_release_rule(integration_rule_registry_t *this, const integration_rule_t *rule);
 /**
  * @brief Releases unused integration rules from the registry.
  *
@@ -215,14 +327,95 @@ void integration_rule_registry_release_unused_rules(integration_rule_registry_t 
 FDG_INTERNAL
 void integration_rule_registry_release_all_rules(integration_rule_registry_t *this);
 
+/**
+ * @brief Get the specifications of all rules in the registry.
+ *
+ * @param this Registry to query.
+ * @param max_count Maximum number of specifications to write.
+ * @param specs Array of `max_count` entries which receives the
+ *        specifications of the rules.
+ * @return The total number of rules in the registry, which may exceed
+ *         `max_count`; in that case only the first `max_count` entries are
+ *         written.
+ */
 FDG_INTERNAL
 unsigned integration_rule_get_rules(integration_rule_registry_t *this, unsigned max_count,
                                     integration_spec_t FDG_ARRAY_ARG(specs, max_count));
 
+/**
+ * @brief Get the polynomial degree that a rule with the given specification integrates exactly.
+ *
+ * @param spec Specification of the rule.
+ * @return The accuracy: `2 * order + 1` for Gauss-Legendre rules, and
+ *         `2 * order - 1` for Gauss-Lobatto rules of positive order (the
+ *         order-zero Gauss-Lobatto rule coincides with the one-point Gauss
+ *         rule and integrates degree 1). Returns 0 for invalid types.
+ */
 FDG_INTERNAL
 unsigned integration_rule_spec_get_accuracy(integration_spec_t spec);
 
+/**
+ * @brief Compute the total number of quadrature points of a tensor-product rule.
+ *
+ * @param ndim Number of dimensions of the tensor product.
+ * @param specs Array of `ndim` integration specifications.
+ * @return The product of the node counts, i.e.
+ *         `prod_i (specs[i].order + 1)`.
+ */
 FDG_INTERNAL
 size_t integration_specs_total_points(unsigned ndim, const integration_spec_t specs[static ndim]);
+
+/**
+ * @brief Compute strides of the tensor-product integration points.
+ *
+ * The last axis is the fastest, i.e. `strides[ndim - 1] == 1`, matching the
+ * project's multidim iterator. The tensor point with per-axis node index
+ * `ip[axis]` has the flat index `sum_axis(ip[axis] * strides[axis])`, and
+ * the total number of tensor points is #integration_specs_total_points.
+ *
+ * @param ndim Number of dimensions of the tensor product.
+ * @param specs Array of `ndim` integration specifications.
+ * @param strides Output array with `ndim` entries.
+ */
+FDG_INTERNAL
+void integration_spec_point_strides(unsigned ndim, const integration_spec_t specs[static ndim],
+                                    size_t strides[static ndim]);
+
+/**
+ * @brief Compute the tensor product of the axis quadrature weights.
+ *
+ * The weight of the flat tensor point `p` (last axis fastest, see
+ * #integration_spec_point_strides) is the product of the weights of the
+ * per-axis nodes selected by `p`.
+ *
+ * @param ndim Number of dimensions of the tensor product.
+ * @param rules Quadrature rule of each axis.
+ * @param weights Output array with #integration_specs_total_points entries
+ *                for the rules' specifications.
+ */
+FDG_INTERNAL
+void integration_rule_tensor_weights(unsigned ndim, const integration_rule_t *const rules[static ndim],
+                                     double weights[]);
+
+/**
+ * @brief Compute the total number of points of a tensor product of sampling
+ *        orders.
+ *
+ * Same counting rule as #integration_specs_total_points, but for a plain
+ * array of per-axis orders as used by sampled maps.
+ *
+ * @param ndim Number of dimensions of the tensor product.
+ * @param orders Array of `ndim` per-axis orders.
+ * @return The product of the node counts, i.e. `prod_i (orders[i] + 1)`.
+ */
+static inline size_t integration_orders_total_points(unsigned ndim, const unsigned orders[static ndim])
+{
+    size_t total = 1;
+    for (unsigned i = 0; i < ndim; ++i)
+    {
+        total *= orders[i] + 1;
+    }
+    return total;
+}
 
 #endif // FDG_INTEGRATION_RULES_H

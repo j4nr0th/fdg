@@ -1,7 +1,7 @@
 #include "degrees_of_freedom.h"
 
-#include "../basis/basis_lagrange.h"
-#include "../polynomials/lagrange.h"
+#include "../operations/boundaries.h"
+#include "../operations/dof_transforms.h"
 #include "basis_objects.h"
 #include "function_space_objects.h"
 #include "incidence.h"
@@ -31,22 +31,12 @@ static int array_has_shape(const PyArrayObject *const arr, const unsigned ndim,
     return 1;
 }
 
-static PyObject *dof_new(PyTypeObject *subtype, PyObject *args, PyObject *kwds)
+dof_object *dof_object_create(PyTypeObject *subtype, const unsigned ndim,
+                              const basis_spec_t basis_specs_in[static ndim])
 {
-    const interplib_module_state_t *state = interplib_get_module_state(subtype);
-    if (!state)
-        return NULL;
-
-    const function_space_object *space;
-    PyObject *py_vals = NULL;
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!|O", (char *[]){"", "", NULL}, state->function_space_type, &space,
-                                     &py_vals))
-        return NULL;
-
-    unsigned total_dofs = 1;
-    const Py_ssize_t ndim = Py_SIZE(space);
+    Py_ssize_t total_dofs = 1;
     for (unsigned i = 0; i < ndim; ++i)
-        total_dofs *= space->specs[i].order + 1;
+        total_dofs *= basis_specs_in[i].order + 1;
 
     dof_object *const self = (dof_object *)subtype->tp_alloc(subtype, total_dofs);
     if (!self)
@@ -63,8 +53,39 @@ static PyObject *dof_new(PyTypeObject *subtype, PyObject *args, PyObject *kwds)
     self->basis_specs = basis_specs;
     for (unsigned i = 0; i < ndim; ++i)
     {
-        basis_specs[i] = space->specs[i];
+        basis_specs[i] = basis_specs_in[i];
     }
+
+    return self;
+}
+
+static PyObject *dof_new(PyTypeObject *subtype, PyObject *args, PyObject *kwds)
+{
+    const interplib_module_state_t *state = interplib_get_module_state(subtype);
+    if (!state)
+        return NULL;
+
+    const function_space_object *space;
+    PyObject *py_vals = NULL;
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!|O", (char *[]){"", "", NULL}, state->function_space_type, &space,
+                                     &py_vals))
+        return NULL;
+
+    const Py_ssize_t ndim = Py_SIZE(space);
+    const basis_spec_t *basis_specs_in = space->specs;
+    // dof_transforms.c indexes per-axis data with the dimension and the option
+    // storage asserts a range of [1, 63]; the space normally guarantees this.
+    if (ndim < 1 || ndim > 63)
+    {
+        PyErr_Format(PyExc_ValueError, "Expected ndim in [1, 63], got %zd.", ndim);
+        return NULL;
+    }
+    Py_ssize_t total_dofs = 1;
+    for (unsigned i = 0; i < ndim; ++i)
+        total_dofs *= basis_specs_in[i].order + 1;
+
+    dof_object *const self = dof_object_create(subtype, ndim, basis_specs_in);
+
     if (py_vals)
     {
         PyArrayObject *const vals =
@@ -74,7 +95,7 @@ static PyObject *dof_new(PyTypeObject *subtype, PyObject *args, PyObject *kwds)
             Py_DECREF(self);
             return NULL;
         }
-        if (array_has_shape(vals, ndim, basis_specs) == 0 && PyArray_SIZE(vals) != total_dofs)
+        if (array_has_shape(vals, ndim, basis_specs_in) == 0 && PyArray_SIZE(vals) != total_dofs)
         {
             PyErr_Format(PyExc_ValueError,
                          "Values must be given either as a flat array with the correct number of elements (%u) or with "
@@ -98,7 +119,7 @@ static PyObject *dof_new(PyTypeObject *subtype, PyObject *args, PyObject *kwds)
 }
 
 PyDoc_STRVAR(dof_docstring,
-             "DegreesOfFreedom(function_space : FunctionSpace, values : numpy.typing.ArrayLike | None = None)\n"
+             "DegreesOfFreedom(function_space: FunctionSpace, values: numpy.typing.ArrayLike | None = None)\n"
              "Degrees of freedom associated with a function space.\n"
              "\n"
              "Parameters\n"
@@ -192,8 +213,8 @@ static int dof_set_values(PyObject *self, PyObject *value, void *Py_UNUSED(closu
     if (array_has_shape(arr, this->n_dims, this->basis_specs) == 0 && PyArray_SIZE(arr) != Py_SIZE(self))
     {
         PyErr_Format(PyExc_ValueError,
-                     "Values must either be flat with %u elements or have exact correct %u-dimensional shape.",
-                     (unsigned)Py_SIZE(arr), this->n_dims);
+                     "Values must either be flat with %zd elements or have exact correct %u-dimensional shape.",
+                     Py_SIZE(self), this->n_dims);
         Py_DECREF(arr);
         return -1;
     }
@@ -208,7 +229,7 @@ static int dof_set_values(PyObject *self, PyObject *value, void *Py_UNUSED(closu
 PyDoc_STRVAR(dof_reconstruct_at_integration_points_docstring,
              "reconstruct_at_integration_points(integration_space: IntegrationSpace, integration_registry: "
              "IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY, basis_registry: BasisRegistry = "
-             "DEFAULT_BASIS_REGISTRY, *, out: numpy.typing.NDArray[numpy.double] | None = None, ) -> "
+             "DEFAULT_BASIS_REGISTRY, *, out: numpy.typing.NDArray[numpy.double] | None = None) -> "
              "numpy.typing.NDArray[numpy.double]\n"
              "Reconstruct the function at the integration points of the given space.\n"
              "\n"
@@ -230,17 +251,18 @@ PyDoc_STRVAR(dof_reconstruct_at_integration_points_docstring,
              "array\n"
              "    Array of reconstructed function values at the integration points.\n");
 
-int dof_reconstruction_state_init(const dof_object *this, const integration_space_object *integration_space,
+int dof_reconstruction_state_init(const dof_object *this, const unsigned ndim,
+                                  const integration_spec_t integration_specs[const static ndim],
                                   const integration_registry_object *python_integration_registry,
                                   const basis_registry_object *python_basis_registry,
                                   reconstruction_state_t *recon_state)
 {
-    multidim_iterator_t *const iter_int = integration_space_iterator(integration_space);
+    multidim_iterator_t *const iter_int = integration_specs_iterator(ndim, integration_specs);
     if (!iter_int)
     {
         return -1;
     }
-    const unsigned ndim = this->n_dims;
+    CUTL_ASSERT(ndim == this->n_dims, "Input ndim does not match the DoF ndim");
     multidim_iterator_t *const iter_basis = python_basis_iterator(ndim, this->basis_specs);
     if (!iter_basis)
     {
@@ -256,7 +278,7 @@ int dof_reconstruction_state_init(const dof_object *this, const integration_spac
             (integration_rule_registry_t *)python_integration_registry->registry;
         // Get integration rules
         const integration_rule_t **const integration_rules =
-            python_integration_rules_get(ndim, integration_space->specs, integration_registry);
+            python_integration_rules_get(ndim, integration_specs, integration_registry);
         if (!integration_rules)
         {
             PyMem_Free(iter_basis);
@@ -286,11 +308,11 @@ void dof_reconstruction_state_release(reconstruction_state_t *const recon_state,
     *recon_state = (reconstruction_state_t){};
 }
 
-static PyArrayObject *ensure_reconstruction_output(const dof_object *this,
-                                                   const integration_space_object *integration_space,
+static PyArrayObject *ensure_reconstruction_output(const dof_object *this, const unsigned ndim,
+                                                   const integration_spec_t integration_specs[const static ndim],
                                                    PyArrayObject *out_array)
 {
-    const unsigned ndim = this->n_dims;
+    CUTL_ASSERT(ndim == this->n_dims, "Input ndim does not match the DoF ndim");
     // Check or create output
     if (out_array)
     {
@@ -309,13 +331,12 @@ static PyArrayObject *ensure_reconstruction_output(const dof_object *this,
         }
         for (unsigned idim = 0; idim < ndim; ++idim)
         {
-            if (PyArray_DIM(out_array, (int)idim) != integration_space->specs[idim].order + 1)
+            if (PyArray_DIM(out_array, (int)idim) != integration_specs[idim].order + 1)
             {
                 PyErr_Format(PyExc_ValueError,
                              "Output array must have the exact same shape as the integration space, but dimension %u "
                              "did not match (integration space: %u, array: %u).",
-                             idim, integration_space->specs[idim].order + 1,
-                             (unsigned)PyArray_DIM(out_array, (int)idim));
+                             idim, integration_specs[idim].order + 1, (unsigned)PyArray_DIM(out_array, (int)idim));
                 return NULL;
             }
         }
@@ -331,7 +352,7 @@ static PyArrayObject *ensure_reconstruction_output(const dof_object *this,
             return NULL;
         }
         for (unsigned idim = 0; idim < ndim; ++idim)
-            p_dim_out[idim] = integration_space->specs[idim].order + 1;
+            p_dim_out[idim] = integration_specs[idim].order + 1;
         out_array = (PyArrayObject *)PyArray_SimpleNew(this->n_dims, p_dim_out, NPY_DOUBLE);
         PyMem_Free(p_dim_out);
         if (!out_array)
@@ -339,6 +360,38 @@ static PyArrayObject *ensure_reconstruction_output(const dof_object *this,
             return NULL;
         }
     }
+
+    return out_array;
+}
+
+static PyArrayObject *reconstruct_at_integration_points_impl(
+    const dof_object *this, const unsigned ndim, const integration_spec_t integration_specs[const static ndim],
+    const integration_registry_object *python_integration_registry, const basis_registry_object *python_basis_registry,
+    PyArrayObject *out_array, const unsigned n_dof)
+{
+    // Check or create output
+    if ((out_array = ensure_reconstruction_output(this, ndim, integration_specs, out_array)) == NULL)
+        return NULL;
+
+    reconstruction_state_t recon_state;
+    if (dof_reconstruction_state_init(this, ndim, integration_specs, python_integration_registry, python_basis_registry,
+                                      &recon_state) < 0)
+    {
+        Py_DECREF(out_array);
+        return NULL;
+    }
+
+    npy_double *const ptr = PyArray_DATA(out_array);
+    // Compute the values
+    CPYUTL_ASSERT(multidim_iterator_total_size(recon_state.iter_basis) == n_dof,
+                  "Basis iterator should have the same number of elements as there are DoFs (%zu vs %u)",
+                  multidim_iterator_total_size(recon_state.iter_basis), n_dof);
+
+    compute_integration_point_values(ndim, recon_state.iter_int, recon_state.iter_basis, recon_state.basis_sets,
+                                     PyArray_SIZE(out_array), ptr, n_dof, this->values);
+
+    // Free the iterator memory and release the basis sets
+    dof_reconstruction_state_release(&recon_state, python_basis_registry->registry, ndim, recon_state.basis_sets);
 
     return out_array;
 }
@@ -403,30 +456,8 @@ PyObject *dof_reconstruct_at_integration_points(PyObject *self, PyTypeObject *de
         return NULL;
     }
 
-    // Check or create output
-    if ((out_array = ensure_reconstruction_output(this, integration_space, out_array)) == NULL)
-        return NULL;
-
-    reconstruction_state_t recon_state;
-    if (dof_reconstruction_state_init(this, integration_space, python_integration_registry, python_basis_registry,
-                                      &recon_state) < 0)
-    {
-        Py_DECREF(out_array);
-        return NULL;
-    }
-
-    npy_double *const ptr = PyArray_DATA(out_array);
-    // Compute the values
-    CPYUTL_ASSERT(multidim_iterator_total_size(recon_state.iter_basis) == n_dof,
-                  "Basis iterator should have the same number of elements as there are DoFs (%zu vs %u)",
-                  multidim_iterator_total_size(recon_state.iter_basis), n_dof);
-
-    compute_integration_point_values(ndim, recon_state.iter_int, recon_state.iter_basis, recon_state.basis_sets,
-                                     PyArray_SIZE(out_array), ptr, n_dof, this->values);
-
-    // Free the iterator memory and release the basis sets
-    dof_reconstruction_state_release(&recon_state, python_basis_registry->registry, ndim, recon_state.basis_sets);
-    return (PyObject *)out_array;
+    return (PyObject *)reconstruct_at_integration_points_impl(
+        this, ndim, integration_space->specs, python_integration_registry, python_basis_registry, out_array, n_dof);
 }
 
 int *reconstruction_derivative_indices(const unsigned ndim, PyObject *py_indices)
@@ -512,7 +543,8 @@ int *reconstruction_derivative_indices(const unsigned ndim, PyObject *py_indices
 }
 
 PyDoc_STRVAR(dof_reconstruct_derivative_at_integration_points_docstring,
-             "reconstruct_derivative_at_integration_points(integration_space: IntegrationSpace, idim: Sequence[int], "
+             "reconstruct_derivative_at_integration_points(integration_space: IntegrationSpace, idim: int | "
+             "Sequence[int], "
              "integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY, basis_registry: BasisRegistry "
              "= DEFAULT_BASIS_REGISTRY, *, out: numpy.typing.NDArray[numpy.double] | None = None) -> "
              "numpy.typing.NDArray[numpy.double]\n"
@@ -522,9 +554,10 @@ PyDoc_STRVAR(dof_reconstruct_derivative_at_integration_points_docstring,
              "----------\n"
              "integration_space : IntegrationSpace\n"
              "    Integration space where the function derivative should be reconstructed.\n"
-             "idim : Sequence[int]\n"
-             "    Dimensions in which the derivative should be computed. All values\n"
-             "    should appear at most once.\n"
+             "idim : int or Sequence[int]\n"
+             "    Dimension in which the derivative should be computed, or the sequence of\n"
+             "    dimensions in which it should be computed. All values in a sequence should\n"
+             "    appear at most once.\n"
              "integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY\n"
              "    Registry used to retrieve the integration rules.\n"
              "basis_registry : BasisRegistry, default: DEFAULT_BASIS_REGISTRY\n"
@@ -607,7 +640,7 @@ PyObject *dof_reconstruct_derivative_at_integration_points(PyObject *self, PyTyp
     }
 
     // Check or create output
-    if ((out_array = ensure_reconstruction_output(this, integration_space, out_array)) == NULL)
+    if ((out_array = ensure_reconstruction_output(this, ndim, integration_space->specs, out_array)) == NULL)
         return NULL;
 
     int *const derivative_indices = reconstruction_derivative_indices(ndim, derivative_dimensions);
@@ -618,8 +651,8 @@ PyObject *dof_reconstruct_derivative_at_integration_points(PyObject *self, PyTyp
     }
 
     reconstruction_state_t recon_state;
-    if (dof_reconstruction_state_init(this, integration_space, python_integration_registry, python_basis_registry,
-                                      &recon_state) < 0)
+    if (dof_reconstruction_state_init(this, ndim, integration_space->specs, python_integration_registry,
+                                      python_basis_registry, &recon_state) < 0)
     {
         PyMem_Free(derivative_indices);
         Py_DECREF(out_array);
@@ -737,6 +770,340 @@ PyObject *dof_derivative(PyObject *self, PyTypeObject *defining_class, PyObject 
     return (PyObject *)new_dofs;
 }
 
+PyDoc_STRVAR(dof_at_boundary_docstring, "plane_projection(idim: int, x: float) -> DegreesOfFreedom\n"
+                                        "Compute the projection of degrees of freedom on a plane.\n"
+                                        "\n"
+                                        "Parameters\n"
+                                        "----------\n"
+                                        "idim : int\n"
+                                        "    Index of the dimension that is fixed.\n"
+                                        "\n"
+                                        "x : float\n"
+                                        "    Position of the plane in that dimension.\n"
+                                        "\n"
+                                        "Returns\n"
+                                        "-------\n"
+                                        "DegreesOfFreedom\n"
+                                        "    Degrees of freedom on the specified plane.\n");
+
+dof_object *dof_at_boundary_impl(const interplib_module_state_t *state, const dof_object *dofs, const unsigned idim,
+                                 const double value)
+{
+    const unsigned ndim = dofs->n_dims;
+    // The projected axis is the single fixed normal axis of the orientation; the surviving
+    // axes follow in ascending order. A negative fixed entry denotes the start of the axis.
+    int8_t orientation[UINT8_MAX];
+    orientation[0] = (int8_t)((idim + 1) * (value < 0.0 ? -1 : 1));
+    unsigned slot = 1;
+    for (unsigned axis = 0; axis < ndim; ++axis)
+    {
+        if (axis != idim)
+        {
+            orientation[slot] = (int8_t)(axis + 1);
+            ++slot;
+        }
+    }
+
+    // The boundary degrees of freedom keep the surviving axes in their element order.
+    basis_spec_t out_specs[UINT8_MAX];
+    for (unsigned axis = 0; axis < idim; ++axis)
+    {
+        out_specs[axis] = dofs->basis_specs[axis];
+    }
+    for (unsigned axis = idim + 1; axis < ndim; ++axis)
+    {
+        out_specs[axis - 1] = dofs->basis_specs[axis];
+    }
+
+    dof_object *const new_dofs = dof_object_create(state->degrees_of_freedom_type, ndim - 1, out_specs);
+    if (!new_dofs)
+    {
+        return NULL;
+    }
+
+    if (value == -1.0 || value == 1.0)
+    {
+        // Endpoint traces are dof selections or endpoint evaluations, shared with the
+        // boundary operations.
+        double *const work = PyMem_Malloc(boundary_dof_values_work_size(ndim, dofs->basis_specs) * sizeof(*work));
+        if (!work)
+        {
+            Py_DECREF(new_dofs);
+            PyErr_NoMemory();
+            return NULL;
+        }
+        boundary_dof_values(ndim, dofs->basis_specs, dofs->values, work, ndim - 1, orientation, new_dofs->values);
+        PyMem_Free(work);
+    }
+    else
+    {
+        // Interior planes evaluate every basis function of the axis at the plane value.
+        double *const work = PyMem_Malloc(dof_plane_values_work_size(ndim, dofs->basis_specs, idim) * sizeof(*work));
+        if (!work)
+        {
+            Py_DECREF(new_dofs);
+            PyErr_NoMemory();
+            return NULL;
+        }
+        dof_plane_values(ndim, dofs->basis_specs, dofs->values, work, idim, value, new_dofs->values);
+        PyMem_Free(work);
+    }
+    return new_dofs;
+}
+
+PyObject *dof_at_boundary(PyObject *self, PyTypeObject *defining_class, PyObject *const *args, const Py_ssize_t nargs,
+                          const PyObject *kwnames)
+{
+    const interplib_module_state_t *state;
+    const dof_object *this;
+    Py_ssize_t idim;
+    double value;
+    if (ensure_dof_and_state(self, defining_class, &state, (dof_object **)&this) < 0)
+        return NULL;
+
+    if (this->n_dims < 1)
+    {
+        PyErr_SetString(PyExc_ValueError, "Cannot project a zero-dimensional function onto a boundary.");
+        return NULL;
+    }
+
+    if (parse_arguments_check(
+            (cpyutl_argument_t[]){
+                {.type = CPYARG_TYPE_SSIZE, .p_val = &idim, .kwname = "idim"},
+                {.type = CPYARG_TYPE_DOUBLE, .p_val = &value, .kwname = "x"},
+                {},
+            },
+            args, nargs, kwnames) < 0)
+        return NULL;
+
+    if (idim < 0 || idim >= this->n_dims)
+    {
+        PyErr_Format(PyExc_ValueError, "Expected an index between 0 and %u, but got %zd.", this->n_dims - 1, idim);
+        return NULL;
+    }
+
+    return (PyObject *)dof_at_boundary_impl(state, this, (unsigned)idim, value);
+}
+
+PyDoc_STRVAR(dof_reverse_orientation_docstring,
+             ""
+             "reverse_orientation(idim: int) -> DegreesOfFreedom\n"
+             "Reverse the orientation of DoFs.\n"
+             "\n"
+             "Maps the domain of basis functions for dimension ``idim`` from :math:`[-1, +1]`\n"
+             "to :math:`[+1, -1]`.\n"
+             "\n"
+             "Parameters\n"
+             "----------\n"
+             "idim : int\n"
+             "    Index of the dimension on which the orientation should be reversed.\n"
+             "\n"
+             "Returns\n"
+             "-------\n"
+             "DegreesOfFreedom\n"
+             "    Degrees of freedom with reversed orientation on the specified dimension.\n");
+
+PyObject *dof_reverse_orientation(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
+                                  const Py_ssize_t nargs, const PyObject *kwnames)
+{
+    const interplib_module_state_t *state;
+    const dof_object *this;
+    Py_ssize_t idim;
+    if (ensure_dof_and_state(self, defining_class, &state, (dof_object **)&this) < 0)
+        return NULL;
+
+    if (parse_arguments_check(
+            (cpyutl_argument_t[]){
+                {.type = CPYARG_TYPE_SSIZE, .p_val = &idim, .kwname = "idim"},
+                {},
+            },
+            args, nargs, kwnames) < 0)
+        return NULL;
+
+    if (idim < 0 || idim >= this->n_dims)
+    {
+        PyErr_Format(PyExc_ValueError, "Expected an index between 0 and %u, but got %zd.", this->n_dims - 1, idim);
+        return NULL;
+    }
+
+    // Create a new DoF object with the same function space and all
+    dof_object *const new_dofs = dof_object_create(state->degrees_of_freedom_type, this->n_dims, this->basis_specs);
+    if (!new_dofs)
+        return NULL;
+
+    dof_reverse_orientation_values(this->n_dims, this->basis_specs, this->values, (unsigned)idim, new_dofs->values);
+    // Done
+    return (PyObject *)new_dofs;
+}
+
+PyDoc_STRVAR(
+    dof_lagrange_projection_docstring,
+    "lagrange_projection(orders: numpy.typing.ArrayLike | None = None, integration_registry: IntegrationRegistry = "
+    "DEFAULT_INTEGRATION_REGISTRY, basis_registry: BasisRegistry = DEFAULT_BASIS_REGISTRY) -> DegreesOfFreedom\n"
+    "Compute projection of degrees of freedom with Lagrange basis.\n"
+    "\n"
+    "Parameters\n"
+    "----------\n"
+    "orders : array_like\n"
+    "    Orders in each dimension. If nothing is given, then orders are taken to be\n"
+    "    same as needed to exactly represent the degrees of freedom.\n"
+    "\n"
+    "integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY\n"
+    "    Registry used to retrieve the integration rules.\n"
+    "\n"
+    "basis_registry : BasisRegistry, default: DEFAULT_BASIS_REGISTRY\n"
+    "    Registry used to retrieve the basis specifications.\n"
+    "\n"
+    "Returns\n"
+    "-------\n"
+    "DegreesOfFreedom\n"
+    "    Degrees of freedom using Lagrange basis of specified orders.\n");
+
+PyObject *dof_lagrange_projection(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
+                                  const Py_ssize_t nargs, const PyObject *kwnames)
+{
+    const interplib_module_state_t *state;
+    const dof_object *this;
+    if (ensure_dof_and_state(self, defining_class, &state, (dof_object **)&this) < 0)
+        return NULL;
+    // No keyword args
+    PyObject *py_orders = NULL;
+    integration_registry_object *py_int_registry = (integration_registry_object *)state->registry_integration;
+    basis_registry_object *py_basis_registry = (basis_registry_object *)state->registry_basis;
+    if (parse_arguments_check(
+            (cpyutl_argument_t[]){
+                {.type = CPYARG_TYPE_PYTHON, .p_val = &py_orders, .kwname = "orders", .optional = 1},
+                {
+                    .type = CPYARG_TYPE_PYTHON,
+                    .p_val = &py_int_registry,
+                    .type_check = state->integration_registry_type,
+                    .kwname = "integration_registry",
+                    .optional = 1,
+                },
+                {
+                    .type = CPYARG_TYPE_PYTHON,
+                    .p_val = &py_basis_registry,
+                    .type_check = state->basis_registry_type,
+                    .kwname = "basis_registry",
+                    .optional = 1,
+                },
+                {},
+            },
+            args, nargs, kwnames) < 0)
+        return NULL;
+    // Null is the same as nothing
+    if (Py_IsNone(py_orders))
+        py_orders = NULL;
+
+    integration_spec_t *target_int_specs;
+    basis_spec_t *target_basis_specs;
+    npy_intp *target_shape;
+    void *const mem = cutl_alloc_group(
+        &PYTHON_ALLOCATOR,
+        (const cutl_alloc_info_t[]){
+            {.size = sizeof(*target_int_specs) * this->n_dims, .p_ptr = (void **)&target_int_specs},
+            {.size = sizeof(*target_basis_specs) * this->n_dims, .p_ptr = (void **)&target_basis_specs},
+            {.size = sizeof(*target_shape) * this->n_dims, .p_ptr = (void **)&target_shape},
+            {},
+        });
+    if (!mem)
+        return NULL;
+
+    if (py_orders == NULL)
+    {
+        // Copy orders from these DoFs
+        for (unsigned i = 0; i < this->n_dims; ++i)
+        {
+            target_int_specs[i].order = this->basis_specs[i].order;
+        }
+    }
+    else
+    {
+        PyObject *py_seq = PySequence_Fast(py_orders, "Expected a sequence of orders.");
+        if (!py_seq)
+        {
+            cutl_dealloc(&PYTHON_ALLOCATOR, mem);
+            return NULL;
+        }
+        if (PySequence_Fast_GET_SIZE(py_seq) != this->n_dims)
+        {
+            Py_DECREF(py_seq);
+            PyErr_Format(PyExc_ValueError, "Expected a sequence of orders of length %u, but got %zd.", this->n_dims,
+                         PySequence_Fast_GET_SIZE(py_seq));
+            cutl_dealloc(&PYTHON_ALLOCATOR, mem);
+            return NULL;
+        }
+        // Get orders from the arguments
+        for (unsigned i = 0; i < this->n_dims; ++i)
+        {
+            PyObject *value = PySequence_Fast_GET_ITEM(py_seq, i);
+            if (!PyNumber_Check(value))
+            {
+                Py_DECREF(py_seq);
+                PyErr_Format(PyExc_TypeError, "Expected a number, but got %s as argument %u.", Py_TYPE(value)->tp_name,
+                             i);
+                cutl_dealloc(&PYTHON_ALLOCATOR, mem);
+                return NULL;
+            }
+            const Py_ssize_t order = PyNumber_AsSsize_t(value, PyExc_OverflowError);
+            if (order < 0)
+            {
+                Py_DECREF(py_seq);
+                PyErr_Format(PyExc_TypeError, "Expected a positive number, but got %R as argument %u.", value, i);
+                cutl_dealloc(&PYTHON_ALLOCATOR, mem);
+                return NULL;
+            }
+            target_int_specs[i].order = order;
+        }
+        Py_DECREF(py_seq);
+    }
+
+    // Set the type as GLG and fill out the target shape
+    Py_ssize_t total_dofs_in = 1;
+    for (unsigned i = 0; i < this->n_dims; ++i)
+    {
+        target_int_specs[i].type = INTEGRATION_RULE_TYPE_GAUSS_LOBATTO;
+        target_basis_specs[i].type = BASIS_LAGRANGE_GAUSS_LOBATTO;
+        target_basis_specs[i].order = target_int_specs[i].order;
+        target_shape[i] = target_int_specs[i].order + 1;
+        total_dofs_in *= this->basis_specs[i].order + 1;
+    }
+
+    // Create output DoFs
+    dof_object *const new_dofs = dof_object_create(state->degrees_of_freedom_type, this->n_dims, target_basis_specs);
+    if (!new_dofs)
+    {
+        cutl_dealloc(&PYTHON_ALLOCATOR, mem);
+        return NULL;
+    }
+
+    // Create a numpy array wrapper around the new DoFs object
+    PyArrayObject *const new_dofs_array =
+        (PyArrayObject *)PyArray_SimpleNewFromData(new_dofs->n_dims, target_shape, NPY_DOUBLE, new_dofs->values);
+    if (!new_dofs_array)
+    {
+        Py_DECREF(new_dofs);
+        cutl_dealloc(&PYTHON_ALLOCATOR, mem);
+        return NULL;
+    }
+
+    // Call the method to evaluate the values of current DoFs at integration points
+    PyArrayObject *const values = reconstruct_at_integration_points_impl(
+        this, this->n_dims, target_int_specs, py_int_registry, py_basis_registry, new_dofs_array, total_dofs_in);
+
+    Py_XDECREF(values);
+    Py_DECREF(new_dofs_array);
+    cutl_dealloc(&PYTHON_ALLOCATOR, mem);
+
+    if (!values)
+    {
+        Py_DECREF(new_dofs);
+        return NULL;
+    }
+
+    return (PyObject *)new_dofs;
+}
+
 static void dof_dealloc(dof_object *self)
 {
     PyObject_GC_UnTrack(self);
@@ -777,7 +1144,13 @@ PyType_Spec degrees_of_freedom_type_spec = {
                  .name = "values",
                  .get = dof_get_values,
                  .set = dof_set_values,
-                 .doc = "numpy.typing.NDArray[numpy.double] : Values of the degrees of freedom.",
+                 .doc = "numpy.typing.NDArray[numpy.double] : Coefficient values of the degrees of freedom.\n"
+                        "\n"
+                        "These are the expansion coefficients of the discrete function, not\n"
+                        "sampled function values. Do not confuse them with\n"
+                        ":attr:`CoordinateMap.values`, which holds the mapped coordinates\n"
+                        "evaluated at the integration points of the map's own integration\n"
+                        "space.\n",
              },
              {},
          }},
@@ -786,7 +1159,7 @@ PyType_Spec degrees_of_freedom_type_spec = {
              {
                  .ml_name = "reconstruct_at_integration_points",
                  .ml_meth = (void *)dof_reconstruct_at_integration_points,
-                 .ml_flags = METH_FASTCALL | METH_KEYWORDS | METH_METHOD,
+                 .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
                  .ml_doc = (void *)dof_reconstruct_at_integration_points_docstring,
              },
              {
@@ -800,6 +1173,24 @@ PyType_Spec degrees_of_freedom_type_spec = {
                  .ml_meth = (void *)dof_derivative,
                  .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
                  .ml_doc = dof_derivative_docstring,
+             },
+             {
+                 .ml_name = "plane_projection",
+                 .ml_meth = (void *)dof_at_boundary,
+                 .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
+                 .ml_doc = dof_at_boundary_docstring,
+             },
+             {
+                 .ml_name = "reverse_orientation",
+                 .ml_meth = (void *)dof_reverse_orientation,
+                 .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
+                 .ml_doc = dof_reverse_orientation_docstring,
+             },
+             {
+                 .ml_name = "lagrange_projection",
+                 .ml_meth = (void *)dof_lagrange_projection,
+                 .ml_flags = METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
+                 .ml_doc = dof_lagrange_projection_docstring,
              },
              {},
          }},

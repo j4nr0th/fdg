@@ -35,3 +35,4 @@ dmypy.json
 
 # Custom
 sandbox/
+build-asan/

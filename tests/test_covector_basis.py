@@ -53,6 +53,15 @@ def test_nd(n: int):
                         assert (b1 != b2) == (v1 != v2)
 
 
+def test_zero_dimension_is_rejected():
+    """A zero dimension would abort in the C core, which asserts a positive dimension."""
+    with pytest.raises(ValueError, match="dimensions in range"):
+        CovectorBasis(0)
+    with pytest.raises(ValueError, match="dimensions in range"):
+        CovectorBasis(-1)
+
+
 if __name__ == "__main__":
     test_1d()
     test_nd(3)
+    test_zero_dimension_is_rejected()

@@ -1,61 +1,169 @@
-set(TEST_COMMON_FILES
+add_library(test_common STATIC
         common/common.h
         common/common.c
 )
+target_link_libraries(test_common PUBLIC fdg m)
 
 # INTEGRATION TESTS
 
-add_executable(test_gll integration/test_gll.c ${TEST_COMMON_FILES})
-target_link_libraries(test_gll PRIVATE interp m)
+add_executable(test_gll integration/test_gll.c)
+target_link_libraries(test_gll PRIVATE test_common)
 add_test(NAME gauss-legendre-lobato COMMAND test_gll)
 
-add_executable(test_glg integration/test_glg.c ${TEST_COMMON_FILES})
-target_link_libraries(test_glg PRIVATE interp m)
+add_executable(test_glg integration/test_glg.c)
+target_link_libraries(test_glg PRIVATE test_common)
 add_test(NAME gauss-legendre COMMAND test_glg)
 
-add_executable(test_int_rule_registry integration/test_int_rule_registry.c ${TEST_COMMON_FILES})
-target_link_libraries(test_int_rule_registry PRIVATE interp m)
+add_executable(test_int_rule_registry integration/test_int_rule_registry.c)
+target_link_libraries(test_int_rule_registry PRIVATE test_common)
 add_test(NAME int_rule_registry COMMAND test_int_rule_registry)
 
 # BASIS TESTS
 
-add_executable(test_basis_set_registry basis/test_basis_set_registry.c ${TEST_COMMON_FILES})
-target_link_libraries(test_basis_set_registry PRIVATE interp m)
+add_executable(test_basis_set_registry basis/test_basis_set_registry.c)
+target_link_libraries(test_basis_set_registry PRIVATE test_common)
 add_test(NAME basis_set_registry COMMAND test_basis_set_registry)
+
+add_executable(test_covector_basis basis/test_covector_basis.c)
+target_link_libraries(test_covector_basis PRIVATE test_common)
+add_test(NAME covector_basis COMMAND test_covector_basis)
+
+add_executable(test_outer_product_pair_iterator basis/test_outer_product_pair_iterator.c)
+target_link_libraries(test_outer_product_pair_iterator PRIVATE test_common)
+add_test(NAME outer_product_pair_iterator COMMAND test_outer_product_pair_iterator)
 
 # COMMON TESTS
 
-add_executable(test_rw_lock common/test_rw_lock.c ${TEST_COMMON_FILES})
-target_link_libraries(test_rw_lock PRIVATE interp)
+add_executable(test_rw_lock common/test_rw_lock.c)
+target_link_libraries(test_rw_lock PRIVATE test_common)
 add_test(NAME rw_lock COMMAND test_rw_lock)
+
+add_executable(test_multidim_iteration common/test_multidim_iteration.c)
+target_link_libraries(test_multidim_iteration PRIVATE test_common)
+add_test(NAME multidim_iteration COMMAND test_multidim_iteration)
 
 # POLYNOMIAL TESTS
 
-add_executable(test_lagrange_transpose polynomials/test_lagrange_transpose.c ${TEST_COMMON_FILES})
-target_link_libraries(test_lagrange_transpose PRIVATE interp m)
+add_executable(test_lagrange_transpose polynomials/test_lagrange_transpose.c)
+target_link_libraries(test_lagrange_transpose PRIVATE test_common)
 add_test(NAME lagrange_transpose COMMAND test_lagrange_transpose)
 
-add_executable(test_lagrange_derivative_transpose polynomials/test_lagrange_derivative_transpose.c ${TEST_COMMON_FILES})
-target_link_libraries(test_lagrange_derivative_transpose PRIVATE interp m)
+add_executable(test_lagrange_derivative_transpose polynomials/test_lagrange_derivative_transpose.c)
+target_link_libraries(test_lagrange_derivative_transpose PRIVATE test_common)
 add_test(NAME lagrange_derivative_transpose COMMAND test_lagrange_derivative_transpose)
 
 # OPERATION TESTS
+
+## QR Decompositions
 add_executable(test_qr_decomposition operations/test_qr_decomposition.c)
-target_link_libraries(test_qr_decomposition PRIVATE interp m)
+target_link_libraries(test_qr_decomposition PRIVATE test_common)
 add_test(NAME qr_decomposition COMMAND test_qr_decomposition)
 
-add_executable(test_back_substitute operations/test_back_substitute.c)
-target_link_libraries(test_back_substitute PRIVATE interp m)
-add_test(NAME back_substitute COMMAND test_back_substitute)
-
 add_executable(test_qr_decomposition_2 operations/test_qr_decomposition_2.c)
-target_link_libraries(test_qr_decomposition_2 PRIVATE interp m)
+target_link_libraries(test_qr_decomposition_2 PRIVATE test_common)
 add_test(NAME qr_decomposition_2 COMMAND test_qr_decomposition_2)
 
 add_executable(test_qr_decomposition_3 operations/test_qr_decomposition_3.c)
-target_link_libraries(test_qr_decomposition_3 PRIVATE interp m)
+target_link_libraries(test_qr_decomposition_3 PRIVATE test_common)
 add_test(NAME qr_decomposition_3 COMMAND test_qr_decomposition_3)
 
-add_executable(test_covector_basis basis/test_covector_basis.c)
-target_link_libraries(test_covector_basis PRIVATE interp m)
-add_test(NAME covector_basis COMMAND test_covector_basis)
+add_executable(test_back_substitute operations/test_back_substitute.c)
+target_link_libraries(test_back_substitute PRIVATE test_common)
+add_test(NAME back_substitute COMMAND test_back_substitute)
+
+## Boundary scaling
+add_executable(test_boundary_scaling operations/test_boundary_scaling.c)
+target_link_libraries(test_boundary_scaling PRIVATE test_common)
+add_test(NAME boundary_scaling COMMAND test_boundary_scaling)
+
+## Boundary dof values
+add_executable(test_boundary_dof_values operations/test_boundary_dof_values.c)
+target_link_libraries(test_boundary_dof_values PRIVATE test_common)
+add_test(NAME boundary_dof_values COMMAND test_boundary_dof_values)
+
+## Boundary integration point values
+add_executable(test_boundary_integration_point_values operations/test_boundary_integration_point_values.c)
+target_link_libraries(test_boundary_integration_point_values PRIVATE test_common)
+add_test(NAME boundary_integration_point_values COMMAND test_boundary_integration_point_values)
+
+## Boundary dof indices
+add_executable(test_boundary_dof_indices operations/test_boundary_dof_indices.c)
+target_link_libraries(test_boundary_dof_indices PRIVATE test_common)
+add_test(NAME boundary_dof_indices COMMAND test_boundary_dof_indices)
+
+## Dof transforms
+add_executable(test_dof_transforms operations/test_dof_transforms.c)
+target_link_libraries(test_dof_transforms PRIVATE test_common)
+add_test(NAME dof_transforms COMMAND test_dof_transforms)
+
+## Topological
+add_library(test_topo_common STATIC topology/topo_common.c)
+target_link_libraries(test_topo_common PUBLIC test_common)
+
+add_executable(test_topo topology/test_topo.c)
+target_link_libraries(test_topo PRIVATE test_topo_common)
+add_test(NAME topo_base COMMAND test_topo)
+
+add_executable(test_topo_1d topology/test_topo_1d.c)
+target_link_libraries(test_topo_1d PRIVATE test_topo_common)
+add_test(NAME topo_1d COMMAND test_topo_1d)
+
+add_executable(test_topo_2d topology/test_topo_2d.c)
+target_link_libraries(test_topo_2d PRIVATE test_topo_common)
+add_test(NAME topo_2d COMMAND test_topo_2d)
+
+add_executable(test_topo_3d_boundary topology/test_topo_3d_boundary.c)
+target_link_libraries(test_topo_3d_boundary PRIVATE test_topo_common)
+add_test(NAME topo_3d_boundary COMMAND test_topo_3d_boundary)
+
+add_executable(test_topo_iteration topology/test_topo_iteration.c)
+target_link_libraries(test_topo_iteration PRIVATE test_topo_common)
+add_test(NAME topo_iteration COMMAND test_topo_iteration)
+
+add_executable(test_topo_lookup topology/test_topo_lookup.c)
+target_link_libraries(test_topo_lookup PRIVATE test_topo_common)
+add_test(NAME topo_lookup COMMAND test_topo_lookup)
+
+add_executable(test_topo_general topology/test_topo_general.c)
+target_link_libraries(test_topo_general PRIVATE test_topo_common)
+add_test(NAME topo_general COMMAND test_topo_general)
+
+add_executable(test_mesh topology/test_mesh.c)
+target_link_libraries(test_mesh PRIVATE test_common)
+add_test(NAME mesh COMMAND test_mesh)
+
+add_executable(test_topo_rotated_corners topology/test_topo_rotated_corners.c)
+target_link_libraries(test_topo_rotated_corners PRIVATE test_topo_common)
+add_test(NAME topo_rotated_corners COMMAND test_topo_rotated_corners)
+
+add_executable(test_constraints operations/test_constraints.c)
+target_link_libraries(test_constraints PRIVATE test_common)
+add_test(NAME constraints COMMAND test_constraints)
+
+add_executable(test_direct_continuity constraints/test_direct_continuity.c)
+target_link_libraries(test_direct_continuity PRIVATE test_common)
+add_test(NAME direct_continuity COMMAND test_direct_continuity)
+
+## Boundary space map resample
+add_executable(test_boundary_space_map_resample operations/test_boundary_space_map_resample.c)
+target_link_libraries(test_boundary_space_map_resample PRIVATE test_common)
+add_test(NAME boundary_space_map_resample COMMAND test_boundary_space_map_resample)
+
+add_executable(bench_boundary_mass operations/bench_boundary_mass.c)
+target_link_libraries(bench_boundary_mass PRIVATE test_common)
+
+add_executable(test_element_data data/test_element_data.c)
+target_link_libraries(test_element_data PRIVATE test_common)
+add_test(NAME element_data COMMAND test_element_data)
+
+add_executable(test_element_dofs data/test_element_dofs.c)
+target_link_libraries(test_element_dofs PRIVATE test_common)
+add_test(NAME element_dofs COMMAND test_element_dofs)
+
+add_executable(test_element_kforms data/test_element_kforms.c)
+target_link_libraries(test_element_kforms PRIVATE test_common)
+add_test(NAME element_kforms COMMAND test_element_kforms)
+
+add_executable(test_mesh_kform_specs data/test_mesh_kform_specs.c)
+target_link_libraries(test_mesh_kform_specs PRIVATE test_common)
+add_test(NAME mesh_kform_specs COMMAND test_mesh_kform_specs)

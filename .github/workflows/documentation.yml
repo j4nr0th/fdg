@@ -9,18 +9,24 @@ jobs:
   docs:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
           cache: pip
+      - uses: awalsh128/cache-apt-pkgs-action@v1.5.0
+        with:
+          packages: libosmesa6-dev libgl1-mesa-dev
+          version: 3.0
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
       - name: Install the extension
-        run: pip install --group dev --group docs .
+        run: uv sync --group docs
       - name: Build the docs
-        run: |
-          sphinx-build doc _build
+        run: uv run sphinx-build doc _build
       - name: Deploy
         uses: peaceiris/actions-gh-pages@v4
         with:

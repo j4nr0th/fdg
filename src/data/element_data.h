@@ -1,0 +1,246 @@
+#ifndef FDG_ELEMENT_DATA_H
+#define FDG_ELEMENT_DATA_H
+
+#include "../basis/basis_set.h"
+#include "../basis/covector_basis.h"
+#include "../common/error.h"
+#include "../integration/integration_rules.h"
+#include <cutl/allocators.h>
+#include <stdint.h>
+
+/**
+ * @brief Kind of per-element data stored in an element data collection.
+ *
+ * The kind is fixed by the first added option and shared by every element
+ * of the collection.
+ */
+typedef enum
+{
+    ELEMENT_DATA_KIND_INVALID = 0, // No option has been added yet.
+    ELEMENT_DATA_KIND_DOF,         // Plain DoFs of a single function space.
+} element_data_kind_t;
+
+/**
+ * @brief One entry of the options table: a distinct data specification.
+ *
+ * All variants share the number of reference dimensions and the specs of
+ * the underlying function space; a kind-specific payload may extend this
+ * in the future.
+ *
+ * The specs are deep copies owned by the collection; @p value_count is
+ * filled in by element_data_add_option and must be zero when the caller
+ * passes the option in.
+ */
+typedef struct
+{
+    element_data_kind_t kind;  // Which payload variant is active.
+    unsigned ndim;             // Number of reference dimensions.
+    basis_spec_t *basis_specs; // [ndim] Specs of the underlying function space.
+    size_t value_count;        // Number of doubles stored per element; set by add_option.
+} element_data_option_t;
+
+/**
+ * Opaque collection of per-element data.
+ *
+ * Elements reference one option each through an index into a small options
+ * table, and their values are stored back to back in one flat array, with
+ * a CSR-style offsets array marking where each element's block starts.
+ */
+typedef struct element_data_t element_data_t;
+
+/**
+ * @brief Create an empty element data collection.
+ *
+ * @param out Receives the pointer to the new collection on success.
+ * @param allocator Allocator used for all memory of the collection,
+ *        including the collection object itself.
+ * @return FDG_SUCCESS on success, FDG_ERROR_FAILED_ALLOCATION if memory
+ *         allocation fails. On failure, `*out` is left unmodified.
+ *
+ * The caller owns the collection and must release it with
+ * element_data_free.
+ */
+FDG_INTERNAL
+fdg_result_t element_data_create(element_data_t **out, const cutl_allocator_t *allocator);
+
+/**
+ * @brief Release an element data collection and all memory it owns.
+ *
+ * @param data Collection to release; may be NULL, in which case nothing
+ *        happens.
+ * @param allocator The allocator the collection was created with.
+ */
+FDG_INTERNAL
+void element_data_free(element_data_t *data, const cutl_allocator_t *allocator);
+
+/**
+ * @brief Add an option to the options table, or look up an equal one.
+ *
+ * The option's specs are deep copied. If an option with equal kind, payload
+ * and specification values is already present, its index is returned and
+ * nothing is added.
+ *
+ * The first added option fixes the kind and the number of reference
+ * dimensions for the whole collection. An option that disagrees with either
+ * of these is rejected with FDG_ERROR_NOT_IN_DOMAIN; this is the one input
+ * rule that stays a recoverable error, because callers may legitimately try
+ * per-element options against a collection and need a report instead of an
+ * abort.
+ *
+ * On success the option's @p value_count field is set to the number of
+ * doubles that elements referencing this option must provide.
+ *
+ * The arguments are preconditions, not values to validate: an option with
+ * kind ELEMENT_DATA_KIND_INVALID, a dimension outside [1, 63], a null basis
+ * spec array, or a basis spec whose family is invalid aborts through
+ * CUTL_ASSERT. A caller that handles untrusted input must check these
+ * conditions itself and report them instead of relying on this
+ * function.
+ *
+ * @param data Collection to add the option to.
+ * @param option Option to add; only read, never stored.
+ * @param out_index Receives the index of the (possibly existing) equal
+ *        option on success.
+ * @return FDG_SUCCESS on success, FDG_ERROR_NOT_IN_DOMAIN if the option
+ *         disagrees with the kind or dimension fixed by the first option,
+ *         FDG_ERROR_FAILED_ALLOCATION if memory allocation fails. On
+ *         failure, `*out_index` is left unmodified.
+ */
+FDG_INTERNAL
+fdg_result_t element_data_add_option(element_data_t *data, const element_data_option_t *option, unsigned *out_index);
+
+/**
+ * @brief Append one element with the data of the given option.
+ *
+ * The arguments are preconditions, not values to validate: an option index
+ * outside [0, element_data_option_count(data)) or a value count different
+ * from element_data_option_value_count of the referenced option abort
+ * through CUTL_ASSERT. A caller that handles untrusted input must check
+ * these conditions itself and report them instead of relying on this
+ * function.
+ *
+ * @param data Collection to append to.
+ * @param option_index Index into the options table, in
+ *        [0, element_data_option_count(data)).
+ * @param values Value block of the element; the layout is determined by
+ *        the kind: flat DoFs for the DOF kind.
+ * @param count Number of doubles in @p values; must equal
+ *        element_data_option_value_count of the referenced option.
+ * @return FDG_SUCCESS on success, FDG_ERROR_FAILED_ALLOCATION if memory
+ *         allocation fails.
+ */
+FDG_INTERNAL
+fdg_result_t element_data_add_element(element_data_t *data, unsigned option_index, const double values[], size_t count);
+
+/**
+ * @brief Overwrite the value block of one existing element.
+ *
+ * The arguments are preconditions, not values to validate: an element id
+ * outside [0, element_data_element_count(data)) or a count different from
+ * the element's block size abort through CUTL_ASSERT. A caller that handles
+ * untrusted input must check these conditions itself and report them instead
+ * of relying on this function.
+ *
+ * @param data Collection to modify.
+ * @param element_id Element to overwrite, in
+ *        [0, element_data_element_count(data)).
+ * @param values New value block, copied over the element's old block.
+ * @param count Number of doubles in @p values; must equal the block size
+ *        of the element.
+ */
+FDG_INTERNAL
+void element_data_set_element_values(element_data_t *data, uint64_t element_id, const double values[], size_t count);
+
+/**
+ * @brief Get the kind of data stored in the collection.
+ *
+ * @param data Collection to query.
+ * @return The kind fixed by the first added option, or
+ *         ELEMENT_DATA_KIND_INVALID while the collection is empty.
+ */
+FDG_INTERNAL
+element_data_kind_t element_data_kind(const element_data_t *data);
+
+/**
+ * @brief Get the number of elements in the collection.
+ *
+ * @param data Collection to query.
+ * @return Number of appended elements.
+ */
+FDG_INTERNAL
+uint64_t element_data_element_count(const element_data_t *data);
+
+/**
+ * @brief Get the number of options in the options table.
+ *
+ * @param data Collection to query.
+ * @return Number of distinct options.
+ */
+FDG_INTERNAL
+unsigned element_data_option_count(const element_data_t *data);
+
+/**
+ * @brief Get one option of the options table.
+ *
+ * The arguments are preconditions, not values to validate: an index outside
+ * [0, element_data_option_count(data)) aborts through CUTL_ASSERT. A caller
+ * that handles untrusted input must check this condition itself and report
+ * it instead of relying on this function.
+ *
+ * @param data Collection to query.
+ * @param index Option index, in [0, element_data_option_count(data)).
+ * @return Pointer to the option, owned by the collection.
+ */
+FDG_INTERNAL
+const element_data_option_t *element_data_option(const element_data_t *data, unsigned index);
+
+/**
+ * @brief Get the number of doubles stored per element of an option.
+ *
+ * @param option Option to query.
+ * @return Number of doubles elements referencing this option store.
+ */
+FDG_INTERNAL
+size_t element_data_option_value_count(const element_data_option_t *option);
+
+/**
+ * @brief Get the per-element option indices.
+ *
+ * @param data Collection to query.
+ * @return Array of element_data_element_count(data) indices, owned by the
+ *         collection.
+ */
+FDG_INTERNAL
+const uint32_t *element_data_element_options(const element_data_t *data);
+
+/**
+ * @brief Get the CSR offsets of the per-element value blocks.
+ *
+ * @param data Collection to query.
+ * @return Array of element_data_element_count(data) + 1 offsets; block of
+ *         element `e` is `[offsets[e], offsets[e + 1])`. Owned by the
+ *         collection.
+ */
+FDG_INTERNAL
+const uint64_t *element_data_offsets(const element_data_t *data);
+
+/**
+ * @brief Get the flat array of all element values.
+ *
+ * @param data Collection to query.
+ * @return Array of element_data_value_count(data) doubles, owned by the
+ *         collection.
+ */
+FDG_INTERNAL
+double *element_data_values(element_data_t *data);
+
+/**
+ * @brief Get the total number of stored doubles.
+ *
+ * @param data Collection to query.
+ * @return Number of doubles in the flat values array.
+ */
+FDG_INTERNAL
+size_t element_data_value_count(const element_data_t *data);
+
+#endif // FDG_ELEMENT_DATA_H

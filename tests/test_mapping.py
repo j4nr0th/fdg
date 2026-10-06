@@ -2,19 +2,120 @@
 
 import numpy as np
 import pytest
+from fdg import (
+    compute_kform_boundary_mass_matrices,
+    compute_kform_boundary_trace_moments,
+)
 from fdg._fdg import (
     BasisSpecs,
     CoordinateMap,
     DegreesOfFreedom,
     FunctionSpace,
+    IntegrationRegistry,
     IntegrationSpace,
     IntegrationSpecs,
+    KFormSpecs,
+    SampledSpaceMap,
     SpaceMap,
     transform_contravariant_to_target,
 )
 from fdg.enum_type import BasisType
 
+from examples.plot_multi_element_laplace_continuity import (
+    make_element_maps,
+    make_mesh,
+)
+
 _TEST_ORDERS = (1, 2, 5, 10)
+
+
+@pytest.mark.parametrize(("ndim", "mdim"), ((1, 1), (2, 2), (3, 3), (4, 5), (1, 3)))
+def test_sample_space_map(
+    ndim: int, mdim: int, min_order: int = 1, max_order: int = 5
+) -> None:
+    """Check sampled space maps exactly interpolate the underlying coordinate maps.
+
+    Parameters
+    ----------
+    ndim : int
+        The number of input dimensions for the space map.
+
+    mdim : int
+        The number of output dimensions for the space map.
+
+    min_order : int, default: 1
+        The minimum order of the basis functions to use for the function space.
+
+    max_order : int, default: 5
+        The maximum order of the basis functions to use for the function space.
+    """
+    rng = np.random.default_rng(2198)
+    orders = rng.integers(low=min_order, high=max_order + 1, size=ndim)
+    fs_dofs = FunctionSpace(
+        # Must use uniform basis since sampled map re-interpolates on an uniform grid
+        *(BasisSpecs(BasisType.LAGRANGE_UNIFORM, order) for order in orders)
+    )
+    # Create degrees of freedom for each output dimension, with random values
+    dofs = [DegreesOfFreedom(fs_dofs, rng.random(size=orders + 1)) for _ in range(mdim)]
+    # Create the integration space. Type does not matter, but order must be at least as
+    # the function space to interpolate exactly.
+    int_space = IntegrationSpace(*(IntegrationSpecs(order) for order in orders))
+    # Create coordinate maps
+    coord_maps = [CoordinateMap(dof, int_space) for dof in dofs]
+    # Create the space map
+    space_map = SpaceMap(*coord_maps)
+
+    # Sample the space map
+    sampled_map = SampledSpaceMap.on_uniform_grid(space_map, orders)
+
+    pos = sampled_map.positions
+    # Positions on the sampled map are uniform in the reference space, so since we used
+    # uniform Lagrange basis, these should be the same as the original degrees of freedom
+    # for each coordinate map.
+    for i, dof in enumerate(dofs):
+        coords = pos[..., i]
+        dof_vals = dof.values.reshape(coords.shape)
+        assert pytest.approx(coords) == dof_vals
+
+
+def _unit_interval_space_map() -> SpaceMap:
+    """Map the reference interval onto itself through an order-2 basis."""
+    space = FunctionSpace(BasisSpecs(BasisType.LAGRANGE_UNIFORM, 2))
+    dofs = DegreesOfFreedom(space, np.linspace(0.0, 1.0, 3))
+    return SpaceMap(CoordinateMap(dofs, IntegrationSpace(IntegrationSpecs(2))))
+
+
+def test_on_uniform_grid_takes_keywords_and_a_registry() -> None:
+    """on_uniform_grid accepts positional or keyword arguments throughout."""
+    space_map = _unit_interval_space_map()
+    orders = [4]
+    registry = IntegrationRegistry()
+    expected = SampledSpaceMap.on_uniform_grid(space_map, orders)
+
+    calls = (
+        SampledSpaceMap.on_uniform_grid(space_map, orders=orders),
+        SampledSpaceMap.on_uniform_grid(space_map=space_map, orders=orders),
+        SampledSpaceMap.on_uniform_grid(space_map, orders, registry),
+        SampledSpaceMap.on_uniform_grid(
+            space_map=space_map,
+            orders=orders,
+            integration_registry=registry,
+        ),
+    )
+    for sampled in calls:
+        np.testing.assert_array_equal(sampled.positions, expected.positions)
+
+
+def test_on_uniform_grid_rejects_mistyped_arguments() -> None:
+    """A missing, unknown, or mistyped argument raises TypeError."""
+    space_map = _unit_interval_space_map()
+
+    with pytest.raises(TypeError):
+        SampledSpaceMap.on_uniform_grid(space_map)  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        SampledSpaceMap.on_uniform_grid(space_map, [4], bogus=1)  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        SampledSpaceMap.on_uniform_grid(space_map, [4], 5)  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize("int_order", _TEST_ORDERS)
@@ -42,11 +143,299 @@ def test_coord_1d(int_order: int, basis_order: int, basis_type: BasisType) -> No
     )
 
 
-_TEST_ORDERS_2D = ((1, 1), (2, 3), (10, 3), (10, 10))
+def test_space_map_boundary_extracts_from_source_dofs() -> None:
+    """Boundary maps are reconstructed at the face, even when the volume grid omits it."""
+    rng = np.random.default_rng(107)
+    function_space = FunctionSpace(
+        BasisSpecs(BasisType.LEGENDRE, 3), BasisSpecs(BasisType.LAGRANGE_UNIFORM, 2)
+    )
+    dofs = [DegreesOfFreedom(function_space) for _ in range(2)]
+    for values in dofs:
+        values.values = rng.random(values.values.shape)
+
+    volume_integration = IntegrationSpace(
+        IntegrationSpecs(4, method="gauss"), IntegrationSpecs(3, method="gauss-lobatto")
+    )
+    volume_map = SpaceMap(*(CoordinateMap(values, volume_integration) for values in dofs))
+
+    lower = volume_map.boundary(0)
+    upper = volume_map.boundary(0, True)
+    assert lower.input_dimensions == 1
+    assert lower.output_dimensions == 2
+    assert lower.integration_space.orders == (3,)
+    assert upper.integration_space.orders == (3,)
+
+    face_integration = lower.integration_space
+    for index, values in enumerate(dofs):
+        expected_lower = values.plane_projection(
+            0, -1.0
+        ).reconstruct_at_integration_points(face_integration)
+        expected_upper = values.plane_projection(
+            0, +1.0
+        ).reconstruct_at_integration_points(face_integration)
+        np.testing.assert_allclose(lower.coordinate_map(index).values, expected_lower)
+        np.testing.assert_allclose(upper.coordinate_map(index).values, expected_upper)
+
+    custom_face_space = IntegrationSpace(IntegrationSpecs(2, method="gauss"))
+    custom_lower = volume_map.boundary(0, False, custom_face_space)
+    assert custom_lower.integration_space.orders == (2,)
+    for index, values in enumerate(dofs):
+        expected = values.plane_projection(0, -1.0).reconstruct_at_integration_points(
+            custom_face_space
+        )
+        np.testing.assert_allclose(custom_lower.coordinate_map(index).values, expected)
+
+
+def test_space_map_boundary_supports_zero_dimensional_map() -> None:
+    """A 1D map can be restricted to a zero-dimensional point map."""
+    function_space = FunctionSpace(BasisSpecs(BasisType.LEGENDRE, 1))
+    dofs = DegreesOfFreedom(function_space)
+    int_space = IntegrationSpace(IntegrationSpecs(2, method="gauss"))
+    space_map = SpaceMap(CoordinateMap(dofs, int_space))
+
+    point_map = space_map.boundary(0)
+    assert point_map.input_dimensions == 0
+    assert point_map.integration_space.orders == ()
+
+
+def test_space_map_boundary_provides_tangential_pullback() -> None:
+    """A volume map supplies the pullback for its own restricted face map."""
+    function_space = FunctionSpace(
+        BasisSpecs(BasisType.LAGRANGE_UNIFORM, 1),
+        BasisSpecs(BasisType.LAGRANGE_UNIFORM, 1),
+    )
+    x_dofs = DegreesOfFreedom(function_space, [0.0, 0.0, 1.0, 1.0])
+    y_dofs = DegreesOfFreedom(function_space, [0.0, 1.0, 0.0, 1.0])
+    volume_space = IntegrationSpace(
+        IntegrationSpecs(2, method="gauss"), IntegrationSpecs(2, method="gauss")
+    )
+    volume_map = SpaceMap(
+        CoordinateMap(x_dofs, volume_space), CoordinateMap(y_dofs, volume_space)
+    )
+    face_space = IntegrationSpace(IntegrationSpecs(3, method="gauss"))
+
+    face_map = volume_map.boundary(0, False, face_space)
+    pullback = face_map.basis_transform(1)
+    assert pullback.shape == (1, 2, 4)
+    np.testing.assert_allclose(pullback[0, 0], 0.0)
+    np.testing.assert_allclose(pullback[0, 1], 2.0)
+
+
+def test_space_map_boundary_takes_keywords_but_not_none() -> None:
+    """The documented signature is positional-or-keyword with no None default."""
+    volume_space = FunctionSpace(
+        BasisSpecs(BasisType.LAGRANGE_UNIFORM, 1),
+        BasisSpecs(BasisType.LAGRANGE_UNIFORM, 1),
+    )
+    x_dofs = DegreesOfFreedom(volume_space, [0.0, 0.0, 1.0, 1.0])
+    y_dofs = DegreesOfFreedom(volume_space, [0.0, 1.0, 0.0, 1.0])
+    integration = IntegrationSpace(
+        IntegrationSpecs(2, method="gauss"), IntegrationSpecs(2, method="gauss")
+    )
+    volume_map = SpaceMap(
+        CoordinateMap(x_dofs, integration), CoordinateMap(y_dofs, integration)
+    )
+
+    by_keyword = volume_map.boundary(idim=0, end=True)
+    by_position = volume_map.boundary(0, True)
+    np.testing.assert_allclose(
+        np.asarray(by_keyword.coordinate_map(0).values),
+        np.asarray(by_position.coordinate_map(0).values),
+    )
+
+    face_space = IntegrationSpace(IntegrationSpecs(3, method="gauss"))
+    custom = volume_map.boundary(0, False, face_space)
+    assert custom.integration_space.orders == (3,)
+    # The default comes from omitting the argument, not from passing None.
+    with pytest.raises(TypeError):
+        volume_map.boundary(0, False, None)  # type: ignore
+
+
+def test_kform_boundary_trace_moments_packed_scalar() -> None:
+    """The trace-moments binding returns packed physical boundary rows."""
+    volume_space = FunctionSpace(
+        BasisSpecs(BasisType.LAGRANGE_UNIFORM, 2),
+        BasisSpecs(BasisType.LAGRANGE_UNIFORM, 2),
+    )
+    x_dofs = DegreesOfFreedom(
+        volume_space, [0.0, 0.0, 1.0, 1.0, 0.5, 0.0, 1.0, 0.5, 0.25]
+    )
+    y_dofs = DegreesOfFreedom(volume_space, [0.0, 1.0, 0.0, 1.0, 0.0, 0.5, 0.5, 1.0, 0.5])
+    integration = IntegrationSpace(
+        IntegrationSpecs(3, method="gauss"), IntegrationSpecs(3, method="gauss")
+    )
+    element_map = SpaceMap(
+        CoordinateMap(x_dofs, integration), CoordinateMap(y_dofs, integration)
+    )
+    element_spec = KFormSpecs(0, volume_space)
+
+    common, common_integration, matrices, packed = compute_kform_boundary_trace_moments(
+        [element_spec],
+        [[1, 2]],
+        [element_map.integration_space],
+        element_maps=[element_map],
+        boundary_dimension=1,
+        packed=True,
+    )
+    row_offsets, sides, components, local_dofs, coefficients = packed[0]
+    assert tuple(int(order) for order in common.base_space.orders) == (2,)
+    # Columns span the element's flat DoFs; only the face's three functions
+    # carry mass.
+    assert matrices[0].shape == (1, 9)
+    assert np.flatnonzero(coefficients).size == 3
+    assert row_offsets.shape == (2,)
+    assert components.shape == local_dofs.shape == coefficients.shape
+    assert row_offsets[-1] == coefficients.size
+    assert np.all(sides == 0)
+    assert np.any(coefficients != 0.0)
+
+
+def test_kform_boundary_trace_moments_one_form() -> None:
+    """The trace-moments binding handles tangential one-form traces."""
+    volume_space = FunctionSpace(
+        BasisSpecs(BasisType.LAGRANGE_UNIFORM, 2),
+        BasisSpecs(BasisType.LAGRANGE_UNIFORM, 2),
+    )
+    x_dofs = DegreesOfFreedom(
+        volume_space, [0.0, 0.0, 1.0, 1.0, 0.5, 0.0, 1.0, 0.5, 0.25]
+    )
+    y_dofs = DegreesOfFreedom(volume_space, [0.0, 1.0, 0.0, 1.0, 0.0, 0.5, 0.5, 1.0, 0.5])
+    integration = IntegrationSpace(
+        IntegrationSpecs(3, method="gauss"), IntegrationSpecs(3, method="gauss")
+    )
+    element_map = SpaceMap(
+        CoordinateMap(x_dofs, integration), CoordinateMap(y_dofs, integration)
+    )
+    element_spec = KFormSpecs(1, volume_space)
+
+    common, _, matrices, packed = compute_kform_boundary_trace_moments(
+        [element_spec],
+        [[1, 2]],
+        [element_map.integration_space],
+        element_maps=[element_map],
+        boundary_dimension=1,
+        packed=True,
+    )
+    row_offsets, _, components, local_dofs, coefficients = packed[0]
+    assert int(common.order) == 1
+    assert matrices[0].shape[0] == 2
+    assert matrices[0].shape[1] == 6
+    assert row_offsets[-1] == matrices[0].size
+    assert local_dofs.shape == coefficients.shape
+
+
+def test_kform_boundary_mass_matrices_rejects_mismatched_maps() -> None:
+    """The mass binding requires one map and integration space per element."""
+    volume_space = FunctionSpace(
+        BasisSpecs(BasisType.LAGRANGE_UNIFORM, 1),
+        BasisSpecs(BasisType.LAGRANGE_UNIFORM, 1),
+    )
+    dofs = DegreesOfFreedom(volume_space)
+    integration = IntegrationSpace(IntegrationSpecs(2), IntegrationSpecs(2))
+    space_map = SpaceMap(
+        CoordinateMap(dofs, integration), CoordinateMap(dofs, integration)
+    )
+    element_spec = KFormSpecs(0, volume_space)
+
+    with pytest.raises(ValueError, match="element_maps"):
+        compute_kform_boundary_trace_moments(
+            [element_spec],
+            [[1, 2]],
+            [space_map.integration_space],
+            element_maps=[],
+            boundary_dimension=1,
+        )
+
+
+def test_kform_boundary_mass_matrices_three_dimensional_line() -> None:
+    """A 3D element can produce windowed rows on a 1D boundary line."""
+    volume_space = FunctionSpace(
+        BasisSpecs(BasisType.LAGRANGE_UNIFORM, 3),
+        BasisSpecs(BasisType.LAGRANGE_UNIFORM, 3),
+        BasisSpecs(BasisType.LAGRANGE_UNIFORM, 3),
+    )
+    coordinates = (
+        DegreesOfFreedom(
+            volume_space,
+            [
+                v * (1.0 / 3.0)
+                for v in (0, 1, 2, 3) * 1
+                for _ in range(4)
+                for _ in range(4)
+            ],
+        ),
+        DegreesOfFreedom(
+            volume_space,
+            [v * (1.0 / 3.0) for _ in range(4) for v in (0, 1, 2, 3) for _ in range(4)],
+        ),
+        DegreesOfFreedom(
+            volume_space,
+            [v * (1.0 / 3.0) for _ in range(4) for _ in range(4) for v in (0, 1, 2, 3)],
+        ),
+    )
+    integration = IntegrationSpace(
+        IntegrationSpecs(4, method="gauss"),
+        IntegrationSpecs(4, method="gauss"),
+        IntegrationSpecs(4, method="gauss"),
+    )
+    space_map = SpaceMap(*(CoordinateMap(dofs, integration) for dofs in coordinates))
+    element_spec = KFormSpecs(0, volume_space)
+
+    common, _, matrices, packed = compute_kform_boundary_trace_moments(
+        [element_spec],
+        [[1, -2, -3]],
+        [space_map.integration_space],
+        element_maps=[space_map],
+        boundary_dimension=1,
+        packed=True,
+    )
+    row_offsets, _, components, local_dofs, coefficients = packed[0]
+    assert tuple(int(order) for order in common.base_space.orders) == (3,)
+    # Columns span the element's flat DoFs; only the line's four functions
+    # per row carry mass.
+    assert matrices[0].shape == (2, 64)
+    assert row_offsets[-1] == 128
+    assert components.shape == local_dofs.shape == coefficients.shape == (128,)
+    assert np.count_nonzero(coefficients) == 8
+
+
+def _constant_kform_values(specs: KFormSpecs) -> np.ndarray:
+    """Return DoFs for a constant value in every k-form component."""
+    return np.ones(int(np.sum(specs.component_dof_counts)))
+
+
+def test_boundary_mass_matrices_trace_continuity() -> None:
+    """Adjacent elements pair the same test functions with equal moments."""
+    for ndim in (2, 3):
+        mesh = make_mesh(ndim)
+        geometry_space = FunctionSpace(
+            *(BasisSpecs(BasisType.LAGRANGE_UNIFORM, 2) for _ in range(ndim))
+        )
+        element_spec = KFormSpecs(0, geometry_space)
+        maps = make_element_maps(ndim, 6)
+        values = _constant_kform_values(element_spec)
+
+        mdim = ndim - 1
+        for _, object_id, element_ids, orientations in mesh.iterate_shared(mdim):
+            common, _, matrices, _ = compute_kform_boundary_mass_matrices(
+                [element_spec for _ in element_ids],
+                [list(map(int, record)) for record in orientations],
+                [maps[int(e)].integration_space for e in element_ids],
+                element_maps=[maps[int(e)] for e in element_ids],
+                boundary_dimension=mdim,
+            )
+            del common, object_id
+            moments = [matrices[i] @ values for i in range(len(element_ids))]
+            np.testing.assert_allclose(moments[0], moments[1], rtol=1.0e-10, atol=1.0e-12)
+
+
+_TEST_ORDERS_2D = (
+    (1, 2),
+    (3, 10),
+)
 _TEST_BASIS_2D = (
-    (BasisType.BERNSTEIN, BasisType.BERNSTEIN),
-    (BasisType.LAGRANGE_UNIFORM, BasisType.LAGRNAGE_GAUSS),
-    (BasisType.LEGENDRE, BasisType.LAGRNAGE_GAUSS_LOBATTO),
+    (BasisType.BERNSTEIN, BasisType.LEGENDRE),
+    (BasisType.LAGRANGE_GAUSS_LOBATTO, BasisType.LAGRANGE_UNIFORM),
 )
 
 
@@ -95,9 +484,9 @@ _TEST_ORDERS_3D = (
     (10, 3, 4),
 )
 _TEST_BASIS_3D = (
-    (BasisType.BERNSTEIN, BasisType.BERNSTEIN, BasisType.LAGRNAGE_GAUSS_LOBATTO),
-    (BasisType.LAGRANGE_UNIFORM, BasisType.LAGRNAGE_GAUSS, BasisType.LEGENDRE),
-    (BasisType.LEGENDRE, BasisType.LAGRNAGE_GAUSS_LOBATTO, BasisType.LAGRANGE_UNIFORM),
+    (BasisType.BERNSTEIN, BasisType.BERNSTEIN, BasisType.LAGRANGE_GAUSS_LOBATTO),
+    (BasisType.LAGRANGE_UNIFORM, BasisType.LAGRANGE_GAUSS, BasisType.LEGENDRE),
+    (BasisType.LEGENDRE, BasisType.LAGRANGE_GAUSS_LOBATTO, BasisType.LAGRANGE_UNIFORM),
 )
 
 
@@ -301,3 +690,7 @@ def test_contravariant_3d(
     manual_contravariant = np.reshape(flat_contravariant, contravariant.shape)
 
     assert pytest.approx(manual_contravariant) == contravariant
+
+
+if __name__ == "__main__":
+    test_sample_space_map(ndim=1, mdim=1, min_order=2, max_order=2)

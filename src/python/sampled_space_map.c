@@ -1,0 +1,787 @@
+//
+// Created by jan on 2025-09-07.
+//
+
+#include "sampled_space_map.h"
+#include "../integration/integration_rules.h"
+#include "../operations/map_transforms.h"
+#include "../polynomials/lagrange.h"
+#include "integration_objects.h"
+#include "kform_transform.h"
+
+#include <limits.h>
+static PyObject *sampled_space_map_get_orders(PyObject *self, void *Py_UNUSED(closure))
+{
+    const sampled_space_map_object *const this = (sampled_space_map_object *)self;
+    PyObject *const res = PyTuple_New(this->ndim);
+    if (!res)
+        return NULL;
+
+    for (unsigned d = 0; d < this->ndim; ++d)
+    {
+        PyObject *const order = PyLong_FromSize_t(this->orders[d]);
+        if (!order)
+        {
+            Py_DECREF(res);
+            return NULL;
+        }
+        PyTuple_SET_ITEM(res, d, order);
+    }
+
+    return (PyObject *)res;
+}
+
+static PyObject *sampled_space_map_get_determinant(PyObject *self, void *Py_UNUSED(closure))
+{
+    const sampled_space_map_object *const this = (sampled_space_map_object *)self;
+    npy_intp *const dims = PyMem_Malloc(sizeof(*dims) * this->ndim);
+    if (!dims)
+        return NULL;
+    for (unsigned d = 0; d < this->ndim; ++d)
+        dims[d] = this->orders[d] + 1;
+    PyArrayObject *const res =
+        (PyArrayObject *)PyArray_SimpleNewFromData(this->ndim, dims, NPY_DOUBLE, this->determinant);
+    PyMem_Free(dims);
+    if (!res)
+        return NULL;
+
+    if (PyArray_SetBaseObject(res, (PyObject *)this) < 0)
+    {
+        Py_DECREF(res);
+        return NULL;
+    }
+    Py_INCREF(this);
+
+    return (PyObject *)res;
+}
+
+static PyObject *sampled_space_map_get_inverse_map(PyObject *self, void *Py_UNUSED(closure))
+{
+    const sampled_space_map_object *const this = (sampled_space_map_object *)self;
+    npy_intp *const dims = PyMem_Malloc(sizeof(*dims) * (this->ndim + 2));
+    if (!dims)
+        return NULL;
+
+    for (unsigned d = 0; d < this->ndim; ++d)
+        dims[d] = this->orders[d] + 1; // number of points in each reference dimension
+
+    dims[this->ndim] = this->ndim;       // number of reference dimensions (output)
+    dims[this->ndim + 1] = this->coords; // number of physical dimensions (input)
+
+    PyArrayObject *const res =
+        (PyArrayObject *)PyArray_SimpleNewFromData(this->ndim + 2, dims, NPY_DOUBLE, this->inverse_maps);
+    PyMem_Free(dims);
+
+    if (!res)
+        return NULL;
+
+    if (PyArray_SetBaseObject(res, (PyObject *)this) < 0)
+    {
+        Py_DECREF(res);
+        return NULL;
+    }
+    Py_INCREF(this);
+    return (PyObject *)res;
+}
+static PyObject *sampled_space_map_get_physical_points(PyObject *self, void *Py_UNUSED(closure))
+{
+    const sampled_space_map_object *const this = (sampled_space_map_object *)self;
+    npy_intp *const dims = PyMem_Malloc(sizeof(*dims) * (this->ndim + 1));
+    if (!dims)
+        return NULL;
+    for (unsigned d = 0; d < this->ndim; ++d)
+        dims[d] = this->orders[d] + 1; // number of points in each reference dimension
+    dims[this->ndim] = this->coords;   // number of physical dimensions
+    PyArrayObject *const res =
+        (PyArrayObject *)PyArray_SimpleNewFromData(this->ndim + 1, dims, NPY_DOUBLE, this->positions);
+    PyMem_Free(dims);
+    if (!res)
+        return NULL;
+    if (PyArray_SetBaseObject(res, (PyObject *)this) < 0)
+    {
+        Py_DECREF(res);
+        return NULL;
+    }
+    Py_INCREF(this);
+    return (PyObject *)res;
+}
+
+static PyObject *sampled_space_map_get_input_dimensions(PyObject *self, void *Py_UNUSED(closure))
+{
+    const sampled_space_map_object *const this = (sampled_space_map_object *)self;
+    return PyLong_FromSize_t(this->ndim);
+}
+
+static PyObject *sampled_space_map_get_output_dimensions(PyObject *self, void *Py_UNUSED(closure))
+{
+    const sampled_space_map_object *const this = (sampled_space_map_object *)self;
+    return PyLong_FromSize_t(this->coords);
+}
+
+static PyGetSetDef sampled_space_map_getsetters[] = {
+    {
+        .name = "input_dimensions",
+        .get = sampled_space_map_get_input_dimensions,
+        .doc = "int : Dimension of the input/reference space.",
+    },
+    {
+        .name = "output_dimensions",
+        .get = sampled_space_map_get_output_dimensions,
+        .doc = "int : Dimension of the output/physical space.",
+    },
+    {
+        .name = "orders",
+        .get = sampled_space_map_get_orders,
+        .doc = "tuple[int, ...] : Orders of the sampling in each dimension.",
+    },
+    {
+        .name = "determinant",
+        .get = sampled_space_map_get_determinant,
+        .doc = "array : Array with the values of determinant at sampled points.",
+    },
+    {
+        .name = "inverse_map",
+        .get = sampled_space_map_get_inverse_map,
+        .doc = "array : Local inverse transformation at each sampled point.\n"
+               "\n"
+               "This array contains inverse mapping matrix, which is used\n"
+               "for the contravarying components. When the dimension of the\n"
+               "mapping space (as counted by :attr:`SpaceMap.output_dimensions`)\n"
+               "is greater than the dimension of the reference space, this is a\n"
+               "rectangular matrix, such that it maps the (rectangular) Jacobian\n"
+               "to the identity matrix.\n",
+    },
+    {
+        .name = "positions",
+        .get = sampled_space_map_get_physical_points,
+        .doc = "array : Array with the positions of the sampled points in the physical space.",
+    },
+    {0},
+};
+
+static void sampled_space_map_dealloc(PyObject *self)
+{
+    sampled_space_map_object *const this = (sampled_space_map_object *)self;
+    PyObject_GC_UnTrack(self);
+    PyMem_Free(this->determinant);
+    PyMem_Free(this->inverse_maps);
+    PyMem_Free(this->positions);
+    PyMem_Free(this->orders);
+    for (unsigned d = 0; d < this->ndim; ++d)
+        Py_XDECREF(this->transformations[d]);
+    PyMem_Free(this->transformations);
+    PyTypeObject *const type = Py_TYPE(self);
+    type->tp_free(self);
+    Py_DECREF(type);
+}
+
+PyDoc_STRVAR(sampled_space_map_doc,
+             "SampledSpaceMap(space_map: SpaceMap, samples: Sequence[Sequence[float] | array_like], "
+             "integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY)\n"
+             "\n"
+             "Mapping between reference space and target space, sampled from a SpaceMap.\n"
+             "\n"
+             "A mapping from the reference space to the target space, which maps the\n"
+             ":math:`N`-dimensional reference space to an :math:`M`-dimensional\n"
+             "physical space. The purpose of this mapping is to provide easier\n"
+             "visualization with VTK and other tools that want sampled data.\n"
+             "\n"
+             "As such, it cannot be used for integration, only mapping k-forms to the\n"
+             "target space. It can however be reused for multiple k-forms, as long as\n"
+             "they are reconstructed on the same tensor grid.\n"
+             "\n"
+             "The samples need not be uniformly spaced. If the sample orders are lower\n"
+             "than the orders of the actual coordinate map, the resulting sampled map\n"
+             "will not be accurate. Otherwise, the accuracy is almost machine precision,\n"
+             "since coordinate maps are defined with polynomial basis.\n"
+             "\n"
+             "Parameters\n"
+             "----------\n"
+             "space_map : SpaceMap\n"
+             "    Mapping of the space in which we sample.\n"
+             "\n"
+             "samples : Sequence[Sequence[float] | array_like]\n"
+             "    One-dimensional sample coordinates for each reference dimension. The\n"
+             "    number of sample arrays must match the input dimension of the space map.\n"
+             "    The arrays define the tensor grid, may have different lengths, and must\n"
+             "    not be empty.\n"
+             "\n"
+             "integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY\n"
+             "    Registry to get the integration rules from.\n");
+
+PyDoc_STRVAR(sampled_space_map_uniform_doc,
+             "on_uniform_grid(space_map: SpaceMap, orders: Sequence[int], "
+             "integration_registry: IntegrationRegistry = DEFAULT_INTEGRATION_REGISTRY) -> SampledSpaceMap\n"
+             "\n"
+             "Create a SampledSpaceMap on a uniform grid of points in the reference space.\n"
+             "\n"
+             "Parameters\n"
+             "----------\n"
+             "space_map : SpaceMap\n"
+             "    Mapping of the space in which we sample.\n"
+             "\n"
+             "orders : Sequence[int]\n"
+             "    Orders of the sampling in each dimension. The number of orders must match\n"
+             "    the number of input dimensions of the space map. Must not be negative.\n"
+             "\n"
+             "integration_registry : IntegrationRegistry, default: DEFAULT_INTEGRATION_REGISTRY\n"
+             "    Registry to get the integration rules from.\n"
+             "\n"
+             "Returns\n"
+             "-------\n"
+             "SampledSpaceMap\n"
+             "    Sampled map evaluated on the requested uniform tensor grid.\n");
+
+static int sampled_space_map_parse_orders(PyObject *orders_obj, const unsigned ndim, unsigned **p_orders)
+{
+    PyObject *const orders_seq = PySequence_Fast(orders_obj, "orders must be a sequence.");
+    if (!orders_seq)
+        return -1;
+    if (PySequence_Fast_GET_SIZE(orders_seq) != (Py_ssize_t)ndim)
+    {
+        PyErr_Format(PyExc_ValueError,
+                     "orders must have the same length as the dimension of the SpaceMap (got %zd, expected %u).",
+                     PySequence_Fast_GET_SIZE(orders_seq), ndim);
+        Py_DECREF(orders_seq);
+        return -1;
+    }
+
+    unsigned *orders = NULL;
+    if (ndim != 0)
+    {
+        orders = PyMem_Malloc(sizeof(*orders) * ndim);
+        if (!orders)
+        {
+            Py_DECREF(orders_seq);
+            return -1;
+        }
+    }
+    for (unsigned d = 0; d < ndim; ++d)
+    {
+        const Py_ssize_t v = PyNumber_AsSsize_t(PySequence_Fast_GET_ITEM(orders_seq, d), PyExc_ValueError);
+        if (PyErr_Occurred())
+        {
+            PyMem_Free(orders);
+            Py_DECREF(orders_seq);
+            return -1;
+        }
+        if (v < 0)
+        {
+            PyErr_Format(PyExc_ValueError, "orders[%u] must be >= 0 (got %zd).", d, v);
+            PyMem_Free(orders);
+            Py_DECREF(orders_seq);
+            return -1;
+        }
+        if (v > (Py_ssize_t)UINT_MAX)
+        {
+            PyErr_Format(PyExc_OverflowError, "orders[%u] is too large (got %zd).", d, v);
+            PyMem_Free(orders);
+            Py_DECREF(orders_seq);
+            return -1;
+        }
+        orders[d] = (unsigned)v;
+    }
+    Py_DECREF(orders_seq);
+    *p_orders = orders;
+    return 0;
+}
+
+static PyObject *sampled_space_map_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
+{
+    const interplib_module_state_t *const state = interplib_get_module_state(type);
+    if (!state)
+        return NULL;
+
+    space_map_object *smap = NULL;
+    PyObject *samples_obj = NULL;
+    integration_registry_object *const registry_obj = (integration_registry_object *)state->registry_integration;
+    if (!PyArg_ParseTupleAndKeywords(
+            args, kwds, "O!O|O!", (char *[]){"space_map", "samples", "integration_registry", NULL},
+            state->space_mapping_type, &smap, &samples_obj, state->integration_registry_type, &registry_obj))
+        return NULL;
+
+    const unsigned ndim = smap->ndim;
+    PyObject *const samples_seq = PySequence_Fast(samples_obj, "samples must be a sequence.");
+    if (!samples_seq)
+        return NULL;
+    if (PySequence_Fast_GET_SIZE(samples_seq) != (Py_ssize_t)ndim)
+    {
+        PyErr_Format(PyExc_ValueError,
+                     "samples must have the same length as the dimension of the SpaceMap (got %zd, expected %u).",
+                     PySequence_Fast_GET_SIZE(samples_seq), ndim);
+        Py_DECREF(samples_seq);
+        return NULL;
+    }
+
+    PyArrayObject **const sample_arrays = ndim ? PyMem_Malloc(sizeof(*sample_arrays) * ndim) : NULL;
+    if (ndim != 0 && !sample_arrays)
+    {
+        Py_DECREF(samples_seq);
+        return NULL;
+    }
+    for (unsigned d = 0; d < ndim; ++d)
+        sample_arrays[d] = NULL;
+
+    unsigned converted = 0;
+    size_t sample_count = 0;
+    for (; converted < ndim; ++converted)
+    {
+        sample_arrays[converted] = (PyArrayObject *)PyArray_FROMANY(PySequence_Fast_GET_ITEM(samples_seq, converted),
+                                                                    NPY_DOUBLE, 1, 1, NPY_ARRAY_IN_ARRAY);
+        if (!sample_arrays[converted])
+            break;
+        const npy_intp count = PyArray_SIZE(sample_arrays[converted]);
+        if (count == 0)
+        {
+            PyErr_Format(PyExc_ValueError, "samples[%u] must not be empty.", converted);
+            break;
+        }
+        if (count - 1 > (npy_intp)UINT_MAX)
+        {
+            PyErr_Format(PyExc_OverflowError, "samples[%u] has too many points.", converted);
+            break;
+        }
+        sample_count += (size_t)count;
+    }
+    if (converted != ndim)
+    {
+        for (unsigned d = 0; d < ndim; ++d)
+            Py_XDECREF(sample_arrays[d]);
+        PyMem_Free(sample_arrays);
+        Py_DECREF(samples_seq);
+        return NULL;
+    }
+
+    double *const samples = PyMem_Malloc(sizeof(*samples) * sample_count);
+    unsigned *const orders = ndim ? PyMem_Malloc(sizeof(*orders) * ndim) : NULL;
+    if ((sample_count != 0 && !samples) || (ndim != 0 && !orders))
+    {
+        PyMem_Free(samples);
+        PyMem_Free(orders);
+        for (unsigned d = 0; d < ndim; ++d)
+            Py_XDECREF(sample_arrays[d]);
+        PyMem_Free(sample_arrays);
+        Py_DECREF(samples_seq);
+        return NULL;
+    }
+
+    size_t offset = 0;
+    for (unsigned d = 0; d < ndim; ++d)
+    {
+        const size_t count = (size_t)PyArray_SIZE(sample_arrays[d]);
+        orders[d] = (unsigned)(count - 1);
+        memcpy(samples + offset, PyArray_DATA(sample_arrays[d]), sizeof(*samples) * count);
+        offset += count;
+        Py_DECREF(sample_arrays[d]);
+    }
+    PyMem_Free(sample_arrays);
+    Py_DECREF(samples_seq);
+
+    sampled_space_map_object *const res = sampled_space_map_create(type, smap, orders, samples, registry_obj->registry);
+    PyMem_Free(orders);
+    PyMem_Free(samples);
+    return (PyObject *)res;
+}
+
+static PyObject *sampled_space_map_on_uniform_grid(PyObject *cls, PyObject *const *args, const Py_ssize_t nargs,
+                                                   PyObject *kwnames)
+{
+    const interplib_module_state_t *const state = interplib_get_module_state((PyTypeObject *)cls);
+    if (!state)
+        return NULL;
+
+    space_map_object *smap = NULL;
+    PyObject *orders_obj = NULL;
+    integration_registry_object *registry_obj = (integration_registry_object *)state->registry_integration;
+    if (parse_arguments_check(
+            (cpyutl_argument_t[]){
+                {.type = CPYARG_TYPE_PYTHON,
+                 .type_check = state->space_mapping_type,
+                 .p_val = &smap,
+                 .kwname = "space_map"},
+                {.type = CPYARG_TYPE_PYTHON, .p_val = &orders_obj, .kwname = "orders"},
+                {.type = CPYARG_TYPE_PYTHON,
+                 .type_check = state->integration_registry_type,
+                 .p_val = &registry_obj,
+                 .kwname = "integration_registry",
+                 .optional = 1},
+                {},
+            },
+            args, nargs, kwnames) < 0)
+        return NULL;
+
+    unsigned *orders = NULL;
+    if (sampled_space_map_parse_orders(orders_obj, smap->ndim, &orders) < 0)
+        return NULL;
+    sampled_space_map_object *const res =
+        sampled_space_map_create((PyTypeObject *)cls, smap, orders, NULL, registry_obj->registry);
+    PyMem_Free(orders);
+    return (PyObject *)res;
+}
+
+static PyMethodDef sampled_space_map_type_methods[] = {
+    {
+        .ml_name = "on_uniform_grid",
+        .ml_meth = (void *)sampled_space_map_on_uniform_grid,
+        .ml_flags = METH_CLASS | METH_FASTCALL | METH_KEYWORDS,
+        .ml_doc = sampled_space_map_uniform_doc,
+    },
+    {},
+};
+
+static PyType_Slot sampled_space_map_type_slots[] = {
+    {Py_tp_new, sampled_space_map_new},
+    {Py_tp_dealloc, sampled_space_map_dealloc},
+    {Py_tp_traverse, heap_type_traverse_type},
+    {Py_tp_getset, sampled_space_map_getsetters},
+    {Py_tp_methods, sampled_space_map_type_methods},
+    {Py_tp_doc, (void *)sampled_space_map_doc},
+    {0, NULL},
+};
+
+PyType_Spec sampled_space_map_type_spec = {
+    .name = "fdg._fdg.SampledSpaceMap",
+    .basicsize = sizeof(sampled_space_map_object),
+    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE | Py_TPFLAGS_HAVE_GC,
+    .slots = sampled_space_map_type_slots,
+};
+
+static PyArrayObject *sampled_space_map_basis_transform(const sampled_space_map_object *map, const Py_ssize_t order)
+{
+    const unsigned n_maps = map->coords;
+    const unsigned n_dims = map->ndim;
+    if (order <= 0 || order > n_dims)
+    {
+        PyErr_Format(PyExc_ValueError, "Expected order in range (0, %u], but got %zd.", n_dims, order);
+        return NULL;
+    }
+
+    if (map->transformations[order - 1] != NULL)
+    {
+        Py_INCREF(map->transformations[order - 1]);
+        return map->transformations[order - 1];
+    }
+
+    const size_t total_points = integration_orders_total_points(n_dims, map->orders);
+
+    const npy_intp out_dims[3] = {
+        combination_total_count(n_dims, order),
+        combination_total_count(n_maps, order),
+        (npy_intp)total_points,
+    };
+    PyArrayObject *const res = (PyArrayObject *)PyArray_SimpleNew(3, out_dims, NPY_DOUBLE);
+    if (!res)
+        return NULL;
+
+    // The transform allocates nothing itself: the general case (order neither 1 nor n_maps)
+    // walks iterator state that the caller has to provide, and the special cases use none of
+    // it. The scratch is allocated from the system allocator with the GIL held and released
+    // after the transform has run without it.
+    const unsigned order_u = (unsigned)order;
+    permutation_iterator_t *iter_out_perm = NULL;
+    combination_iterator_t *iter_out_comb = NULL;
+    combination_iterator_t *iter_in_comb = NULL;
+    void *iter_mem = NULL;
+    if (order_u != 1 && order_u != n_maps)
+    {
+        iter_mem = cutl_alloc_group(
+            &SYSTEM_ALLOCATOR,
+            (const cutl_alloc_info_t[]){
+                {.size = permutation_iterator_required_memory(order_u, order_u), .p_ptr = (void **)&iter_out_perm},
+                {.size = combination_iterator_required_memory(order_u), .p_ptr = (void **)&iter_out_comb},
+                {.size = combination_iterator_required_memory(order_u), .p_ptr = (void **)&iter_in_comb},
+                {},
+            });
+        if (!iter_mem)
+        {
+            PyErr_NoMemory();
+            Py_DECREF(res);
+            return NULL;
+        }
+    }
+
+    // The transform only touches raw memory buffers, so it runs without the GIL.
+    Py_BEGIN_ALLOW_THREADS;
+    compute_basis_transform_from_inverse(n_dims, n_maps, order_u, map->inverse_maps, map->determinant, total_points,
+                                         PyArray_DATA(res), iter_out_perm, iter_out_comb, iter_in_comb);
+    Py_END_ALLOW_THREADS;
+    if (iter_mem)
+        cutl_dealloc(&SYSTEM_ALLOCATOR, iter_mem);
+    map->transformations[order - 1] = res;
+    Py_INCREF(res);
+    return res;
+}
+
+static inline unsigned sampled_space_map_transform_input_dimensions(const void *object)
+{
+    return ((const sampled_space_map_object *)object)->ndim;
+}
+
+static inline unsigned sampled_space_map_transform_output_dimensions(const void *object)
+{
+    return ((const sampled_space_map_object *)object)->coords;
+}
+
+static inline npy_intp sampled_space_map_transform_point_axis_size(const void *object, const unsigned axis)
+{
+    return ((const sampled_space_map_object *)object)->orders[axis] + 1;
+}
+
+static inline const double *sampled_space_map_transform_inverse_maps(const void *object)
+{
+    return ((const sampled_space_map_object *)object)->inverse_maps;
+}
+
+static inline PyArrayObject *sampled_space_map_transform_basis(const void *object, const Py_ssize_t order)
+{
+    return sampled_space_map_basis_transform((const sampled_space_map_object *)object, order);
+}
+
+static const kform_transform_operations_t sampled_space_map_transform_operations = {
+    .input_dimensions = sampled_space_map_transform_input_dimensions,
+    .output_dimensions = sampled_space_map_transform_output_dimensions,
+    .point_axis_size = sampled_space_map_transform_point_axis_size,
+    .inverse_maps = sampled_space_map_transform_inverse_maps,
+    .basis_transform = sampled_space_map_transform_basis,
+};
+
+PyDoc_STRVAR(
+    transform_kform_to_target_sampled_docstring,
+    "transform_kform_to_target_sampled(order: int, smap: SampledSpaceMap, components: numpy.typing.ArrayLike, *, "
+    "out: numpy.typing.NDArray[numpy.double] | None = None) -> numpy.typing.NDArray[numpy.double]\n"
+    "\n"
+    "Transform k-form values based on a sampled space mapping.\n"
+    "\n"
+    "0-forms do not need a coordinate transformation. This function therefore\n"
+    "accepts only orders greater than zero; handle order-zero values directly.\n"
+    "\n"
+    "Parameters\n"
+    "----------\n"
+    "order : int\n"
+    "    Order of the k-form being transformed. Must be at least 1.\n"
+    "\n"
+    "smap : SampledSpaceMap\n"
+    "    Mapping between the reference and target domain to use.\n"
+    "\n"
+    "components : array_like\n"
+    "    Array with values of components of the k-form in the reference domain at\n"
+    "    the sampled points associated with the space mapping.\n"
+    "\n"
+    "out : array, optional\n"
+    "    Array to use to store the output in.\n"
+    "\n"
+    "Returns\n"
+    "-------\n"
+    "array\n"
+    "    Array with values of the components in the physical space.\n");
+
+static PyObject *transform_kform_to_target_sampled(PyObject *mod, PyObject *const *args, const Py_ssize_t nargs,
+                                                   PyObject *kwnames)
+{
+    interplib_module_state_t *const state = PyModule_GetState(mod);
+    if (!state)
+        return NULL;
+
+    Py_ssize_t order;
+    const sampled_space_map_object *map;
+    PyObject *py_components, *out = NULL;
+    if (parse_arguments_check(
+            (cpyutl_argument_t[]){
+                {.type = CPYARG_TYPE_SSIZE, .p_val = &order, .kwname = "order"},
+                {.type = CPYARG_TYPE_PYTHON,
+                 .type_check = state->sampled_space_mapping_type,
+                 .p_val = &map,
+                 .kwname = "smap"},
+                {.type = CPYARG_TYPE_PYTHON, .p_val = &py_components, .kwname = "components"},
+                {.type = CPYARG_TYPE_PYTHON, .p_val = &out, .kwname = "out", .optional = 1, .kw_only = 1},
+                {},
+            },
+            args, nargs, kwnames) < 0)
+        return NULL;
+
+    const kform_transform_request_t request = {
+        .map = map,
+        .operations = &sampled_space_map_transform_operations,
+        .order = order,
+        .minimum_order = 1,
+        .components = py_components,
+        .out = out,
+    };
+    kform_transform_arrays_t arrays;
+    if (kform_transform_prepare(&request, &arrays) < 0)
+        return NULL;
+    if (kform_transform_apply(&request, &arrays) < 0)
+    {
+        kform_transform_arrays_clear(&arrays);
+        return NULL;
+    }
+    Py_DECREF(arrays.components);
+    return (PyObject *)arrays.out;
+}
+
+PyMethodDef sampled_space_map_methods[] = {
+    {
+        .ml_doc = transform_kform_to_target_sampled_docstring,
+        .ml_flags = METH_FASTCALL | METH_KEYWORDS,
+        .ml_name = "transform_kform_to_target_sampled",
+        .ml_meth = (void *)transform_kform_to_target_sampled,
+    },
+    {0},
+};
+
+sampled_space_map_object *sampled_space_map_create(PyTypeObject *type, space_map_object *map, const unsigned *orders,
+                                                   const double *samples, integration_rule_registry_t *registry)
+{
+    const unsigned ndim_in = map->ndim;
+    const unsigned ndim_out = Py_SIZE(map);
+
+    sampled_space_map_object *const this = (sampled_space_map_object *)type->tp_alloc(type, 0);
+    if (!this)
+        return NULL;
+
+    const size_t total_points = integration_orders_total_points(ndim_in, orders);
+
+    this->ndim = ndim_in;
+    this->coords = ndim_out;
+    this->orders = PyMem_Malloc(sizeof(unsigned) * ndim_in);
+    this->determinant = PyMem_Malloc(sizeof(double) * total_points); // One determinant value per sampled point
+    this->inverse_maps =
+        PyMem_Malloc(sizeof(double) * total_points * ndim_in * ndim_out);     // One inverse map (ndim_out x ndim_in)
+    this->positions = PyMem_Malloc(sizeof(double) * total_points * ndim_out); // One position vector per sampled point
+    this->transformations =
+        PyMem_Malloc(sizeof(PyArrayObject *) * ndim_in); // One transformation matrix per input dimension
+    if (this->transformations)
+    {
+        // This must be set before we can call Py_DECREF(this) as the destructor tries to free non-NULL
+        for (unsigned d = 0; d < ndim_in; ++d)
+            this->transformations[d] = NULL;
+    }
+    if (!this->determinant || !this->inverse_maps || !this->positions || !this->orders || !this->transformations)
+    {
+        Py_DECREF(this);
+        return NULL;
+    }
+
+    for (unsigned d = 0; d < ndim_in; ++d)
+        this->orders[d] = orders[d];
+
+    // Store one interpolation matrix per input dimension. The matrix layout is
+    // input-node-major, with the sampled-node index varying fastest.
+    size_t transformation_size = 0;
+    unsigned max_out_order = 0;
+    for (unsigned d = 0; d < ndim_in; ++d)
+    {
+        const size_t n_out = (size_t)orders[d] + 1;
+        const size_t n_int = (size_t)map->int_specs[d].order + 1;
+        transformation_size += n_out * n_int;
+        if (orders[d] > max_out_order)
+            max_out_order = orders[d];
+    }
+    const size_t root_storage = samples ? 0 : (size_t)max_out_order + 1;
+    double *const axis_transformations =
+        PyMem_Malloc(sizeof(*axis_transformations) * (transformation_size + root_storage));
+    if (!axis_transformations)
+    {
+        Py_DECREF(this);
+        return NULL;
+    }
+
+    // Compute the interpolation matrices for each dimension.
+    const integration_rule_t **const rules = python_integration_rules_get(ndim_in, map->int_specs, registry);
+    if (!rules)
+    {
+        PyMem_Free(axis_transformations);
+        Py_DECREF(this);
+        return NULL;
+    }
+    double *const uniform_nodes = samples ? NULL : axis_transformations + transformation_size;
+    size_t axis_offset = 0;
+    size_t sample_offset = 0;
+    for (unsigned d = 0; d < ndim_in; ++d)
+    {
+        const unsigned order_out = orders[d];
+        const unsigned order_int = map->int_specs[d].order;
+        const unsigned n_out = order_out + 1;
+        const unsigned n_int = order_int + 1;
+        const double *sample_nodes;
+        if (samples)
+        {
+            sample_nodes = samples + sample_offset;
+        }
+        else
+        {
+            for (unsigned j = 0; j <= order_out; ++j)
+                uniform_nodes[j] = order_out == 0 ? 0.0 : (2.0 * (double)j) / (double)order_out - 1.0;
+            sample_nodes = uniform_nodes;
+        }
+        lagrange_polynomial_values_transposed_2(n_out, sample_nodes, n_int, integration_rule_nodes_const(rules[d]),
+                                                axis_transformations + axis_offset);
+        axis_offset += (size_t)n_out * n_int;
+        sample_offset += n_out;
+    }
+    python_integration_rules_release(ndim_in, rules, registry);
+
+    double *jacobian = NULL;
+    double *q_mat = NULL;
+    void *const work_ptr = cutl_alloc_group(
+        &SYSTEM_ALLOCATOR,
+        (const cutl_alloc_info_t[]){{.size = sizeof(double) * ndim_in * ndim_out, .p_ptr = (void **)&jacobian},
+                                    {.size = sizeof(double) * ndim_out * ndim_out, .p_ptr = (void **)&q_mat},
+                                    {}});
+    if (!work_ptr)
+    {
+        PyMem_Free(axis_transformations);
+        Py_DECREF(this);
+        return NULL;
+    }
+
+    // Interpolate positions and forward transformation matrices together and invert per
+    // point; the pointer tables adapt the coordinate map objects to the pure kernel.
+    const double **const coordinate_values = PyMem_Malloc(sizeof(*coordinate_values) * ndim_out);
+    const double **const coordinate_gradients =
+        PyMem_Malloc(sizeof(*coordinate_gradients) * (size_t)ndim_out * ndim_in);
+    const double **const axis_matrices = PyMem_Malloc(sizeof(*axis_matrices) * ndim_in);
+    unsigned *const internal_orders = PyMem_Malloc(sizeof(*internal_orders) * ndim_in);
+    if (!coordinate_values || !coordinate_gradients || !axis_matrices || !internal_orders)
+    {
+        PyMem_Free(coordinate_values);
+        PyMem_Free(coordinate_gradients);
+        PyMem_Free(axis_matrices);
+        PyMem_Free(internal_orders);
+        cutl_dealloc(&SYSTEM_ALLOCATOR, work_ptr);
+        PyMem_Free(axis_transformations);
+        Py_DECREF(this);
+        return NULL;
+    }
+    size_t matrix_offset = 0;
+    for (unsigned d = 0; d < ndim_in; ++d)
+    {
+        axis_matrices[d] = axis_transformations + matrix_offset;
+        matrix_offset += (size_t)(orders[d] + 1) * (map->int_specs[d].order + 1);
+        internal_orders[d] = map->int_specs[d].order;
+    }
+    for (unsigned icoordinate = 0; icoordinate < ndim_out; ++icoordinate)
+    {
+        coordinate_values[icoordinate] = map->maps[icoordinate]->values;
+        for (unsigned idim = 0; idim < ndim_in; ++idim)
+        {
+            coordinate_gradients[(size_t)icoordinate * ndim_in + idim] =
+                coordinate_map_gradient(map->maps[icoordinate], idim);
+        }
+    }
+
+    Py_BEGIN_ALLOW_THREADS;
+    interpolate_sampled_map(ndim_in, ndim_out, orders, internal_orders, axis_matrices, coordinate_values,
+                            coordinate_gradients, total_points, this->positions, this->determinant, this->inverse_maps,
+                            jacobian, q_mat);
+    Py_END_ALLOW_THREADS;
+
+    PyMem_Free(internal_orders);
+    PyMem_Free(axis_matrices);
+    PyMem_Free(coordinate_gradients);
+    PyMem_Free(coordinate_values);
+
+    cutl_dealloc(&SYSTEM_ALLOCATOR, work_ptr);
+    PyMem_Free(axis_transformations);
+    return this;
+}

@@ -56,3 +56,21 @@ double test_prng_next_double(test_prng_t *rng)
     // Divide by 2^32 to get uniform double in [0,1)
     return (double)val / 4294967296.0;
 }
+
+void test_fill_random(double *values, const size_t count, test_prng_t *rng)
+{
+    for (size_t i = 0; i < count; ++i)
+    {
+        values[i] = 2.0 * test_prng_next_double(rng) - 1.0;
+    }
+}
+
+void test_tensor_strides(const unsigned ndim, const size_t dims[static ndim], size_t strides[static ndim])
+{
+    size_t stride = 1;
+    for (unsigned axis = ndim; axis-- > 0;)
+    {
+        strides[axis] = stride;
+        stride *= dims[axis];
+    }
+}

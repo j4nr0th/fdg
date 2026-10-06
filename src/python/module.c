@@ -3,6 +3,7 @@
 //
 #define PY_ARRAY_UNIQUE_SYMBOL _fdg
 #include "module.h"
+#include "element_data_objects.h"
 
 //  Numpy
 #include <numpy/ndarrayobject.h>
@@ -10,16 +11,17 @@
 
 // Internal C headers
 #include "../common/error.h"
-#include "../integration/gauss_lobatto.h"
-#include "../polynomials/bernstein.h"
-#include "../polynomials/lagrange.h"
 #include "basis_objects.h"
+#include "direct_continuity.h"
 #include "integration_objects.h"
 #include "kform_objects.h"
 #include "mappings.h"
 #include "mass_matrices.h"
+#include "mesh_objects.h"
+#include "sampled_space_map.h"
 
 // Topology
+#include "../constraints/constraints.h"
 #include "covector_basis.h"
 #include "cpyutl.h"
 #include "degrees_of_freedom.h"
@@ -41,19 +43,19 @@ enum
 
 static void *allocate_system(void *state, size_t size)
 {
-    ASSERT(state == (void *)SYSTEM_MAGIC, "Pointer value for system allocator did not match.");
+    CUTL_ASSERT(state == (void *)SYSTEM_MAGIC, "Pointer value for system allocator did not match.");
     return PyMem_RawMalloc(size);
 }
 
 static void *reallocate_system(void *state, void *ptr, size_t new_size)
 {
-    ASSERT(state == (void *)SYSTEM_MAGIC, "Pointer value for system allocator did not match.");
+    CUTL_ASSERT(state == (void *)SYSTEM_MAGIC, "Pointer value for system allocator did not match.");
     return PyMem_RawRealloc(ptr, new_size);
 }
 
 static void free_system(void *state, void *ptr)
 {
-    ASSERT(state == (void *)SYSTEM_MAGIC, "Pointer value for system allocator did not match.");
+    CUTL_ASSERT(state == (void *)SYSTEM_MAGIC, "Pointer value for system allocator did not match.");
     PyMem_RawFree(ptr);
 }
 
@@ -67,19 +69,19 @@ cutl_allocator_t SYSTEM_ALLOCATOR = {
 
 static void *allocate_python(void *state, size_t size)
 {
-    ASSERT(state == (void *)PYTHON_MAGIC, "Pointer value for system allocator did not match.");
+    CUTL_ASSERT(state == (void *)PYTHON_MAGIC, "Pointer value for system allocator did not match.");
     return PyMem_Malloc(size);
 }
 
 static void *reallocate_python(void *state, void *ptr, size_t new_size)
 {
-    ASSERT(state == (void *)PYTHON_MAGIC, "Pointer value for system allocator did not match.");
+    CUTL_ASSERT(state == (void *)PYTHON_MAGIC, "Pointer value for system allocator did not match.");
     return PyMem_Realloc(ptr, new_size);
 }
 
 static void free_python(void *state, void *ptr)
 {
-    ASSERT(state == (void *)PYTHON_MAGIC, "Pointer value for system allocator did not match.");
+    CUTL_ASSERT(state == (void *)PYTHON_MAGIC, "Pointer value for system allocator did not match.");
     PyMem_Free(ptr);
 }
 
@@ -130,7 +132,20 @@ static int interplib_add_types(PyObject *mod)
             NULL ||
         (module_state->kform_specs_type = cpyutl_add_type_from_spec_to_module(mod, &kform_spec_type_spec, NULL)) ==
             NULL ||
-        (module_state->kform_type = cpyutl_add_type_from_spec_to_module(mod, &kform_type_spec, NULL)) == NULL)
+        (module_state->kform_type = cpyutl_add_type_from_spec_to_module(mod, &kform_type_spec, NULL)) == NULL ||
+        (module_state->mesh_type = cpyutl_add_type_from_spec_to_module(mod, &mesh_type_spec, NULL)) == NULL ||
+        (module_state->mesh_geometry_type = cpyutl_add_type_from_spec_to_module(mod, &mesh_geometry_type_spec, NULL)) ==
+            NULL ||
+        (module_state->direct_dof_map_type =
+             cpyutl_add_type_from_spec_to_module(mod, &direct_dof_map_type_spec, NULL)) == NULL ||
+        (module_state->mesh_kform_specs_type =
+             cpyutl_add_type_from_spec_to_module(mod, &mesh_kform_specs_type_spec, NULL)) == NULL ||
+        (module_state->element_kforms_type =
+             cpyutl_add_type_from_spec_to_module(mod, &element_kforms_type_spec, NULL)) == NULL ||
+        (module_state->element_dofs_type = cpyutl_add_type_from_spec_to_module(mod, &element_dofs_type_spec, NULL)) ==
+            NULL ||
+        (module_state->sampled_space_mapping_type =
+             cpyutl_add_type_from_spec_to_module(mod, &sampled_space_map_type_spec, NULL)) == NULL)
     {
         return -1;
     }
@@ -146,8 +161,9 @@ static int interplib_add_functions(PyObject *mod)
         return -1;
     }
 
-    if (PyModule_AddFunctions(mod, mass_matrices_methods) < 0 || PyModule_AddFunctions(mod, incidence_methods) < 0 ||
-        PyModule_AddFunctions(mod, transformation_functions) < 0)
+    if (PyModule_AddFunctions(mod, mass_matrices_methods) < 0 || PyModule_AddFunctions(mod, constraint_methods) < 0 ||
+        PyModule_AddFunctions(mod, incidence_methods) < 0 || PyModule_AddFunctions(mod, transformation_functions) < 0 ||
+        PyModule_AddFunctions(mod, sampled_space_map_methods) < 0)
         return -1;
 
     return 0;

@@ -28,6 +28,12 @@ FDG_INTERNAL
 basis_specs_object *basis_specs_object_create(PyTypeObject *type, basis_spec_t spec);
 
 FDG_INTERNAL
+basis_set_type_t basis_type_from_string(const char *str);
+
+FDG_INTERNAL
+const char *basis_type_to_string(const basis_set_type_t type);
+
+FDG_INTERNAL
 const basis_set_t **python_basis_sets_get(unsigned n_basis, const basis_spec_t specs[const static n_basis],
                                           const integration_rule_t *rules[const static n_basis],
                                           basis_set_registry_t *registry);
@@ -35,6 +41,14 @@ const basis_set_t **python_basis_sets_get(unsigned n_basis, const basis_spec_t s
 FDG_INTERNAL
 void python_basis_sets_release(unsigned n_basis, const basis_set_t *sets[static n_basis],
                                basis_set_registry_t *registry);
+FDG_INTERNAL
+const basis_endpoint_set_t **python_basis_endpoints_get(unsigned n_basis,
+                                                        const basis_spec_t specs[const static n_basis],
+                                                        basis_set_registry_t *registry);
+
+FDG_INTERNAL
+void python_basis_endpoints_release(unsigned n_basis, const basis_endpoint_set_t *sets[static n_basis],
+                                    basis_set_registry_t *registry);
 
 FDG_INTERNAL
 multidim_iterator_t *python_basis_iterator(unsigned n_basis, const basis_spec_t specs[const static n_basis]);

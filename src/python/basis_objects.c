@@ -43,7 +43,13 @@ static basis_set_type_t get_basis_type(const char *str)
     return BASIS_INVALID;
 }
 
-static const char *basis_type_string(const basis_set_type_t type)
+basis_set_type_t basis_type_from_string(const char *str)
+{
+    return get_basis_type(str);
+}
+
+FDG_INTERNAL
+const char *basis_type_to_string(const basis_set_type_t type)
 {
     switch (type)
     {
@@ -53,6 +59,8 @@ static const char *basis_type_string(const basis_set_type_t type)
         return "lagrange-gauss";
     case BASIS_LAGRANGE_GAUSS_LOBATTO:
         return "lagrange-gauss-lobatto";
+    case BASIS_LAGRANGE_CHEBYSHEV_GAUSS:
+        return "lagrange-chebyshev-gauss";
     case BASIS_LEGENDRE:
         return "legendre";
     case BASIS_BERNSTEIN:
@@ -109,13 +117,14 @@ static int ensure_basis_registry_and_state(PyObject *self, PyTypeObject *definin
 
 PyDoc_STRVAR(basis_registry_usage_docstring,
              "usage() -> tuple[tuple[BasisSpecs, IntegrationSpecs], ...]\n"
+             "\n"
              "Return the basis-integration pairs that are held by the registry.\n"
              "\n"
              "Returns\n"
              "-------\n"
              "tuple of (BasisSpecs, IntegrationSpecs)\n"
-             "    Tuple of basis-integration specifications pair for each of basis set\n"
-             "    held in the registry.\n");
+             "    One ``(BasisSpecs, IntegrationSpecs)`` pair for each basis set held in the\n"
+             "    registry.\n");
 
 static PyObject *basis_registry_usage(PyObject *self, PyTypeObject *defining_class, PyObject *const *Py_UNUSED(args),
                                       const Py_ssize_t nargs, const PyObject *kwnames)
@@ -180,8 +189,9 @@ static PyObject *basis_registry_usage(PyObject *self, PyTypeObject *defining_cla
     return (PyObject *)out;
 }
 
-PyDoc_STRVAR(basis_registry_clear_docstring,
-             "clear() -> None\nRelease all held basis sets to reduce the memory usage.\n");
+PyDoc_STRVAR(basis_registry_clear_docstring, "clear() -> None\n"
+                                             "\n"
+                                             "Release all held basis sets to reduce the memory usage.\n");
 
 static PyObject *basis_registry_clear(PyObject *self, PyTypeObject *defining_class, PyObject *const *Py_UNUSED(args),
                                       const Py_ssize_t nargs, const PyObject *kwnames)
@@ -222,13 +232,13 @@ PyType_Spec basis_registry_type_specs = {
                  {
                      "usage",
                      (void *)basis_registry_usage,
-                     METH_METHOD | METH_KEYWORDS | METH_FASTCALL,
+                     METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
                      basis_registry_usage_docstring,
                  },
                  {
                      "clear",
                      (void *)basis_registry_clear,
-                     METH_METHOD | METH_KEYWORDS | METH_FASTCALL,
+                     METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
                      basis_registry_clear_docstring,
                  },
                  {},
@@ -258,7 +268,7 @@ static PyObject *basis_specs_new(PyTypeObject *subtype, PyObject *args, PyObject
 
     if (order < 0)
     {
-        PyErr_Format(PyExc_ValueError, "Order must be positive, but was given as %i.", order);
+        PyErr_Format(PyExc_ValueError, "Order must be non-negative, but was given as %i.", order);
         return NULL;
     }
 
@@ -279,7 +289,7 @@ static PyObject *basis_specs_get_order(const basis_specs_object *self, void *Py_
 
 static PyObject *basis_specs_get_type(const basis_specs_object *self, void *Py_UNUSED(closure))
 {
-    return PyUnicode_FromString(basis_type_string(self->spec.type));
+    return PyUnicode_FromString(basis_type_to_string(self->spec.type));
 }
 
 /* Get-set table */
@@ -288,7 +298,7 @@ static PyGetSetDef basis_getset[] = {
         "order",
         (getter)basis_specs_get_order,
         NULL,
-        "int : Order of the basis set.",
+        "int : Order of the basis in the set.",
         NULL,
     },
     {
@@ -301,8 +311,8 @@ static PyGetSetDef basis_getset[] = {
     {},
 };
 
-PyDoc_STRVAR(basis_specs_docstring, "BasisSpecs(basis_type: fdg.enum_type.BasisType, order: int)\n"
-                                    "Type that describes a set of basis functions.\n"
+PyDoc_STRVAR(basis_specs_docstring, "BasisSpecs(basis_type: fdg.enum_type.BasisType, order: int, /)\n"
+                                    "Type that describes specifications for a basis set.\n"
                                     "\n"
                                     "Parameters\n"
                                     "----------\n"
@@ -332,13 +342,14 @@ static int ensure_basis_specs_and_state(PyObject *self, PyTypeObject *defining_c
 }
 
 PyDoc_STRVAR(basis_specs_values_docstring,
-             "values(x: numpy.typing.ArrayLike, /) -> numpy.typing.NDArray[numpy.double]\n"
+             "values(x: numpy.typing.NDArray[numpy.double], /) -> numpy.typing.NDArray[numpy.double]\n"
              "Evaluate basis functions at given locations.\n"
              "\n"
              "Parameters\n"
              "----------\n"
-             "x : array_like\n"
-             "    Locations where the basis functions should be evaluated.\n"
+             "x : array\n"
+             "    Locations where the basis functions should be evaluated. Must be a\n"
+             "    C-contiguous ``float64`` array.\n"
              "\n"
              "Returns\n"
              "-------\n"
@@ -365,6 +376,13 @@ static PyObject *basis_specs_values(PyObject *self, PyTypeObject *defining_class
     const npy_intp dummy[] = {0};
     if (check_input_array(x, 0, dummy, NPY_DOUBLE, NPY_ARRAY_C_CONTIGUOUS | NPY_ARRAY_ALIGNED, "x") < 0)
     {
+        return NULL;
+    }
+    // The Lagrange evaluators compute the last row from `n_pos - 1`; an empty
+    // input would underflow that and write out of bounds.
+    if (PyArray_SIZE(x) == 0)
+    {
+        PyErr_SetString(PyExc_ValueError, "Expected a non-empty array of evaluation points.");
         return NULL;
     }
 
@@ -410,13 +428,14 @@ static PyObject *basis_specs_values(PyObject *self, PyTypeObject *defining_class
 }
 
 PyDoc_STRVAR(basis_specs_derivatives_docstring,
-             "derivatives(x: numpy.typing.ArrayLike, /) -> numpy.typing.NDArray[numpy.double]\n"
+             "derivatives(x: numpy.typing.NDArray[numpy.double], /) -> numpy.typing.NDArray[numpy.double]\n"
              "Evaluate basis function derivatives at given locations.\n"
              "\n"
              "Parameters\n"
              "----------\n"
-             "x : array_like\n"
-             "    Locations where the basis function derivatives should be evaluated.\n"
+             "x : array\n"
+             "    Locations where the basis function derivatives should be evaluated. Must be\n"
+             "    a C-contiguous ``float64`` array.\n"
              "\n"
              "Returns\n"
              "-------\n"
@@ -435,7 +454,7 @@ static PyObject *basis_specs_derivatives(PyObject *self, PyTypeObject *defining_
 
     if (nargs != 1 || kwnames != NULL)
     {
-        PyErr_SetString(PyExc_TypeError, "values() takes exactly one positional-only argument.");
+        PyErr_SetString(PyExc_TypeError, "derivatives() takes exactly one positional-only argument.");
         return NULL;
     }
 
@@ -443,6 +462,20 @@ static PyObject *basis_specs_derivatives(PyObject *self, PyTypeObject *defining_
     const npy_intp dummy[] = {0};
     if (check_input_array(x, 0, dummy, NPY_DOUBLE, NPY_ARRAY_C_CONTIGUOUS | NPY_ARRAY_ALIGNED, "x") < 0)
     {
+        return NULL;
+    }
+    // The Lagrange evaluators compute the last row from `n_pos - 1`; an empty
+    // input would underflow that and write out of bounds.
+    if (PyArray_SIZE(x) == 0)
+    {
+        PyErr_SetString(PyExc_ValueError, "Expected a non-empty array of evaluation points.");
+        return NULL;
+    }
+    // The Bernstein derivative evaluates one order below the given one, so
+    // order zero would underflow the unsigned order to a huge loop bound.
+    if (this->spec.type == BASIS_BERNSTEIN && this->spec.order == 0)
+    {
+        PyErr_SetString(PyExc_ValueError, "Bernstein basis derivatives require an order of at least 1, but got 0.");
         return NULL;
     }
 
@@ -518,6 +551,14 @@ static PyObject *basis_specs_richcompare(PyObject *self, PyObject *other, const 
     return PyBool_FromLong(equal);
 }
 
+static void basis_specs_dealloc(basis_specs_object *self)
+{
+    PyObject_GC_UnTrack(self);
+    PyTypeObject *const type = Py_TYPE(self);
+    type->tp_free((PyObject *)self);
+    Py_DECREF(type);
+}
+
 /* Spec for the heap type */
 PyType_Spec basis_specs_type_spec = {
     .name = FDG_TYPE_NAME("BasisSpecs"),
@@ -527,6 +568,7 @@ PyType_Spec basis_specs_type_spec = {
     .slots =
         (PyType_Slot[]){
             {Py_tp_new, (void *)basis_specs_new},
+            {Py_tp_dealloc, basis_specs_dealloc},
             {Py_tp_getset, (void *)basis_getset},
             {Py_tp_doc, (void *)basis_specs_docstring},
             {Py_tp_traverse, heap_type_traverse_type},
@@ -612,11 +654,51 @@ void python_basis_sets_release(const unsigned n_basis, const basis_set_t *sets[s
     }
     PyMem_Free(sets);
 }
+const basis_endpoint_set_t **python_basis_endpoints_get(const unsigned n_basis,
+                                                        const basis_spec_t specs[const static n_basis],
+                                                        basis_set_registry_t *registry)
+{
+    const basis_endpoint_set_t **const array = PyMem_Malloc(n_basis * sizeof(*array));
+    if (!array)
+        return NULL;
+    for (unsigned ibasis = 0; ibasis < n_basis; ++ibasis)
+    {
+        const fdg_result_t res = basis_set_registry_get_basis_endpoints(registry, array + ibasis, specs[ibasis]);
+        if (res != FDG_SUCCESS)
+        {
+            PyErr_Format(PyExc_RuntimeError, "Failed to retrieve endpoint basis values: %s (%s).", fdg_error_str(res),
+                         fdg_error_msg(res));
+            for (unsigned i = 0; i < ibasis; ++i)
+                basis_set_registry_release_basis_endpoints(registry, array[i]);
+            PyMem_Free(array);
+            return NULL;
+        }
+    }
+    return array;
+}
+
+void python_basis_endpoints_release(const unsigned n_basis, const basis_endpoint_set_t *sets[static n_basis],
+                                    basis_set_registry_t *registry)
+{
+    for (unsigned ibasis = 0; ibasis < n_basis; ++ibasis)
+    {
+        basis_set_registry_release_basis_endpoints(registry, sets[ibasis]);
+        sets[ibasis] = NULL;
+    }
+    PyMem_Free(sets);
+}
+
 multidim_iterator_t *python_basis_iterator(const unsigned n_basis, const basis_spec_t specs[const static n_basis])
 {
     multidim_iterator_t *const iter = PyMem_Malloc(multidim_iterator_needed_memory(n_basis));
     if (!iter)
         return NULL;
+
+    if (n_basis == 0)
+    {
+        multidim_iterator_init(iter, 0, (const size_t[1]){0});
+        return iter;
+    }
 
     for (unsigned ibasis = 0; ibasis < n_basis; ++ibasis)
     {

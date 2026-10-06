@@ -1,29 +1,34 @@
 
 #include "gauss_legendre.h"
 #include "../polynomials/legendre.h"
+#include <cutl/common_defs.h>
 #include <math.h>
 
 FDG_INTERNAL
-int gauss_legendre_nodes_weights(const unsigned n, const double tol, const unsigned max_iter,
-                                 double FDG_ARRAY_ARG(x, restrict n), double FDG_ARRAY_ARG(w, restrict n))
+void gauss_legendre_nodes_weights(const unsigned n, const double tol, const unsigned max_iter,
+                                  double FDG_ARRAY_ARG(x, restrict n), double FDG_ARRAY_ARG(w, restrict n))
 {
-    ASSERT(n > 0, "n can not be zero.");
+    CUTL_ASSERT(n > 0, "The number of nodes must be positive, got %u.", n);
     if (n == 1)
     {
         x[0] = 0.0;
         w[0] = 2.0;
-        return 0;
+        return;
     }
     if (n == 2)
     {
-        x[0] = -1.0;
-        x[1] = 1.0;
+        // The two-point rule is exact for degree 3; hard-code the nodes to
+        // avoid the Newton iteration and the degenerate n - 1 = 1 case in the
+        // weight formula below.
+        const double root = 1.0 / sqrt(3.0);
+        x[0] = -root;
+        x[1] = +root;
         w[0] = 1.0;
         w[1] = 1.0;
-        return 0;
+        return;
     }
 
-    int non_converged = 0;
+    unsigned non_converged = 0;
     for (unsigned i = 0; i < n; ++i)
     {
         // Make an initial guess
@@ -46,27 +51,29 @@ int gauss_legendre_nodes_weights(const unsigned n, const double tol, const unsig
 
         w[n - 1 - i] = 2.0 / (n * n * leg_poly[1] * leg_poly[1]) * (1 - new_x * new_x);
     }
-    return non_converged;
+    CUTL_ASSERT(non_converged == 0, "%u of %u nodes did not converge to %g within %u iterations.", non_converged, n,
+                tol, max_iter);
 }
 
 FDG_INTERNAL
-int gauss_legendre_nodes(const unsigned n, const double tol, const unsigned max_iter,
-                         double FDG_ARRAY_ARG(x, restrict n))
+void gauss_legendre_nodes(const unsigned n, const double tol, const unsigned max_iter,
+                          double FDG_ARRAY_ARG(x, restrict n))
 {
-    ASSERT(n > 0, "n can not be zero.");
+    CUTL_ASSERT(n > 0, "The number of nodes must be positive, got %u.", n);
     if (n == 1)
     {
         x[0] = 0.0;
-        return 0;
+        return;
     }
     if (n == 2)
     {
-        x[0] = -1.0;
-        x[1] = 1.0;
-        return 0;
+        const double root = 1.0 / sqrt(3.0);
+        x[0] = -root;
+        x[1] = +root;
+        return;
     }
 
-    int non_converged = 0;
+    unsigned non_converged = 0;
     for (unsigned i = 0; i < n; ++i)
     {
         // Make an initial guess
@@ -86,5 +93,6 @@ int gauss_legendre_nodes(const unsigned n, const double tol, const unsigned max_
         non_converged += (error > tol);
         x[n - 1 - i] = new_x;
     }
-    return non_converged;
+    CUTL_ASSERT(non_converged == 0, "%u of %u nodes did not converge to %g within %u iterations.", non_converged, n,
+                tol, max_iter);
 }

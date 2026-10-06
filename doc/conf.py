@@ -1,9 +1,17 @@
-""" Configuration file for the Sphinx documentation builder.
+"""Configuration file for the Sphinx documentation builder.
 
 For the full list of built-in configuration values, see the documentation:
 https://www.sphinx-doc.org/en/master/usage/configuration.html"""
 
+import sys
 from pathlib import Path
+
+import pyvista as pv
+
+sys.path.insert(0, str(Path(__file__).parent / "exts"))
+# The examples import their shared helpers through the ``examples`` package, so
+# the repository root has to be importable when the gallery executes them.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
@@ -27,6 +35,7 @@ extensions = [
     "pydata_sphinx_theme",
     "hawkmoth",
     "hawkmoth.ext.javadoc",
+    "hawkmoth_compat",
 ]
 
 templates_path = ["_templates"]
@@ -76,18 +85,32 @@ autodoc_type_aliases = {
 
 # -- Options for Sphinx Gallery ----------------------------------------------
 # https://sphinx-gallery.github.io/stable/index.html
+# PyVista plotters created by the examples are captured by the "pyvista"
+# scraper. The plotters render off-screen so that the build works without a
+# display; the screenshots are taken by the scraper itself.
+pv.BUILDING_GALLERY = True
+pv.OFF_SCREEN = True
 sphinx_gallery_conf = {
     "examples_dirs": "../examples",
     "gallery_dirs": "auto_examples",
     "reference_url": {
-         # The module you locally document uses None
+        # The module you locally document uses None
         "fdg": None,
     },
-    "image_scrapers": ("matplotlib"),
+    "image_scrapers": ("matplotlib", "pyvista"),
 }
 
 # -- Options for C hawkmoth --------------------------------------------------
 # https://hawkmoth.readthedocs.io/en/stable/extension.html#configuration
-hawkmoth_root = (Path(__file__).parent / "src").absolute()
+hawkmoth_root = str((Path(__file__).parent.parent / "src").absolute())
 hawkmoth_transform_default = "javadoc"
-hawkmoth_clang = ["--std=c17"]
+# The repository root and the cutl header directory are on the include path so
+# that headers referencing cutl (`#include <cutl/...>`) parse correctly. cutl
+# ships with the hybridized-solver submodule.
+hawkmoth_clang = [
+    "--std=c17",
+    "-I",
+    str((Path(__file__).parent.parent).absolute()),
+    "-I",
+    str((Path(__file__).parent.parent / "hybridized-solver" / "cutl" / "include").absolute()),
+]

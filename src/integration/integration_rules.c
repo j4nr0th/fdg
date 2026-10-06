@@ -9,30 +9,36 @@
 #include "gauss_legendre.h"
 #include "gauss_lobatto.h"
 
+#include <stdbool.h>
 #include <string.h>
 #include <threads.h>
 
 fdg_result_t integration_rule_for_accuracy(integration_rule_t **out, const integration_rule_type_t type,
                                            const unsigned accuracy, const cutl_allocator_t *allocator)
 {
+    const bool type_valid = type == INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE || type == INTEGRATION_RULE_TYPE_GAUSS_LOBATTO;
+    CUTL_ASSERT(type_valid, "Integration rule type %d is not supported.", (int)type);
+
     unsigned required_order;
     switch (type)
     {
     case INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE:
-        if (accuracy < 2)
-        {
-            required_order = 1;
-            break;
-        }
-        required_order = accuracy / 2 + 1;
+        // A rule of order o (o + 1 nodes) integrates polynomials of degree
+        // up to 2 * o + 1 exactly, so the smallest order for accuracy a is
+        // ceil((a - 1) / 2) = a / 2.
+        required_order = accuracy / 2;
         break;
 
     case INTEGRATION_RULE_TYPE_GAUSS_LOBATTO:
-        required_order = accuracy / 2 + 2;
+        // A rule of order o (o + 1 nodes) integrates polynomials of degree
+        // up to 2 * o - 1 exactly (order 0 integrates degree 1), so the
+        // smallest order for accuracy a is ceil((a + 1) / 2) = (a + 2) / 2.
+        required_order = accuracy <= 1 ? 0 : (accuracy + 2) / 2;
         break;
 
     default:
-        return FDG_ERROR_INVALID_ENUM;
+        required_order = 0;
+        break;
     }
 
     return integration_rule_for_order(out, type, required_order, allocator);
@@ -40,6 +46,9 @@ fdg_result_t integration_rule_for_accuracy(integration_rule_t **out, const integ
 fdg_result_t integration_rule_for_order(integration_rule_t **out, const integration_rule_type_t type,
                                         const unsigned order, const cutl_allocator_t *allocator)
 {
+    const bool type_valid = type == INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE || type == INTEGRATION_RULE_TYPE_GAUSS_LOBATTO;
+    CUTL_ASSERT(type_valid, "Integration rule type %d is not supported.", (int)type);
+
     integration_rule_t *const this = cutl_alloc(allocator, sizeof *this + 2 * (order + 1) * sizeof *this->_data);
     if (!this)
         return FDG_ERROR_FAILED_ALLOCATION;
@@ -55,17 +64,17 @@ fdg_result_t integration_rule_for_order(integration_rule_t **out, const integrat
     switch (type)
     {
     case INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE:
-        this->accuracy = order > 0 ? 2 * order - 1 : 0;
+        this->accuracy = 2 * order + 1;
         gauss_legendre_nodes_weights(order + 1, DEFAULT_TOLERANCE, DEFAULT_MAX_ITERATIONS, integration_rule_nodes(this),
                                      integration_rule_weights(this));
         break;
     case INTEGRATION_RULE_TYPE_GAUSS_LOBATTO:
-        this->accuracy = order > 1 ? 2 * order - 3 : order;
+        this->accuracy = order > 0 ? 2 * order - 1 : 1;
         gauss_lobatto_nodes_weights(order + 1, DEFAULT_TOLERANCE, DEFAULT_MAX_ITERATIONS, integration_rule_nodes(this),
                                     integration_rule_weights(this));
         break;
     default:
-        return FDG_ERROR_INVALID_ENUM;
+        break;
     }
 
     *out = this;
@@ -120,7 +129,8 @@ static inline fdg_result_t integration_rule_type_bucket_add_rule(integration_rul
                                                                  integration_rule_t *rule,
                                                                  const cutl_allocator_t *allocator)
 {
-    ASSERT(rule->spec.type == this->type, "Rule type does not match bucket type.");
+    CUTL_ASSERT(rule->spec.type == this->type, "Rule type %d does not match bucket type %d.", (int)rule->spec.type,
+                (int)this->type);
     if (this->count == this->capacity)
     {
         const unsigned new_capacity = this->capacity * 2;
@@ -197,68 +207,64 @@ fdg_result_t integration_rule_registry_get_rule(integration_rule_registry_t *thi
             break;
         }
     }
-    if (!bucket)
+    if (bucket)
     {
-        rw_lock_release_read(&this->lock);
-        rw_lock_acquire_write(&this->lock);
-
-        integration_rule_type_bucket_t *const new_buckets =
-            cutl_realloc(&this->allocator, this->buckets, (this->n_buckets + 1) * sizeof *new_buckets);
-        if (!new_buckets)
-            return FDG_ERROR_FAILED_ALLOCATION;
-        this->buckets = new_buckets;
-        enum
+        for (unsigned i = 0; i < bucket->count; ++i)
         {
-            BUCKET_STARTING_SIZE = 8
-        };
-        fdg_result_t result = integration_rule_type_bucket_init(this->buckets + this->n_buckets, spec.type,
-                                                                BUCKET_STARTING_SIZE, &this->allocator);
-        if (result != FDG_SUCCESS)
-            return result;
-        bucket = this->buckets + this->n_buckets;
-        this->n_buckets += 1;
-
-        integration_rule_t *rule;
-        result = integration_rule_for_order(&rule, spec.type, spec.order, &this->allocator);
-        if (result != FDG_SUCCESS)
-            return result;
-        result = integration_rule_type_bucket_add_rule(bucket, rule, &this->allocator);
-        if (result != FDG_SUCCESS)
-            return result;
-        *p_rule = rule;
-
-        rw_lock_release_write(&this->lock);
-        return FDG_SUCCESS;
-    }
-
-    for (unsigned i = 0; i < bucket->count; ++i)
-    {
-        if (bucket->rules[i]->spec.order == spec.order)
-        {
-            bucket->ref_counts[i] += 1;
-            *p_rule = bucket->rules[i];
-            rw_lock_release_read(&this->lock);
-            return FDG_SUCCESS;
+            if (bucket->rules[i]->spec.order == spec.order)
+            {
+                bucket->ref_counts[i] += 1;
+                *p_rule = bucket->rules[i];
+                rw_lock_release_read(&this->lock);
+                return FDG_SUCCESS;
+            }
         }
     }
 
+    // The rule is missing (and possibly the whole bucket of its type).
+    // Upgrade the lock and create what is missing; every failure path below
+    // releases the write lock before returning.
+    fdg_result_t result = FDG_SUCCESS;
     rw_lock_release_read(&this->lock);
     rw_lock_acquire_write(&this->lock);
-
-    integration_rule_t *rule;
-    fdg_result_t result = integration_rule_for_order(&rule, spec.type, spec.order, &this->allocator);
-    if (result != FDG_SUCCESS)
+    if (!bucket)
     {
-        rw_lock_release_write(&this->lock);
-        return result;
+        integration_rule_type_bucket_t *const new_buckets =
+            cutl_realloc(&this->allocator, this->buckets, (this->n_buckets + 1) * sizeof *new_buckets);
+        if (!new_buckets)
+        {
+            result = FDG_ERROR_FAILED_ALLOCATION;
+        }
+        else
+        {
+            this->buckets = new_buckets;
+            enum
+            {
+                BUCKET_STARTING_SIZE = 8
+            };
+            result = integration_rule_type_bucket_init(this->buckets + this->n_buckets, spec.type, BUCKET_STARTING_SIZE,
+                                                       &this->allocator);
+            if (result == FDG_SUCCESS)
+            {
+                bucket = this->buckets + this->n_buckets;
+                this->n_buckets += 1;
+            }
+        }
     }
-
-    result = integration_rule_type_bucket_add_rule(bucket, rule, &this->allocator);
     if (result == FDG_SUCCESS)
-        *p_rule = rule;
-
+    {
+        integration_rule_t *rule;
+        result = integration_rule_for_order(&rule, spec.type, spec.order, &this->allocator);
+        if (result == FDG_SUCCESS)
+        {
+            result = integration_rule_type_bucket_add_rule(bucket, rule, &this->allocator);
+            if (result == FDG_SUCCESS)
+                *p_rule = rule;
+        }
+    }
     rw_lock_release_write(&this->lock);
-    return FDG_SUCCESS;
+
+    return result;
 }
 
 fdg_result_t integration_rule_registry_get_rules(integration_rule_registry_t *this, const unsigned cnt,
@@ -286,7 +292,7 @@ fdg_result_t integration_rule_registry_get_rules(integration_rule_registry_t *th
 }
 
 FDG_INTERNAL
-fdg_result_t integration_rule_registry_release_rule(integration_rule_registry_t *this, const integration_rule_t *rule)
+void integration_rule_registry_release_rule(integration_rule_registry_t *this, const integration_rule_t *rule)
 {
     rw_lock_acquire_read(&this->lock);
     for (unsigned i = 0; i < this->n_buckets; ++i)
@@ -311,13 +317,14 @@ fdg_result_t integration_rule_registry_release_rule(integration_rule_registry_t 
                     bucket->count -= 1;
                 }
                 rw_lock_release_write(&this->lock);
-                return FDG_SUCCESS;
+                return;
             }
         }
     }
 
     rw_lock_release_read(&this->lock);
-    return FDG_ERROR_NOT_IN_REGISTRY;
+    CUTL_ASSERT(0, "Integration rule of type %d and order %u is not in the registry.", (int)rule->spec.type,
+                rule->spec.order);
 }
 
 FDG_INTERNAL
@@ -389,13 +396,15 @@ unsigned integration_rule_spec_get_accuracy(const integration_spec_t spec)
     switch (spec.type)
     {
     case INTEGRATION_RULE_TYPE_GAUSS_LEGENDRE:
-        if (spec.order > 0)
-            return 2 * spec.order - 1;
-        return 1;
+        // A rule of order o has o + 1 nodes and integrates polynomials of
+        // degree up to 2 * o + 1 exactly.
+        return 2 * spec.order + 1;
     case INTEGRATION_RULE_TYPE_GAUSS_LOBATTO:
-        if (spec.order > 2)
-            return 2 * spec.order - 3;
-        return 1;
+        // A rule of order o has o + 1 nodes; the interior nodes are the roots
+        // of the derivative of the Legendre polynomial of degree o, giving
+        // exactness up to degree 2 * o - 1. The single-node rule (order 0)
+        // coincides with the one-point Gauss rule and integrates degree 1.
+        return spec.order > 0 ? 2 * spec.order - 1 : 1;
     default:
         return 0;
     }
@@ -406,9 +415,49 @@ size_t integration_specs_total_points(const unsigned ndim, const integration_spe
     size_t total = 1;
     for (unsigned i = 0; i < ndim; ++i)
     {
-        total *= specs[i].order + 1;
+        const size_t axis_points = (size_t)specs[i].order + 1;
+        const bool overflowed = __builtin_mul_overflow(total, axis_points, &total);
+        CUTL_ASSERT(!overflowed, "Total integration point count overflowed at axis %u.", i);
     }
     return total;
+}
+
+void integration_spec_point_strides(const unsigned ndim, const integration_spec_t specs[static const ndim],
+                                    size_t strides[static const ndim])
+{
+    // Tensor points are enumerated with the LAST axis fastest, matching the
+    // multidim iterator and therefore the coordinate map point ordering.
+    size_t stride = 1;
+    for (unsigned i = ndim; i > 0; --i)
+    {
+        strides[i - 1] = stride;
+        stride *= (size_t)specs[i - 1].order + 1;
+    }
+}
+
+void integration_rule_tensor_weights(const unsigned ndim, const integration_rule_t *const rules[static const ndim],
+                                     double weights[])
+{
+    // Axis `ndim - 1` is the fastest. Processing axes from the last to the
+    // first makes each processed axis the next slower one: previous points
+    // repeat once per node of the current axis.
+    weights[0] = 1.0;
+    size_t filled = 1;
+    for (unsigned axis = ndim; axis > 0; --axis)
+    {
+        const double *const axis_weights = integration_rule_weights_const(rules[axis - 1]);
+        const size_t n_nodes = rules[axis - 1]->n_nodes;
+        for (size_t base = 0; base < filled; ++base)
+        {
+            const double base_weight = weights[base];
+            for (size_t node = 1; node < n_nodes; ++node)
+            {
+                weights[base + node * filled] = base_weight * axis_weights[node];
+            }
+            weights[base] = base_weight * axis_weights[0];
+        }
+        filled *= n_nodes;
+    }
 }
 
 const char *integration_rule_type_to_str(const integration_rule_type_t type)
@@ -421,5 +470,21 @@ const char *integration_rule_type_to_str(const integration_rule_type_t type)
         return "gauss-lobatto";
     default:
         return "unknown";
+    }
+}
+
+void integration_rules_to_boundary(unsigned ndim, const integration_spec_t element_rule[static ndim],
+                                   const int8_t orientation[static ndim], unsigned bdim,
+                                   integration_spec_t boundary_rule[static restrict bdim])
+{
+    CUTL_ASSERT(ndim > 0 && bdim < ndim, "Invalid boundary dimension.");
+    // Canonical orientation array has first (ndim - bdim) entries corresponding to the normal directions of the
+    // boundary.
+    const int8_t *varying_axes = orientation + (ndim - bdim);
+    for (unsigned idim = 0; idim < bdim; ++idim)
+    {
+        const int8_t canonical_axes = varying_axes[idim];
+        const unsigned idx = canonical_axes < 0 ? -canonical_axes - 1 : canonical_axes - 1;
+        boundary_rule[idim] = element_rule[idx];
     }
 }

@@ -3,8 +3,7 @@
 import numpy as np
 import numpy.typing as npt
 
-from fdg._fdg import DegreesOfFreedom, FunctionSpace, IntegrationSpace
-from fdg.integration import Integrable
+from fdg._fdg import DegreesOfFreedom
 
 
 def reconstruct(
@@ -35,37 +34,3 @@ def reconstruct(
         * dof.values.flatten()
     )
     return np.sum(output, axis=-1).reshape(x[0].shape)
-
-
-def compute_dual_degrees_of_freedom(
-    fn: Integrable, integration_space: IntegrationSpace, function_space: FunctionSpace, /
-) -> DegreesOfFreedom:
-    """Compute the dual degrees of freedom.
-
-    Parameters
-    ----------
-    fn : Integrable
-        The function for which to compute the dual degrees of freedom.
-    integration_space : IntegrationSpace
-        The integration space to use.
-    function_space : FunctionSpace
-        The function space of the degrees of freedom.
-
-    Returns
-    -------
-    DegreesOfFreedom
-        The dual degrees of freedom.
-    """
-    dofs = DegreesOfFreedom(function_space)
-
-    nodes = integration_space.nodes()
-    weights = integration_space.weights()
-    integration_values = (
-        np.asarray(fn(*[nodes[i, ...] for i in range(nodes.shape[0])])) * weights
-    ).flatten()
-    basis_values = function_space.evaluate(
-        *[nodes[i, ...] for i in range(nodes.shape[0])]
-    ).reshape((integration_values.size, dofs.n_dofs))
-    dofs.values = np.sum(basis_values * integration_values[:, None], axis=0)
-
-    return dofs

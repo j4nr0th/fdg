@@ -1,8 +1,8 @@
 #include "incidence.h"
 #include "../basis/basis_lagrange.h"
+#include "../kforms/kform_types.h"
 #include "../polynomials/lagrange.h"
 #include "basis_objects.h"
-#include "covector_basis.h"
 #include "cutl/iterators/combination_iterator.h"
 #include "function_space_objects.h"
 #include "kform_objects.h"
@@ -267,13 +267,9 @@ void lagrange_prepare_incidence_transformation(const basis_set_type_t type, cons
     double *restrict const in_nodes = work + n + (size_t)n * (n + 1); // old: n;
 
     // Compute nodes for the output set
-    fdg_result_t res = generate_lagrange_roots(n - 1, type, out_nodes);
-    CPYUTL_ASSERT(res == FDG_SUCCESS, "Somehow an invalid enum?");
-    (void)res;
+    generate_lagrange_roots(n - 1, type, out_nodes);
 
-    res = generate_lagrange_roots(n, type, in_nodes);
-    CPYUTL_ASSERT(res == FDG_SUCCESS, "Somehow an invalid enum?");
-    (void)res;
+    generate_lagrange_roots(n, type, in_nodes);
 
     lagrange_polynomial_first_derivative_2(n, out_nodes, n + 1, in_nodes, trans_matrix);
 }
@@ -381,13 +377,9 @@ void lagrange_matrix_incidence_operator(const basis_set_type_t type, const unsig
     double *restrict const trans_matrix = work + n + (n + 1);
 
     // Compute nodes for the output set
-    fdg_result_t res = generate_lagrange_roots(n - 1, type, out_nodes);
-    CPYUTL_ASSERT(res == FDG_SUCCESS, "Somehow an invalid enum?");
-    (void)res;
+    generate_lagrange_roots(n - 1, type, out_nodes);
 
-    res = generate_lagrange_roots(n, type, in_nodes);
-    CPYUTL_ASSERT(res == FDG_SUCCESS, "Somehow an invalid enum?");
-    (void)res;
+    generate_lagrange_roots(n, type, in_nodes);
 
     lagrange_polynomial_first_derivative_2(n, out_nodes, n + 1, in_nodes, trans_matrix);
     if (negate)
@@ -555,9 +547,7 @@ static PyObject *incidence_matrix(PyObject *mod, PyObject *const *args, const Py
                 Py_DECREF(out);
                 return NULL;
             }
-            fdg_result_t res = generate_lagrange_roots(n - 1, basis_specs->spec.type, out_nodes);
-            (void)res;
-            CPYUTL_ASSERT(res == FDG_SUCCESS, "Somehow an invalid enum?");
+            generate_lagrange_roots(n - 1, basis_specs->spec.type, out_nodes);
             double *const in_nodes = PyMem_Malloc(sizeof(*in_nodes) * (n + 1));
             if (!in_nodes)
             {
@@ -565,9 +555,7 @@ static PyObject *incidence_matrix(PyObject *mod, PyObject *const *args, const Py
                 Py_DECREF(out);
                 return NULL;
             }
-            res = generate_lagrange_roots(n, basis_specs->spec.type, in_nodes);
-            (void)res;
-            CPYUTL_ASSERT(res == FDG_SUCCESS, "Somehow an invalid enum?");
+            generate_lagrange_roots(n, basis_specs->spec.type, in_nodes);
 
             lagrange_polynomial_first_derivative_2(n, out_nodes, n + 1, in_nodes, data);
 
@@ -587,19 +575,21 @@ static PyObject *incidence_matrix(PyObject *mod, PyObject *const *args, const Py
 }
 
 PyDoc_STRVAR(incidence_matrix_docstring,
-             "incidence_matrix(basis_specs : BasisSpecs) -> numpy.typing.NDArray[numpy.double]\n"
+             "incidence_matrix(basis_specs: BasisSpecs) -> numpy.typing.NDArray[numpy.double]\n"
              "Return the incidence matrix to transfer derivative degrees of freedom.\n"
              "\n"
              "Parameters\n"
              "----------\n"
-             "specs : BasisSpecs\n"
+             "basis_specs : BasisSpecs\n"
              "    Basis specs for which this incidence matrix should be computed.\n"
              "\n"
              "Returns\n"
              "-------\n"
              "array\n"
-             "    One dimensional incidence matrix. It transfers primal degrees of freedom\n"
-             "    for a derivative to a function space one order less than the original.\n");
+             "    Incidence matrix of shape ``(order, order + 1)`` (``order`` the basis order\n"
+             "    of ``basis_specs``): maps the primal degrees of freedom of that space to the\n"
+             "    degrees of freedom of its derivative, which lies in the space one order\n"
+             "    less.\n");
 
 static PyObject *incidence_operator(PyObject *mod, PyObject *const *args, const Py_ssize_t nargs,
                                     const PyObject *kwnames)
@@ -637,7 +627,7 @@ static PyObject *incidence_operator(PyObject *mod, PyObject *const *args, const 
     }
 
     const unsigned ndim = PyArray_NDIM(array);
-    if (axis < 0 && axis >= ndim)
+    if (axis < 0 || axis >= ndim)
     {
         PyErr_Format(PyExc_IndexError, "Axis index %zd out of bounds for array of dimension %zd", axis, ndim);
         Py_DECREF(array);
@@ -735,33 +725,35 @@ static PyObject *incidence_operator(PyObject *mod, PyObject *const *args, const 
 }
 
 PyDoc_STRVAR(incidence_operator_docstring,
-             "incidence_operator(val: numpy.typing.ArrayLike, /, specs: BasisSpecs, axis: int = 0) -> "
+             "incidence_operator(x: numpy.typing.ArrayLike, specs: BasisSpecs, axis: int = 0) -> "
              "numpy.typing.NDArray[numpy.double]\n"
              "Apply the incidence operator to an array of degrees of freedom along an axis.\n"
              "\n"
              "Parameters\n"
              "----------\n"
-             "val : array_like\n"
-             "    Array of degrees of freedom to apply the incidence operator to.\n"
+             "x : array_like\n"
+             "    Array of degrees of freedom to apply the incidence operator to. The axis\n"
+             "    selected by ``axis`` must have size ``specs.order + 1``.\n"
              "\n"
              "specs : BasisSpecs\n"
-             "    Specifications for basis that determine what set of polynomial is used to take\n"
+             "    Specifications for the basis that determines which polynomials are used to take\n"
              "    the derivative.\n"
              "\n"
              "axis : int, default: 0\n"
-             "    Axis along which to apply the incidence operator along.\n"
+             "    Axis along which to apply the incidence operator.\n"
              "\n"
              "Returns\n"
              "-------\n"
              "array\n"
-             "    Array of degrees of freedom that is the result of applying the incidence operator,\n"
-             "    along the specified axis.\n");
+             "    Array of degrees of freedom that is the result of applying the incidence\n"
+             "    operator along the specified axis; that axis shrinks from\n"
+             "    ``specs.order + 1`` to ``specs.order``.\n");
 
 static void incidence_matrix_fill_block(const unsigned ndim, const basis_spec_t basis[static ndim],
                                         const unsigned order, const uint8_t components[static order],
-                                        const unsigned derivative_dim, const unsigned offset_row,
-                                        const unsigned offset_col, const size_t row_pitch, const int flip_sign,
-                                        double *restrict out_array, double *work)
+                                        const unsigned derivative_dim, const size_t offset_row, const size_t offset_col,
+                                        const size_t row_pitch, const int flip_sign, double *restrict out_array,
+                                        double *work)
 {
     size_t pre_stride = 1, post_stride = 1;
     unsigned idim, i_component;
@@ -779,9 +771,9 @@ static void incidence_matrix_fill_block(const unsigned ndim, const basis_spec_t 
         }
         pre_stride *= dofs_in_dimension;
     }
-    ASSERT(components[i_component] == derivative_dim,
-           "I miscounted the components somehow (components[i_component] = %u, derivative_dim = %u).",
-           (unsigned)components[i_component], (unsigned)derivative_dim);
+    CUTL_ASSERT(components[i_component] == derivative_dim,
+                "I miscounted the components somehow (components[i_component] = %u, derivative_dim = %u).",
+                (unsigned)components[i_component], (unsigned)derivative_dim);
     i_component += 1;
     idim += 1;
     for (; idim < ndim; ++idim)
@@ -798,8 +790,8 @@ static void incidence_matrix_fill_block(const unsigned ndim, const basis_spec_t 
         }
         post_stride *= dofs_in_dimension;
     }
-    ASSERT(i_component == order, "I miscounted the components somehow (i_component = %u, order = %u).", i_component,
-           order);
+    CUTL_ASSERT(i_component == order, "I miscounted the components somehow (i_component = %u, order = %u).",
+                i_component, order);
 
     const basis_set_type_t btype = basis[derivative_dim].type;
     const unsigned n = basis[derivative_dim].order;
@@ -816,11 +808,11 @@ static void incidence_matrix_fill_block(const unsigned ndim, const basis_spec_t 
     case BASIS_LAGRANGE_GAUSS:
     case BASIS_LAGRANGE_GAUSS_LOBATTO:
     case BASIS_LAGRANGE_CHEBYSHEV_GAUSS:
-        ASSERT(work != NULL, "Work array was not given!");
+        CUTL_ASSERT(work != NULL, "Work array was not given!");
         lagrange_matrix_incidence_operator(btype, n, pre_stride, post_stride, row_pitch, mat, work, flip_sign);
         break;
     case BASIS_INVALID:
-        ASSERT(0, "Invalid basis type.");
+        CUTL_ASSERT(0, "Invalid basis type.");
         return;
     }
 }
@@ -847,9 +839,9 @@ static incidence_base_strides_t calculate_derivative_base_strides(const unsigned
         }
         pre_stride *= dofs_in_dimension;
     }
-    ASSERT(components[i_component] == derivative_dim,
-           "I miscounted the components somehow (components[i_component] = %u, derivative_dim = %u).",
-           (unsigned)components[i_component], (unsigned)derivative_dim);
+    CUTL_ASSERT(components[i_component] == derivative_dim,
+                "I miscounted the components somehow (components[i_component] = %u, derivative_dim = %u).",
+                (unsigned)components[i_component], (unsigned)derivative_dim);
     i_component += 1;
     idim += 1;
     for (; idim < ndim; ++idim)
@@ -866,8 +858,8 @@ static incidence_base_strides_t calculate_derivative_base_strides(const unsigned
         }
         post_stride *= dofs_in_dimension;
     }
-    ASSERT(i_component == order, "I miscounted the components somehow (i_component = %u, order = %u).", i_component,
-           order);
+    CUTL_ASSERT(i_component == order, "I miscounted the components somehow (i_component = %u, order = %u).",
+                i_component, order);
     const unsigned n = basis[derivative_dim].order;
 
     return (incidence_base_strides_t){.n = n, .pre_stride = pre_stride, .post_stride = post_stride};
@@ -934,15 +926,14 @@ static PyObject *compute_kform_incidence_matrix(PyObject *mod, PyObject *const *
     }
 
     // Allocate the memory needed
-    combination_iterator_t *iter_component_in, *iter_component_out;
+    combination_iterator_t *iter_component_in;
     uint8_t *basis_components;
-    unsigned *out_component_offsets, *in_component_offsets;
+    size_t *out_component_offsets, *in_component_offsets;
     double *work_buffer;
     void *const mem = cutl_alloc_group(
         &PYTHON_ALLOCATOR,
         (const cutl_alloc_info_t[]){
             {.size = combination_iterator_required_memory(order), .p_ptr = (void **)&iter_component_in},
-            {.size = combination_iterator_required_memory(order + 1), .p_ptr = (void **)&iter_component_out},
             {.size = sizeof(*basis_components) * (order + 1), .p_ptr = (void **)&basis_components},
             {.size = sizeof(*out_component_offsets) * (combination_total_count(n, order + 1) + 1),
              .p_ptr = (void **)&out_component_offsets},
@@ -957,25 +948,12 @@ static PyObject *compute_kform_incidence_matrix(PyObject *mod, PyObject *const *
         return NULL;
 
     // Compute the number of input and output degrees of freedom
-    size_t in_dofs = 0, idx_in = 0;
-    in_component_offsets[0] = 0;
-    combination_iterator_init(iter_component_in, n, order);
-    for (const uint8_t *p_basis_components = combination_iterator_current(iter_component_in);
-         !combination_iterator_is_done(iter_component_in); combination_iterator_next(iter_component_in), ++idx_in)
-    {
-        in_dofs += kform_basis_get_num_dofs(n, fn_space->specs, order, p_basis_components);
-        in_component_offsets[idx_in + 1] = in_dofs;
-    }
-    size_t out_dofs = 0, idx_out = 0;
-    out_component_offsets[0] = 0;
-    combination_iterator_init(iter_component_out, n, order + 1);
-    for (const uint8_t *p_basis_components = combination_iterator_current(iter_component_out);
-         !combination_iterator_is_done(iter_component_out); combination_iterator_next(iter_component_out), ++idx_out)
-    {
-        out_dofs += kform_basis_get_num_dofs(n, fn_space->specs, order + 1, p_basis_components);
-        // Use this chance to initialize the offsets
-        out_component_offsets[idx_out + 1] = out_dofs;
-    }
+    const kform_spec_t kform_in = {.ndim = n, .order = order, .basis = fn_space->specs};
+    const kform_spec_t kform_out = {.ndim = n, .order = order + 1, .basis = fn_space->specs};
+    kform_spec_component_offsets(&kform_in, combination_total_count(n, order) + 1, in_component_offsets);
+    kform_spec_component_offsets(&kform_out, combination_total_count(n, order + 1) + 1, out_component_offsets);
+    const size_t in_dofs = in_component_offsets[combination_total_count(n, order)];
+    const size_t out_dofs = out_component_offsets[combination_total_count(n, order + 1)];
 
     // Create output matrix
     const npy_intp out_dims[2] = {(npy_intp)out_dofs, (npy_intp)in_dofs};
@@ -992,7 +970,7 @@ static PyObject *compute_kform_incidence_matrix(PyObject *mod, PyObject *const *
 
     // Loop over input k-form components
     size_t idx_comp_in = 0;
-    combination_iterator_reset(iter_component_in);
+    combination_iterator_init(iter_component_in, n, order);
     for (const uint8_t *const components_in = combination_iterator_current(iter_component_in);
          !combination_iterator_is_done(iter_component_in); combination_iterator_next(iter_component_in), ++idx_comp_in)
     {
@@ -1135,7 +1113,7 @@ static PyObject *incidence_kform_operator(PyObject *mod, PyObject *const *args, 
     }
 
     // Allocate the memory needed for all work buffers and iterators
-    combination_iterator_t *iter_component_low, *iter_component_high;
+    combination_iterator_t *iter_component_low;
     uint8_t *basis_components;
     size_t *high_k_component_offsets;
     double *work_buffer;
@@ -1143,7 +1121,6 @@ static PyObject *incidence_kform_operator(PyObject *mod, PyObject *const *args, 
         &PYTHON_ALLOCATOR,
         (const cutl_alloc_info_t[]){
             {.size = combination_iterator_required_memory(order), .p_ptr = (void **)&iter_component_low},
-            {.size = combination_iterator_required_memory(order + 1), .p_ptr = (void **)&iter_component_high},
             {.size = sizeof(*basis_components) * (order + 1), .p_ptr = (void **)&basis_components},
             {.size = sizeof(*high_k_component_offsets) * (n_components_high + 1),
              .p_ptr = (void **)&high_k_component_offsets},
@@ -1155,19 +1132,8 @@ static PyObject *incidence_kform_operator(PyObject *mod, PyObject *const *args, 
         return NULL;
 
     // Compute output offsets
-    size_t idx_high = 0;
-    high_k_component_offsets[0] = 0;
-    combination_iterator_init(iter_component_high, n, order + 1);
-    for (const uint8_t *p_basis_components = combination_iterator_current(iter_component_high);
-         !combination_iterator_is_done(iter_component_high); combination_iterator_next(iter_component_high), ++idx_high)
-    {
-        // Use this chance to initialize the offsets
-        high_k_component_offsets[idx_high + 1] =
-            high_k_component_offsets[idx_high] +
-            kform_basis_get_num_dofs(n, fn_space->specs, order + 1, p_basis_components);
-    }
-    ASSERT(idx_high == n_components_high,
-           "I miscounted the components somehow (idx_out = %zu, n_components_out = %zu).", idx_high, n_components_high);
+    const kform_spec_t kform_high = {.ndim = n, .order = order + 1, .basis = fn_space->specs};
+    kform_spec_component_offsets(&kform_high, n_components_high + 1, high_k_component_offsets);
 
     size_t in_dofs, out_dofs;
     determine_hlio_order(high_k_component_offsets[n_components_high], low_k_component_offsets[n_components_low],
@@ -1332,33 +1298,45 @@ static PyObject *incidence_kform_operator(PyObject *mod, PyObject *const *args, 
 
 PyDoc_STRVAR(
     incidence_kform_operator_docstring,
-    "incidence_kform_operator(specs: KFormSpecs, values: numpy.typing.NDArray[np.double], transpose: bool = False, *, "
-    "out: numpy.typing.NDArray[numpy.double] | None = None) -> numpy.typing.NDArray[numpy.double]\n"
+    "incidence_kform_operator(specs: KFormSpecs, values: numpy.typing.NDArray[np.double], transpose: bool = False, "
+    "right: bool = False, *, out: numpy.typing.NDArray[numpy.double] | None = None) -> "
+    "numpy.typing.NDArray[numpy.double]\n"
     "Apply the incidence operator on the k-form.\n"
     "\n"
     "Parameters\n"
     "----------\n"
     "specs : KFormSpecs\n"
-    "    Specifications of the input k-form on which this operator is to be applied on.\n"
+    "    Specifications of the input k-form on which this operator is applied.\n"
     "\n"
     "values : array\n"
-    "    Array which contains the degrees of freedom of all components flattened along the\n"
-    "    last axis. Treated as a row-major matrix or a vector, depending if 1D or 2D.\n"
+    "    Degrees of freedom of all components of the input, flattened into one axis.\n"
+    "    A 1D array is a single set of DoFs; in a 2D array that axis is the first one\n"
+    "    when applying from the left (default) and the last one when ``right`` is set,\n"
+    "    the other axis repeating the operator.\n"
     "\n"
     "transpose : bool, default: False\n"
     "    Apply the transpose of the incidence operator instead.\n"
     "\n"
+    "right : bool, default: False\n"
+    "    Apply the incidence operator from the right side: the input is multiplied by\n"
+    "    the operator on the right. This is equivalent to applying the transposed\n"
+    "    operator from the left to the transposed input, then transposing the result\n"
+    "    back.\n"
+    "\n"
     "out : array, optional\n"
-    "    Array to which the result is written to. The first axis must have the same size\n"
-    "    as the number of output degrees of freedom of the resulting k-form. If the input\n"
-    "    was 2D, this must be as well, with the last axis matching the input's last axis.\n"
+    "    Array to which the result is written. Its degree-of-freedom axis must have\n"
+    "    the size of the output degrees of freedom: the first axis when applying\n"
+    "    from the left, the last axis when ``right`` is set. A 2D input requires a\n"
+    "    2D output whose repetition axis matches the input's.\n"
     "\n"
     "Returns\n"
     "-------\n"
     "array\n"
-    "    Values of the degrees of freedom of the derivative of the input k-form. When an\n"
-    "    output array is specified through the parameters, another reference to it is\n"
-    "    returned, otherwise a new array is created to hold the result and returned.\n");
+    "    Degrees of freedom of the image of the input under the incidence operator:\n"
+    "    by default the (k + 1)-form derivative of the input k-form; with exactly one\n"
+    "    of ``transpose`` or ``right`` the operator runs from the (k + 1)-form space\n"
+    "    to the k-form space. When ``out`` is given it is returned, otherwise a new\n"
+    "    array holds the result.\n");
 
 PyMethodDef incidence_methods[] = {
     {

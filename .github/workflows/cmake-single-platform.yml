@@ -2,9 +2,9 @@ name: Build and Test on a Linux (Ubuntu)
 
 on:
   push:
-    branches: [ "master" ]
+    branches: ["master"]
   pull_request:
-    branches: [ "master" ]
+    branches: ["master"]
 
 env:
   # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
@@ -15,14 +15,32 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v6
-      with:
-        submodules: recursive
-    - uses: actions/setup-python@v5
-      with:
-        python-version: '3.13'
-        cache: pip
-    - name: Install the extension
-      run: pip install --group dev .
-    - name: Test
-      run: pytest
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - uses: astral-sh/setup-uv@v10.1.0
+        with:
+          enable-cache: true
+
+      - name: Install the extension and dev dependencies
+        run: uv sync --group dev
+
+      - name: Configure CMake tests
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=$BUILD_TYPE
+          -DPython_EXECUTABLE="$PWD/.venv/bin/python"
+
+      - name: Build CMake tests
+        run: cmake --build build --parallel $(nproc)
+
+      - name: CMake Tests
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Python Tests
+        run: uv run pytest

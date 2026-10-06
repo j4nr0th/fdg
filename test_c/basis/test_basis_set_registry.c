@@ -16,6 +16,20 @@ int main(void)
     // Create the registry with caching enabled
     TEST_FDG_RESULT(integration_rule_registry_create(&ir_registry, 1 /*should_cache*/, &TEST_ALLOCATOR));
     TEST_FDG_RESULT(basis_set_registry_create(&registry, 1 /*should_cache*/, &TEST_ALLOCATOR));
+    const basis_spec_t endpoint_spec = {.type = BASIS_LAGRANGE_UNIFORM, .order = 3};
+    const basis_endpoint_set_t *endpoints_first;
+    const basis_endpoint_set_t *endpoints_second;
+    TEST_FDG_RESULT(basis_set_registry_get_basis_endpoints(registry, &endpoints_first, endpoint_spec));
+    TEST_FDG_RESULT(basis_set_registry_get_basis_endpoints(registry, &endpoints_second, endpoint_spec));
+    TEST_ASSERTION(endpoints_first == endpoints_second, "Endpoint cache did not reuse the basis specification");
+    for (unsigned end = 0; end < 2; ++end)
+    {
+        const double *const values = basis_endpoint_values(endpoints_first, end);
+        for (unsigned i = 0; i < endpoint_spec.order + 1; ++i)
+            TEST_NUMBERS_CLOSE(values[i], (i == end * endpoint_spec.order) ? 1.0 : 0.0, 1e-12, 1e-12);
+    }
+    basis_set_registry_release_basis_endpoints(registry, endpoints_second);
+    basis_set_registry_release_basis_endpoints(registry, endpoints_first);
 
     enum
     {
@@ -55,13 +69,13 @@ int main(void)
         TEST_ASSERTION(basis_sets[i] == cached_basis, "Caching failed: Expected same basis_set pointer");
 
         // Release cached reference
-        TEST_FDG_RESULT(basis_set_registry_release_basis_set(registry, cached_basis));
+        basis_set_registry_release_basis_set(registry, cached_basis);
     }
 
     // Release all basis sets
     for (int i = 0; i < PAIR_COUNT; i++)
     {
-        TEST_FDG_RESULT(basis_set_registry_release_basis_set(registry, basis_sets[i]));
+        basis_set_registry_release_basis_set(registry, basis_sets[i]);
     }
 
     // Force cleanup of unused basis sets

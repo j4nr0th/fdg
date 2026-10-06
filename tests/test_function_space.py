@@ -87,6 +87,33 @@ def test_3d_function_space():
     assert values_fs == pytest.approx(expected_values)
 
 
+def test_function_space_boundary() -> None:
+    """Check that a boundary space drops the selected reference dimension."""
+    specs = (
+        BasisSpecs("legendre", 2),
+        BasisSpecs("bernstein", 3),
+        BasisSpecs("lagrange-uniform", 4),
+    )
+    function_space = FunctionSpace(*specs)
+
+    expected = (specs[1:], (specs[0], specs[2]), specs[:2])
+    for idim, expected_specs in enumerate(expected):
+        face_space = function_space.boundary(idim)
+        assert face_space.basis_specs == expected_specs
+        assert face_space.dimension == function_space.dimension - 1
+
+    point_space = FunctionSpace(specs[0]).boundary(0)
+    assert point_space.dimension == 0
+    assert point_space.basis_specs == ()
+
+    with pytest.raises(ValueError, match="out of bounds"):
+        function_space.boundary(-1)
+    with pytest.raises(ValueError, match="out of bounds"):
+        function_space.boundary(function_space.dimension)
+    with pytest.raises(ValueError, match="zero-dimensional"):
+        FunctionSpace().boundary(0)
+
+
 def test_integration_points() -> None:
     """Check that integration point values are same as those computed by evaluate."""
     basis_specs1 = BasisSpecs("legendre", 4)
@@ -105,6 +132,38 @@ def test_integration_points() -> None:
     computed_values = fs.values_at_integration_nodes(int_space)
 
     assert expected_values == pytest.approx(computed_values)
+
+
+def test_bernstein_order_zero_derivatives_are_rejected():
+    """Bernstein derivatives evaluate one order below, so order 0 would underflow."""
+    with pytest.raises(ValueError, match="order of at least 1"):
+        BasisSpecs("bernstein", 0).derivatives(np.zeros(2))
+
+
+def test_order_zero_derivatives_remain_supported():
+    """Order-0 derivatives of the other basis families keep working."""
+    x = np.array([-0.5, 0.5])
+    for basis_type in ("legendre", "lagrange-uniform"):
+        np.testing.assert_array_equal(
+            BasisSpecs(basis_type, 0).derivatives(x), np.zeros((2, 1))
+        )
+
+
+def test_empty_evaluation_points_are_rejected():
+    """An empty point array underflows n_pos - 1 in the Lagrange evaluator."""
+    empty = np.zeros(0)
+    for basis_type in ("legendre", "bernstein", "lagrange-uniform"):
+        specs = BasisSpecs(basis_type, 1)
+        with pytest.raises(ValueError, match="non-empty"):
+            specs.values(empty)
+        with pytest.raises(ValueError, match="non-empty"):
+            specs.derivatives(empty)
+
+
+def test_dimension_upper_bound():
+    """The option storage takes ndim of at most 63 as a precondition."""
+    with pytest.raises(ValueError, match="at most 63"):
+        FunctionSpace(*(BasisSpecs("legendre", 1) for _ in range(64)))
 
 
 if __name__ == "__main__":

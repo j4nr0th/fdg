@@ -43,6 +43,26 @@ set(COMMON_HEADER_FILES
         src/common/error.h
         src/common/rw_lock.h
 )
+set(CONSTRAINT_SOURCE_FILES
+        src/constraints/constraints.c
+        src/constraints/direct.c
+        src/constraints/direct.h
+)
+set(KFORM_SOURCE_FILES
+        src/kforms/kform_values.c
+        src/kforms/kform_values.h
+        src/kforms/kform_types.h
+)
+set(DATA_SOURCE_FILES
+        src/data/element_data.c
+        src/data/element_data.h
+        src/data/element_dofs.c
+        src/data/element_dofs.h
+        src/data/element_kforms.c
+        src/data/element_kforms.h
+        src/data/mesh_kform_specs.c
+        src/data/mesh_kform_specs.h
+)
 
 set(INTEGRATION_SOURCE_FILES
         src/integration/integration_rules.c
@@ -58,10 +78,23 @@ set(INTEGRATION_HEADER_FILES
 
 set(OPERATIONS_SOURCE_FILES
         src/operations/matrices.c
+        src/operations/boundaries.c
+        src/operations/dof_transforms.c
+        src/operations/map_transforms.c
 )
 
 set(OPERATIONS_HEADER_FILES
         src/operations/matrices.h
+        src/operations/boundaries.h
+        src/operations/dof_transforms.h
+        src/operations/map_transforms.h
+)
+
+set(TOPOLOGY_SOURCE_FILES
+        src/topology/topology.c
+        src/topology/topology.h
+        src/topology/mesh.c
+        src/topology/mesh.h
 )
 
 set(POLYNOMIALS_SOURCE_FILES
@@ -81,22 +114,34 @@ set(RECONSTRUCTION_SOURCE_FILES
 )
 
 
-add_library(interp STATIC
+add_library(fdg STATIC
         ${BASIS_SOURCE_FILES}
         ${COMMON_SOURCE_FILES}
+        ${CONSTRAINT_SOURCE_FILES}
+        ${KFORM_SOURCE_FILES}
+        ${DATA_SOURCE_FILES}
         ${INTEGRATION_SOURCE_FILES}
         ${OPERATIONS_SOURCE_FILES}
         ${POLYNOMIALS_SOURCE_FILES}
         ${RECONSTRUCTION_SOURCE_FILES}
+        ${TOPOLOGY_SOURCE_FILES}
 )
 
-add_subdirectory(cutl)
+# hybridized-solver has own cutl and cpyutl
+set(HYBSOL_BUILD_PYTHON OFF CACHE BOOL "" FORCE)
+set(HYBSOL_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 
-set_property(TARGET interp PROPERTY C_STANDARD 17)
-target_compile_definitions(interp PRIVATE FDG_ASSERTS)
-target_link_libraries(interp PUBLIC m OpenMP::OpenMP_C cutl)
+# cutl's checks are CUTL_ASSERTs
+option(CUTL_ASSERTS "Enable cutl's internal consistency checks." ON)
+add_subdirectory(hybridized-solver EXCLUDE_FROM_ALL)
+
+# hybsol only adds cpyutl for its Python bindings
+add_subdirectory(hybridized-solver/cpyutl)
+
+set_property(TARGET fdg PROPERTY C_STANDARD 17)
+target_link_libraries(fdg PUBLIC m OpenMP::OpenMP_C hybsol::hybsol)
 if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
-    target_compile_options(interp PRIVATE -Wall -Wextra -Werror -fanalyzer -Werror)
+    target_compile_options(fdg PRIVATE -Wall -Wextra -Werror -fanalyzer -Werror)
 endif ()
 
 
@@ -107,9 +152,14 @@ set(PYTHON_NUMERICS_SOURCE_FILES
         src/python/mass_matrices.c
         src/python/degrees_of_freedom.c
         src/python/mappings.c
+        src/python/constraints.c
         src/python/incidence.c
+        src/python/direct_continuity.c
         src/python/covector_basis.c
         src/python/kform_objects.c
+        src/python/mesh_objects.c
+        src/python/element_data_objects.c
+        src/python/sampled_space_map.c
 )
 
 Python_add_library(_fdg MODULE
@@ -117,18 +167,16 @@ Python_add_library(_fdg MODULE
         ${PYTHON_NUMERICS_SOURCE_FILES}
         WITH_SOABI)
 
-add_subdirectory(cpyutl)
-
-target_link_libraries(_fdg PRIVATE interp cpyutl cutl)
+target_link_libraries(_fdg PRIVATE fdg cpyutl)
 set_property(TARGET _fdg PROPERTY C_STANDARD 17)
 set_property(TARGET _fdg PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
 install(TARGETS _fdg DESTINATION ${SKBUILD_PROJECT_NAME})
-target_compile_definitions(_fdg PRIVATE FDG_ASSERTS CPYUTL_ENABLE_ASSERTS)
+target_compile_definitions(_fdg PRIVATE CPYUTL_ENABLE_ASSERTS)
 
 if ("${NumPy_INCLUDE_DIRS}" STREQUAL "")
     message(FATAL_ERROR "NumPy_INCLUDE_DIRS was empty.")
 endif ()
-target_include_directories(_fdg PRIVATE ${NumPy_INCLUDE_DIRS} ${Python_INCLUDE_DIRS} cpyutl/src)
+target_include_directories(_fdg PRIVATE ${NumPy_INCLUDE_DIRS} ${Python_INCLUDE_DIRS})
 
 if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
     target_compile_options(_fdg PRIVATE -Wall -Wextra -Werror)

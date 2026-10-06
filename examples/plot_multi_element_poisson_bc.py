@@ -1,0 +1,793 @@
+r"""
+Multi-element mixed Poisson equation with strong and weak boundary conditions
+=============================================================================
+
+This example extends the multi-element mixed Poisson example by applying
+boundary conditions on the outer boundary of the domain. The outer boundary is
+*deformed*: the coordinate map no longer keeps the boundary fixed, so the
+boundary faces are curved.
+
+Two kinds of boundary conditions are demonstrated:
+
+* a **strong** condition on the flux :math:`q`, enforced with Lagrange
+  multipliers: the trace :math:`\operatorname{tr} q` on a face is prescribed
+  with :meth:`Mesh.compute_kform_global_constraints`, which appends the
+  prescribed trace rows and their data moments to the shared-face continuity
+  rows of :meth:`Mesh.compute_kform_continuity_constraints`;
+* a **weak** condition on the solution :math:`u`, applied through the natural
+  boundary term of the mixed formulation: the momentum equation is
+  :math:`(p, q) + (\mathrm{d}p, u) = \int_{\partial\Omega} p \wedge \star u_D`,
+  so prescribing :math:`u = u_D` weakly adds the boundary load
+  :math:`\int_{F_e} u_D \operatorname{tr} p` to the momentum right-hand side.
+  This is exactly the integral computed by :func:`compute_kform_boundary_load`.
+
+The mixed Poisson equation is solved with the manufactured solution
+:math:`u = \mathrm{SCALE}(\prod_i \cos(\pi x_i / 2) + 1)`, whose trace on the
+deformed outer boundary is nonzero, with the flux
+:math:`q = \star \mathrm{d}\star u` prescribed strongly on two faces and the
+solution prescribed weakly on the remaining faces. Both a *neighboring* pair
+of strong faces and an *opposite* pair are shown in two dimensions; because
+the strong condition acts on the flux, neighboring strong faces constrain
+disjoint components and do not over-constrain the system.
+"""  # noqa: D205 D400
+
+from itertools import combinations
+from time import perf_counter
+
+import matplotlib.pyplot as plt
+import numpy as np
+import numpy.typing as npt
+import pyvista as pv
+from fdg import (
+    BasisSpecs,
+    BasisType,
+    BoundaryCondition,
+    CoordinateMap,
+    DegreesOfFreedom,
+    FunctionSpace,
+    IntegrationMethod,
+    IntegrationSpace,
+    IntegrationSpecs,
+    KForm,
+    KFormSpecs,
+    Mesh,
+    SpaceMap,
+    compute_kform_boundary_load,
+    compute_kform_mass_matrix,
+    incidence_kform_operator,
+    projection_kform_l2_dual,
+    reconstruct,
+    transform_kform_to_target,
+)
+from fdg.integration import Integrable
+from fdg.visualization import lagrange_hexahedral_grid, sample_kform_on_uniform_grid
+
+# %%
+#
+# The manufactured solution is a product of cosines shifted by a constant, so
+# it does not vanish on the outer boundary of the :math:`[-1, 1]^n` grid: its
+# trace is the constant :math:`\mathrm{SCALE}` everywhere on the boundary and
+# its normal flux is nonzero. The grids of hypercubes cover exactly that
+# domain; both the interiors and the outer boundaries are deformed.
+#
+SCALE = 0.1
+
+# Strength of the deformation and the order of the geometry basis.
+DEFORM = 0.05
+GEO_ORDER = 3
+
+
+def manufactured_solution(*x: npt.NDArray[np.double]) -> npt.NDArray[np.double]:
+    """Exact manufactured solution."""
+    res = np.cos(x[0] * np.pi / 2)
+    for v in x[1:]:
+        res *= np.cos(v * np.pi / 2)
+    return (res + 1.0) * SCALE
+
+
+def manufactured_source_laplacian(*x: npt.NDArray[np.double]) -> npt.NDArray[np.double]:
+    """Exact manufactured source term."""
+    res = np.cos(x[0] * np.pi / 2)
+    for v in x[1:]:
+        res *= np.cos(v * np.pi / 2)
+    res *= -((np.pi / 2) ** 2) * len(x)
+    return res * SCALE
+
+
+def deformed_map(*g: npt.NDArray[np.double]) -> tuple[npt.NDArray[np.double], ...]:
+    """Deform grid coordinates, moving the outer boundary of the domain.
+
+    The deformation does not vanish on the outer boundary, so every boundary
+    face is curved. It is a diffeomorphism for ``DEFORM < 0.5``; the outer
+    boundary is pushed outward by at most ``DEFORM * 2^ndim`` at the corners.
+    """
+    plus = np.ones_like(g[0])
+    minus = np.ones_like(g[0])
+    for v in g:
+        plus *= 1.0 + v
+        minus *= 1.0 - v
+    return tuple(gi + DEFORM * (plus + minus) for gi in g)
+
+
+def jacobian(*g: npt.NDArray[np.double]) -> npt.NDArray[np.double]:
+    """Jacobian of deformed_map, with shape (..., ndim, ndim)."""
+    g = np.broadcast_arrays(*g)
+    ndim = len(g)
+    J = np.zeros(g[0].shape + (ndim, ndim))
+    for i in range(ndim):
+        for k in range(ndim):
+            plus = np.prod([1.0 + g[j] for j in range(ndim) if j != k], axis=0)
+            minus = np.prod([1.0 - g[j] for j in range(ndim) if j != k], axis=0)
+            J[..., i, k] = (1.0 if i == k else 0.0) + DEFORM * (plus - minus)
+    return J
+
+
+# %%
+#
+# The flux of the manufactured solution is :math:`q = \star \mathrm{d}\star u`.
+# With the ordered basis :math:`(\mathrm{d}x_1, \dots, \mathrm{d}x_n)` and the
+# Hodge star convention of the library, component ``c`` of the :math:`(n-1)`-
+# form is the wedge of the ``c``-th combination of :math:`n-1` axes, and its
+# coefficient is :math:`(-1)^m \partial_m u` where :math:`m` is the axis not
+# contained in that combination.
+#
+
+
+def flux_components(ndim: int) -> list[Integrable]:
+    """Return the flux components of the manufactured solution in ndim."""
+    half = np.pi / 2.0
+
+    def comp(axes: tuple[int, ...]) -> Integrable:
+        missing = tuple(i for i in range(ndim) if i not in axes)[0]
+
+        def value(*x: npt.NDArray[np.double]) -> npt.NDArray[np.double]:
+            prod = np.ones_like(x[0])
+            for i, xi in enumerate(x):
+                if i != missing:
+                    prod *= np.cos(xi * half)
+            der = -half * np.sin(x[missing] * half)
+            return SCALE * (1.0 if missing % 2 == 0 else -1.0) * der * prod
+
+        return value
+
+    return [comp(axes) for axes in combinations(range(ndim), ndim - 1)]
+
+
+# %%
+#
+# First the topological mesh of the domain is built. The mesh has no geometry:
+# it only stores the connections between the points, lines, faces and
+# elements. The corner point IDs of the elements of the :math:`2^n` grid are
+# computed below, with the point :math:`\sum_i \mathrm{idx}_i 3^i` being the
+# grid node :math:`(\mathrm{idx}_0, \mathrm{idx}_1, \dots)`.
+#
+
+
+def grid_point(*idx: int) -> int:
+    """Point ID of the grid node (idx[0], idx[1], ...) of the 2^ndim grid."""
+    return sum(int(ix) * 3**d for d, ix in enumerate(idx))
+
+
+def mesh_corners(ndim: int) -> npt.NDArray[np.uint64]:
+    """Corner point IDs of all elements of the 2^ndim grid."""
+    corners = []
+    for element in range(1 << ndim):
+        idx = tuple((element >> d) & 1 for d in range(ndim))
+        for delta in range(1 << ndim):
+            corners.append(
+                grid_point(*(idx[d] + ((delta >> d) & 1) for d in range(ndim)))  # type: ignore
+            )
+    return np.array(corners, dtype=np.uint64)
+
+
+# %%
+#
+# Mappings for every coordinate are collected into a joined :class:`SpaceMap`,
+# which is then used to map :math:`k`-form components between the reference
+# domain and the physical domain. The deformation moves the outer boundary, so
+# the physical boundary is curved and every boundary face map carries the full
+# surface geometry.
+#
+
+
+def element_map(
+    idx: tuple[int, ...],
+    basis: FunctionSpace,
+    integration: IntegrationSpace,
+) -> SpaceMap:
+    """Deformed map of the element at grid position idx."""
+    grids = np.meshgrid(
+        *([np.linspace(-1.0, 1.0, GEO_ORDER + 1)] * len(idx)), indexing="ij"
+    )
+    deformed = deformed_map(*(0.5 * g + i - 0.5 for g, i in zip(grids, idx)))
+    return SpaceMap(
+        *(
+            CoordinateMap(DegreesOfFreedom(basis, d.ravel()), integration)
+            for d in deformed
+        )
+    )
+
+
+def create_element_maps(ndim: int, integration: IntegrationSpace) -> list[SpaceMap]:
+    """Deformed maps of all 2^ndim elements of the grid."""
+    basis = FunctionSpace(
+        *(BasisSpecs(BasisType.LAGRANGE_UNIFORM, GEO_ORDER) for _ in range(ndim))
+    )
+    return [
+        element_map(tuple((e >> d) & 1 for d in range(ndim)), basis, integration)
+        for e in range(1 << ndim)
+    ]
+
+
+# %%
+#
+# Along with the :class:`IntegrationSpace` objects that define integration we
+# must define the discretization of the :math:`k`-forms using a :class:`FunctionSpace`
+# object. With the base function space defined, the two :math:`k`-form
+# specifications of the :math:`n`-dimensional mixed Poisson equation are
+# created with :class:`KFormSpecs`: the :math:`(n - 1)`-form flux :math:`q`
+# and the :math:`n`-form solution :math:`u`.
+#
+
+
+def create_kform_specs(
+    type_basis: BasisType, order_basis: int, ndim: int
+) -> tuple[KFormSpecs, KFormSpecs]:
+    """Create the k-form specifications of the ndim-dimensional Poisson equation."""
+    base_space = FunctionSpace(
+        *(BasisSpecs(type_basis, order_basis) for _ in range(ndim))
+    )
+    specs_u = KFormSpecs(ndim, base_space)
+    specs_q = KFormSpecs(ndim - 1, base_space)
+    return specs_u, specs_q
+
+
+# %%
+# For the left side of the system the two mass matrices of the two
+# :math:`k`-forms are computed, and the incidence operator is applied as
+# needed. This produces the element block of the saddle-point system.
+#
+
+
+def assemble_element_lhs(
+    sm: SpaceMap, specs_q: KFormSpecs, specs_u: KFormSpecs
+) -> np.ndarray:
+    """Assemble the element system matrix of the Poisson equation."""
+    mq = compute_kform_mass_matrix(
+        sm, specs_q.order, specs_q.base_space, specs_q.base_space
+    )
+    mu = compute_kform_mass_matrix(
+        sm, specs_u.order, specs_u.base_space, specs_u.base_space
+    )
+
+    mu_e = incidence_kform_operator(specs_q, mu, right=True)
+    et_mu = incidence_kform_operator(specs_q, mu, transpose=True)
+
+    return np.block(
+        [
+            [mq, et_mu],
+            [mu_e, np.zeros_like(mu)],
+        ]
+    )
+
+
+# %%
+# The right side of the Poisson equation is computed from the "dual projection"
+# of the manufactured source term on the function space.
+#
+
+
+def assemble_element_rhs(
+    specs_u: KFormSpecs, specs_q: KFormSpecs, sm_h: SpaceMap
+) -> np.ndarray:
+    """Assemble the element right-hand side of the Poisson equation."""
+    source_vals = projection_kform_l2_dual(
+        [manufactured_source_laplacian], specs_u, sm_h
+    )[0]
+    return np.concatenate(
+        (
+            np.zeros(int(np.sum(specs_q.component_dof_counts))),
+            source_vals.flatten(),
+        )
+    )
+
+
+# %%
+#
+# The constraint rows returned by
+# :meth:`Mesh.compute_kform_continuity_constraints` and
+# :meth:`Mesh.compute_kform_global_constraints` are packed sparse global rows:
+# each entry names an element, an element-frame component, and a local DoF of
+# the flux :math:`q`. For this example they are materialized into one dense
+# global operator whose columns are the interleaved element blocks of flux
+# degrees of freedom.
+#
+
+
+def packed_to_dense(
+    packed: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray],
+    specs_q: KFormSpecs,
+    element_count: int,
+    block: int,
+) -> np.ndarray:
+    """Materialize packed global constraint rows as a dense operator."""
+    row_offsets, element_ids, components, local_dofs, coefficients = packed
+    n_rows = row_offsets.size - 1
+    matrix = np.zeros((n_rows, element_count * block))
+    for row in range(n_rows):
+        start, end = int(row_offsets[row]), int(row_offsets[row + 1])
+        for i in range(start, end):
+            element = int(element_ids[i])
+            column = (
+                element * block
+                + int(specs_q.get_component_slice(int(components[i])).start)
+                + int(local_dofs[i])
+            )
+            matrix[row, column] += coefficients[i]
+    return matrix
+
+
+# %%
+#
+# Boundary faces are classified from their orientation record: the first entry
+# is the signed fixed axis, whose sign is negative for the start side and
+# positive for the end side, and whose absolute value minus one is the axis
+# index.  A face with fixed axis ``a`` at side ``s`` has outward normal
+# :math:`s \hat{x}_a`.  The example prescribes the flux strongly on the faces
+# listed in ``strong`` and the solution weakly on all remaining boundary
+# faces.
+#
+
+
+def face_axis_side(orient: npt.NDArray[np.int8]) -> tuple[int, int]:
+    """Return (fixed axis index, side) of a boundary face orientation."""
+    return abs(int(orient[0])) - 1, -1 if orient[0] < 0 else 1
+
+
+def strong_boundary_conditions(
+    mesh: Mesh,
+    maps: list[SpaceMap],
+    specs_q: KFormSpecs,
+    strong: set[tuple[int, int]],
+) -> tuple[BoundaryCondition, int]:
+    """Collect the strong faces and the shared-row count of the constraint system.
+
+    The strong faces carry the trace of the exact flux as prescribed data:
+    one callable per physical flux component in the canonical combination
+    order, exactly the format expected by
+    :class:`~fdg.boundary_conditions.BoundaryCondition`. The standalone
+    continuity call reports how many of the global constraint rows are
+    shared-face continuity rows, which the residual split below relies on.
+    """
+    strong_faces = tuple(
+        int(object_id)
+        for _, object_id, _, orientations in mesh.iterate_boundary(mesh.ndim - 1)
+        if face_axis_side(orientations[0]) in strong
+    )
+    shared_packed = mesh.compute_kform_continuity_constraints(
+        [specs_q] * mesh.element_count, maps
+    )
+    n_shared = shared_packed[0].size - 1
+    return (
+        BoundaryCondition(faces=strong_faces, data=flux_components(specs_q.dimension)),
+        n_shared,
+    )
+
+
+# %%
+# With all the small building blocks in place, the global saddle-point system
+# can be assembled. The element blocks are placed on the diagonal. The
+# constraint matrix :math:`C` is assembled with one
+# :meth:`Mesh.compute_kform_global_constraints` call, which returns the
+# shared-face continuity rows first (with zero right-hand side) followed by
+# the strong prescribed rows on the selected outer faces; the prescribed rows
+# impose :math:`\operatorname{tr} q = g_F` through their Lagrange multipliers,
+# with the right-hand side given by the windowed dual moments of the exact
+# flux data. The weak Dirichlet condition contributes the boundary load
+# :func:`compute_kform_boundary_load` to the momentum right-hand side.
+#
+
+
+def solve(
+    mesh: Mesh,
+    maps: list[SpaceMap],
+    specs_q: KFormSpecs,
+    specs_u: KFormSpecs,
+    strong: set[tuple[int, int]],
+) -> tuple[list[np.ndarray], list[np.ndarray], float, float]:
+    """Solve the mixed Poisson system with strong and weak boundary conditions.
+
+    Parameters
+    ----------
+    strong : set of (axis, side)
+        Outer boundary faces on which the flux trace is prescribed strongly.
+        The remaining outer boundary faces get the weak Dirichlet condition.
+
+    Returns
+    -------
+    tuple
+        ``(q_dofs, u_dofs, continuity, strong_residual)``: the per-element
+        flux and solution DoFs, the maximum shared-face continuity residual,
+        and the maximum strong-condition residual.
+    """
+    nq = int(np.sum(specs_q.component_dof_counts))
+    nu = int(np.sum(specs_u.component_dof_counts))
+    blk = nq + nu
+    nel = mesh.element_count
+    nx = nel * blk
+
+    # The weak Dirichlet load pairs the datum with the flux trace on a face
+    # test space matching the flux: same basis family and order as the
+    # element, one axis fewer.
+    load_specs = KFormSpecs(
+        mesh.ndim - 1,
+        FunctionSpace(
+            *(
+                BasisSpecs(basis.type, basis.order)
+                for basis in tuple(specs_q.base_space.basis_specs)[: mesh.ndim - 1]
+            )
+        ),
+    )
+
+    lhs = np.zeros((nx, nx))
+    rhs = np.zeros(nx)
+    for e in range(nel):
+        off = e * blk
+        lhs[off : off + blk, off : off + blk] = assemble_element_lhs(
+            maps[e], specs_q, specs_u
+        )
+        rhs[off + nq : off + blk] = assemble_element_rhs(specs_u, specs_q, maps[e])[nq:]
+
+    for mdim, object_id, element_ids, orientations in mesh.iterate_boundary(
+        mesh.ndim - 1
+    ):
+        assert mdim == mesh.ndim - 1 and element_ids.size == 1
+        element_id = int(element_ids[0])
+        if face_axis_side(orientations[0]) not in strong:
+            rhs[element_id * blk : element_id * blk + nq] += compute_kform_boundary_load(
+                load_specs,
+                specs_q,
+                maps[element_id],
+                mesh.collections,
+                mesh.point_count,
+                element_id,
+                int(object_id),
+                manufactured_solution,
+            )
+
+    condition, n_shared = strong_boundary_conditions(mesh, maps, specs_q, strong)
+    packed, constraint_rhs = mesh.compute_kform_global_constraints(
+        [specs_q] * nel, maps, [condition]
+    )
+    c_matrix = packed_to_dense(packed, specs_q, nel, blk)
+    n_lambda = c_matrix.shape[0]
+
+    system = np.block([[lhs, c_matrix.T], [c_matrix, np.zeros((n_lambda, n_lambda))]])
+    solution = np.linalg.solve(system, np.concatenate((rhs, constraint_rhs)))
+
+    q_dofs = [solution[e * blk : e * blk + nq] for e in range(nel)]
+    u_dofs = [solution[e * blk + nq : e * blk + blk] for e in range(nel)]
+
+    residual = np.abs(c_matrix @ solution[:nx] - constraint_rhs)
+    continuity = float(np.max(residual[:n_shared], initial=0.0))
+    strong_residual = float(np.max(residual[n_shared:], initial=0.0))
+    return q_dofs, u_dofs, continuity, strong_residual
+
+
+# %%
+# To compute the :math:`L^2` error, the computed solution is reconstructed on
+# every element, subtracted from the manufactured solution, and the square of
+# the error is integrated over the element.
+#
+
+
+def reconstruct_element_error_l2(
+    specs_u: KFormSpecs, u_dofs: np.ndarray, sm_h: SpaceMap
+) -> float:
+    """Reconstruct the solution on one element and return its squared L2 error."""
+    sol_u = KForm(specs_u)
+    sol_u.values[:] = u_dofs
+    u_dofs_obj = DegreesOfFreedom(
+        specs_u.get_component_function_space(0), sol_u.get_component_dofs(0)
+    )
+    computed_values = transform_kform_to_target(
+        specs_u.order, sm_h, [reconstruct(u_dofs_obj, *sm_h.integration_space.nodes())]
+    )[0]
+    real_values = manufactured_solution(
+        *[sm_h.coordinate_map(idx).values for idx in range(specs_u.order)]
+    )
+    return float(
+        np.sum(
+            (computed_values - real_values) ** 2
+            * sm_h.determinant
+            * sm_h.integration_space.weights()
+        )
+    )
+
+
+# %%
+# All the small building blocks discussed before can now be put together to
+# form the error calculation function.
+#
+
+
+def compute_l2_error(
+    order_integration: int,
+    type_integration: IntegrationMethod,
+    order_basis: int,
+    type_basis: BasisType,
+    dp: int,
+    ndim: int,
+    strong: set[tuple[int, int]],
+) -> tuple[float, float, float]:
+    """Solve the Poisson equation with BCs and compute the L2 error."""
+    mesh = Mesh.from_corners(ndim, mesh_corners(ndim))
+
+    integration = IntegrationSpace(
+        *(IntegrationSpecs(order_integration, type_integration) for _ in range(ndim))
+    )
+    integration_high = IntegrationSpace(
+        *(IntegrationSpecs(order_integration + dp, type_integration) for _ in range(ndim))
+    )
+    maps = create_element_maps(ndim, integration)
+    maps_high = create_element_maps(ndim, integration_high)
+
+    specs_u, specs_q = create_kform_specs(type_basis, order_basis, ndim)
+
+    q_dofs, u_dofs, continuity, strong_residual = solve(
+        mesh, maps, specs_q, specs_u, strong
+    )
+    err_l2 = np.sqrt(
+        sum(
+            reconstruct_element_error_l2(specs_u, u_dofs[e], maps_high[e])
+            for e in range(mesh.element_count)
+        )
+    )
+    return float(err_l2), continuity, strong_residual
+
+
+# %%
+# For this test, we will use the Bernstein basis, the Gauss integration rule,
+# and the order difference of 1 between the lower and higher order integration
+# rules.
+BTYPE = BasisType.BERNSTEIN
+ITYPE = IntegrationMethod.GAUSS
+DP = 1
+
+
+def plot_convergence(
+    pvals: npt.NDArray[np.intp], evals: npt.NDArray[np.double], title: str
+) -> None:
+    """Fit and plot the convergence of the L2 error over polynomial order."""
+    k1, k0 = np.polyfit(pvals, np.log(evals), deg=1)
+    c = np.exp(k0)
+    b = np.exp(k1)
+
+    fig, ax = plt.subplots()
+
+    ax.scatter(pvals, evals)
+    ax.plot(
+        pvals,
+        c * b**pvals,
+        linestyle="dashed",
+        label=f"$\\varepsilon = {c:.2g} \\cdot {b:.2g}^{{p}}$",
+    )
+    ax.set(
+        yscale="log",
+        xlabel="$p$",
+        ylabel="$\\left|\\left| \\varepsilon \\right|\\right|_{ L^2 }$",
+    )
+    ax.grid()
+    ax.legend()
+    ax.set_title(title)
+    fig.tight_layout()
+
+    plt.show()
+
+
+# %%
+# In two dimensions the grid consists of four unit squares. The error of the
+# manufactured solution is measured for increasing polynomial order for two
+# choices of the strong faces: the *neighboring* pair :math:`x = -1` and
+# :math:`y = -1`, and the *opposite* pair :math:`x = -1` and :math:`x = +1`.
+# In the mixed formulation the strong flux condition on neighboring faces
+# constrains disjoint components of :math:`q` (the :math:`x`-face constrains
+# the :math:`\mathrm{d}x`-component and the :math:`y`-face the
+# :math:`\mathrm{d}y`-component), so neither configuration over-constrains the
+# saddle-point system.
+#
+pvals = np.arange(1, 7)
+evals_n = np.zeros(pvals.size)
+evals_o = np.zeros(pvals.size)
+strong_neighboring = {(0, -1), (1, -1)}
+strong_opposite = {(0, -1), (0, 1)}
+for ip, p in enumerate(pvals):
+    p_ord = int(p)
+    t0 = perf_counter()
+    l2_n, cont_n, res_n = compute_l2_error(
+        p_ord, ITYPE, p_ord, BTYPE, DP, 2, strong_neighboring
+    )
+    l2_o, cont_o, res_o = compute_l2_error(
+        p_ord, ITYPE, p_ord, BTYPE, DP, 2, strong_opposite
+    )
+    t1 = perf_counter()
+    evals_n[ip] = l2_n
+    evals_o[ip] = l2_o
+    print(
+        f"p = {p_ord}: L2 error = {l2_n:.3e} / {l2_o:.3e} "
+        f"(neighboring / opposite), strong residual = {res_n:.1e} / {res_o:.1e}, "
+        f"continuity = {cont_n:.1e} / {cont_o:.1e}, time = {t1 - t0:.3f} s"
+    )
+
+plot_convergence(
+    pvals,
+    evals_n,
+    "Poisson equation convergence, strong Neumann on x=-1, y=-1",
+)
+plot_convergence(
+    pvals,
+    evals_o,
+    "Poisson equation convergence, strong Neumann on x=-1, x=+1",
+)
+
+
+# %%
+# The same building blocks solve the three-dimensional Poisson equation on a
+# 2x2x2 grid of eight hexahedral elements, covering :math:`[-1, 1]^3`, with
+# strong flux conditions on the faces :math:`x = -1` and :math:`y = -1` and
+# weak Dirichlet conditions on the remaining outer faces.
+#
+pvals_3d = np.arange(1, 6)
+evals_3d = np.zeros(pvals_3d.size)
+for ip, p in enumerate(pvals_3d):
+    p_ord = int(p)
+    t0 = perf_counter()
+    l2, cont, res = compute_l2_error(
+        p_ord, ITYPE, p_ord, BTYPE, DP, 3, strong_neighboring
+    )
+    t1 = perf_counter()
+    evals_3d[ip] = l2
+    print(
+        f"p = {p_ord}: L2 error = {l2:.3e}, strong residual = {res:.1e}, "
+        f"continuity = {cont:.1e}, time = {t1 - t0:.3f} s"
+    )
+
+plot_convergence(
+    pvals_3d, evals_3d, "Multi-element (2x2x2 grid) Poisson equation convergence"
+)
+#
+# The three-dimensional error converges exponentially as well: from
+# :math:`7.5\times 10^{-2}` (p = 1) to :math:`2.5\times 10^{-4}` (p = 4), with
+# the strong-condition residual and the flux-continuity residual at machine
+# precision throughout.
+
+
+# %%
+# The highest-order three-dimensional solution is rendered with pyvista. The
+# hexahedral mesh is built from the topological mesh as cubic Lagrange cells,
+# whose curved edges and faces are rendered exactly. The solution and error are
+# sampled independently on every element, then transformed from reference
+# k-forms to physical k-forms with :class:`SampledSpaceMap`.
+#
+
+
+def sample_error_grid(
+    u_dofs: list[np.ndarray],
+    specs_u: KFormSpecs,
+    maps: list[SpaceMap],
+    npts: int,
+) -> list[tuple[npt.NDArray[np.double], npt.NDArray[np.double]]]:
+    """Sample the pointwise physical error on every element."""
+    samples = []
+    for ue, sm in zip(u_dofs, maps, strict=True):
+        sampled_map, (u_phys,) = sample_kform_on_uniform_grid(specs_u, ue, sm, npts - 1)
+        positions = np.asarray(sampled_map.positions)
+        exact = manufactured_solution(
+            *(positions[..., axis] for axis in range(positions.shape[-1]))
+        )
+        samples.append((positions, u_phys - exact))
+    return samples
+
+
+ORDER_VIS = 3
+mesh_3d = Mesh.from_corners(3, mesh_corners(3))
+integration_vis = IntegrationSpace(
+    *(IntegrationSpecs(ORDER_VIS, ITYPE) for _ in range(3))
+)
+maps_vis = create_element_maps(3, integration_vis)
+specs_u_vis, specs_q_vis = create_kform_specs(BTYPE, ORDER_VIS, 3)
+q_dofs_vis, u_dofs_vis, _, _ = solve(
+    mesh_3d, maps_vis, specs_q_vis, specs_u_vis, strong_neighboring
+)
+ERROR_ORDER_VIS = 24
+error_samples_vis = sample_error_grid(
+    u_dofs_vis, specs_u_vis, maps_vis, ERROR_ORDER_VIS + 1
+)
+
+
+# %%
+# The error is shown directly on high-order Lagrange hexahedral cells as
+# :math:`\\log_{10}` of its absolute value. Values below :math:`10^{-10}` of the
+# maximum are clamped to the lowest color, so the colormap is not dominated by
+# near-zero noise.
+#
+logerr_samples = [np.log10(np.abs(error)) for _, error in error_samples_vis]
+finite = np.concatenate([values[np.isfinite(values)] for values in logerr_samples])
+hi = float(np.max(finite))
+lo = max(hi - 10.0, float(np.min(finite)))
+error_grid = lagrange_hexahedral_grid(
+    maps_vis,
+    ERROR_ORDER_VIS,
+    point_data={"logerr": [np.clip(values, lo, hi) for values in logerr_samples]},
+)
+
+plotter = pv.Plotter()
+plotter.add_mesh(
+    error_grid,
+    scalars="logerr",
+    cmap="viridis",
+    clim=(lo, hi),
+    scalar_bar_args={"title": "log10 |u - u_exact|"},
+)
+plotter.add_mesh(
+    lagrange_hexahedral_grid(maps_vis, GEO_ORDER), style="wireframe", color="black"
+)
+plotter.camera_position = "iso"
+plotter.show()
+
+
+# %%
+# The flux :math:`q` of the mixed formulation is a 2-form in three dimensions;
+# its physical components are transformed on a uniform grid before taking the
+# Euclidean Hodge star to obtain the vector field rendered as arrows.
+#
+
+
+def flux_grid(
+    q_dofs: list[np.ndarray],
+    specs_q: KFormSpecs,
+    maps: list[SpaceMap],
+    npts: int,
+) -> tuple[npt.NDArray[np.double], npt.NDArray[np.double], npt.NDArray[np.double]]:
+    """Evaluate the physical flux vector on uniform grids in the elements."""
+    origins = []
+    vectors = []
+    for qe, sm in zip(q_dofs, maps, strict=True):
+        sampled_map, components = sample_kform_on_uniform_grid(specs_q, qe, sm, npts - 1)
+        positions = np.asarray(sampled_map.positions)
+        origins.append(
+            np.stack([positions[..., axis].ravel() for axis in range(3)], axis=1)
+        )
+        # star(dx1^dx2) = dx3, star(dx1^dx3) = -dx2,
+        # star(dx2^dx3) = dx1.
+        vectors.append(
+            np.stack(
+                [
+                    component.ravel()
+                    for component in (components[2], -components[1], components[0])
+                ],
+                axis=1,
+            )
+        )
+    vector = np.concatenate(vectors)
+    return np.concatenate(origins), vector, np.linalg.norm(vector, axis=1)
+
+
+origins_vis, flux_vis, mag_vis = flux_grid(q_dofs_vis, specs_q_vis, maps_vis, 9)
+
+arrows = pv.PolyData(origins_vis)
+arrows["flux"] = flux_vis
+arrows["mag"] = mag_vis
+
+plotter_flux = pv.Plotter()
+plotter_flux.add_mesh(
+    arrows.glyph(orient="flux", scale="mag", factor=0.25 / mag_vis.max()),
+    cmap="plasma",
+    scalars="mag",
+    scalar_bar_args={"title": "flux magnitude"},
+)
+plotter_flux.add_mesh(
+    lagrange_hexahedral_grid(maps_vis, GEO_ORDER), style="wireframe", color="black"
+)
+plotter_flux.camera_position = "iso"
+plotter_flux.show()

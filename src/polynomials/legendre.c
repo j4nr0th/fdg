@@ -4,10 +4,12 @@
 
 #include "legendre.h"
 
+#include <cutl/common_defs.h>
+
 FDG_INTERNAL
 void legendre_eval_bonnet_two(const unsigned n, const double x, double FDG_ARRAY_ARG(out, 2))
 {
-    ASSERT(n >= 2, "n must be at least 2, but was %u", n);
+    CUTL_ASSERT(n >= 2, "n must be at least 2, but was %u", n);
     // n >= 2
     double v1 = 1.0;
     double v2 = x;
@@ -26,8 +28,11 @@ void legendre_eval_bonnet_two(const unsigned n, const double x, double FDG_ARRAY
 FDG_INTERNAL
 void legendre_eval_bonnet(const unsigned n, const double x, const unsigned m, double FDG_ARRAY_ARG(out, m))
 {
-    ASSERT(n >= m, "m can not be more than n, but was n=%u while m=%u", n, m);
-    ASSERT(m > 0, "m must be greater than zero");
+    CUTL_ASSERT(n >= m, "m can not be more than n, but was n=%u while m=%u", n, m);
+    CUTL_ASSERT(m > 0, "m must be greater than zero");
+    // The first entry is written at index n - m, so the output must be large
+    // enough to hold the polynomials of both halves of the recurrence.
+    CUTL_ASSERT(n < 2 * m, "The output of %u entries is too small for n = %u; n must be below 2 * m.", m, n);
     if (n + 1 == m)
     {
         out[0] = 1.0;
@@ -83,8 +88,6 @@ void legendre_eval_bonnet_all(const unsigned n, const double x, double FDG_ARRAY
         v2 = new;
     }
 }
-
-FDG_INTERNAL
 
 FDG_INTERNAL
 void legendre_eval_bonnet_all_stride(const unsigned n, const double x, const unsigned stride, const unsigned offset,

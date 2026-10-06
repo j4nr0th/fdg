@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
+from itertools import combinations, product
 from typing import Self
 
 import numpy as np
@@ -22,15 +24,111 @@ from fdg._fdg import (
     SpaceMap,
 )
 from fdg.degrees_of_freedom import reconstruct
-from fdg.enum_type import BasisType
+from fdg.enum_type import BasisType, IntegrationMethod
 from fdg.integration import Integrable, integrate_callable
 
 
-def _array_axis_slice(a: npt.NDArray, idx: int, axis: int):
-    """Take a slice from a numpy array along the specified axis."""
-    slices: list[slice | int] = [slice(None)] * a.ndim
-    slices[axis] = slice(idx, idx + 1) if idx >= 0 else slice(idx, idx - 1)
-    return a[tuple(slices)]
+def dofs_from_boundary_pairs(
+    *boundaries: tuple[DegreesOfFreedom, DegreesOfFreedom],
+) -> DegreesOfFreedom:
+    """Create new DoFs from opposite boundary pairs by transfinite blending.
+
+    Each pair contains the boundaries at the negative and positive side of one
+    reference axis.  Boundary coordinates must use the remaining reference axes
+    in their natural order; in particular, this function does not infer or alter
+    boundary orientations.
+    """
+    ndim_in = len(boundaries)
+    if ndim_in == 0:
+        raise ValueError("At least one boundary pair must be specified.")
+
+    max_orders = np.zeros(ndim_in, dtype=np.uintc)
+    for idim, pair in enumerate(boundaries):
+        if len(pair) != 2:
+            raise ValueError("Every boundary must be specified as a pair.")
+        b1, b2 = pair
+        if type(b1) is not DegreesOfFreedom or type(b2) is not DegreesOfFreedom:
+            raise TypeError("Both boundaries must be DegreesOfFreedom.")
+        expected_dimension = ndim_in - 1
+        if (
+            b1.function_space.dimension != expected_dimension
+            or b2.function_space.dimension != expected_dimension
+        ):
+            raise ValueError(
+                f"Boundary pair {idim} must have {expected_dimension} input dimensions."
+            )
+
+        for parent_axis in range(ndim_in):
+            if parent_axis == idim:
+                continue
+            boundary_axis = parent_axis if parent_axis < idim else parent_axis - 1
+            max_orders[parent_axis] = max(
+                max_orders[parent_axis],
+                b1.function_space.orders[boundary_axis],
+                b2.function_space.orders[boundary_axis],
+            )
+
+    function_space = FunctionSpace(
+        *(
+            BasisSpecs(BasisType.LAGRANGE_GAUSS_LOBATTO, int(order))
+            for order in max_orders
+        )
+    )
+    output_dofs = DegreesOfFreedom(function_space)
+    out_vals = output_dofs.values
+    corrected_boundaries: list[tuple[DegreesOfFreedom, DegreesOfFreedom]] = []
+    for idim, (b1, b2) in enumerate(boundaries):
+        boundary_orders = (*max_orders[:idim], *max_orders[idim + 1 :])
+        corrected_boundaries.append(
+            (
+                b1.lagrange_projection(boundary_orders),
+                b2.lagrange_projection(boundary_orders),
+            )
+        )
+
+    nodes = tuple(
+        IntegrationSpecs(int(order), IntegrationMethod.GAUSS_LOBATTO).nodes()
+        for order in max_orders
+    )
+    weights = tuple(
+        (
+            (1 - node) / 2,
+            (1 + node) / 2,
+        )
+        for node in nodes
+    )
+
+    for subset_size in range(1, ndim_in + 1):
+        coefficient = -1 if subset_size % 2 == 0 else 1
+        for axes in combinations(range(ndim_in), subset_size):
+            base_axis = axes[0]
+            for signs in product((0, 1), repeat=subset_size):
+                intersection = corrected_boundaries[base_axis][signs[0]]
+                for removed, (axis, side) in enumerate(
+                    zip(axes[1:], signs[1:], strict=True)
+                ):
+                    local_axis = axis - 1 - removed
+                    intersection = intersection.plane_projection(
+                        local_axis, -1.0 if side == 0 else +1.0
+                    )
+                value_shape: list[int] = []
+                value_axis = 0
+                for axis in range(ndim_in):
+                    if axis in axes:
+                        value_shape.append(1)
+                    else:
+                        value_shape.append(intersection.values.shape[value_axis])
+                        value_axis += 1
+                value = intersection.values.reshape(value_shape)
+
+                blend = 1.0
+                for axis, side in zip(axes, signs, strict=True):
+                    weight_shape = [1] * ndim_in
+                    weight_shape[axis] = int(max_orders[axis]) + 1
+                    blend = blend * weights[axis][side].reshape(weight_shape)
+                out_vals += coefficient * value * blend
+
+    return output_dofs
 
 
 @dataclass(frozen=True)
@@ -49,17 +147,18 @@ class HypercubeDomain:
         if not len(dofs):
             raise ValueError("At least one coordinate must have its DoFs specified.")
 
-        fs: FunctionSpace | None = None
+        ndim_in = 0
         for i, d in enumerate(dofs):
-            if type(dofs) is None:
+            if type(d) is not DegreesOfFreedom:
                 raise TypeError(
-                    f"Argument {i} was not {DegreesOfFreedom}, but {type(dofs)}."
+                    f"Argument {i} was not {DegreesOfFreedom}, but {type(d)}."
                 )
-            if fs is None:
-                fs = d.function_space
-            elif d.function_space != fs:
+            if ndim_in == 0:
+                ndim_in = d.function_space.dimension
+            elif d.function_space.dimension != ndim_in:
                 raise ValueError(
-                    f"Function spaces of the DoFs {i} does not match the rest!"
+                    f"Function spaces of the DoFs {i} does not have the same input "
+                    "dimension as the rest!"
                 )
 
         object.__setattr__(self, "dofs", dofs)
@@ -72,7 +171,9 @@ class HypercubeDomain:
     @property
     def ndim_reference(self) -> int:
         """Number of reference dimensions of the domain."""
-        return len(self.dofs[0].shape)
+        if not self.dofs:
+            return 0
+        return self.dofs[0].function_space.dimension
 
     def __call__(
         self,
@@ -86,7 +187,7 @@ class HypercubeDomain:
 
         Parameters
         ----------
-        space : IntegratinoSpace
+        space : IntegrationSpace
             Integration space to base the space map on.
 
         integration_registry : IntegrationRegistry, optional
@@ -119,6 +220,11 @@ class HypercubeDomain:
         return tuple(
             dof.reconstruct_at_integration_points(int_space) for dof in self.dofs
         )
+
+    def boundary(self, idim: int, end: bool = False) -> HypercubeDomain:
+        """Extract a boundary."""
+        dofs = [dof.plane_projection(idim, +1.0 if end else -1.0) for dof in self.dofs]
+        return HypercubeDomain(*dofs)
 
     def compute_size(
         self,
@@ -236,7 +342,7 @@ class HypercubeDomain:
             ``ranges`` parameters constrain the original domain.
         """
         n_dim_ref = self.ndim_reference
-        if len(ranges) < n_dim_ref:
+        if len(ranges) > n_dim_ref:
             raise ValueError(f"At most {n_dim_ref} pairs of divisions can be specified.")
         limits: list[tuple[float, float]] = [(float(vl), float(vh)) for vl, vh in ranges]
         while len(limits) < n_dim_ref:
@@ -254,73 +360,280 @@ class HypercubeDomain:
         new_dofs: list[DegreesOfFreedom] = list()
         for new_vals in self.sample(*grid):
             new_dofs.append(DegreesOfFreedom(new_fs, new_vals))
-
         return HypercubeDomain(*new_dofs)
 
-    # @classmethod
-    # def from_boundaries(cls, *boundaries: HypercubeDomain) -> Self:
-    #     """Create a domain from its boundaries."""
-    #     nbnd = len(boundaries)
-    #     if nbnd & 1:
-    #         raise ValueError("Domain must have an even number of boundaries.")
+    @staticmethod
+    def from_boundary_pairs(
+        *boundaries: tuple[HypercubeDomain, HypercubeDomain],
+    ) -> HypercubeDomain:
+        """Create a new domain from its boundaries by transfinite blending."""
+        # First check the inputs make sense
+        ndim_in = len(boundaries)
+        ndim_out = 0
 
-    #     ndim_in = nbnd // 2
-    #     if ndim_in <= 1:
-    #         raise ValueError(
-    #             "Domain must have at least two dimensions for this way of constructing
-    #  it"
-    #             " to work."
-    #         )
+        for i, (b1, b2) in enumerate(boundaries):
+            if not isinstance(b1, HypercubeDomain) or not isinstance(b2, HypercubeDomain):
+                raise TypeError("Both boundaries must be HyperCubes.")
 
-    #     for ib, bnd in enumerate(boundaries):
-    #         if bnd.ndim_reference + 1 != ndim_in:
-    #             raise ValueError(
-    #                 f"Boundary {ib} is not defined on the reference domain with "
-    #                 f"{ndim_in - 1} dimension as is expected for a new domain."
-    #             )
-    #         if bnd.ndim_physical != boundaries[0].ndim_physical:
-    #             raise ValueError(
-    #                 f"Boundary {ib} does not have the matching number of physical "
-    #                 "dimension with other boundaries that have "
-    #                 f"{boundaries[0].ndim_physical}"
-    #             )
+            if b1.ndim_physical != b2.ndim_physical:
+                raise ValueError(
+                    f"The number of physical dimensions for boundaries of dimension {i}"
+                    " does not match between the two boundaries."
+                )
 
-    #     start_boundaries = boundaries[:ndim_in]
-    #     end_boundaries = boundaries[ndim_in:]
+            if b1.ndim_reference + 1 != ndim_in or b2.ndim_reference + 1 != ndim_in:
+                raise ValueError(
+                    f"One or both boundaries for dimension {i} do not have the correct "
+                    "number of input dimensions."
+                )
+            if ndim_out == 0:
+                ndim_out = b1.ndim_physical
+            elif b1.ndim_physical != ndim_out:
+                raise ValueError(
+                    f"Number of physical dimensions for boundary {i} does not"
+                    " match the number specified by previous boundaries."
+                )
 
-    #     max_orders = np.zeros(ndim_in, dtype=np.uint64)
-    #     for idim in range(ndim_in):
-    #         start = start_boundaries[idim]
-    #         end = end_boundaries[idim]
-    #         orders = np.max(
-    #             (start.function_space.orders, end.function_space.orders), axis=0
-    #         )
-    #         padded = np.concatenate((orders[:idim], (0,), orders[idim:]))
-    #         max_orders = np.max((max_orders, padded), axis=0)
+        _validate_boundary_intersections(tuple(boundaries))
+        dofs = [
+            dofs_from_boundary_pairs(
+                *((b1.dofs[idim], b2.dofs[idim]) for b1, b2 in boundaries)
+            )
+            for idim in range(ndim_out)
+        ]
 
-    #     fs_target = FunctionSpace(
-    #         *(BasisSpecs(BasisType.LAGRANGE_UNIFORM, int(order)) for order in max_orders
-    # )
-    #     )
-    #     sample_points = np.meshgrid(
-    #         *(np.linspace(-1, +1, order + 1) for order in max_orders)
-    #     )
-    #     start_bnd_pts = [
-    #         start_boundaries[idim].sample(
-    #             *(_array_axis_slice(pts, 0, idim) for pts in sample_points)
-    #         )
-    #         for idim in range(ndim_in)
-    #     ]
-    #     end_bnd_pts = [
-    #         end_boundaries[idim].sample(
-    #             *(_array_axis_slice(pts, 0, idim) for pts in sample_points)
-    #         )
-    #         for idim in range(ndim_in)
-    #     ]
+        return HypercubeDomain(*dofs)
 
-    #     # TODO: check for adjacency between neighboring boundaries
 
-    #     raise NotImplementedError
+def _boundary_target_orders(
+    boundaries: tuple[tuple[HypercubeDomain, HypercubeDomain], ...],
+) -> tuple[int, ...]:
+    """Find common parent-axis orders for a collection of boundary pairs."""
+    ndim_reference = len(boundaries)
+    orders = np.zeros(ndim_reference, dtype=np.uintc)
+    for idim, (boundary_start, boundary_end) in enumerate(boundaries):
+        for parent_axis in range(ndim_reference):
+            if parent_axis == idim:
+                continue
+            boundary_axis = parent_axis if parent_axis < idim else parent_axis - 1
+            orders[parent_axis] = max(
+                orders[parent_axis],
+                boundary_start.function_space.orders[boundary_axis],
+                boundary_end.function_space.orders[boundary_axis],
+            )
+    return tuple(int(order) for order in orders)
+
+
+def _project_boundary(
+    boundary: HypercubeDomain, idim: int, target_orders: tuple[int, ...]
+) -> HypercubeDomain:
+    """Project one boundary onto the common parent-axis orders."""
+    boundary_orders = (*target_orders[:idim], *target_orders[idim + 1 :])
+    return HypercubeDomain(
+        *(dof.lagrange_projection(boundary_orders) for dof in boundary.dofs)
+    )
+
+
+def _validate_boundary_intersections(
+    boundaries: tuple[tuple[HypercubeDomain, HypercubeDomain], ...],
+) -> None:
+    """Check that every pair of neighboring boundaries has a common trace."""
+    target_orders = _boundary_target_orders(boundaries)
+    projected = tuple(
+        tuple(_project_boundary(boundary, idim, target_orders) for boundary in pair)
+        for idim, pair in enumerate(boundaries)
+    )
+
+    for idim, jdim in combinations(range(len(boundaries)), 2):
+        local_j_on_i = jdim if jdim < idim else jdim - 1
+        local_i_on_j = idim if idim < jdim else idim - 1
+        for boundary_i, side_i in enumerate((-1.0, +1.0)):
+            for boundary_j, side_j in enumerate((-1.0, +1.0)):
+                traces_i = [
+                    dof.plane_projection(local_j_on_i, side_j).values
+                    for dof in projected[idim][boundary_i].dofs
+                ]
+                traces_j = [
+                    dof.plane_projection(local_i_on_j, side_i).values
+                    for dof in projected[jdim][boundary_j].dofs
+                ]
+                if any(
+                    left.shape != right.shape
+                    or not np.allclose(left, right, rtol=1e-10, atol=1e-12)
+                    for left, right in zip(traces_i, traces_j, strict=True)
+                ):
+                    raise ValueError(
+                        f"Boundary intersections for axes {idim} and {jdim} do not match."
+                    )
+
+
+def _domain_from_boundary_points(
+    points: npt.ArrayLike, ndim_reference: int
+) -> HypercubeDomain:
+    """Fit a boundary map through a tensor-product array of physical points."""
+    values = np.asarray(points, dtype=np.double)
+    if values.ndim != ndim_reference + 1:
+        raise ValueError(
+            f"Boundary points must have {ndim_reference} reference axes and one "
+            "physical-coordinate axis."
+        )
+    if any(size < 2 for size in values.shape[:-1]):
+        raise ValueError("At least two points are required along every boundary axis.")
+    if values.shape[-1] == 0:
+        raise ValueError("At least one physical coordinate must be provided.")
+
+    function_space = FunctionSpace(
+        *(BasisSpecs(BasisType.LAGRANGE_UNIFORM, size - 1) for size in values.shape[:-1])
+    )
+    return HypercubeDomain(
+        *(
+            DegreesOfFreedom(function_space, values[..., icoord])
+            for icoord in range(values.shape[-1])
+        )
+    )
+
+
+class Hypercube(HypercubeDomain):
+    """N-dimensional hypercube assembled from opposite boundary pairs.
+
+    Parameters
+    ----------
+    *boundaries : tuple of HypercubeDomain
+        One ``(negative, positive)`` boundary pair for every reference axis.
+        Each boundary must use the remaining reference axes in ascending order.
+
+    Notes
+    -----
+    Boundaries are combined with inclusion-exclusion blending.  Consequently,
+    curved boundaries are preserved when all neighboring boundary intersections
+    agree, while each boundary may have a different polynomial order.
+    """
+
+    def __init__(self, *boundaries) -> None:
+        if not boundaries:
+            raise ValueError("At least one boundary pair must be specified.")
+        if all(isinstance(boundary, HypercubeDomain) for boundary in boundaries):
+            if len(boundaries) % 2:
+                raise ValueError("An even number of boundaries must be specified.")
+            boundaries = tuple(zip(boundaries[::2], boundaries[1::2], strict=True))
+        elif any(not isinstance(pair, tuple) or len(pair) != 2 for pair in boundaries):
+            raise TypeError(
+                "Boundaries must be HypercubeDomain objects or pairs of them."
+            )
+
+        ndim_reference = len(boundaries)
+        ndim_physical = boundaries[0][0].ndim_physical
+        for idim, (b1, b2) in enumerate(boundaries):
+            if not isinstance(b1, HypercubeDomain) or not isinstance(b2, HypercubeDomain):
+                raise TypeError(
+                    f"Boundary pair {idim} must contain HypercubeDomain objects."
+                )
+            if b1.ndim_physical != ndim_physical or b2.ndim_physical != ndim_physical:
+                raise ValueError(
+                    f"Boundary pair {idim} does not have {ndim_physical} physical "
+                    "dimensions."
+                )
+            if b1.ndim_reference != ndim_reference - 1:
+                raise ValueError(
+                    f"Boundary pair {idim} must have {ndim_reference - 1} "
+                    "reference dimensions."
+                )
+            if b2.ndim_reference != ndim_reference - 1:
+                raise ValueError(
+                    f"Boundary pair {idim} must have {ndim_reference - 1} "
+                    "reference dimensions."
+                )
+        boundaries = tuple(boundaries)
+        _validate_boundary_intersections(boundaries)
+
+        dofs = [
+            dofs_from_boundary_pairs(
+                *((b1.dofs[icoord], b2.dofs[icoord]) for b1, b2 in boundaries)
+            )
+            for icoord in range(ndim_physical)
+        ]
+        super().__init__(*dofs)
+
+    @classmethod
+    def from_corners(cls, *corners: npt.ArrayLike) -> Self:
+        """Create a multilinear hypercube from its corner coordinates.
+
+        Parameters
+        ----------
+        *corners : npt.ArrayLike
+            The ``2**N`` physical corner coordinates.  Corner ``k`` is on the
+            positive side of reference axis ``a`` when bit ``a`` of ``k`` is set.
+
+        Returns
+        -------
+        Hypercube
+            Hypercube with linear interpolation in every reference axis.
+        """
+        points = np.asarray(corners[0] if len(corners) == 1 else corners, dtype=np.double)
+        if points.ndim != 2 or points.shape[0] < 2:
+            raise ValueError("At least two coordinate-valued corners must be given.")
+        if points.shape[0] & (points.shape[0] - 1):
+            raise ValueError("The number of corners must be a power of two.")
+
+        ndim_reference = points.shape[0].bit_length() - 1
+        function_space = FunctionSpace(
+            *(BasisSpecs(BasisType.LAGRANGE_UNIFORM, 1) for _ in range(ndim_reference))
+        )
+        # np.reshape uses the first index as the most significant one, whereas
+        # hypercube corner IDs use reference axis zero as the least significant bit.
+        corner_grid = points.reshape(
+            (2,) * ndim_reference + (points.shape[1],)
+        ).transpose((*reversed(range(ndim_reference)), ndim_reference))
+        dofs = [
+            DegreesOfFreedom(function_space, corner_grid[..., icoord])
+            for icoord in range(points.shape[1])
+        ]
+        result = cls.__new__(cls)
+        HypercubeDomain.__init__(result, *dofs)
+        return result
+
+    @classmethod
+    def from_boundary_points(
+        cls, *boundaries: tuple[npt.ArrayLike, npt.ArrayLike]
+    ) -> Self:
+        """Create a hypercube from tensor-product points on its boundaries.
+
+        Parameters
+        ----------
+        *boundaries : tuple of array_like
+            One ``(negative, positive)`` pair for every reference axis.  Each
+            array has shape ``(n_0, ..., n_(N-2), n_physical)`` and stores points
+            on a boundary at uniform reference coordinates.  Its axes correspond
+            to the parent axes other than the boundary axis, in ascending order.
+            Intersections of neighboring boundaries must contain the same points.
+
+        Returns
+        -------
+        Hypercube
+            Hypercube whose boundary maps interpolate the supplied points.
+
+        Notes
+        -----
+        The points are treated as Lagrange-uniform nodal values.  Boundaries with
+        different nodal orders are projected to common orders before their shared
+        traces are checked and blended.
+        """
+        if not boundaries:
+            raise ValueError("At least one boundary pair must be specified.")
+
+        ndim_reference = len(boundaries)
+        boundary_domains: list[tuple[HypercubeDomain, HypercubeDomain]] = []
+        for idim, pair in enumerate(boundaries):
+            if not isinstance(pair, (tuple, list)) or len(pair) != 2:
+                raise TypeError(f"Boundary pair {idim} must contain two point arrays.")
+            boundary_domains.append(
+                (
+                    _domain_from_boundary_points(pair[0], ndim_reference - 1),
+                    _domain_from_boundary_points(pair[1], ndim_reference - 1),
+                )
+            )
+
+        return cls(*boundary_domains)
 
 
 @dataclass(frozen=True)
@@ -446,7 +759,7 @@ class Quad(HypercubeDomain):
         p_br = right.start
         p_tr = top.start
         p_tl = left.start
-        # TODO: fix
+
         for c1, c2, c3, c4, bl, br, tr, tl in zip(
             coords_c1,
             coords_c2,
@@ -508,3 +821,230 @@ class Quad(HypercubeDomain):
             top=Line(top_right, top_left),
             left=Line(top_left, bottom_left),
         )
+
+
+@lru_cache
+def _vtk_1d_indices(p0: int) -> npt.NDArray[np.uintp]:
+    """Permutation from C-order tensor points onto VTK Lagrange curve order.
+
+    Parameters
+    ----------
+    p0 : int
+        Polynomial order along the reference axis.
+
+    Returns
+    -------
+    idx : (N,) uintp ndarray, N = p0 + 1
+        VTK local indices of the C-order points. Reorder with
+        ``vtk_order = np.empty_like(natural); vtk_order[idx] = natural``.
+        VTK stores the two vertices of a Lagrange curve first, at
+        parametric coordinates 0 and 1, followed by the points of the curve
+        interior in increasing parametric order.
+
+    Raises
+    ------
+    ValueError
+        If the polynomial order is less than one.
+
+    Notes
+    -----
+    The result is cached. Callers must treat the returned array as read-only;
+    mutating it would change the cached permutation for future calls.
+    """
+    if p0 < 1:
+        raise ValueError("VTK curve orders must be positive.")
+    idx = np.empty(p0 + 1, dtype=np.uintp)
+    idx[0] = 0
+    idx[p0] = 1
+    if p0 > 1:
+        idx[1:p0] = np.arange(2, p0 + 1, dtype=np.uintp)
+    return idx
+
+
+@lru_cache
+def _vtk_2d_indices(p0: int, p1: int) -> npt.NDArray[np.uintp]:
+    """Return the scatter permutation from C-order to VTK point order.
+
+    Parameters
+    ----------
+    p0 : int
+        Polynomial order along the first reference axis.
+    p1 : int
+        Polynomial order along the second reference axis.
+
+    Returns
+    -------
+    idx : (N,) uintp ndarray, N = (p0 + 1) * (p1 + 1)
+        VTK local indices of the C-order tensor-product points. Reorder with
+        ``vtk_order = np.empty_like(natural); vtk_order[idx] = natural``.
+        VTK orders points as four vertices, oriented edge interiors, and then
+        the tensor-product cell interior.
+
+    Raises
+    ------
+    ValueError
+        If either polynomial order is less than one.
+
+    Notes
+    -----
+    The result is cached. Callers must treat the returned array as read-only;
+    mutating it would change the cached permutation for future calls.
+    """
+    if p0 < 1 or p1 < 1:
+        raise ValueError("VTK quadrilateral orders must be positive.")
+    i, j = np.meshgrid(
+        np.arange(p0 + 1),
+        np.arange(p1 + 1),
+        indexing="ij",
+    )
+    i = i.ravel()
+    j = j.ravel()
+    ibdy = np.asarray((i == 0) | (i == p0), np.bool, copy=None)
+    jbdy = np.asarray((j == 0) | (j == p1), np.bool, copy=None)
+    idx = np.empty(i.size, dtype=np.uintp)
+
+    vertices = ibdy & jbdy
+    idx[vertices] = np.where(
+        i[vertices] != 0,
+        np.where(j[vertices] != 0, 2, 1),
+        np.where(j[vertices] != 0, 3, 0),
+    )
+
+    edge_base = 4
+    bottom = ~ibdy & (j == 0)
+    idx[bottom] = edge_base + i[bottom] - 1
+    right = (i == p0) & ~jbdy
+    idx[right] = edge_base + (p0 - 1) + j[right] - 1
+    top = ~ibdy & (j == p1)
+    idx[top] = edge_base + (p0 - 1) + (p1 - 1) + (i[top] - 1)
+    left = (i == 0) & ~jbdy
+    idx[left] = edge_base + 2 * (p0 - 1) + (p1 - 1) + (j[left] - 1)
+
+    body = ~ibdy & ~jbdy
+    body_base = edge_base + 2 * (p0 + p1 - 2)
+    idx[body] = body_base + (i[body] - 1) + (p0 - 1) * (j[body] - 1)
+    return idx
+
+
+@lru_cache
+def _vtk_3d_indices(p0: int, p1: int, p2: int) -> npt.NDArray[np.uintp]:
+    """Permutation from C-order tensor points onto VTK Lagrange order.
+
+    Parameters
+    ----------
+    p0 : int
+        Polynomial order along the first parametric axis.
+
+    p1 : int
+        Polynomial order along the second parametric axis.
+
+    p2 : int
+        Polynomial order along the third parametric axis.
+
+    Returns
+    -------
+    idx : (N,) int ndarray, N = (p0+1)*(p1+1)*(p2+1)
+        VTK local indices of the C-order tensor points. Reorder with
+        ``vtk_order = np.empty_like(natural); vtk_order[idx] = natural``.
+    """
+    # The C-order natural point index has the third parametric axis varying
+    # fastest, while VTK orders points by vertices, edges, faces, and body.
+    i, j, k = np.meshgrid(
+        np.arange(p0 + 1),
+        np.arange(p1 + 1),
+        np.arange(p2 + 1),
+        indexing="ij",
+    )
+    i = i.ravel()
+    j = j.ravel()
+    k = k.ravel()
+
+    ibdy = np.asarray((i == 0) | (i == p0), np.bool, copy=None)
+    jbdy = np.asarray((j == 0) | (j == p1), np.bool, copy=None)
+    kbdy = np.asarray((k == 0) | (k == p2), np.bool, copy=None)
+    nbdy = ibdy.astype(np.int8) + jbdy.astype(np.int8) + kbdy.astype(np.int8)
+
+    N = (p0 + 1) * (p1 + 1) * (p2 + 1)
+    idx = np.empty(N, dtype=np.uintp)
+
+    # --- vertices ---
+    vert = nbdy == 3
+    ii, jj, kk = i[vert], j[vert], k[vert]
+    idx[vert] = np.where(
+        ii != 0, np.where(jj != 0, 2, 1), np.where(jj != 0, 3, 0)
+    ) + 4 * (kk != 0).astype(np.uintp)
+
+    # --- edges ---
+    edge = nbdy == 2
+    edge_offset = 8
+
+    on_i = edge & ~ibdy
+    idx[on_i] = (
+        i[on_i]
+        - 1
+        + np.where(j[on_i] != 0, p0 + p1 - 2, 0)
+        + np.where(k[on_i] != 0, 2 * (p0 + p1 - 2), 0)
+        + edge_offset
+    )
+
+    on_j = edge & ~jbdy
+    idx[on_j] = (
+        j[on_j]
+        - 1
+        + np.where(i[on_j] != 0, p0 - 1, 2 * (p0 - 1) + p1 - 1)
+        + np.where(k[on_j] != 0, 2 * (p0 + p1 - 2), 0)
+        + edge_offset
+    )
+
+    on_k = edge & ~kbdy
+    off_k = edge_offset + 4 * (p0 - 1) + 4 * (p1 - 1)
+    edge_id = np.where(
+        i[on_k] != 0,
+        np.where(j[on_k] != 0, 2, 1),
+        np.where(j[on_k] != 0, 3, 0),
+    )
+    idx[on_k] = (k[on_k] - 1) + (p2 - 1) * edge_id + off_k
+
+    # --- faces ---
+    face = nbdy == 1
+    face_base = 8 + 4 * (p0 + p1 + p2 - 3)
+
+    # i-normal faces
+    on_i_face = face & ibdy
+    idx[on_i_face] = (
+        (j[on_i_face] - 1)
+        + (p1 - 1) * (k[on_i_face] - 1)
+        + np.where(i[on_i_face] != 0, (p1 - 1) * (p2 - 1), 0)
+        + face_base
+    )
+
+    # j-normal faces
+    j_face_base = face_base + 2 * (p1 - 1) * (p2 - 1)
+    on_j_face = face & jbdy
+    idx[on_j_face] = (
+        (i[on_j_face] - 1)
+        + (p0 - 1) * (k[on_j_face] - 1)
+        + np.where(j[on_j_face] != 0, (p2 - 1) * (p0 - 1), 0)
+        + j_face_base
+    )
+
+    # k-normal faces
+    k_face_base = j_face_base + 2 * (p2 - 1) * (p0 - 1)
+    on_k_face = face & kbdy
+    idx[on_k_face] = (
+        (i[on_k_face] - 1)
+        + (p0 - 1) * (j[on_k_face] - 1)
+        + np.where(k[on_k_face] != 0, (p0 - 1) * (p1 - 1), 0)
+        + k_face_base
+    )
+
+    # --- body ---
+    body = nbdy == 0
+    body_base = face_base + 2 * (
+        (p1 - 1) * (p2 - 1) + (p2 - 1) * (p0 - 1) + (p0 - 1) * (p1 - 1)
+    )
+    idx[body] = (
+        body_base + (i[body] - 1) + (p0 - 1) * ((j[body] - 1) + (p1 - 1) * (k[body] - 1))
+    )
+
+    return idx

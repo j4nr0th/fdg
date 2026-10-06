@@ -116,7 +116,7 @@ def test_derivative_2d(
         (BasisType.LAGRANGE_CHEBYSHEV_GAUSS, BasisType.LEGENDRE, BasisType.BERNSTEIN),
         (
             BasisType.LAGRANGE_CHEBYSHEV_GAUSS,
-            BasisType.LAGRNAGE_GAUSS_LOBATTO,
+            BasisType.LAGRANGE_GAUSS_LOBATTO,
             BasisType.LAGRANGE_UNIFORM,
         ),
     ),

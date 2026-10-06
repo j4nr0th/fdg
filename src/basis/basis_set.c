@@ -15,6 +15,7 @@
 #include "basis_legendre.h"
 
 #include <math.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <string.h>
 
@@ -44,7 +45,43 @@ struct basis_set_registry_t
     int should_cache;
     unsigned n_buckets;
     basis_bucket_btype_t *buckets;
+    unsigned endpoint_count;
+    unsigned endpoint_capacity;
+    unsigned *endpoint_ref_counts;
+    basis_endpoint_set_t **endpoint_sets;
 };
+
+void basis_spec_to_boundary(unsigned ndim, const basis_spec_t element_basis[static ndim],
+                            const int8_t orientation[static ndim], unsigned bdim,
+                            basis_spec_t boundary_basis[static restrict bdim])
+{
+    CUTL_ASSERT(ndim > 0 && bdim > 0 && bdim < ndim, "Invalid boundary dimension.");
+    // Canoncial orientation array has first (ndim - bdim) entries corresponding to the normal directions of the
+    // boundary.
+    const int8_t *varying_axes = orientation + (ndim - bdim);
+    for (unsigned idim = 0; idim < bdim; ++idim)
+    {
+        const int8_t canonical_axes = varying_axes[idim];
+        const unsigned idx = canonical_axes < 0 ? -canonical_axes - 1 : canonical_axes - 1;
+        boundary_basis[idim] = element_basis[idx];
+    }
+}
+
+void basis_set_to_boundary(unsigned ndim, const basis_set_t *element_basis[static ndim],
+                           const int8_t orientation[static ndim], unsigned bdim,
+                           const basis_set_t *boundary_basis[static restrict bdim])
+{
+    CUTL_ASSERT(ndim > 0 && bdim > 0 && bdim < ndim, "Invalid boundary dimension.");
+    // Canoncial orientation array has first (ndim - bdim) entries corresponding to the normal directions of the
+    // boundary.
+    const int8_t *varying_axes = orientation + (ndim - bdim);
+    for (unsigned idim = 0; idim < bdim; ++idim)
+    {
+        const int8_t canonical_axes = varying_axes[idim];
+        const unsigned idx = canonical_axes < 0 ? -canonical_axes - 1 : canonical_axes - 1;
+        boundary_basis[idim] = element_basis[idx];
+    }
+}
 
 fdg_result_t basis_set_registry_create(basis_set_registry_t **out, int should_cache, const cutl_allocator_t *allocator)
 {
@@ -104,29 +141,84 @@ static inline fdg_result_t basis_set_bucket_itype_init(basis_bucket_itype_t *thi
 static inline fdg_result_t basis_set_create(basis_set_t **out, const integration_rule_t *integration_rule,
                                             const basis_spec_t spec, const cutl_allocator_t *allocator)
 {
-    fdg_result_t res;
-    switch (spec.type)
+    const bool type_valid = basis_set_type_is_valid(spec.type);
+    CUTL_ASSERT(type_valid, "Basis set type %d is not supported.", (int)spec.type);
+
+    if (spec.type == BASIS_LEGENDRE)
+        return legendre_basis_create(out, spec, integration_rule, allocator);
+    if (spec.type == BASIS_BERNSTEIN)
+        return bernstein_basis_create(out, spec, integration_rule, allocator);
+    // The remaining valid types are all Lagrange variants.
+    return lagrange_basis_create(out, spec, integration_rule, allocator);
+}
+static fdg_result_t basis_endpoint_set_create(basis_endpoint_set_t **out, const basis_spec_t spec,
+                                              const cutl_allocator_t *allocator)
+{
+    const bool type_valid = basis_set_type_is_valid(spec.type);
+    CUTL_ASSERT(type_valid, "Basis set type %d is not supported.", (int)spec.type);
+
+    basis_endpoint_set_t *const this =
+        cutl_alloc(allocator, sizeof *this + 2 * (spec.order + 1) * sizeof(*this->_data));
+    if (!this)
+        return FDG_ERROR_FAILED_ALLOCATION;
+
+    double *const work = cutl_alloc(allocator, (spec.order + 1) * sizeof(*work));
+    if (!work)
     {
-    case BASIS_LEGENDRE:
-        res = legendre_basis_create(out, spec, integration_rule, allocator);
-        break;
-
-    case BASIS_LAGRANGE_GAUSS:
-    case BASIS_LAGRANGE_UNIFORM:
-    case BASIS_LAGRANGE_GAUSS_LOBATTO:
-    case BASIS_LAGRANGE_CHEBYSHEV_GAUSS:
-        res = lagrange_basis_create(out, spec, integration_rule, allocator);
-        break;
-
-    case BASIS_BERNSTEIN:
-        res = bernstein_basis_create(out, spec, integration_rule, allocator);
-        break;
-
-    default:
-        return FDG_ERROR_INVALID_ENUM;
+        cutl_dealloc(allocator, this);
+        return FDG_ERROR_FAILED_ALLOCATION;
     }
 
-    return res;
+    this->spec = spec;
+    const double endpoints[] = {-1.0, +1.0};
+    basis_compute_at_point_prepare(spec.type, spec.order, work);
+    basis_compute_at_point_values(spec.type, spec.order, 2, endpoints, this->_data, work);
+    cutl_dealloc(allocator, work);
+    *out = this;
+    return FDG_SUCCESS;
+}
+
+static basis_endpoint_set_t *basis_set_registry_find_endpoint_set(const basis_set_registry_t *this,
+                                                                  const basis_spec_t spec)
+{
+    for (unsigned i = 0; i < this->endpoint_count; ++i)
+    {
+        basis_endpoint_set_t *const endpoints = this->endpoint_sets[i];
+        if (endpoints->spec.type == spec.type && endpoints->spec.order == spec.order)
+            return endpoints;
+    }
+    return NULL;
+}
+
+static fdg_result_t basis_set_registry_add_endpoint_set(basis_set_registry_t *this, basis_endpoint_set_t **p_endpoints,
+                                                        const basis_spec_t spec)
+{
+    if (this->endpoint_count == this->endpoint_capacity)
+    {
+        const unsigned new_capacity = this->endpoint_capacity ? 2 * this->endpoint_capacity : 8;
+        basis_endpoint_set_t **const new_sets =
+            cutl_realloc(&this->allocator, this->endpoint_sets, new_capacity * sizeof(*new_sets));
+        if (!new_sets)
+            return FDG_ERROR_FAILED_ALLOCATION;
+        this->endpoint_sets = new_sets;
+        unsigned *const new_ref_counts =
+            cutl_realloc(&this->allocator, this->endpoint_ref_counts, new_capacity * sizeof(*new_ref_counts));
+        if (!new_ref_counts)
+            return FDG_ERROR_FAILED_ALLOCATION;
+        this->endpoint_ref_counts = new_ref_counts;
+        this->endpoint_capacity = new_capacity;
+    }
+
+    basis_endpoint_set_t *endpoints;
+    const fdg_result_t res = basis_endpoint_set_create(&endpoints, spec, &this->allocator);
+    if (res != FDG_SUCCESS)
+        return res;
+
+    this->endpoint_sets[this->endpoint_count] = endpoints;
+    this->endpoint_ref_counts[this->endpoint_count] = 1;
+    this->endpoint_count += 1;
+    *p_endpoints = endpoints;
+    return FDG_SUCCESS;
 }
 
 static inline fdg_result_t basis_set_registry_add_btype_bucket(basis_set_registry_t *this, const basis_set_type_t type,
@@ -305,8 +397,94 @@ fdg_result_t basis_set_registry_get_basis_sets(basis_set_registry_t *this, unsig
 
     return FDG_SUCCESS;
 }
+fdg_result_t basis_set_registry_get_basis_endpoints(basis_set_registry_t *this,
+                                                    const basis_endpoint_set_t **p_endpoints, const basis_spec_t spec)
+{
+    rw_lock_acquire_read(&this->lock);
+    basis_endpoint_set_t *endpoints = basis_set_registry_find_endpoint_set(this, spec);
+    if (endpoints)
+    {
+        for (unsigned i = 0; i < this->endpoint_count; ++i)
+        {
+            if (this->endpoint_sets[i] == endpoints)
+            {
+                this->endpoint_ref_counts[i] += 1;
+                break;
+            }
+        }
+        rw_lock_release_read(&this->lock);
+        *p_endpoints = endpoints;
+        return FDG_SUCCESS;
+    }
+    rw_lock_release_read(&this->lock);
 
-fdg_result_t basis_set_registry_release_basis_set(basis_set_registry_t *this, const basis_set_t *basis)
+    rw_lock_acquire_write(&this->lock);
+    endpoints = basis_set_registry_find_endpoint_set(this, spec);
+    fdg_result_t res = FDG_SUCCESS;
+    if (endpoints)
+    {
+        for (unsigned i = 0; i < this->endpoint_count; ++i)
+        {
+            if (this->endpoint_sets[i] == endpoints)
+            {
+                this->endpoint_ref_counts[i] += 1;
+                break;
+            }
+        }
+    }
+    else
+    {
+        res = basis_set_registry_add_endpoint_set(this, &endpoints, spec);
+    }
+    rw_lock_release_write(&this->lock);
+    if (res != FDG_SUCCESS)
+        return res;
+    *p_endpoints = endpoints;
+    return FDG_SUCCESS;
+}
+
+void basis_set_registry_release_basis_endpoints(basis_set_registry_t *this, const basis_endpoint_set_t *endpoints)
+{
+    rw_lock_acquire_read(&this->lock);
+    unsigned position = 0;
+    while (position < this->endpoint_count && this->endpoint_sets[position] != endpoints)
+        ++position;
+    if (position == this->endpoint_count)
+    {
+        rw_lock_release_read(&this->lock);
+        CUTL_ASSERT(0, "Basis endpoint set of type %d and order %u is not in the registry.", (int)endpoints->spec.type,
+                    endpoints->spec.order);
+        return;
+    }
+    rw_lock_release_read(&this->lock);
+
+    rw_lock_acquire_write(&this->lock);
+    position = 0;
+    while (position < this->endpoint_count && this->endpoint_sets[position] != endpoints)
+        ++position;
+    if (position == this->endpoint_count)
+    {
+        rw_lock_release_write(&this->lock);
+        CUTL_ASSERT(0, "Basis endpoint set of type %d and order %u is not in the registry.", (int)endpoints->spec.type,
+                    endpoints->spec.order);
+        return;
+    }
+
+    this->endpoint_ref_counts[position] -= 1;
+    if (this->endpoint_ref_counts[position] == 0 && this->should_cache == 0)
+    {
+        cutl_dealloc(&this->allocator, this->endpoint_sets[position]);
+        for (unsigned i = position + 1; i < this->endpoint_count; ++i)
+        {
+            this->endpoint_sets[i - 1] = this->endpoint_sets[i];
+            this->endpoint_ref_counts[i - 1] = this->endpoint_ref_counts[i];
+        }
+        this->endpoint_count -= 1;
+    }
+    rw_lock_release_write(&this->lock);
+}
+
+void basis_set_registry_release_basis_set(basis_set_registry_t *this, const basis_set_t *basis)
 {
     rw_lock_acquire_read(&this->lock);
     basis_bucket_btype_t *first_bucket = NULL;
@@ -321,7 +499,8 @@ fdg_result_t basis_set_registry_release_basis_set(basis_set_registry_t *this, co
     if (!first_bucket)
     {
         rw_lock_release_read(&this->lock);
-        return FDG_ERROR_NOT_IN_REGISTRY;
+        CUTL_ASSERT(0, "Basis set of type %d is not in the registry.", (int)basis->spec.type);
+        return;
     }
 
     basis_bucket_itype_t *second_bucket = NULL;
@@ -336,7 +515,8 @@ fdg_result_t basis_set_registry_release_basis_set(basis_set_registry_t *this, co
     if (!second_bucket)
     {
         rw_lock_release_read(&this->lock);
-        return FDG_ERROR_NOT_IN_REGISTRY;
+        CUTL_ASSERT(0, "Basis set of type %d is not in the registry.", (int)basis->spec.type);
+        return;
     }
 
     for (unsigned position = 0; position < second_bucket->count; ++position)
@@ -354,12 +534,13 @@ fdg_result_t basis_set_registry_release_basis_set(basis_set_registry_t *this, co
                 second_bucket->count -= 1;
             }
             rw_lock_release_write(&this->lock);
-            return FDG_SUCCESS;
+            return;
         }
     }
 
     rw_lock_release_read(&this->lock);
-    return FDG_ERROR_NOT_IN_REGISTRY;
+    CUTL_ASSERT(0, "Basis set of type %d and order %u is not in the registry.", (int)basis->spec.type,
+                basis->spec.order);
 }
 
 void basis_set_registry_destroy(basis_set_registry_t *this)
@@ -379,6 +560,10 @@ void basis_set_registry_destroy(basis_set_registry_t *this)
         }
         cutl_dealloc(&this->allocator, first_bucket->buckets);
     }
+    for (unsigned i = 0; i < this->endpoint_count; ++i)
+        cutl_dealloc(&this->allocator, this->endpoint_sets[i]);
+    cutl_dealloc(&this->allocator, this->endpoint_sets);
+    cutl_dealloc(&this->allocator, this->endpoint_ref_counts);
     cutl_dealloc(&this->allocator, this->buckets);
     cutl_dealloc(&this->allocator, this);
 }
@@ -394,7 +579,7 @@ void basis_set_registry_release_unused_basis_sets(basis_set_registry_t *const th
             basis_bucket_itype_t *const second_bucket = first_bucket->buckets + j;
             for (unsigned k = 0; k < second_bucket->count; ++k)
             {
-                if (second_bucket->ref_counts[k] == 0 && this->should_cache == 0)
+                if (second_bucket->ref_counts[k] == 0)
                 {
                     cutl_dealloc(&this->allocator, second_bucket->basis_sets[k]);
                     second_bucket->basis_sets[k] = NULL;
@@ -411,6 +596,23 @@ void basis_set_registry_release_unused_basis_sets(basis_set_registry_t *const th
                 }
             }
             second_bucket->count = valid;
+        }
+    }
+    for (unsigned position = 0; position < this->endpoint_count;)
+    {
+        if (this->endpoint_ref_counts[position] == 0)
+        {
+            cutl_dealloc(&this->allocator, this->endpoint_sets[position]);
+            for (unsigned i = position + 1; i < this->endpoint_count; ++i)
+            {
+                this->endpoint_sets[i - 1] = this->endpoint_sets[i];
+                this->endpoint_ref_counts[i - 1] = this->endpoint_ref_counts[i];
+            }
+            this->endpoint_count -= 1;
+        }
+        else
+        {
+            position += 1;
         }
     }
     rw_lock_release_write(&this->lock);
@@ -451,6 +653,11 @@ void basis_compute_at_point_prepare(const basis_set_type_t type, const unsigned 
     switch (type)
     {
     case BASIS_LAGRANGE_UNIFORM:
+        if (order == 0)
+        {
+            work[0] = 0.0;
+            break;
+        }
         for (unsigned i = 0; i < order + 1; ++i)
         {
             work[i] = (2.0 * i) / (double)(order)-1.0;
@@ -586,11 +793,17 @@ void basis_compute_outer_product_basis_required_memory(const unsigned n_basis,
     {
         const unsigned i_order = basis_specs[i].order;
         max_order = max_order > i_order ? max_order : i_order;
-        total_basis *= (i_order + 1);
+        const bool basis_overflowed = __builtin_mul_overflow(total_basis, i_order + 1, &total_basis);
+        CUTL_ASSERT(!basis_overflowed, "Total basis function count overflowed at dimension %u.", i);
     }
-    *out_elements = cnt * total_basis;
+    unsigned out = 0, tmp = 0;
+    const bool out_overflowed = __builtin_mul_overflow(cnt, total_basis, &out);
+    CUTL_ASSERT(!out_overflowed, "Outer product output size %u x %u overflows.", cnt, total_basis);
+    const bool tmp_overflowed = __builtin_mul_overflow(max_order + 1u, cnt, &tmp);
+    CUTL_ASSERT(!tmp_overflowed, "Outer product scratch size %u x %u overflows.", max_order + 1u, cnt);
+    *out_elements = out;
     *work_elements = max_order + 1;
-    *tmp_elements = (max_order + 1) * cnt;
+    *tmp_elements = tmp;
     *iterator_size = multidim_iterator_needed_memory(n_basis);
 }
 
@@ -635,14 +848,16 @@ void basis_compute_outer_product_basis(const unsigned n_basis_dims,
                 const double prev_v = ptr[multidim_iterator_get_flat_index(iter)];
                 for (unsigned i_basis = 0; i_basis < n_basis; ++i_basis)
                 {
-                    ASSERT(!multidim_iterator_is_at_end(iter), "Iterator should not be at end at this point ()");
+                    const bool at_end = multidim_iterator_is_at_end(iter);
+                    CUTL_ASSERT(!at_end, "Iterator should not be at end at this point (dimension %u, basis %u).", i_dim,
+                                i_basis);
                     const size_t idx = multidim_iterator_get_flat_index(iter);
-                    ASSERT(idx + i_point * basis_count < size_out,
-                           "Iterator index should be within bounds ((%zu + %zu) vs %zu)", idx, i_point * basis_count,
-                           size_out);
-                    ASSERT(i_basis + n_basis * i_point < max_size_basis * cnt,
-                           "Basis buffer index is out of bounds ((%u + %u) vs %zu).", i_basis, n_basis * i_point,
-                           max_size_basis * cnt);
+                    CUTL_ASSERT(idx + i_point * basis_count < size_out,
+                                "Iterator index should be within bounds ((%zu + %zu) vs %zu)", idx,
+                                i_point * basis_count, size_out);
+                    CUTL_ASSERT(i_basis + n_basis * i_point < max_size_basis * cnt,
+                                "Basis buffer index is out of bounds ((%u + %u) vs %zu).", i_basis, n_basis * i_point,
+                                max_size_basis * cnt);
                     ptr[idx] = prev_v * tmp[i_basis + n_basis * i_point];
                     multidim_iterator_advance(iter, i_dim, 1);
                 }

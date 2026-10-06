@@ -70,7 +70,7 @@ def test_projection_2d(o1: int, b1: BasisType, o2: int, b2: BasisType) -> None:
 @pytest.mark.parametrize(
     ("b1", "b2", "b3"),
     (
-        (BasisType.BERNSTEIN, BasisType.BERNSTEIN, BasisType.LAGRNAGE_GAUSS),
+        (BasisType.BERNSTEIN, BasisType.BERNSTEIN, BasisType.LAGRANGE_GAUSS),
         (BasisType.LEGENDRE, BasisType.LAGRANGE_CHEBYSHEV_GAUSS, BasisType.BERNSTEIN),
     ),
 )
@@ -133,7 +133,7 @@ def test_deformed_2d_to_3d() -> None:
 @pytest.mark.parametrize(
     ("b1", "b2", "b3"),
     (
-        (BasisType.BERNSTEIN, BasisType.BERNSTEIN, BasisType.LAGRNAGE_GAUSS),
+        (BasisType.BERNSTEIN, BasisType.BERNSTEIN, BasisType.LAGRANGE_GAUSS),
         (BasisType.LEGENDRE, BasisType.LAGRANGE_CHEBYSHEV_GAUSS, BasisType.BERNSTEIN),
     ),
 )
@@ -170,7 +170,7 @@ def test_projection_kform_3d(
 @pytest.mark.parametrize(
     ("b1", "b2", "b3"),
     (
-        (BasisType.BERNSTEIN, BasisType.BERNSTEIN, BasisType.LAGRNAGE_GAUSS),
+        (BasisType.BERNSTEIN, BasisType.BERNSTEIN, BasisType.LAGRANGE_GAUSS),
         (BasisType.LEGENDRE, BasisType.LAGRANGE_CHEBYSHEV_GAUSS, BasisType.BERNSTEIN),
     ),
 )
@@ -237,7 +237,7 @@ def test_projection_kform_3d_deformed(
 if __name__ == "__main__":
     for o1, o2, o3 in ((1, 1, 1), (2, 4, 6), (6, 4, 3)):
         for b1, b2, b3 in (
-            (BasisType.BERNSTEIN, BasisType.BERNSTEIN, BasisType.LAGRNAGE_GAUSS),
+            (BasisType.BERNSTEIN, BasisType.BERNSTEIN, BasisType.LAGRANGE_GAUSS),
             (BasisType.LEGENDRE, BasisType.LAGRANGE_CHEBYSHEV_GAUSS, BasisType.BERNSTEIN),
         ):
             test_projection_kform_3d_deformed(o1, b1, o2, b2, o3, b3)

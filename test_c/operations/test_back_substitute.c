@@ -34,8 +34,7 @@ int main()
     };
     const matrix_t test_input_matrix = {.rows = 5, .cols = 3, .values = test_input};
     matrix_t result = {.rows = 6, .cols = 3, .values = (double[6 * 3]){}};
-    fdg_result_t res = matrix_multiply(&upper, &test_input_matrix, &result);
-    TEST_ASSERTION(res == FDG_SUCCESS, "Matrix multiplication failed");
+    matrix_multiply(&upper, &test_input_matrix, &result);
 
     printf("Matrix A:\n");
     print_matrix(&upper);
@@ -46,8 +45,7 @@ int main()
 
     // Solve the back substitution
     // result.rows = 5;
-    res = matrix_back_substitute(&upper, &result);
-    TEST_ASSERTION(res == FDG_SUCCESS, "Back substitution failed");
+    matrix_back_substitute(&upper, &result);
 
     printf("Result of back substitution:\n");
     print_matrix(&result);

@@ -7,12 +7,22 @@
 #include "../integration/gauss_lobatto.h"
 #include "../polynomials/lagrange.h"
 #include <math.h>
+#include <stdbool.h>
 
-fdg_result_t generate_lagrange_roots(const unsigned order, const basis_set_type_t type, double roots[const order + 1])
+void generate_lagrange_roots(const unsigned order, const basis_set_type_t type, double roots[const order + 1])
 {
+    const bool type_valid = type == BASIS_LAGRANGE_UNIFORM || type == BASIS_LAGRANGE_GAUSS ||
+                            type == BASIS_LAGRANGE_GAUSS_LOBATTO || type == BASIS_LAGRANGE_CHEBYSHEV_GAUSS;
+    CUTL_ASSERT(type_valid, "Basis set type %d is not a Lagrange type.", (int)type);
+
     switch (type)
     {
     case BASIS_LAGRANGE_UNIFORM:
+        if (order == 0)
+        {
+            roots[0] = 0.0;
+            break;
+        }
         for (unsigned i = 0; i < order + 1; ++i)
         {
             roots[i] = (2.0 * i) / (double)order - 1.0;
@@ -35,10 +45,8 @@ fdg_result_t generate_lagrange_roots(const unsigned order, const basis_set_type_
         break;
 
     default:
-        return FDG_ERROR_INVALID_ENUM;
+        break;
     }
-
-    return FDG_SUCCESS;
 }
 FDG_INTERNAL
 fdg_result_t lagrange_basis_create(basis_set_t **out, const basis_spec_t spec, const integration_rule_t *rule,
@@ -55,9 +63,7 @@ fdg_result_t lagrange_basis_create(basis_set_t **out, const basis_spec_t spec, c
     this->spec = spec;
     // Find roots for Lagrange polynomials
 
-    fdg_result_t res;
-    if ((res = generate_lagrange_roots(spec.order, spec.type, roots)) != FDG_SUCCESS)
-        return res;
+    generate_lagrange_roots(spec.order, spec.type, roots);
 
     lagrange_polynomial_values_transposed_2(rule->n_nodes, integration_rule_nodes_const(rule), spec.order + 1, roots,
                                             (double *)basis_set_values_all(this));

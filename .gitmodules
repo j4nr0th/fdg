@@ -1,6 +1,4 @@
-[submodule "cpyutl"]
-	path = cpyutl
-	url = https://github.com/j4nr0th/cpyutl.git
-[submodule "cutl"]
-	path = cutl
-	url = https://github.com/j4nr0th/cutl.git
+[submodule "hybridized-solver"]
+	path = hybridized-solver
+	url = git@github.com:j4nr0th/hybridized-solver.git
+	branch = dev
