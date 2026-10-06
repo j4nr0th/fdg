@@ -9,6 +9,9 @@ from pathlib import Path
 import pyvista as pv
 
 sys.path.insert(0, str(Path(__file__).parent / "exts"))
+# The examples import their shared helpers through the ``examples`` package, so
+# the repository root has to be importable when the gallery executes them.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information

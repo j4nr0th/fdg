@@ -43,7 +43,11 @@ try:
         manufactured_source,
         object_row_count,
     )
-except ModuleNotFoundError:  # script execution starts in examples/
+except ModuleNotFoundError:
+    if "__file__" not in globals():
+        # Sphinx-gallery executes the example without ``__file__``; the
+        # repository root is already on the path through the doc configuration.
+        raise
     import sys
     from pathlib import Path
 
