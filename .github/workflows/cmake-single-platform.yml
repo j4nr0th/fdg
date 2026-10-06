@@ -2,9 +2,9 @@ name: Build and Test on a Linux (Ubuntu)
 
 on:
   push:
-    branches: [ "master" ]
+    branches: ["master"]
   pull_request:
-    branches: [ "master" ]
+    branches: ["master"]
 
 env:
   # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
@@ -15,14 +15,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v6
-      with:
-        submodules: recursive
-    - uses: actions/setup-python@v5
-      with:
-        python-version: '3.13'
-        cache: pip
-    - name: Install the extension
-      run: pip install --group dev .
-    - name: Test
-      run: pytest
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install the extension
+        run: uv sync
+      - name: Test
+        run: pytest
