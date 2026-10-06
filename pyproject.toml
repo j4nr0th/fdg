@@ -46,6 +46,7 @@ dev = [
     "codespell",
     "tomli",
     "ruff>=0.16.6",
+    "pytest-xdist>=3.8.0",
 ]
 docs = [
     "sphinx",

@@ -248,12 +248,12 @@ def test_lie_derivative_assembles_for_every_order(ndim: int) -> None:
     strong, so an incidence applied on the wrong side shows up as a non-zero
     action on the constant mode.
     """
-    order = 3
+    # The integration rule grows as (2 * order + 6) ** ndim, which is
+    # prohibitive for the 4-D case; the assertions are order-generic, so
+    # the highest dimension runs on the smaller basis.
+    order = 2 if ndim == 4 else 3
     smap, basis, integration = _nd_map(ndim, order, power=2)
     shape = np.asarray(integration.nodes()[0], np.double).shape
-    velocity = np.ascontiguousarray(
-        np.stack([0.5 + 0.3 * a - 0.1 * a for a in range(ndim)], axis=0)
-    )
     velocity = np.ascontiguousarray(
         np.stack([np.full(shape, 0.5 + 0.3 * a) for a in range(ndim)], axis=0)
     )
@@ -1014,7 +1014,10 @@ def test_convergence_on_curved_mesh(stages: int) -> None:
             mass=factory,
         ).final_state
 
-    reference = march_reference(0.0005, 3)
+    # The reference only has to sit far below the coarse errors: five times
+    # finer than the finest probed step keeps the observed order exact while
+    # bounding the moving-mesh stage setup, which grows with the step count.
+    reference = march_reference(0.002, 3)
     errors = [
         np.max(np.abs(march_reference(step_size, stages) - reference))
         for step_size in (0.02, 0.01)
