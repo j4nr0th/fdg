@@ -29,12 +29,20 @@ that translates rigidly, where the constant field has to stay put.
 # unchanged: residuals gather the global state onto the elements, assemble
 # per-element operators there, and scatter the result back.
 
+from dataclasses import dataclass
 from pathlib import Path
+from time import perf_counter
 
 import matplotlib.pyplot as plt
 import numpy as np
+from hybsol import Decomposition, SingularSystemError, refined_solve
+from scipy.sparse import csc_array
 
 try:
+    from examples.plot_direct_continuity_sparse import (
+        block_owners,
+        build_hybsol_system,
+    )
     from examples.plot_multi_element_laplace_direct_continuity import (
         element_entries,
         make_element_maps,
@@ -46,6 +54,10 @@ except ModuleNotFoundError:
     import sys
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from examples.plot_direct_continuity_sparse import (
+        block_owners,
+        build_hybsol_system,
+    )
     from examples.plot_multi_element_laplace_direct_continuity import (
         element_entries,
         make_element_maps,
@@ -111,10 +123,10 @@ def global_scatter(element_vectors: list[np.ndarray]) -> np.ndarray:
     return result
 
 
-def coupled_mass(element_maps: list) -> np.ndarray:
+def coupled_mass(element_maps: list) -> csc_array:
     """Return the constrained mass of the elements' current masses."""
     flat = np.concatenate([stage_mass(smap, specs).ravel() for smap in element_maps])
-    return np.asarray(scatter_csc(transfer, flat).toarray())
+    return scatter_csc(transfer, flat)
 
 
 def transfer_matrix() -> np.ndarray:
@@ -152,11 +164,10 @@ integration = IntegrationSpace(
 nodes = np.ascontiguousarray(integration.nodes()[0], np.double)
 field_velocity = np.ascontiguousarray(np.full(nodes.size, VELOCITY).reshape(1, -1))
 operators = [lie_derivative_operator(smap, specs, field_velocity) for smap in maps]
-mass = coupled_mass(maps)
 
 global_count = int(transfer.global_dof_count)
 free = np.setdiff1d(np.arange(global_count), [0])
-mass_free = mass[np.ix_(free, free)]
+mass_free = coupled_mass(maps).toarray()[np.ix_(free, free)]
 
 
 def transport_residual(y: np.ndarray, t: float) -> np.ndarray:  # noqa: ARG001
@@ -251,6 +262,91 @@ plt.show()
 
 # %%
 #
+# # The same march through hybsol
+# #
+# # The dense mass above is a stand-in for the real thing: a production march
+# # never forms the constrained matrix, it factors the system block by block.
+# # :func:`scatter_csc` still assembles the stage system, but
+# # :func:`block_owners` partitions its unknowns by owner -- one block per
+# # shared object, one per element's free modes -- and hybsol factors that
+# # block structure once per stage. Every solve of the fixed-point iteration
+# # then runs against the factors, refined against the stored system, and the
+# # march never sees a dense matrix of the global state.
+
+
+@dataclass
+class _PermutedSolver:
+    """Solve the reduced system in the block order hybsol factorizes in."""
+
+    system: object
+    decomposition: Decomposition
+    order: np.ndarray
+
+    def __post_init__(self) -> None:
+        self._unpermute = np.empty_like(self.order)
+        self._unpermute[self.order] = np.arange(self.order.size)
+
+    def solve(self, rhs: np.ndarray) -> np.ndarray:
+        """Return the mass solve of one right-hand side, refined."""
+        return refined_solve(
+            self.system,
+            self.decomposition,
+            rhs[self.order],
+            tolerance=1.0e-12,
+        )[self._unpermute]
+
+
+owners, _ = block_owners(transfer, mesh, ORDER, CELLS)
+factor_seconds = 0.0
+
+
+def hybsol_mass_solver(t: float) -> _PermutedSolver:  # noqa: ARG001
+    """Factor the constrained stage system at ``t`` into hybsol blocks."""
+    global factor_seconds
+    matrix = coupled_mass(maps)[free][:, free].tocsc()
+    for blocking in ("element/object", "scalar"):
+        system, order = build_hybsol_system(matrix, owners, free, blocking)
+        if blocking != "scalar" and not system.is_valid():
+            continue
+        try:
+            started = perf_counter()
+            decomposition = system.decompose()
+            factor_seconds += perf_counter() - started
+        except SingularSystemError:
+            continue
+        return _PermutedSolver(system, decomposition, order)
+    raise RuntimeError("no hybsol blocking could be packed")
+
+
+start = perf_counter()
+hybsol_final = march(
+    residual_free,
+    y0[free],
+    FINAL_TIME / 32,
+    32,
+    stages=2,
+    mass_solver=hybsol_mass_solver,
+    tolerance=1.0e-11,
+)
+wall = perf_counter() - start
+dense_final = march_to(32, 2)
+
+print()
+print("The same march through hybsol")
+print("-----------------------------")
+print(f"factorization time over all stages : {factor_seconds:.3f} s")
+print(f"march wall time                    : {wall:.3f} s")
+print(
+    f"max |dense - hybsol| at the final time: "
+    f"{np.max(np.abs(dense_final - hybsol_final.states[-1])):.3e}"
+)
+
+# %%
+#
+# The drift case runs through the block solver as well: the stage systems
+# change with the mesh, so each stage factors its own blocks, and the
+# constant field is still the exact fixed point of every slab.
+#
 # # Free streaming on a translating mesh
 # #
 # # A mesh that translates rigidly carries a constant field exactly: the Lie
@@ -319,7 +415,7 @@ def moving_mass(t: float) -> np.ndarray:
     if matches.size == 0:
         raise ValueError(f"Time {t} is not a stage time of the moving mesh.")
     step, stage = (int(value) for value in matches[0])
-    return coupled_mass(moving.space_maps(step, stage))
+    return coupled_mass(moving.space_maps(step, stage)).toarray()
 
 
 constant = project(lambda x: np.ones_like(np.asarray(x, dtype=np.double)), maps)
@@ -355,3 +451,50 @@ ax.set(
 ax.grid()
 fig.tight_layout()
 plt.show()
+
+# %%
+#
+# The moving stage systems go through the block solver the same way: each
+# stage factors the constrained mass of its own geometry, and the march
+# solves every fixed-point right-hand side against that factorization.
+
+
+def hybsol_moving_mass(t: float) -> _PermutedSolver:
+    """Factor the constrained moving mass at ``t`` into hybsol blocks."""
+    matches = np.argwhere(np.abs(stage_times - t) <= 1.0e-9 * STEP_SIZE)
+    if matches.size == 0:
+        raise ValueError(f"Time {t} is not a stage time of the moving mesh.")
+    step, stage = (int(value) for value in matches[0])
+    matrix = coupled_mass(moving.space_maps(step, stage))
+    all_free = np.arange(int(transfer.global_dof_count))
+    for blocking in ("element/object", "scalar"):
+        system, order = build_hybsol_system(matrix, owners, all_free, blocking)
+        if blocking != "scalar" and not system.is_valid():
+            continue
+        try:
+            decomposition = system.decompose()
+        except SingularSystemError:
+            continue
+        return _PermutedSolver(system, decomposition, order)
+    raise RuntimeError("no hybsol blocking could be packed")
+
+
+hybsol_result = march(
+    moving_residual,
+    rest_state,
+    STEP_SIZE,
+    N_STEPS,
+    stages=STAGES,
+    mass_solver=hybsol_moving_mass,
+    anderson_depth=0,
+)
+hybsol_drift = np.max(np.abs(hybsol_result.states - rest_state), axis=1)
+
+print()
+print("Free streaming through the block solver")
+print("---------------------------------------")
+print(f"maximum drift of the constant field: {hybsol_drift.max():.3e}")
+print(
+    f"max |dense - hybsol| over the whole run: "
+    f"{np.max(np.abs(result.states - hybsol_result.states)):.3e}"
+)

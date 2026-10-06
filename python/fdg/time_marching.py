@@ -42,6 +42,7 @@ driver and the driver loop below.
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from typing import Protocol
 
 import numpy as np
 import numpy.typing as npt
@@ -53,6 +54,34 @@ from fdg.enum_type import IntegrationMethod
 
 #: LU factors as returned by :func:`scipy.linalg.lu_factor`.
 MassFactors = tuple[npt.NDArray[np.double], npt.NDArray[np.int32]] | None
+
+
+class LinearSolver(Protocol):
+    """Factorized mass system of one stage, reusable for many right-hand sides.
+
+    Anything with a :meth:`solve` qualifies: the dense LU path of
+    :func:`march`, or the decomposition of a block solver such as hybsol's.
+    A solver is built once per stage and then solves every right-hand side
+    the fixed-point iteration throws at it.
+    """
+
+    def solve(self, rhs: npt.NDArray[np.double]) -> npt.NDArray[np.double]:
+        r"""Return :math:`M^{-1}\,\mathrm{rhs}` of the factored system."""
+        ...
+
+
+@dataclass(frozen=True)
+class _DenseLuSolver:
+    """Linear solver backed by the LU factors of a dense mass matrix."""
+
+    factors: MassFactors
+
+    def solve(self, rhs: npt.NDArray[np.double]) -> npt.NDArray[np.double]:
+        """Return the mass solve of one right-hand side."""
+        if self.factors is None:
+            return rhs
+        # scipy's stubs widen the return to a tuple union; it is one array.
+        return np.asarray(lu_solve(self.factors, rhs), np.double)
 
 
 @dataclass(frozen=True)
@@ -187,7 +216,7 @@ def collocation_tableau(
     )
 
 
-def _factor_mass(mass: npt.NDArray[np.double], n_dofs: int) -> MassFactors:
+def _factor_mass(mass: npt.NDArray[np.double], n_dofs: int) -> _DenseLuSolver:
     r"""Validate and LU-factorize a dense mass matrix.
 
     Parameters
@@ -199,8 +228,8 @@ def _factor_mass(mass: npt.NDArray[np.double], n_dofs: int) -> MassFactors:
 
     Returns
     -------
-    tuple of arrays
-        Factors of the factorization.
+    _DenseLuSolver
+        Solver of the factorized system.
     """
     matrix = np.ascontiguousarray(mass, np.double)
     if matrix.shape != (n_dofs, n_dofs):
@@ -208,9 +237,11 @@ def _factor_mass(mass: npt.NDArray[np.double], n_dofs: int) -> MassFactors:
             f"Mass matrix must have shape {(n_dofs, n_dofs)}, got {matrix.shape}."
         )
     lu, pivots = lu_factor(matrix)
-    return (
-        np.ascontiguousarray(lu, np.double),
-        np.ascontiguousarray(pivots, np.int32),
+    return _DenseLuSolver(
+        (
+            np.ascontiguousarray(lu, np.double),
+            np.ascontiguousarray(pivots, np.int32),
+        )
     )
 
 
@@ -218,9 +249,9 @@ def _stage_residuals(
     residual: Callable[[npt.NDArray[np.double], float], npt.NDArray[np.double]],
     stage_dofs: npt.NDArray[np.double],
     stage_times: npt.NDArray[np.double],
-    stage_factors: list[MassFactors],
+    stage_solvers: Sequence[LinearSolver],
 ) -> npt.NDArray[np.double]:
-    r"""Evaluate the residual on the stages and solve the mass matrices.
+    r"""Evaluate the residual on the stages and solve the mass systems.
 
     Parameters
     ----------
@@ -230,9 +261,9 @@ def _stage_residuals(
         Stage states with one row per stage.
     stage_times : array
         Times of the stages.
-    stage_factors : list of tuple of arrays
-        Factors of the mass matrix for each stage, with ``None`` in a slot
-        meaning an identity mass matrix.
+    stage_solvers : sequence of LinearSolver
+        Solver of the mass system of each stage, with an identity solver in
+        a slot without a mass matrix.
 
     Returns
     -------
@@ -243,9 +274,7 @@ def _stage_residuals(
     values = np.empty_like(stage_dofs)
     for k in range(stages):
         values[k] = residual(np.ascontiguousarray(stage_dofs[k]), float(stage_times[k]))
-        # lu_solve takes one right-hand side at a time.
-        if stage_factors[k] is not None:
-            values[k] = lu_solve(stage_factors[k], values[k])
+        values[k] = stage_solvers[k].solve(values[k])
 
     return values
 
@@ -325,6 +354,7 @@ def march(
     mass: (
         npt.NDArray[np.double] | Callable[[float], npt.NDArray[np.double]] | None
     ) = None,
+    mass_solver: Callable[[float], LinearSolver] | None = None,
     tolerance: float = 1e-12,
     max_iterations: int = 100,
     anderson_depth: int = 4,
@@ -369,6 +399,14 @@ def march(
         matrix. A callable is evaluated at the exact stage times and must
         return a dense matrix of the shape of the state, and it must raise
         rather than interpolate silently for a time it cannot serve.
+    mass_solver : callable or None, default: None
+        Callable mapping a stage time to a :class:`LinearSolver` of the mass
+        system at that time, which decouples the march from the shape of the
+        mass: a block solver such as hybsol's factors the constrained system
+        once per stage and answers every fixed-point solve from its
+        decomposition. Built once per stage before the iteration starts.
+        Mutually exclusive with ``mass``; both None means an identity mass
+        matrix.
     tolerance : float, default: 1e-12
         Relative tolerance on the fixed-point defect of every step.
     max_iterations : int, default: 100
@@ -402,13 +440,15 @@ def march(
         raise ValueError("Step sizes must be positive.")
 
     n_dofs = initial.size
+    if mass is not None and mass_solver is not None:
+        raise ValueError("mass and mass_solver are mutually exclusive.")
     mass_factory: Callable[[float], npt.NDArray[np.double]] | None = None
-    constant_factors: MassFactors = None
-    if mass is not None:
+    constant_solver: _DenseLuSolver | None = None
+    if mass_solver is None and mass is not None:
         if callable(mass):
             mass_factory = mass
         else:
-            constant_factors = _factor_mass(mass, n_dofs)
+            constant_solver = _factor_mass(mass, n_dofs)
 
     tableau = collocation_tableau(stages, method)
 
@@ -434,12 +474,18 @@ def march(
         next_time = float(t0) + float(np.sum(sizes[: step + 1]))
         scale = 0.5 * step_size
         stage_times = time + scale * (tableau.nodes + 1.0)
-        # A constant mass is factored once; a time-dependent one is factored per stage
-        # here, so the fixed-point calls below never refactorize.
-        if mass_factory is None:
-            stage_factors = [constant_factors] * tableau.stages
+        # A constant mass is factored once and a caller-provided solver is
+        # built once per stage, so the fixed-point calls below never
+        # refactorize.
+        if mass_solver is not None:
+            stage_solvers = [
+                mass_solver(float(stage_times[k])) for k in range(tableau.stages)
+            ]
+        elif mass_factory is None:
+            # Identity mass: the solver passes right-hand sides through.
+            stage_solvers = [constant_solver or _DenseLuSolver(None)] * tableau.stages
         else:
-            stage_factors = [
+            stage_solvers = [
                 _factor_mass(mass_factory(float(stage_times[k])), n_dofs)
                 for k in range(tableau.stages)
             ]
@@ -447,7 +493,7 @@ def march(
         def fixed_point(iterate: npt.NDArray[np.double]) -> npt.NDArray[np.double]:
             """Apply the slab stage equations to a flattened stage vector."""
             stage_dofs = iterate.reshape(tableau.stages, n_dofs)
-            rhs = _stage_residuals(residual, stage_dofs, stage_times, stage_factors)
+            rhs = _stage_residuals(residual, stage_dofs, stage_times, stage_solvers)
             return (state + scale * (tableau.integration_matrix @ rhs)).ravel()
 
         try:
@@ -467,7 +513,7 @@ def march(
             residual,
             converged.reshape(tableau.stages, n_dofs),
             stage_times,
-            stage_factors,
+            stage_solvers,
         )
         state = state + scale * (tableau.weights @ rhs)
         time = next_time

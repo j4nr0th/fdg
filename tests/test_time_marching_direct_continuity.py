@@ -28,7 +28,12 @@ from fdg import (
     stage_mass,
 )
 from fdg.moving_mesh import lie_derivative_operator
+from hybsol import refined_solve
 
+from examples.plot_direct_continuity_sparse import (
+    block_owners,
+    build_hybsol_system,
+)
 from examples.plot_multi_element_laplace_direct_continuity import (
     element_entries,
     make_element_maps,
@@ -271,3 +276,66 @@ def test_free_stream_preservation_coupled() -> None:
     result = march(residual, y0, DT, 8, stages=2, mass=mass_factory)
 
     assert np.max(np.abs(result.states[-1] - y0)) < 1.0e-10
+
+
+def test_hybsol_mass_solver_agreement() -> None:
+    """Stage solves through hybsol reproduce the dense march."""
+    base_space, specs, mesh, transfer, maps = _field_setup()
+    nodes = np.ascontiguousarray(_integration().nodes()[0], np.double)
+    field_velocity = np.ascontiguousarray(np.full(nodes.size, VELOCITY).reshape(1, -1))
+    operators = [lie_derivative_operator(smap, specs, field_velocity) for smap in maps]
+
+    def residual(y: np.ndarray, t: float) -> np.ndarray:  # noqa: ARG001
+        return -_global_scatter(
+            transfer,
+            [
+                operator @ _element_view(transfer, y, element)
+                for element, operator in enumerate(operators)
+            ],
+        )
+
+    initial = _project(lambda x: np.exp(-(((x + 0.5) / 0.35) ** 2)), maps, base_space)
+    y0, *_ = np.linalg.lstsq(_transfer_matrix(transfer), initial, rcond=None)
+    mass = _coupled_mass(transfer, specs, maps)
+    global_count = int(transfer.global_dof_count)
+    free = np.setdiff1d(np.arange(global_count), [0])
+    mass_free = mass[np.ix_(free, free)]
+
+    def residual_free(y_free: np.ndarray, t: float) -> np.ndarray:
+        """Return the residual of the full system on the free unknowns."""
+        y = np.zeros(global_count)
+        y[free] = y_free
+        return residual(y, t)[free]
+
+    owners, _ = block_owners(transfer, mesh, ORDER, CELLS)
+    flat = np.concatenate([stage_mass(smap, specs).ravel() for smap in maps])
+    matrix = scatter_csc(transfer, flat)[free][:, free].tocsc()
+    system, order = build_hybsol_system(matrix, owners, free, "element/object")
+    assert system.is_valid()
+    decomposition = system.decompose()
+    unpermute = np.empty_like(order)
+    unpermute[order] = np.arange(order.size)
+
+    class _Refined:
+        """Solve the reduced system in the block order of the factorization."""
+
+        def solve(self, rhs: np.ndarray) -> np.ndarray:
+            """Return the mass solve of one right-hand side, refined."""
+            return refined_solve(system, decomposition, rhs[order], tolerance=1.0e-12)[
+                unpermute
+            ]
+
+    solver = _Refined()
+    reference = march(
+        residual_free, y0[free], 0.4 / 16, 16, stages=2, mass=mass_free
+    ).states[-1]
+    hybsol = march(
+        residual_free,
+        y0[free],
+        0.4 / 16,
+        16,
+        stages=2,
+        mass_solver=lambda t: solver,  # noqa: ARG005
+    ).states[-1]
+
+    assert np.max(np.abs(reference - hybsol)) < 1.0e-9

@@ -105,6 +105,7 @@ from fdg.sparse import scatter_csc as scatter_csc
 
 # Time marching
 from fdg.time_marching import CollocationTableau as CollocationTableau
+from fdg.time_marching import LinearSolver as LinearSolver
 from fdg.time_marching import MarchResult as MarchResult
 from fdg.time_marching import collocation_tableau as collocation_tableau
 from fdg.time_marching import march as march
