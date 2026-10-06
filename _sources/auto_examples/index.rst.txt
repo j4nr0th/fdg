@@ -74,6 +74,23 @@ Some examples.
 
 .. raw:: html
 
+    <div class="sphx-glr-thumbcontainer" tooltip="A space map that moves in time makes the mass matrix a function of time and adds a Lie derivative term to the equation of every form. This example marches a one-dimensional element whose length changes and shows that a density which the mesh merely carries along does not move in the reference frame, which is the discrete geometric conservation law.">
+
+.. only:: html
+
+  .. image:: /auto_examples/images/thumb/sphx_glr_plot_time_marching_moving_mesh_thumb.png
+    :alt:
+
+  :doc:`/auto_examples/plot_time_marching_moving_mesh`
+
+.. raw:: html
+
+      <div class="sphx-glr-thumbnail-title">Moving meshes and the geometric conservation law</div>
+    </div>
+
+
+.. raw:: html
+
     <div class="sphx-glr-thumbcontainer" tooltip="This example demonstrates system for N-dimensional mixed Poisson equation can be set up.">
 
 .. only:: html
@@ -103,6 +120,40 @@ Some examples.
 .. raw:: html
 
       <div class="sphx-glr-thumbnail-title">Gradients</div>
+    </div>
+
+
+.. raw:: html
+
+    <div class="sphx-glr-thumbcontainer" tooltip="Each row of a boundary mass matrix is a trace inner product,">
+
+.. only:: html
+
+  .. image:: /auto_examples/images/thumb/sphx_glr_plot_boundary_constraints_thumb.png
+    :alt:
+
+  :doc:`/auto_examples/plot_boundary_constraints`
+
+.. raw:: html
+
+      <div class="sphx-glr-thumbnail-title">Boundary Trace Mass Matrices</div>
+    </div>
+
+
+.. raw:: html
+
+    <div class="sphx-glr-thumbcontainer" tooltip="The fdg hybridized discretization turns a steady PDE into a saddle-point system that is solved once. Here the same machinery is used in time: a semi-discrete system">
+
+.. only:: html
+
+  .. image:: /auto_examples/images/thumb/sphx_glr_plot_time_marching_wave_thumb.png
+    :alt:
+
+  :doc:`/auto_examples/plot_time_marching_wave`
+
+.. raw:: html
+
+      <div class="sphx-glr-thumbnail-title">Time marching with a geometric, structure-preserving scheme</div>
     </div>
 
 
@@ -142,23 +193,6 @@ Some examples.
 
 .. raw:: html
 
-    <div class="sphx-glr-thumbcontainer" tooltip="A boundary row is a trace inner product,">
-
-.. only:: html
-
-  .. image:: /auto_examples/images/thumb/sphx_glr_plot_boundary_constraints_thumb.png
-    :alt:
-
-  :doc:`/auto_examples/plot_boundary_constraints`
-
-.. raw:: html
-
-      <div class="sphx-glr-thumbnail-title">Boundary Constraints and Continuity</div>
-    </div>
-
-
-.. raw:: html
-
     <div class="sphx-glr-thumbcontainer" tooltip="This example demonstrates how different domains look and behave like.">
 
 .. only:: html
@@ -176,7 +210,41 @@ Some examples.
 
 .. raw:: html
 
-    <div class="sphx-glr-thumbcontainer" tooltip="This example demonstrates how the mixed Poisson equation can be solved on multiple hypercube elements at once, with the continuity of the flux across the shared faces enforced by Mesh.compute_kform_boundary_constraints.">
+    <div class="sphx-glr-thumbcontainer" tooltip="This example assembles the scalar primal Laplace operator on conforming quadrilateral, hexahedral, and four-dimensional hypercube meshes. Shared strata are processed from faces to edges to points. Only consecutive element pairs are compared for each shared object, so the continuity rows form a forest rather than a cycle.">
+
+.. only:: html
+
+  .. image:: /auto_examples/images/thumb/sphx_glr_plot_multi_element_laplace_continuity_thumb.png
+    :alt:
+
+  :doc:`/auto_examples/plot_multi_element_laplace_continuity`
+
+.. raw:: html
+
+      <div class="sphx-glr-thumbnail-title">Hierarchical continuity for a direct multi-element Laplace solve.</div>
+    </div>
+
+
+.. raw:: html
+
+    <div class="sphx-glr-thumbcontainer" tooltip="The direct continuity map removes the block-diagonal structure a marcher sees in the element degrees of freedom: the field lives on the coupled global space, so the mass matrix of every stage is the congruence of the per-element masses through the transfer,">
+
+.. only:: html
+
+  .. image:: /auto_examples/images/thumb/sphx_glr_plot_time_marching_direct_continuity_thumb.png
+    :alt:
+
+  :doc:`/auto_examples/plot_time_marching_direct_continuity`
+
+.. raw:: html
+
+      <div class="sphx-glr-thumbnail-title">March a continuity-coupled field through the direct map</div>
+    </div>
+
+
+.. raw:: html
+
+    <div class="sphx-glr-thumbcontainer" tooltip="This example demonstrates how the mixed Poisson equation can be solved on multiple hypercube elements at once, with the continuity of the flux across the shared faces enforced by Mesh.compute_kform_continuity_constraints.">
 
 .. only:: html
 
@@ -193,18 +261,18 @@ Some examples.
 
 .. raw:: html
 
-    <div class="sphx-glr-thumbcontainer" tooltip="This example assembles the scalar primal Laplace operator on conforming quadrilateral, hexahedral, and four-dimensional hypercube meshes. Shared strata are processed from faces to edges to points. Only consecutive element pairs are compared for each shared object, so the continuity rows form a forest rather than a cycle.">
+    <div class="sphx-glr-thumbcontainer" tooltip="assemble_global_laplace in the dense example scatters the element operators through the transfer with np.add.at; the same T_i  M[i, j]  T_j product emitted as COO triplets and summed into a CSC matrix by fdg.scatter_csc is a standard sparse assembly. The example feeds the resulting reduced system to three solvers -- the dense numpy path of the existing example (numpy.linalg.solve on the dense scatter) as the reference, scipy.sparse.linalg.splu as the sparse reference, and the hybsol block solver, which receives the unknowns partitioned by owner (element-private unknowns in one block per element, shared unknowns in one block per object) and factors the block structure unpivoted.">
 
 .. only:: html
 
-  .. image:: /auto_examples/images/thumb/sphx_glr_plot_multi_element_laplace_continuity_thumb.png
+  .. image:: /auto_examples/images/thumb/sphx_glr_plot_direct_continuity_sparse_thumb.png
     :alt:
 
-  :doc:`/auto_examples/plot_multi_element_laplace_continuity`
+  :doc:`/auto_examples/plot_direct_continuity_sparse`
 
 .. raw:: html
 
-      <div class="sphx-glr-thumbnail-title">Hierarchical continuity for a direct multi-element Laplace solve.</div>
+      <div class="sphx-glr-thumbnail-title">Sparse solvers for the direct continuity system.</div>
     </div>
 
 
@@ -244,6 +312,23 @@ Some examples.
 
 .. raw:: html
 
+    <div class="sphx-glr-thumbcontainer" tooltip="Where solve_hybridized enforces continuity with one multiplier per constraint row, Mesh.compute_kform_direct_dof_map numbers one global field directly: every shared object carries the coefficients of its common Legendre test window, every element transfer combines them with its private free modes, and no continuity rows are needed. The map is purely topological, so curved elements enter only through the element operators scattered through the transfer, and every basis family pairs against the same windows.">
+
+.. only:: html
+
+  .. image:: /auto_examples/images/thumb/sphx_glr_plot_multi_element_laplace_direct_continuity_thumb.png
+    :alt:
+
+  :doc:`/auto_examples/plot_multi_element_laplace_direct_continuity`
+
+.. raw:: html
+
+      <div class="sphx-glr-thumbnail-title">Direct continuity for a multi-element Laplace solve.</div>
+    </div>
+
+
+.. raw:: html
+
     <div class="sphx-glr-thumbcontainer" tooltip="The input images are ordered z planes. Each pixel is treated as a square physical cell whose grayscale value is its cell average; the plane dimensions therefore retain the image aspect ratio. The cell averages are reconstructed on a tensor grid, and the resulting three-dimensional field defines both the manufactured solution and a finite-difference Laplacian source.">
 
 .. only:: html
@@ -272,16 +357,21 @@ Some examples.
    /auto_examples/plot_function_spaces
    /auto_examples/plot_basis_sets
    /auto_examples/plot_integration_rules
+   /auto_examples/plot_time_marching_moving_mesh
    /auto_examples/plot_poisson
    /auto_examples/plot_gradients
+   /auto_examples/plot_boundary_constraints
+   /auto_examples/plot_time_marching_wave
    /auto_examples/plot_laplace_weak_bc
    /auto_examples/plot_advdif
-   /auto_examples/plot_boundary_constraints
    /auto_examples/plot_domains
-   /auto_examples/plot_multi_element_poisson
    /auto_examples/plot_multi_element_laplace_continuity
+   /auto_examples/plot_time_marching_direct_continuity
+   /auto_examples/plot_multi_element_poisson
+   /auto_examples/plot_direct_continuity_sparse
    /auto_examples/plot_multi_element_poisson_periodic
    /auto_examples/plot_multi_element_poisson_bc
+   /auto_examples/plot_multi_element_laplace_direct_continuity
    /auto_examples/image_sequence_poisson
 
 

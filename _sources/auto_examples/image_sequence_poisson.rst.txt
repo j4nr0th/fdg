@@ -33,7 +33,7 @@ Usage
 The computed solution is exported to ``image_sequence_poisson.vtu`` unless an
 alternative path is supplied with ``--output``.
 
-.. GENERATED FROM PYTHON SOURCE LINES 17-811
+.. GENERATED FROM PYTHON SOURCE LINES 17-715
 
 .. code-block:: Python
 
@@ -49,9 +49,6 @@ alternative path is supplied with ``--output``.
     import numpy as np
     import numpy.typing as npt
     import pyvista as pv
-    import scipy.linalg
-    import scipy.sparse
-    import scipy.sparse.linalg
     from fdg import (
         BasisSpecs,
         BasisType,
@@ -63,6 +60,8 @@ alternative path is supplied with ``--output``.
         IntegrationSpecs,
         KFormSpecs,
         Mesh,
+        MeshGeometry,
+        MeshKFormSpecs,
         SampledSpaceMap,
         SpaceMap,
         compute_kform_boundary_load,
@@ -70,6 +69,7 @@ alternative path is supplied with ``--output``.
         incidence_kform_operator,
         projection_kform_l2_dual,
         reconstruct,
+        solve_hybridized,
         transform_kform_to_target,
         transform_kform_to_target_sampled,
     )
@@ -445,9 +445,7 @@ alternative path is supplied with ``--output``.
         for element_id in range(mesh.element_count):
             for normal_axis in range(3):
                 for side in (-1, 1):
-                    location = [0, 0, 0]
-                    location[normal_axis] = side * (normal_axis + 1)
-                    face_id = mesh.element_object(element_id, location)
+                    face_id = mesh.element_object(element_id, side * (normal_axis + 1))
                     test_specs[2][face_id] = [face_tests[normal_axis]]
         expected_faces = (
             (cells[0] + 1) * cells[1] * cells[2]
@@ -459,55 +457,25 @@ alternative path is supplied with ``--output``.
         return face_tests, test_specs
 
 
-    def packed_to_sparse(
-        packed: tuple[np.ndarray, ...], specs_q: KFormSpecs, element_count: int
-    ) -> scipy.sparse.csr_matrix:
-        """Materialize packed global flux rows as an element-major sparse matrix."""
-        row_offsets, element_ids, components, local_dofs, coefficients = packed
-        n_rows = row_offsets.size - 1
-        nq = int(np.sum(specs_q.component_dof_counts))
-        component_offsets = np.asarray(
-            [
-                int(specs_q.get_component_slice(component).start)
-                for component in range(specs_q.component_count)
-            ],
-            dtype=np.uintp,
-        )
-        element_offsets = np.arange(element_count, dtype=np.uintp) * nq
-        columns = element_offsets[element_ids] + component_offsets[components] + local_dofs
-        row_indices = np.repeat(
-            np.arange(n_rows, dtype=np.intp),
-            np.diff(row_offsets).astype(np.intp, copy=False),
-        )
-        return scipy.sparse.coo_matrix(
-            (coefficients, (row_indices, columns)),
-            shape=(n_rows, element_count * nq),
-        ).tocsr()
-
-
     def solve(
         mesh: Mesh,
         maps: list[SpaceMap],
         specs_q: KFormSpecs,
         specs_u: KFormSpecs,
         face_tests: list[KFormSpecs],
-        test_specs: list[list[list[KFormSpecs]]],
         source: FieldFunction,
         solution: FieldFunction,
     ) -> tuple[list[np.ndarray], list[np.ndarray], float, float]:
-        """Solve the anisotropic mixed Poisson system by local condensation.
+        """Solve the anisotropic mixed Poisson system with the hybsol block solver.
 
-        All elements have the same axis-aligned affine Jacobian, so the local
-        mixed matrix is assembled and factorized once. Continuity constraints are
-        condensed to a sparse multiplier system instead of forming one global
-        mixed matrix and retaining a dense matrix for every element.
+        Every element carries the same axis-aligned affine Jacobian, so the local
+        mixed matrix is assembled once and shared. The continuity constraints go
+        to ``solve_hybridized`` as part of the augmented block system, so nothing
+        is condensed and no multiplier system is built.
         """
         element_count = mesh.element_count
         nq = int(np.sum(specs_q.component_dof_counts))
         nu = int(np.sum(specs_u.component_dof_counts))
-        q_total = element_count * nq
-        u_total = element_count * nu
-        local_size = nq + nu
 
         matrix_progress = Progress("Element matrices", 1)
         q_mass = np.asarray(
@@ -530,27 +498,17 @@ alternative path is supplied with ``--output``.
                 [derivative, np.zeros((nu, nu), dtype=np.double)],
             ]
         )
-        local_factor = scipy.linalg.lu_factor(local_mixed, check_finite=False)
         matrix_progress.update()
         matrix_progress.finish()
-        del q_mass, u_mass, derivative, derivative_transpose, local_mixed
+        del q_mass, u_mass, derivative, derivative_transpose
 
-        rhs_q = np.zeros(q_total)
-        rhs_u = np.zeros(u_total)
-        source_progress = Progress("Source projections", element_count)
-        for element_id, element_map in enumerate(maps):
-            rhs_u[element_id * nu : (element_id + 1) * nu] = np.asarray(
-                projection_kform_l2_dual([source], specs_u, element_map)[0]
-            ).reshape(-1)
-            source_progress.update()
-        source_progress.finish()
-
-        boundary_faces = mesh.iterate_boundary(2)
+        boundary_faces = list(mesh.iterate_boundary(2))
+        loads = [np.zeros(nq) for _ in range(element_count)]
         boundary_progress = Progress("Weak Dirichlet loads", len(boundary_faces))
         for _, boundary_id, element_ids, orientations in boundary_faces:
             element_id = int(element_ids[0])
             normal_axis = abs(int(orientations[0, 0])) - 1
-            rhs_q[element_id * nq : (element_id + 1) * nq] += compute_kform_boundary_load(
+            loads[element_id] += compute_kform_boundary_load(
                 face_tests[normal_axis],
                 specs_q,
                 maps[element_id],
@@ -564,109 +522,56 @@ alternative path is supplied with ``--output``.
             boundary_progress.update()
         boundary_progress.finish()
 
+        source_progress = Progress("Source projections", element_count)
+        element_rhs: list[np.ndarray] = []
+        for element_id, element_map in enumerate(maps):
+            rhs_u = np.asarray(
+                projection_kform_l2_dual([source], specs_u, element_map)[0]
+            ).reshape(-1)
+            element_rhs.append(np.concatenate((loads[element_id], rhs_u)))
+            source_progress.update()
+        source_progress.finish()
+
         continuity_progress = Progress("Continuity constraints", 1)
-        packed, constraint_rhs = mesh.compute_kform_global_constraints(
+        constraints, constraint_rhs = mesh.compute_kform_global_constraints(
             [specs_q] * element_count,
             maps,
-            test_specs,
-            None,
-            None,
         )
-        constraints = packed_to_sparse(packed, specs_q, element_count)
         continuity_progress.update()
         continuity_progress.finish()
 
-        coo = constraints.tocoo(copy=False)
-        element_numbers = coo.col // nq
-        sorted_indices = np.argsort(element_numbers, kind="stable")
-        sorted_elements = element_numbers[sorted_indices]
-
-        def constraint_block(
-            element_id: int,
-        ) -> tuple[npt.NDArray[np.intp], npt.NDArray[np.double]] | None:
-            """Build the local constraint block for one element on demand."""
-            start = int(np.searchsorted(sorted_elements, element_id, side="left"))
-            end = int(np.searchsorted(sorted_elements, element_id, side="right"))
-            if start == end:
-                return None
-            selected = sorted_indices[start:end]
-            rows, row_inverse = np.unique(coo.row[selected], return_inverse=True)
-            block = np.zeros((rows.size, nq), dtype=np.double)
-            local_columns = coo.col[selected] - element_id * nq
-            np.add.at(block, (row_inverse, local_columns), coo.data[selected])
-            return rows.astype(np.intp, copy=False), block
-
-        constraint_count = constraints.shape[0]
-        condensed_rhs = -np.asarray(constraint_rhs, dtype=np.double).copy()
-        schur_rows: list[np.ndarray] = []
-        schur_columns: list[np.ndarray] = []
-        schur_values: list[np.ndarray] = []
-        condensation_progress = Progress("Constraint condensation", element_count)
-        for element_id in range(element_count):
-            local_rhs = np.concatenate(
-                (
-                    rhs_q[element_id * nq : (element_id + 1) * nq],
-                    rhs_u[element_id * nu : (element_id + 1) * nu],
-                )
-            )
-            local_solution = scipy.linalg.lu_solve(
-                local_factor, local_rhs, check_finite=False
-            )
-            block_data = constraint_block(element_id)
-            if block_data is not None:
-                rows, block = block_data
-                condensed_rhs[rows] += block @ local_solution[:nq]
-                lifted = np.zeros((local_size, rows.size), dtype=np.double)
-                lifted[:nq] = block.T
-                response = scipy.linalg.lu_solve(local_factor, lifted, check_finite=False)
-                local_schur = block @ response[:nq]
-                schur_rows.append(np.repeat(rows, rows.size))
-                schur_columns.append(np.tile(rows, rows.size))
-                schur_values.append(local_schur.ravel())
-            condensation_progress.update()
-        condensation_progress.finish()
-
-        multipliers = np.zeros(constraint_count, dtype=np.double)
-        if constraint_count:
-            schur = scipy.sparse.coo_matrix(
-                (
-                    np.concatenate(schur_values),
-                    (np.concatenate(schur_rows), np.concatenate(schur_columns)),
-                ),
-                shape=(constraint_count, constraint_count),
-            ).tocsr()
-            schur.sum_duplicates()
-            constraint_solve_progress = Progress("Constraint solve", 1)
-            multipliers = scipy.sparse.linalg.splu(schur.tocsc()).solve(condensed_rhs)
-            constraint_solve_progress.update()
-            constraint_solve_progress.finish()
-
-        q_dofs: list[np.ndarray] = []
-        u_dofs: list[np.ndarray] = []
-        back_substitution_progress = Progress("Back substitution", element_count)
-        for element_id in range(element_count):
-            local_rhs = np.concatenate(
-                (
-                    rhs_q[element_id * nq : (element_id + 1) * nq],
-                    rhs_u[element_id * nu : (element_id + 1) * nu],
-                )
-            )
-            block_data = constraint_block(element_id)
-            if block_data is not None:
-                rows, block = block_data
-                local_rhs[:nq] -= block.T @ multipliers[rows]
-            local_solution = scipy.linalg.lu_solve(
-                local_factor, local_rhs, check_finite=False
-            )
-            q_dofs.append(local_solution[:nq])
-            u_dofs.append(local_solution[nq:])
-            back_substitution_progress.update()
-        back_substitution_progress.finish()
-
-        q_values = np.concatenate(q_dofs)
-        continuity_residual = float(
-            np.max(np.abs(constraints @ q_values - constraint_rhs), initial=0.0)
+        geometry = MeshGeometry.from_elements(*maps)
+        structure = MeshKFormSpecs.from_space(
+            3,
+            [("q", specs_q.order), ("u", specs_u.order)],
+            specs_q.base_space,
+            element_count,
         )
+
+        def element_block(
+            element_id: int,
+            field_specs: Sequence[KFormSpecs],
+            element_map: SpaceMap,
+        ) -> np.ndarray:
+            """Return the shared local mixed matrix, trial degrees of freedom first."""
+            del element_id, field_specs, element_map
+            return local_mixed
+
+        solve_progress = Progress("Block solve", 1)
+        result = solve_hybridized(
+            geometry,
+            structure,
+            np.concatenate(element_rhs),
+            constraints,
+            constraint_rhs,
+            element_block,
+        )
+        solve_progress.update()
+        solve_progress.finish()
+        q_dofs = [dofs[:nq] for dofs in result.element_dofs]
+        u_dofs = [dofs[nq:] for dofs in result.element_dofs]
+        continuity_residual = result.constraint_residual
+
         error_squared = 0.0
         postprocess_progress = Progress("Solution postprocess", element_count)
         for element_id, element_map in enumerate(maps):
@@ -773,14 +678,13 @@ alternative path is supplied with ``--output``.
         )
         specs_q = KFormSpecs(2, base_space)
         specs_u = KFormSpecs(3, base_space)
-        face_tests, test_specs = face_test_specs(mesh, orders, cells)
+        face_tests, _ = face_test_specs(mesh, orders, cells)
         _, u_dofs, continuity_residual, error = solve(
             mesh,
             maps,
             specs_q,
             specs_u,
             face_tests,
-            test_specs,
             source,
             solution,
         )

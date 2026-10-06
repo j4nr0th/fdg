@@ -6,7 +6,7 @@
 
 Computation times
 =================
-**01:07.452** total execution time for 14 files **from all galleries**:
+**00:48.177** total execution time for 19 files **from all galleries**:
 
 .. container::
 
@@ -33,43 +33,58 @@ Computation times
      - Time
      - Mem (MB)
    * - :ref:`sphx_glr_auto_examples_plot_multi_element_laplace_continuity.py` (``../examples/plot_multi_element_laplace_continuity.py``)
-     - 00:34.605
-     - 0.0
-   * - :ref:`sphx_glr_auto_examples_plot_multi_element_poisson.py` (``../examples/plot_multi_element_poisson.py``)
-     - 00:05.452
-     - 0.0
-   * - :ref:`sphx_glr_auto_examples_plot_multi_element_poisson_periodic.py` (``../examples/plot_multi_element_poisson_periodic.py``)
-     - 00:05.279
-     - 0.0
-   * - :ref:`sphx_glr_auto_examples_plot_multi_element_poisson_bc.py` (``../examples/plot_multi_element_poisson_bc.py``)
-     - 00:05.144
+     - 00:10.781
      - 0.0
    * - :ref:`sphx_glr_auto_examples_plot_laplace_weak_bc.py` (``../examples/plot_laplace_weak_bc.py``)
-     - 00:05.139
+     - 00:07.730
+     - 0.0
+   * - :ref:`sphx_glr_auto_examples_plot_multi_element_poisson_periodic.py` (``../examples/plot_multi_element_poisson_periodic.py``)
+     - 00:06.952
+     - 0.0
+   * - :ref:`sphx_glr_auto_examples_plot_direct_continuity_sparse.py` (``../examples/plot_direct_continuity_sparse.py``)
+     - 00:05.343
+     - 0.0
+   * - :ref:`sphx_glr_auto_examples_plot_multi_element_poisson.py` (``../examples/plot_multi_element_poisson.py``)
+     - 00:02.862
+     - 0.0
+   * - :ref:`sphx_glr_auto_examples_plot_time_marching_direct_continuity.py` (``../examples/plot_time_marching_direct_continuity.py``)
+     - 00:02.711
+     - 0.0
+   * - :ref:`sphx_glr_auto_examples_plot_multi_element_poisson_bc.py` (``../examples/plot_multi_element_poisson_bc.py``)
+     - 00:02.523
      - 0.0
    * - :ref:`sphx_glr_auto_examples_plot_domains.py` (``../examples/plot_domains.py``)
-     - 00:04.245
+     - 00:02.162
      - 0.0
-   * - :ref:`sphx_glr_auto_examples_plot_advdif.py` (``../examples/plot_advdif.py``)
-     - 00:01.663
-     - 0.0
-   * - :ref:`sphx_glr_auto_examples_plot_basis_sets.py` (``../examples/plot_basis_sets.py``)
-     - 00:01.648
-     - 0.0
-   * - :ref:`sphx_glr_auto_examples_plot_gradients.py` (``../examples/plot_gradients.py``)
-     - 00:01.382
+   * - :ref:`sphx_glr_auto_examples_plot_time_marching_wave.py` (``../examples/plot_time_marching_wave.py``)
+     - 00:01.910
      - 0.0
    * - :ref:`sphx_glr_auto_examples_plot_function_spaces.py` (``../examples/plot_function_spaces.py``)
-     - 00:01.314
+     - 00:01.134
+     - 0.0
+   * - :ref:`sphx_glr_auto_examples_plot_basis_sets.py` (``../examples/plot_basis_sets.py``)
+     - 00:00.800
+     - 0.0
+   * - :ref:`sphx_glr_auto_examples_plot_multi_element_laplace_direct_continuity.py` (``../examples/plot_multi_element_laplace_direct_continuity.py``)
+     - 00:00.736
+     - 0.0
+   * - :ref:`sphx_glr_auto_examples_plot_gradients.py` (``../examples/plot_gradients.py``)
+     - 00:00.696
+     - 0.0
+   * - :ref:`sphx_glr_auto_examples_plot_advdif.py` (``../examples/plot_advdif.py``)
+     - 00:00.604
      - 0.0
    * - :ref:`sphx_glr_auto_examples_plot_poisson.py` (``../examples/plot_poisson.py``)
-     - 00:00.885
+     - 00:00.495
      - 0.0
-   * - :ref:`sphx_glr_auto_examples_plot_boundary_constraints.py` (``../examples/plot_boundary_constraints.py``)
-     - 00:00.363
+   * - :ref:`sphx_glr_auto_examples_plot_time_marching_moving_mesh.py` (``../examples/plot_time_marching_moving_mesh.py``)
+     - 00:00.453
      - 0.0
    * - :ref:`sphx_glr_auto_examples_plot_integration_rules.py` (``../examples/plot_integration_rules.py``)
-     - 00:00.331
+     - 00:00.162
+     - 0.0
+   * - :ref:`sphx_glr_auto_examples_plot_boundary_constraints.py` (``../examples/plot_boundary_constraints.py``)
+     - 00:00.122
      - 0.0
    * - :ref:`sphx_glr_auto_examples_image_sequence_poisson.py` (``../examples/image_sequence_poisson.py``)
      - 00:00.000

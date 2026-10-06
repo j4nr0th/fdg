@@ -44,7 +44,7 @@ periodic patches is explicit even though the topological mesh has no physical
 coordinates. The same global constraint call adds ordinary interior
 continuity and the periodic flux rows.
 
-.. GENERATED FROM PYTHON SOURCE LINES 28-78
+.. GENERATED FROM PYTHON SOURCE LINES 28-70
 
 .. code-block:: Python
 
@@ -58,8 +58,6 @@ continuity and the periodic flux rows.
     import numpy as np
     import numpy.typing as npt
     import pyvista as pv
-    import scipy.sparse
-    import scipy.sparse.linalg
     from fdg import (
         BasisSpecs,
         BasisType,
@@ -72,11 +70,13 @@ continuity and the periodic flux rows.
         IntegrationSpecs,
         KFormSpecs,
         Mesh,
+        MeshGeometry,
+        MeshKFormSpecs,
         SpaceMap,
         compute_kform_boundary_load,
-        compute_kform_mass_matrix,
-        incidence_kform_operator,
+        mixed_block,
         projection_kform_l2_dual,
+        solve_hybridized,
         transform_kform_to_target,
     )
     from fdg.degrees_of_freedom import reconstruct
@@ -89,13 +89,6 @@ continuity and the periodic flux rows.
     ORDERS = (1, 2, 3, 4, 5, 6)
     VISUAL_ORDER = 12
 
-    PackedRows = tuple[
-        npt.NDArray[np.uintp],
-        npt.NDArray[np.uint64],
-        npt.NDArray[np.uint32],
-        npt.NDArray[np.uintp],
-        npt.NDArray[np.double],
-    ]
 
 
 
@@ -104,8 +97,7 @@ continuity and the periodic flux rows.
 
 
 
-
-.. GENERATED FROM PYTHON SOURCE LINES 79-88
+.. GENERATED FROM PYTHON SOURCE LINES 71-80
 
 Manufactured periodic problem
 -----------------------------
@@ -117,7 +109,7 @@ source below is the Laplacian of the manufactured solution. The homogeneous
 z datum is applied through the natural weak Dirichlet load in the momentum
 equation; only q receives strong trace rows.
 
-.. GENERATED FROM PYTHON SOURCE LINES 89-119
+.. GENERATED FROM PYTHON SOURCE LINES 81-111
 
 .. code-block:: Python
 
@@ -158,7 +150,7 @@ equation; only q receives strong trace rows.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 120-126
+.. GENERATED FROM PYTHON SOURCE LINES 112-118
 
 Topological mesh
 ----------------
@@ -167,7 +159,7 @@ Topological mesh
 reuse each lattice point ID in every cell that touches it. The element order
 here is also the order used later for the per-element maps and coefficients.
 
-.. GENERATED FROM PYTHON SOURCE LINES 127-156
+.. GENERATED FROM PYTHON SOURCE LINES 119-148
 
 .. code-block:: Python
 
@@ -207,7 +199,7 @@ here is also the order used later for the per-element maps and coefficients.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 157-164
+.. GENERATED FROM PYTHON SOURCE LINES 149-156
 
 Physical element maps
 ---------------------
@@ -217,7 +209,7 @@ reference cube to its physical cell. For a deformed periodic domain, replace
 these coordinate DoFs with matching restrictions of one global map: the
 x-minus/x-plus and y-minus/y-plus boundary patches must then agree.
 
-.. GENERATED FROM PYTHON SOURCE LINES 165-195
+.. GENERATED FROM PYTHON SOURCE LINES 157-187
 
 .. code-block:: Python
 
@@ -258,7 +250,7 @@ x-minus/x-plus and y-minus/y-plus boundary patches must then agree.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 196-204
+.. GENERATED FROM PYTHON SOURCE LINES 188-196
 
 Periodic boundary patch matching
 ---------------------------------
@@ -269,7 +261,7 @@ collect corresponding x and y patches and pass them as explicit
 the patch correspondence deterministic. ``axis_map=(1, 2)`` preserves the
 canonical tangential coordinates on each pair.
 
-.. GENERATED FROM PYTHON SOURCE LINES 205-238
+.. GENERATED FROM PYTHON SOURCE LINES 197-230
 
 .. code-block:: Python
 
@@ -313,7 +305,7 @@ canonical tangential coordinates on each pair.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 239-246
+.. GENERATED FROM PYTHON SOURCE LINES 231-238
 
 Explicit flux trace tests
 -------------------------
@@ -323,7 +315,7 @@ two-dimensional, so its trace test has one 2-form component. The same
 ``KFormSpecs`` is installed for every face; empty lower-dimensional entries
 are valid because this example only needs face flux continuity.
 
-.. GENERATED FROM PYTHON SOURCE LINES 247-269
+.. GENERATED FROM PYTHON SOURCE LINES 239-261
 
 .. code-block:: Python
 
@@ -356,65 +348,17 @@ are valid because this example only needs face flux continuity.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 270-276
-
-Pack the global trace rows
---------------------------
-
-The mesh method returns row offsets plus element/component/DoF entries. The
-small adapter below turns that representation into a sparse matrix whose
-columns contain all element-local flux DoFs in element-major order.
-
-.. GENERATED FROM PYTHON SOURCE LINES 277-305
-
-.. code-block:: Python
-
-
-
-    def packed_to_sparse(
-        packed: PackedRows, specs_q: KFormSpecs, element_count: int
-    ) -> scipy.sparse.csr_matrix:
-        """Materialize global packed rows as a sparse flux operator."""
-        row_offsets, element_ids, components, local_dofs, coefficients = packed
-        n_rows = row_offsets.size - 1
-        nq = int(np.sum(specs_q.component_dof_counts))
-        component_offsets = np.asarray(
-            [
-                int(specs_q.get_component_slice(c).start)
-                for c in range(specs_q.component_count)
-            ],
-            dtype=np.uintp,
-        )
-        element_offsets = np.arange(element_count, dtype=np.uintp) * nq
-        columns = element_offsets[element_ids] + component_offsets[components] + local_dofs
-        row_indices = np.repeat(
-            np.arange(n_rows, dtype=np.intp),
-            np.diff(row_offsets).astype(np.intp, copy=False),
-        )
-        return scipy.sparse.coo_matrix(
-            (coefficients, (row_indices, columns)),
-            shape=(n_rows, element_count * nq),
-        ).tocsr()
-
-
-
-
-
-
-
-
-
-.. GENERATED FROM PYTHON SOURCE LINES 306-313
+.. GENERATED FROM PYTHON SOURCE LINES 262-269
 
 Assemble the mixed system
 -------------------------
 
-For each element, the mixed block has the form
-``[[M_q, E.T], [E, 0]]``. The global matrix is block diagonal until the
-packed q-trace rows are appended as Lagrange-multiplier equations. Weak
-Dirichlet data enter the q right-hand side through the boundary load.
+For each element, the mixed block has the form ``[[M_q, E.T], [E, 0]]``.
+Unlike the 0-form case it is already nonsingular, so it needs no border:
+the packed q-trace rows go into blocks of their own and hybsol eliminates
+the element blocks first. Weak Dirichlet data enter the q right-hand side.
 
-.. GENERATED FROM PYTHON SOURCE LINES 314-446
+.. GENERATED FROM PYTHON SOURCE LINES 270-353
 
 .. code-block:: Python
 
@@ -426,115 +370,66 @@ Dirichlet data enter the q right-hand side through the boundary load.
         specs_q: KFormSpecs,
         specs_u: KFormSpecs,
         face_test: KFormSpecs,
-        test_specs: list[list[list[KFormSpecs]]],
         periodic: list[BoundaryPairGroup],
         z_faces: list[tuple[int, int, int]],
     ) -> tuple[list[np.ndarray], list[np.ndarray], float, float]:
         """Assemble and solve the mixed system with periodic flux rows."""
         element_count = mesh.element_count
         nq = int(np.sum(specs_q.component_dof_counts))
-        nu = int(np.sum(specs_u.component_dof_counts))
-        q_total = element_count * nq
-        u_total = element_count * nu
 
-        q_masses: list[np.ndarray] = []
-        derivatives: list[np.ndarray] = []
-        derivative_transposes: list[np.ndarray] = []
-        rhs_q = np.zeros(q_total)
-        rhs_u = np.zeros(u_total)
+        element_rhs: list[np.ndarray] = []
         for element_id, element_map in enumerate(maps):
-            q_mass = np.asarray(
-                compute_kform_mass_matrix(
-                    element_map, specs_q.order, specs_q.base_space, specs_q.base_space
-                )
-            )
-            u_mass = np.asarray(
-                compute_kform_mass_matrix(
-                    element_map, specs_u.order, specs_u.base_space, specs_u.base_space
-                )
-            )
-            q_masses.append(q_mass)
-            derivatives.append(
-                np.asarray(incidence_kform_operator(specs_q, u_mass, right=True))
-            )
-            derivative_transposes.append(
-                np.asarray(incidence_kform_operator(specs_q, u_mass, transpose=True))
-            )
-            rhs_u[element_id * nu : (element_id + 1) * nu] = np.asarray(
+            rhs_q = np.zeros(nq)
+            rhs_u = np.asarray(
                 projection_kform_l2_dual([manufactured_source], specs_u, element_map)[0]
             ).reshape(-1)
+            # u=0 on z=0 and z=L; the datum is zero, but the call shows the
+            # natural mixed boundary interface.
+            for face_id, face_element, _ in z_faces:
+                if face_element != element_id:
+                    continue
+                rhs_q += compute_kform_boundary_load(
+                    face_test,
+                    specs_q,
+                    element_map,
+                    mesh.collections,
+                    mesh.point_count,
+                    element_id,
+                    face_id,
+                    [zero_dirichlet],
+                )
+            element_rhs.append(np.concatenate((rhs_q, rhs_u)))
 
-        # u=0 on z=0 and z=L is a weak Dirichlet condition. The datum is zero,
-        # but the call is retained to show the natural mixed boundary interface.
-        for face_id, element_id, _ in z_faces:
-            rhs_q[element_id * nq : (element_id + 1) * nq] += compute_kform_boundary_load(
-                face_test,
-                specs_q,
-                maps[element_id],
-                mesh.collections,
-                mesh.point_count,
-                element_id,
-                face_id,
-                [zero_dirichlet],
-            )
-
-        q_mass_global = scipy.sparse.block_diag(
-            [scipy.sparse.csc_matrix(block) for block in q_masses], format="csc"
-        )
-        derivative_global = scipy.sparse.block_diag(
-            [scipy.sparse.csc_matrix(block) for block in derivatives], format="csc"
-        )
-        derivative_transpose_global = scipy.sparse.block_diag(
-            [scipy.sparse.csc_matrix(block) for block in derivative_transposes],
-            format="csc",
-        )
-        zero_u = scipy.sparse.csc_matrix((u_total, u_total))
-        mixed = scipy.sparse.bmat(
-            [
-                [q_mass_global, derivative_transpose_global],
-                [derivative_global, zero_u],
-            ],
-            format="csc",
-        )
-
-        packed, constraint_rhs = mesh.compute_kform_global_constraints(
+        constraints, constraint_rhs = mesh.compute_kform_global_constraints(
             [specs_q] * element_count,
             maps,
-            test_specs,
             None,
             periodic,
         )
-        constraints = packed_to_sparse(packed, specs_q, element_count)
-        zero_constraints = scipy.sparse.csc_matrix(
-            (
-                constraints.shape[0],
-                constraints.shape[0],
-            )
+        geometry = MeshGeometry.from_elements(*maps)
+        structure = MeshKFormSpecs.from_space(
+            NDIM,
+            [("q", specs_q.order), ("u", specs_u.order)],
+            specs_q.base_space,
+            element_count,
         )
-        constraint_operator = scipy.sparse.hstack(
-            [constraints, scipy.sparse.csc_matrix((constraints.shape[0], u_total))],
-            format="csc",
+        result = solve_hybridized(
+            geometry,
+            structure,
+            np.concatenate(element_rhs),
+            constraints,
+            constraint_rhs,
+            mixed_block,
         )
-        saddle = scipy.sparse.bmat(
-            [[mixed, constraint_operator.T], [constraint_operator, zero_constraints]],
-            format="csc",
-        )
-        rhs = np.concatenate((rhs_q, rhs_u, constraint_rhs))
-        solution = scipy.sparse.linalg.splu(saddle).solve(rhs)
-        q_values = solution[:q_total]
-        u_values = solution[q_total : q_total + u_total]
-        constraint_residual = float(
-            np.max(np.abs(constraints @ q_values - constraint_rhs), initial=0.0)
-        )
+        q_dofs = [dofs[:nq] for dofs in result.element_dofs]
+        u_dofs = [dofs[nq:] for dofs in result.element_dofs]
+        constraint_residual = result.constraint_residual
 
         error_squared = 0.0
-        q_dofs: list[np.ndarray] = []
-        u_dofs: list[np.ndarray] = []
         for element_id, element_map in enumerate(maps):
-            q_dofs.append(q_values[element_id * nq : (element_id + 1) * nq])
-            u_element = u_values[element_id * nu : (element_id + 1) * nu]
-            u_dofs.append(u_element)
-            u_component = DegreesOfFreedom(specs_u.get_component_function_space(0), u_element)
+            u_component = DegreesOfFreedom(
+                specs_u.get_component_function_space(0), u_dofs[element_id]
+            )
             reference_values = u_component.reconstruct_at_integration_points(
                 element_map.integration_space
             )
@@ -557,7 +452,7 @@ Dirichlet data enter the q right-hand side through the boundary load.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 447-453
+.. GENERATED FROM PYTHON SOURCE LINES 354-360
 
 p-refinement
 ------------
@@ -566,7 +461,7 @@ The same mesh and boundary specification are solved at several polynomial
 orders. The error is fit by least squares in log space to
 ``error = k0 * k1**p``.
 
-.. GENERATED FROM PYTHON SOURCE LINES 454-517
+.. GENERATED FROM PYTHON SOURCE LINES 361-426
 
 .. code-block:: Python
 
@@ -592,14 +487,16 @@ orders. The error is fit by least squares in log space to
         )
         specs_q = KFormSpecs(NDIM - 1, base_space)
         specs_u = KFormSpecs(NDIM, base_space)
-        face_test, test_specs = make_flux_test_specs(mesh, order)
+        face_test = KFormSpecs(
+            NDIM - 1,
+            FunctionSpace(*(BasisSpecs(BasisType.LEGENDRE, order) for _ in range(NDIM - 1))),
+        )
         q_dofs, u_dofs, constraint_residual, error = solve(
             mesh,
             maps,
             specs_q,
             specs_u,
             face_test,
-            test_specs,
             periodic,
             z_faces,
         )
@@ -640,7 +537,7 @@ orders. The error is fit by least squares in log space to
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 518-526
+.. GENERATED FROM PYTHON SOURCE LINES 427-435
 
 High-order VTK cells and slices
 -----------------------------------
@@ -651,7 +548,7 @@ requested cut directly as a collection of high-order Lagrange quadrilaterals.
 The finite-element solution is evaluated on the two-dimensional reference
 cells, while the affine n-form map supplies the physical density.
 
-.. GENERATED FROM PYTHON SOURCE LINES 527-729
+.. GENERATED FROM PYTHON SOURCE LINES 436-638
 
 .. code-block:: Python
 
@@ -876,12 +773,12 @@ cells, while the affine n-form map supplies the physical density.
  .. code-block:: none
 
     2x2x1 cells:
-      p=1: q residual=3.944e-31, L2 error=2.221441e+00
-      p=2: q residual=3.886e-16, L2 error=1.351772e+00
-      p=3: q residual=2.910e-16, L2 error=2.778543e-01
-      p=4: q residual=4.215e-16, L2 error=7.724771e-02
-      p=5: q residual=4.299e-16, L2 error=8.867408e-03
-      p=6: q residual=3.237e-16, L2 error=1.645072e-03
+      p=1: q residual=1.972e-31, L2 error=2.221441e+00
+      p=2: q residual=1.050e-15, L2 error=1.351772e+00
+      p=3: q residual=3.845e-15, L2 error=2.778543e-01
+      p=4: q residual=8.348e-15, L2 error=7.724771e-02
+      p=5: q residual=2.306e-14, L2 error=8.867408e-03
+      p=6: q residual=2.216e-14, L2 error=1.645072e-03
     fit: error = 1.867614e+01 * (0.223762)**p
 
 
@@ -890,7 +787,7 @@ cells, while the affine n-form map supplies the physical density.
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 5.279 seconds)
+   **Total running time of the script:** (0 minutes 6.952 seconds)
 
 
 .. _sphx_glr_download_auto_examples_plot_multi_element_poisson_periodic.py:

@@ -30,8 +30,9 @@ Two kinds of boundary conditions are demonstrated:
 
 * a **strong** condition on the flux :math:`q`, enforced with Lagrange
   multipliers: the trace :math:`\operatorname{tr} q` on a face is prescribed
-  by :meth:`Mesh.compute_kform_boundary_constraints`, exactly like the flux
-  continuity between two elements;
+  with :meth:`Mesh.compute_kform_global_constraints`, which appends the
+  prescribed trace rows and their data moments to the shared-face continuity
+  rows of :meth:`Mesh.compute_kform_continuity_constraints`;
 * a **weak** condition on the solution :math:`u`, applied through the natural
   boundary term of the mixed formulation: the momentum equation is
   :math:`(p, q) + (\mathrm{d}p, u) = \int_{\partial\Omega} p \wedge \star u_D`,
@@ -48,7 +49,7 @@ of strong faces and an *opposite* pair are shown in two dimensions; because
 the strong condition acts on the flux, neighboring strong faces constrain
 disjoint components and do not over-constrain the system.
 
-.. GENERATED FROM PYTHON SOURCE LINES 32-64
+.. GENERATED FROM PYTHON SOURCE LINES 33-65
 
 .. code-block:: Python
 
@@ -63,6 +64,7 @@ disjoint components and do not over-constrain the system.
     from fdg import (
         BasisSpecs,
         BasisType,
+        BoundaryCondition,
         CoordinateMap,
         DegreesOfFreedom,
         FunctionSpace,
@@ -77,7 +79,6 @@ disjoint components and do not over-constrain the system.
         compute_kform_mass_matrix,
         incidence_kform_operator,
         projection_kform_l2_dual,
-        projection_kform_l2_primal,
         reconstruct,
         transform_kform_to_target,
     )
@@ -91,7 +92,7 @@ disjoint components and do not over-constrain the system.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 65-71
+.. GENERATED FROM PYTHON SOURCE LINES 66-72
 
 The manufactured solution is a product of cosines shifted by a constant, so
 it does not vanish on the outer boundary of the :math:`[-1, 1]^n` grid: its
@@ -100,7 +101,7 @@ its normal flux is nonzero. The grids of hypercubes cover exactly that
 domain; both the interiors and the outer boundaries are deformed.
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 72-124
+.. GENERATED FROM PYTHON SOURCE LINES 73-125
 
 .. code-block:: Python
 
@@ -163,7 +164,7 @@ domain; both the interiors and the outer boundaries are deformed.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 125-132
+.. GENERATED FROM PYTHON SOURCE LINES 126-133
 
 The flux of the manufactured solution is :math:`q = \star \mathrm{d}\star u`.
 With the ordered basis :math:`(\mathrm{d}x_1, \dots, \mathrm{d}x_n)` and the
@@ -173,7 +174,7 @@ coefficient is :math:`(-1)^m \partial_m u` where :math:`m` is the axis not
 contained in that combination.
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 133-155
+.. GENERATED FROM PYTHON SOURCE LINES 134-156
 
 .. code-block:: Python
 
@@ -206,7 +207,7 @@ contained in that combination.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 156-162
+.. GENERATED FROM PYTHON SOURCE LINES 157-163
 
 First the topological mesh of the domain is built. The mesh has no geometry:
 it only stores the connections between the points, lines, faces and
@@ -215,7 +216,7 @@ computed below, with the point :math:`\sum_i \mathrm{idx}_i 3^i` being the
 grid node :math:`(\mathrm{idx}_0, \mathrm{idx}_1, \dots)`.
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 163-182
+.. GENERATED FROM PYTHON SOURCE LINES 164-183
 
 .. code-block:: Python
 
@@ -245,7 +246,7 @@ grid node :math:`(\mathrm{idx}_0, \mathrm{idx}_1, \dots)`.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 183-189
+.. GENERATED FROM PYTHON SOURCE LINES 184-190
 
 Mappings for every coordinate are collected into a joined :class:`SpaceMap`,
 which is then used to map :math:`k`-form components between the reference
@@ -254,7 +255,7 @@ the physical boundary is curved and every boundary face map carries the full
 surface geometry.
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 190-221
+.. GENERATED FROM PYTHON SOURCE LINES 191-222
 
 .. code-block:: Python
 
@@ -296,7 +297,7 @@ surface geometry.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 222-229
+.. GENERATED FROM PYTHON SOURCE LINES 223-230
 
 Along with the :class:`IntegrationSpace` objects that define integration we
 must define the discretization of the :math:`k`-forms using a :class:`FunctionSpace`
@@ -306,7 +307,7 @@ created with :class:`KFormSpecs`: the :math:`(n - 1)`-form flux :math:`q`
 and the :math:`n`-form solution :math:`u`.
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 230-244
+.. GENERATED FROM PYTHON SOURCE LINES 231-245
 
 .. code-block:: Python
 
@@ -331,14 +332,14 @@ and the :math:`n`-form solution :math:`u`.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 245-249
+.. GENERATED FROM PYTHON SOURCE LINES 246-250
 
 For the left side of the system the two mass matrices of the two
 :math:`k`-forms are computed, and the incidence operator is applied as
 needed. This produces the element block of the saddle-point system.
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 249-273
+.. GENERATED FROM PYTHON SOURCE LINES 250-274
 
 .. code-block:: Python
 
@@ -373,13 +374,13 @@ needed. This produces the element block of the saddle-point system.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 274-277
+.. GENERATED FROM PYTHON SOURCE LINES 275-278
 
 The right side of the Poisson equation is computed from the "dual projection"
 of the manufactured source term on the function space.
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 277-294
+.. GENERATED FROM PYTHON SOURCE LINES 278-295
 
 .. code-block:: Python
 
@@ -407,33 +408,40 @@ of the manufactured source term on the function space.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 295-300
+.. GENERATED FROM PYTHON SOURCE LINES 296-304
 
-The boundary constraints returned by
-:meth:`Mesh.compute_kform_boundary_constraints` are packed sparse rows. For
-this example they are materialized into dense element operators, whose
-columns are the flattened degrees of freedom of the flux :math:`q`.
+The constraint rows returned by
+:meth:`Mesh.compute_kform_continuity_constraints` and
+:meth:`Mesh.compute_kform_global_constraints` are packed sparse global rows:
+each entry names an element, an element-frame component, and a local DoF of
+the flux :math:`q`. For this example they are materialized into one dense
+global operator whose columns are the interleaved element blocks of flux
+degrees of freedom.
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 301-322
+.. GENERATED FROM PYTHON SOURCE LINES 305-330
 
 .. code-block:: Python
 
 
 
     def packed_to_dense(
-        result: tuple[np.ndarray, ...], element_spec: KFormSpecs
+        packed: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray],
+        specs_q: KFormSpecs,
+        element_count: int,
+        block: int,
     ) -> np.ndarray:
-        """Materialize packed boundary-constraint rows as a dense operator."""
-        row_offsets, components, local_dofs, coefficients = result
+        """Materialize packed global constraint rows as a dense operator."""
+        row_offsets, element_ids, components, local_dofs, coefficients = packed
         n_rows = row_offsets.size - 1
-        n_dofs = int(np.sum(element_spec.component_dof_counts))
-        matrix = np.zeros((n_rows, n_dofs))
+        matrix = np.zeros((n_rows, element_count * block))
         for row in range(n_rows):
             start, end = int(row_offsets[row]), int(row_offsets[row + 1])
             for i in range(start, end):
-                column = int(
-                    element_spec.get_component_slice(int(components[i])).start
+                element = int(element_ids[i])
+                column = (
+                    element * block
+                    + int(specs_q.get_component_slice(int(components[i])).start)
                     + int(local_dofs[i])
                 )
                 matrix[row, column] += coefficients[i]
@@ -447,7 +455,7 @@ columns are the flattened degrees of freedom of the flux :math:`q`.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 323-331
+.. GENERATED FROM PYTHON SOURCE LINES 331-339
 
 Boundary faces are classified from their orientation record: the first entry
 is the signed fixed axis, whose sign is negative for the start side and
@@ -458,7 +466,7 @@ listed in ``strong`` and the solution weakly on all remaining boundary
 faces.
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 332-370
+.. GENERATED FROM PYTHON SOURCE LINES 340-377
 
 .. code-block:: Python
 
@@ -469,35 +477,34 @@ faces.
         return abs(int(orient[0])) - 1, -1 if orient[0] < 0 else 1
 
 
-    def strong_constraint_row(
+    def strong_boundary_conditions(
         mesh: Mesh,
-        test_specs: KFormSpecs,
+        maps: list[SpaceMap],
         specs_q: KFormSpecs,
-        sm: SpaceMap,
-        element_id: int,
-        boundary_id: int,
-    ) -> tuple[np.ndarray, np.ndarray]:
-        r"""Assemble the strong Neumann row and its prescribed data.
+        strong: set[tuple[int, int]],
+    ) -> tuple[BoundaryCondition, int]:
+        """Collect the strong faces and the shared-row count of the constraint system.
 
-        The prescribed data is the trace of the exact flux: with the Lagrange
-        multiplier enforcing :math:`\operatorname{tr} q = g_F`, tracing the exact
-        flux avoids any manual sign bookkeeping of the outward normal.
+        The strong faces carry the trace of the exact flux as prescribed data:
+        one callable per physical flux component in the canonical combination
+        order, exactly the format expected by
+        :class:`~fdg.boundary_conditions.BoundaryCondition`. The standalone
+        continuity call reports how many of the global constraint rows are
+        shared-face continuity rows, which the residual split below relies on.
         """
-        t = packed_to_dense(
-            mesh.compute_kform_boundary_constraints(
-                test_specs, specs_q, sm, element_id, boundary_id
-            ),
-            specs_q,
+        strong_faces = tuple(
+            int(object_id)
+            for _, object_id, _, orientations in mesh.iterate_boundary(mesh.ndim - 1)
+            if face_axis_side(orientations[0]) in strong
         )
-        q_exact = np.concatenate(
-            [
-                p.flatten()
-                for p in projection_kform_l2_primal(
-                    flux_components(specs_q.dimension), specs_q, sm
-                )
-            ]
+        shared_packed = mesh.compute_kform_continuity_constraints(
+            [specs_q] * mesh.element_count, maps
         )
-        return t, t @ q_exact
+        n_shared = shared_packed[0].size - 1
+        return (
+            BoundaryCondition(faces=strong_faces, data=flux_components(specs_q.dimension)),
+            n_shared,
+        )
 
 
 
@@ -507,19 +514,21 @@ faces.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 371-380
+.. GENERATED FROM PYTHON SOURCE LINES 378-389
 
 With all the small building blocks in place, the global saddle-point system
-can be assembled. The element blocks are placed on the diagonal, while the
-continuity constraints of the flux across the shared faces are added as rows
-of the constraint matrix :math:`C`, one Lagrange multiplier block per shared
-face, and the strong Neumann conditions on the selected outer faces are added
-as rows of the constraint matrix :math:`N` with the prescribed trace data.
-The weak Dirichlet condition contributes the boundary load
+can be assembled. The element blocks are placed on the diagonal. The
+constraint matrix :math:`C` is assembled with one
+:meth:`Mesh.compute_kform_global_constraints` call, which returns the
+shared-face continuity rows first (with zero right-hand side) followed by
+the strong prescribed rows on the selected outer faces; the prescribed rows
+impose :math:`\operatorname{tr} q = g_F` through their Lagrange multipliers,
+with the right-hand side given by the windowed dual moments of the exact
+flux data. The weak Dirichlet condition contributes the boundary load
 :func:`compute_kform_boundary_load` to the momentum right-hand side.
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 380-493
+.. GENERATED FROM PYTHON SOURCE LINES 389-477
 
 .. code-block:: Python
 
@@ -530,9 +539,8 @@ The weak Dirichlet condition contributes the boundary load
         maps: list[SpaceMap],
         specs_q: KFormSpecs,
         specs_u: KFormSpecs,
-        test_specs: KFormSpecs,
         strong: set[tuple[int, int]],
-    ) -> tuple[list[np.ndarray], list[np.ndarray], float]:
+    ) -> tuple[list[np.ndarray], list[np.ndarray], float, float]:
         """Solve the mixed Poisson system with strong and weak boundary conditions.
 
         Parameters
@@ -540,12 +548,32 @@ The weak Dirichlet condition contributes the boundary load
         strong : set of (axis, side)
             Outer boundary faces on which the flux trace is prescribed strongly.
             The remaining outer boundary faces get the weak Dirichlet condition.
+
+        Returns
+        -------
+        tuple
+            ``(q_dofs, u_dofs, continuity, strong_residual)``: the per-element
+            flux and solution DoFs, the maximum shared-face continuity residual,
+            and the maximum strong-condition residual.
         """
         nq = int(np.sum(specs_q.component_dof_counts))
         nu = int(np.sum(specs_u.component_dof_counts))
         blk = nq + nu
         nel = mesh.element_count
         nx = nel * blk
+
+        # The weak Dirichlet load pairs the datum with the flux trace on a face
+        # test space matching the flux: same basis family and order as the
+        # element, one axis fewer.
+        load_specs = KFormSpecs(
+            mesh.ndim - 1,
+            FunctionSpace(
+                *(
+                    BasisSpecs(basis.type, basis.order)
+                    for basis in tuple(specs_q.base_space.basis_specs)[: mesh.ndim - 1]
+                )
+            ),
+        )
 
         lhs = np.zeros((nx, nx))
         rhs = np.zeros(nx)
@@ -556,47 +584,14 @@ The weak Dirichlet condition contributes the boundary load
             )
             rhs[off + nq : off + blk] = assemble_element_rhs(specs_u, specs_q, maps[e])[nq:]
 
-        constraints: list[tuple[int, int, np.ndarray, np.ndarray]] = []
-        n_lambda = 0
-        for mdim, object_id, element_ids, _ in mesh.iterate_shared(mesh.ndim - 1):
-            assert mdim == mesh.ndim - 1 and element_ids.size == 2
-            t = [
-                packed_to_dense(
-                    mesh.compute_kform_boundary_constraints(
-                        test_specs, specs_q, maps[int(eid)], int(eid), int(object_id)
-                    ),
-                    specs_q,
-                )
-                for eid in element_ids
-            ]
-            constraints.append((int(element_ids[0]), int(element_ids[1]), t[0], t[1]))
-            n_lambda += t[0].shape[0]
-
-        c_matrix = np.zeros((n_lambda, nx))
-        offset = 0
-        for a, b, t_a, t_b in constraints:
-            n_test = t_a.shape[0]
-            c_matrix[offset : offset + n_test, a * blk : a * blk + nq] = t_a
-            c_matrix[offset : offset + n_test, b * blk : b * blk + nq] = -t_b
-            offset += n_test
-
-        strong_rows: list[tuple[int, np.ndarray, np.ndarray]] = []
-        n_strong = 0
         for mdim, object_id, element_ids, orientations in mesh.iterate_boundary(
             mesh.ndim - 1
         ):
             assert mdim == mesh.ndim - 1 and element_ids.size == 1
             element_id = int(element_ids[0])
-            orient = orientations[0]
-            if face_axis_side(orient) in strong:
-                t, g = strong_constraint_row(
-                    mesh, test_specs, specs_q, maps[element_id], element_id, int(object_id)
-                )
-                strong_rows.append((element_id, t, g))
-                n_strong += t.shape[0]
-            else:
+            if face_axis_side(orientations[0]) not in strong:
                 rhs[element_id * blk : element_id * blk + nq] += compute_kform_boundary_load(
-                    test_specs,
+                    load_specs,
                     specs_q,
                     maps[element_id],
                     mesh.collections,
@@ -606,34 +601,23 @@ The weak Dirichlet condition contributes the boundary load
                     manufactured_solution,
                 )
 
-        n_matrix = np.zeros((n_strong, nx))
-        offset = 0
-        for element_id, t, _ in strong_rows:
-            n_test = t.shape[0]
-            n_matrix[offset : offset + n_test, element_id * blk : element_id * blk + nq] = t
-            offset += n_test
+        condition, n_shared = strong_boundary_conditions(mesh, maps, specs_q, strong)
+        packed, constraint_rhs = mesh.compute_kform_global_constraints(
+            [specs_q] * nel, maps, [condition]
+        )
+        c_matrix = packed_to_dense(packed, specs_q, nel, blk)
+        n_lambda = c_matrix.shape[0]
 
-        system = np.block(
-            [
-                [lhs, c_matrix.T, n_matrix.T],
-                [c_matrix, np.zeros((n_lambda, n_lambda)), np.zeros((n_lambda, n_strong))],
-                [n_matrix, np.zeros((n_strong, n_lambda)), np.zeros((n_strong, n_strong))],
-            ]
-        )
-        strong_rhs = np.concatenate([g for _, _, g in strong_rows])
-        solution = np.linalg.solve(
-            system, np.concatenate((rhs, np.zeros(n_lambda), strong_rhs))
-        )
+        system = np.block([[lhs, c_matrix.T], [c_matrix, np.zeros((n_lambda, n_lambda))]])
+        solution = np.linalg.solve(system, np.concatenate((rhs, constraint_rhs)))
 
         q_dofs = [solution[e * blk : e * blk + nq] for e in range(nel)]
         u_dofs = [solution[e * blk + nq : e * blk + blk] for e in range(nel)]
 
-        # Max absolute trace mismatch over all shared faces.
-        continuity = max(
-            float(np.max(np.abs(t_a @ q_dofs[a] - t_b @ q_dofs[b])))
-            for a, b, t_a, t_b in constraints
-        )
-        return q_dofs, u_dofs, continuity
+        residual = np.abs(c_matrix @ solution[:nx] - constraint_rhs)
+        continuity = float(np.max(residual[:n_shared], initial=0.0))
+        strong_residual = float(np.max(residual[n_shared:], initial=0.0))
+        return q_dofs, u_dofs, continuity, strong_residual
 
 
 
@@ -643,14 +627,14 @@ The weak Dirichlet condition contributes the boundary load
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 494-498
+.. GENERATED FROM PYTHON SOURCE LINES 478-482
 
 To compute the :math:`L^2` error, the computed solution is reconstructed on
 every element, subtracted from the manufactured solution, and the square of
 the error is integrated over the element.
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 498-524
+.. GENERATED FROM PYTHON SOURCE LINES 482-508
 
 .. code-block:: Python
 
@@ -687,13 +671,13 @@ the error is integrated over the element.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 525-528
+.. GENERATED FROM PYTHON SOURCE LINES 509-512
 
 All the small building blocks discussed before can now be put together to
 form the error calculation function.
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 528-595
+.. GENERATED FROM PYTHON SOURCE LINES 512-549
 
 .. code-block:: Python
 
@@ -721,47 +705,19 @@ form the error calculation function.
         maps_high = create_element_maps(ndim, integration_high)
 
         specs_u, specs_q = create_kform_specs(type_basis, order_basis, ndim)
-        # The multiplier space on a shared face matches the flux trace: an
-        # (ndim-1)-form on an (ndim-1)-dimensional face with the same basis type
-        # and order as the element.
-        test_specs = KFormSpecs(
-            ndim - 1,
-            FunctionSpace(*(BasisSpecs(type_basis, order_basis) for _ in range(ndim - 1))),
-        )
 
-        q_dofs, u_dofs, continuity = solve(mesh, maps, specs_q, specs_u, test_specs, strong)
+        q_dofs, u_dofs, continuity, strong_residual = solve(
+            mesh, maps, specs_q, specs_u, strong
+        )
         err_l2 = np.sqrt(
             sum(
                 reconstruct_element_error_l2(specs_u, u_dofs[e], maps_high[e])
                 for e in range(mesh.element_count)
             )
         )
-        strong_residual = max(
-            float(np.max(np.abs(t @ q_dofs[e] - g)))
-            for e, t, g in strong_rows(mesh, maps, specs_q, test_specs, strong)
-        )
         return float(err_l2), continuity, strong_residual
 
 
-    def strong_rows(
-        mesh: Mesh,
-        maps: list[SpaceMap],
-        specs_q: KFormSpecs,
-        test_specs: KFormSpecs,
-        strong: set[tuple[int, int]],
-    ) -> list[tuple[int, np.ndarray, np.ndarray]]:
-        """Recompute the strong rows for residual reporting."""
-        rows = []
-        for mdim, object_id, element_ids, orientations in mesh.iterate_boundary(
-            mesh.ndim - 1
-        ):
-            element_id = int(element_ids[0])
-            if face_axis_side(orientations[0]) in strong:
-                t, g = strong_constraint_row(
-                    mesh, test_specs, specs_q, maps[element_id], element_id, int(object_id)
-                )
-                rows.append((element_id, t, g))
-        return rows
 
 
 
@@ -769,15 +725,13 @@ form the error calculation function.
 
 
 
-
-
-.. GENERATED FROM PYTHON SOURCE LINES 596-599
+.. GENERATED FROM PYTHON SOURCE LINES 550-553
 
 For this test, we will use the Bernstein basis, the Gauss integration rule,
 and the order difference of 1 between the lower and higher order integration
 rules.
 
-.. GENERATED FROM PYTHON SOURCE LINES 599-634
+.. GENERATED FROM PYTHON SOURCE LINES 553-588
 
 .. code-block:: Python
 
@@ -823,7 +777,7 @@ rules.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 635-645
+.. GENERATED FROM PYTHON SOURCE LINES 589-599
 
 In two dimensions the grid consists of four unit squares. The error of the
 manufactured solution is measured for increasing polynomial order for two
@@ -836,7 +790,7 @@ the :math:`\mathrm{d}x`-component and the :math:`y`-face the
 saddle-point system.
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 645-680
+.. GENERATED FROM PYTHON SOURCE LINES 599-634
 
 .. code-block:: Python
 
@@ -900,17 +854,17 @@ saddle-point system.
 
  .. code-block:: none
 
-    p = 1: L2 error = 7.844e-02 / 6.153e-02 (neighboring / opposite), strong residual = 5.6e-17 / 0.0e+00, continuity = 1.7e-17 / 0.0e+00, time = 0.007 s
-    p = 2: L2 error = 1.429e-02 / 1.269e-02 (neighboring / opposite), strong residual = 4.2e-17 / 1.4e-17, continuity = 7.2e-17 / 0.0e+00, time = 0.007 s
-    p = 3: L2 error = 1.869e-03 / 1.725e-03 (neighboring / opposite), strong residual = 1.4e-17 / 1.4e-17, continuity = 4.3e-17 / 1.7e-18, time = 0.010 s
-    p = 4: L2 error = 1.893e-04 / 1.778e-04 (neighboring / opposite), strong residual = 6.9e-17 / 1.4e-17, continuity = 2.2e-16 / 1.7e-18, time = 0.016 s
-    p = 5: L2 error = 1.575e-05 / 1.474e-05 (neighboring / opposite), strong residual = 9.0e-17 / 1.4e-17, continuity = 4.8e-17 / 1.7e-18, time = 0.023 s
-    p = 6: L2 error = 1.100e-06 / 1.057e-06 (neighboring / opposite), strong residual = 3.5e-17 / 6.9e-18, continuity = 5.9e-17 / 1.7e-18, time = 0.035 s
+    p = 1: L2 error = 6.048e-02 / 5.864e-02 (neighboring / opposite), strong residual = 1.1e-16 / 0.0e+00, continuity = 2.8e-17 / 4.5e-19, time = 0.003 s
+    p = 2: L2 error = 1.255e-02 / 1.253e-02 (neighboring / opposite), strong residual = 2.8e-17 / 2.8e-17, continuity = 6.4e-17 / 4.2e-18, time = 0.003 s
+    p = 3: L2 error = 1.711e-03 / 1.711e-03 (neighboring / opposite), strong residual = 2.1e-17 / 2.1e-17, continuity = 8.7e-17 / 4.3e-18, time = 0.004 s
+    p = 4: L2 error = 1.771e-04 / 1.771e-04 (neighboring / opposite), strong residual = 5.7e-17 / 1.4e-17, continuity = 2.1e-16 / 2.7e-18, time = 0.007 s
+    p = 5: L2 error = 1.468e-05 / 1.468e-05 (neighboring / opposite), strong residual = 3.5e-17 / 2.1e-17, continuity = 8.8e-17 / 6.4e-18, time = 0.011 s
+    p = 6: L2 error = 1.055e-06 / 1.055e-06 (neighboring / opposite), strong residual = 6.7e-17 / 2.8e-17, continuity = 1.2e-16 / 5.5e-18, time = 0.017 s
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 681-686
+.. GENERATED FROM PYTHON SOURCE LINES 635-640
 
 The same building blocks solve the three-dimensional Poisson equation on a
 2x2x2 grid of eight hexahedral elements, covering :math:`[-1, 1]^3`, with
@@ -918,7 +872,7 @@ strong flux conditions on the faces :math:`x = -1` and :math:`y = -1` and
 weak Dirichlet conditions on the remaining outer faces.
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 686-711
+.. GENERATED FROM PYTHON SOURCE LINES 640-665
 
 .. code-block:: Python
 
@@ -960,16 +914,16 @@ weak Dirichlet conditions on the remaining outer faces.
 
  .. code-block:: none
 
-    p = 1: L2 error = 7.520e-02, strong residual = 0.0e+00, continuity = 0.0e+00, time = 0.014 s
-    p = 2: L2 error = 1.564e-02, strong residual = 2.8e-17, continuity = 3.9e-18, time = 0.029 s
-    p = 3: L2 error = 2.279e-03, strong residual = 1.4e-17, continuity = 2.0e-16, time = 0.112 s
-    p = 4: L2 error = 2.510e-04, strong residual = 1.4e-17, continuity = 7.1e-16, time = 0.450 s
-    p = 5: L2 error = 2.424e-05, strong residual = 6.9e-18, continuity = 5.6e-16, time = 1.868 s
+    p = 1: L2 error = 7.278e-02, strong residual = 0.0e+00, continuity = 0.0e+00, time = 0.007 s
+    p = 2: L2 error = 1.538e-02, strong residual = 2.8e-17, continuity = 6.9e-18, time = 0.015 s
+    p = 3: L2 error = 2.261e-03, strong residual = 5.6e-17, continuity = 7.9e-18, time = 0.069 s
+    p = 4: L2 error = 2.492e-04, strong residual = 9.0e-17, continuity = 1.5e-17, time = 0.219 s
+    p = 5: L2 error = 2.407e-05, strong residual = 5.6e-17, continuity = 1.8e-17, time = 0.789 s
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 712-718
+.. GENERATED FROM PYTHON SOURCE LINES 666-672
 
 The highest-order three-dimensional solution is rendered with pyvista. The
 hexahedral mesh is built from the topological mesh as cubic Lagrange cells,
@@ -978,7 +932,7 @@ sampled independently on every element, then transformed from reference
 k-forms to physical k-forms with :class:`SampledSpaceMap`.
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 718-757
+.. GENERATED FROM PYTHON SOURCE LINES 672-708
 
 .. code-block:: Python
 
@@ -1009,11 +963,8 @@ k-forms to physical k-forms with :class:`SampledSpaceMap`.
     )
     maps_vis = create_element_maps(3, integration_vis)
     specs_u_vis, specs_q_vis = create_kform_specs(BTYPE, ORDER_VIS, 3)
-    test_specs_vis = KFormSpecs(
-        2, FunctionSpace(*(BasisSpecs(BTYPE, ORDER_VIS) for _ in range(2)))
-    )
-    q_dofs_vis, u_dofs_vis, _ = solve(
-        mesh_3d, maps_vis, specs_q_vis, specs_u_vis, test_specs_vis, strong_neighboring
+    q_dofs_vis, u_dofs_vis, _, _ = solve(
+        mesh_3d, maps_vis, specs_q_vis, specs_u_vis, strong_neighboring
     )
     ERROR_ORDER_VIS = 24
     error_samples_vis = sample_error_grid(
@@ -1028,7 +979,7 @@ k-forms to physical k-forms with :class:`SampledSpaceMap`.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 758-763
+.. GENERATED FROM PYTHON SOURCE LINES 709-714
 
 The error is shown directly on high-order Lagrange hexahedral cells as
 :math:`\\log_{10}` of its absolute value. Values below :math:`10^{-10}` of the
@@ -1036,7 +987,7 @@ maximum are clamped to the lowest color, so the colormap is not dominated by
 near-zero noise.
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 763-788
+.. GENERATED FROM PYTHON SOURCE LINES 714-739
 
 .. code-block:: Python
 
@@ -1077,14 +1028,14 @@ near-zero noise.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 789-793
+.. GENERATED FROM PYTHON SOURCE LINES 740-744
 
 The flux :math:`q` of the mixed formulation is a 2-form in three dimensions;
 its physical components are transformed on a uniform grid before taking the
 Euclidean Hodge star to obtain the vector field rendered as arrows.
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 793-843
+.. GENERATED FROM PYTHON SOURCE LINES 744-794
 
 .. code-block:: Python
 
@@ -1153,7 +1104,7 @@ Euclidean Hodge star to obtain the vector field rendered as arrows.
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 5.144 seconds)
+   **Total running time of the script:** (0 minutes 2.523 seconds)
 
 
 .. _sphx_glr_download_auto_examples_plot_multi_element_poisson_bc.py:

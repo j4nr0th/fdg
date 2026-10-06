@@ -1,0 +1,1016 @@
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>fdg.solve &#8212; fdg 0.0.1a documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=64cc4de3f052d77215f0" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=64cc4de3f052d77215f0" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/jupyter-sphinx.css" />
+    <link rel="stylesheet" type="text/css" href="../../_static/thebelab.css" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sg_gallery.css?v=c83e6b79" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sg_gallery-binder.css?v=f4aeca0c" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sg_gallery-dataframe.css?v=2082cf3c" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sg_gallery-rendered-html.css?v=1277b6f3" />
+  
+  <!-- So that users can add custom icons -->
+  <script defer src="../../_static/scripts/fontawesome.js?digest=64cc4de3f052d77215f0"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=64cc4de3f052d77215f0" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=64cc4de3f052d77215f0" />
+
+    <script src="../../_static/documentation_options.js?v=8c8a9e14"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/sg-tags.js?v=d80f6fa4"></script>
+    <script src="../../_static/thebelab-helper.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.4/require.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@jupyter-widgets/html-manager@^1.0.1/dist/embed-amd.js"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/fdg/solve';</script>
+    <script>DOCUMENTATION_OPTIONS.search_as_you_type = false;</script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+  
+    
+    <script src="../../_static/searchtools.js"></script>
+    <script src="../../_static/language_data.js"></script>
+    <script src="../../searchindex.js"></script>
+  
+  </head>
+  <body data-default-mode="">
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+  
+  
+  
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header id="pst-header" class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button type="button" class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class="col-lg-3 navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">fdg 0.0.1a documentation</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class="col-lg-9 navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../source/index.html">
+    Documentation for Exported Types and Functions
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../auto_examples/index.html">
+    Examples
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button type="button" class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button type="button" class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg fa-fw" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg fa-fw" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg fa-fw" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg fa-fw me-1"></i>System Settings</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg fa-fw me-1"></i>Light</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg fa-fw me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button type="button" class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../source/index.html">
+    Documentation for Exported Types and Functions
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../auto_examples/index.html">
+    Examples
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button type="button" class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg fa-fw" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg fa-fw" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg fa-fw" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg fa-fw me-1"></i>System Settings</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg fa-fw me-1"></i>Light</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg fa-fw me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">fdg.solve</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for fdg.solve</h1><div class="highlight"><pre>
+<span></span><span class="sd">"""Block-structured hybridized solves on top of the hybsol block solver.</span>
+
+<span class="sd">The trace constraints turn one small problem per element into the saddle-point</span>
+<span class="sd">system :math:`[[A, N], [N^T, 0]]`. It goes to hybsol as a block system, so no</span>
+<span class="sd">Schur complement is formed and the multipliers fall out of the same solve.</span>
+
+<span class="sd">One block per element holds that element's operator. A constraint row can be</span>
+<span class="sd">absorbed into it -- the row's equation takes a row of the block, its multiplier</span>
+<span class="sd">a column -- which borders the block into :math:`[[A_e, C^T], [C, 0]]`. That is</span>
+<span class="sd">what makes a singular operator usable: the 0-form stiffness ``D M D^T`` has the</span>
+<span class="sd">constants in its nullspace and cannot lead an unpivoted factorization. Rows</span>
+<span class="sd">nobody absorbs form blocks of their own, grouped per interface object, whose</span>
+<span class="sd">diagonals hybsol fills once the element blocks are gone.</span>
+
+<span class="sd">hybsol does not pivot, so every leading principal minor of every diagonal block</span>
+<span class="sd">has to be nonzero. Rows and columns inside an element block share one schedule</span>
+<span class="sd">that walks the degrees of freedom and, right after the last one a row touches</span>
+<span class="sd">with a nonzero coefficient, places that row's equation and its multiplier.</span>
+
+<span class="sd">What the caller owes: every row reaches a block, and the rows absorbed into one</span>
+<span class="sd">element are independent on it. A singular operator needs at least one absorbed</span>
+<span class="sd">row, and a 0-form problem needs a prescribed row per connected component.</span>
+<span class="sd">"""</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Sequence</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Protocol</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy.typing</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">npt</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">hybsol</span><span class="w"> </span><span class="kn">import</span> <span class="n">BlockSystem</span><span class="p">,</span> <span class="n">Precision</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">fdg._fdg</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">KFormSpecs</span><span class="p">,</span>
+    <span class="n">MeshGeometry</span><span class="p">,</span>
+    <span class="n">MeshKFormSpecs</span><span class="p">,</span>
+    <span class="n">SpaceMap</span><span class="p">,</span>
+    <span class="n">compute_kform_incidence_matrix</span><span class="p">,</span>
+    <span class="n">compute_kform_mass_matrix</span><span class="p">,</span>
+    <span class="n">incidence_kform_operator</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">fdg.boundary_conditions</span><span class="w"> </span><span class="kn">import</span> <span class="n">PackedRows</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s2">"ElementBlockBuilder"</span><span class="p">,</span>
+    <span class="s2">"HybridizedSolution"</span><span class="p">,</span>
+    <span class="s2">"laplace_stiffness"</span><span class="p">,</span>
+    <span class="s2">"mixed_block"</span><span class="p">,</span>
+    <span class="s2">"solve_hybridized"</span><span class="p">,</span>
+<span class="p">]</span>
+
+
+<div class="viewcode-block" id="HybridizedSolution">
+<a class="viewcode-back" href="../../source/hybridized_solves.html#fdg.HybridizedSolution">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">slots</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">HybridizedSolution</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Solution of one block-structured hybridized system.</span>
+
+<span class="sd">    ``element_dofs`` holds the degrees of freedom of every element in element</span>
+<span class="sd">    order and ``multipliers`` the multiplier of every constraint row in row</span>
+<span class="sd">    order; ``constraint_residual`` is the largest deviation of the constraints</span>
+<span class="sd">    from their right-hand side.</span>
+<span class="sd">    """</span>
+
+    <span class="n">element_dofs</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">double</span><span class="p">],</span> <span class="o">...</span><span class="p">]</span>
+    <span class="n">multipliers</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">double</span><span class="p">]</span>
+    <span class="n">constraint_residual</span><span class="p">:</span> <span class="nb">float</span></div>
+
+
+
+<div class="viewcode-block" id="ElementBlockBuilder">
+<a class="viewcode-back" href="../../source/hybridized_solves.html#fdg.ElementBlockBuilder">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">ElementBlockBuilder</span><span class="p">(</span><span class="n">Protocol</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""Assemble the local system of one element.</span>
+
+<span class="sd">    Returns the block in the field order of the specification structure. The</span>
+<span class="sd">    constrained field has to come first, because the packed rows address it.</span>
+<span class="sd">    """</span>
+
+<div class="viewcode-block" id="ElementBlockBuilder.__call__">
+<a class="viewcode-back" href="../../source/hybridized_solves.html#fdg.ElementBlockBuilder.__call__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__call__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">element_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">field_specs</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">KFormSpecs</span><span class="p">],</span>
+        <span class="n">element_map</span><span class="p">:</span> <span class="n">SpaceMap</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">double</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">"""Return the ``(n, n)`` block of one element."""</span>
+        <span class="o">...</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="laplace_stiffness">
+<a class="viewcode-back" href="../../source/hybridized_solves.html#fdg.laplace_stiffness">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">laplace_stiffness</span><span class="p">(</span>
+    <span class="n">element_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>  <span class="c1"># noqa: ARG001 - part of the builder protocol</span>
+    <span class="n">field_specs</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">KFormSpecs</span><span class="p">],</span>
+    <span class="n">element_map</span><span class="p">:</span> <span class="n">SpaceMap</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">double</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""Assemble the stiffness matrix of a 0-form Laplace element.</span>
+
+<span class="sd">    The operator is ``D^T M_1 D``, the one-form mass matrix pulled back</span>
+<span class="sd">    through the incidence operator. It is **singular**: constants lie in its</span>
+<span class="sd">    nullspace, so it needs absorbed constraint rows and a prescribed row per</span>
+<span class="sd">    connected component to gauge the solution.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    element_id : int</span>
+<span class="sd">        Unused; the operator depends only on the specifications and the map.</span>
+<span class="sd">    field_specs : sequence of KFormSpecs</span>
+<span class="sd">        Field group of the element. Exactly one field is read.</span>
+<span class="sd">    element_map : SpaceMap</span>
+<span class="sd">        Space map supplying the geometry of the quadrature.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    numpy.ndarray</span>
+<span class="sd">        The ``(n, n)`` element stiffness matrix.</span>
+
+<span class="sd">    Raises</span>
+<span class="sd">    ------</span>
+<span class="sd">    ValueError</span>
+<span class="sd">        If the field group does not hold exactly one field.</span>
+<span class="sd">    """</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">field_specs</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">"laplace_stiffness needs exactly one field, got </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">field_specs</span><span class="p">)</span><span class="si">}</span><span class="s2">."</span>
+        <span class="p">)</span>
+    <span class="n">space</span> <span class="o">=</span> <span class="n">field_specs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">base_space</span>
+    <span class="n">mass</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">compute_kform_mass_matrix</span><span class="p">(</span><span class="n">element_map</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">space</span><span class="p">,</span> <span class="n">space</span><span class="p">))</span>
+    <span class="n">incidence</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">compute_kform_incidence_matrix</span><span class="p">(</span><span class="n">space</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+    <span class="k">return</span> <span class="n">incidence</span><span class="o">.</span><span class="n">T</span> <span class="o">@</span> <span class="n">mass</span> <span class="o">@</span> <span class="n">incidence</span></div>
+
+
+
+<div class="viewcode-block" id="mixed_block">
+<a class="viewcode-back" href="../../source/hybridized_solves.html#fdg.mixed_block">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">mixed_block</span><span class="p">(</span>
+    <span class="n">element_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>  <span class="c1"># noqa: ARG001 - part of the builder protocol</span>
+    <span class="n">field_specs</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">KFormSpecs</span><span class="p">],</span>
+    <span class="n">element_map</span><span class="p">:</span> <span class="n">SpaceMap</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">double</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""Assemble the local system of a mixed Poisson element.</span>
+
+<span class="sd">    The block is ``[[M_q, D^T], [D, 0]]`` with the trial degrees of freedom</span>
+<span class="sd">    first, the order the constraint rows address. It is nonsingular for the</span>
+<span class="sd">    top-degree pairs (``q = n - 1``, ``u = n``), so it needs no absorbed row.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    element_id : int</span>
+<span class="sd">        Unused; the block depends only on the specifications and the map.</span>
+<span class="sd">    field_specs : sequence of KFormSpecs</span>
+<span class="sd">        Field group of the element: the trial k-form first, the test k-form</span>
+<span class="sd">        second.</span>
+<span class="sd">    element_map : SpaceMap</span>
+<span class="sd">        Space map supplying the geometry of the quadrature.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    numpy.ndarray</span>
+<span class="sd">        The ``(n, n)`` element block, with the trial degrees of freedom first.</span>
+
+<span class="sd">    Raises</span>
+<span class="sd">    ------</span>
+<span class="sd">    ValueError</span>
+<span class="sd">        If the field group does not hold exactly two fields.</span>
+<span class="sd">    """</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">field_specs</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">2</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">"mixed_block needs a trial and a test field, got </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">field_specs</span><span class="p">)</span><span class="si">}</span><span class="s2">."</span>
+        <span class="p">)</span>
+    <span class="n">trial</span><span class="p">,</span> <span class="n">test</span> <span class="o">=</span> <span class="n">field_specs</span>
+    <span class="n">q_mass</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span>
+        <span class="n">compute_kform_mass_matrix</span><span class="p">(</span>
+            <span class="n">element_map</span><span class="p">,</span> <span class="n">trial</span><span class="o">.</span><span class="n">order</span><span class="p">,</span> <span class="n">trial</span><span class="o">.</span><span class="n">base_space</span><span class="p">,</span> <span class="n">trial</span><span class="o">.</span><span class="n">base_space</span>
+        <span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">u_mass</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span>
+        <span class="n">compute_kform_mass_matrix</span><span class="p">(</span>
+            <span class="n">element_map</span><span class="p">,</span> <span class="n">test</span><span class="o">.</span><span class="n">order</span><span class="p">,</span> <span class="n">test</span><span class="o">.</span><span class="n">base_space</span><span class="p">,</span> <span class="n">test</span><span class="o">.</span><span class="n">base_space</span>
+        <span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">derivative</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">incidence_kform_operator</span><span class="p">(</span><span class="n">trial</span><span class="p">,</span> <span class="n">u_mass</span><span class="p">,</span> <span class="n">right</span><span class="o">=</span><span class="kc">True</span><span class="p">))</span>
+    <span class="n">derivative_transpose</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span>
+        <span class="n">incidence_kform_operator</span><span class="p">(</span><span class="n">trial</span><span class="p">,</span> <span class="n">u_mass</span><span class="p">,</span> <span class="n">transpose</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">nu</span> <span class="o">=</span> <span class="n">derivative</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="n">nq</span> <span class="o">=</span> <span class="n">derivative</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+    <span class="n">block</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">nq</span> <span class="o">+</span> <span class="n">nu</span><span class="p">,</span> <span class="n">nq</span> <span class="o">+</span> <span class="n">nu</span><span class="p">))</span>
+    <span class="n">block</span><span class="p">[:</span><span class="n">nq</span><span class="p">,</span> <span class="p">:</span><span class="n">nq</span><span class="p">]</span> <span class="o">=</span> <span class="n">q_mass</span>
+    <span class="n">block</span><span class="p">[</span><span class="n">nq</span><span class="p">:,</span> <span class="p">:</span><span class="n">nq</span><span class="p">]</span> <span class="o">=</span> <span class="n">derivative</span>
+    <span class="n">block</span><span class="p">[:</span><span class="n">nq</span><span class="p">,</span> <span class="n">nq</span><span class="p">:]</span> <span class="o">=</span> <span class="n">derivative_transpose</span>
+    <span class="k">return</span> <span class="n">block</span></div>
+
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">_Layout</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Which block holds which row, multiplier and degree of freedom."""</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">constraints</span><span class="p">:</span> <span class="n">PackedRows</span><span class="p">,</span>
+        <span class="n">component_offsets</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">intp</span><span class="p">],</span>
+        <span class="n">element_sizes</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">intp</span><span class="p">],</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">row_offsets</span><span class="p">,</span> <span class="n">element_ids</span><span class="p">,</span> <span class="n">components</span><span class="p">,</span> <span class="n">local_dofs</span><span class="p">,</span> <span class="n">coefficients</span> <span class="o">=</span> <span class="n">constraints</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">row_count</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">row_offsets</span><span class="o">.</span><span class="n">size</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">element_count</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">element_sizes</span><span class="o">.</span><span class="n">size</span><span class="p">)</span>
+        <span class="n">starts</span> <span class="o">=</span> <span class="n">row_offsets</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">intp</span><span class="p">)</span>
+        <span class="n">local</span> <span class="o">=</span> <span class="n">component_offsets</span><span class="p">[</span><span class="n">components</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">intp</span><span class="p">)]</span> <span class="o">+</span> <span class="n">local_dofs</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">intp</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">entries</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="nb">float</span><span class="p">]]]</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="nb">list</span><span class="p">(</span>
+                <span class="nb">zip</span><span class="p">(</span>
+                    <span class="n">element_ids</span><span class="p">[</span><span class="n">s</span><span class="p">:</span><span class="n">e</span><span class="p">]</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span>
+                    <span class="n">local</span><span class="p">[</span><span class="n">s</span><span class="p">:</span><span class="n">e</span><span class="p">]</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span>
+                    <span class="n">coefficients</span><span class="p">[</span><span class="n">s</span><span class="p">:</span><span class="n">e</span><span class="p">]</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+            <span class="k">for</span> <span class="n">s</span><span class="p">,</span> <span class="n">e</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">starts</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="n">starts</span><span class="p">[</span><span class="mi">1</span><span class="p">:])</span>
+        <span class="p">]</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">element_sizes</span> <span class="o">=</span> <span class="n">element_sizes</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">owner</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_assign_owners</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">top</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span>
+            <span class="p">[</span>
+                <span class="nb">max</span><span class="p">(</span>
+                    <span class="p">(</span>
+                        <span class="n">index</span>
+                        <span class="k">for</span> <span class="n">element</span><span class="p">,</span> <span class="n">index</span><span class="p">,</span> <span class="n">coefficient</span> <span class="ow">in</span> <span class="n">entries</span>
+                        <span class="k">if</span> <span class="n">element</span> <span class="o">==</span> <span class="n">owner</span> <span class="ow">and</span> <span class="n">coefficient</span> <span class="o">!=</span> <span class="mf">0.0</span>
+                    <span class="p">),</span>
+                    <span class="n">default</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span>
+                <span class="p">)</span>
+                <span class="k">for</span> <span class="n">entries</span><span class="p">,</span> <span class="n">owner</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">entries</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">owner</span><span class="p">)</span>
+            <span class="p">],</span>
+            <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">intp</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">absorbed_mask</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">owner</span> <span class="o">&gt;=</span> <span class="mi">0</span>
+        <span class="k">if</span> <span class="n">absorbed_mask</span><span class="o">.</span><span class="n">any</span><span class="p">()</span> <span class="ow">and</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">top</span><span class="p">[</span><span class="n">absorbed_mask</span><span class="p">]</span><span class="o">.</span><span class="n">min</span><span class="p">())</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">"a constraint row does not touch its owner element."</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">absorbed</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="p">[</span><span class="n">row</span> <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">row_count</span><span class="p">)</span> <span class="k">if</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">owner</span><span class="p">[</span><span class="n">row</span><span class="p">])</span> <span class="o">==</span> <span class="n">element</span><span class="p">]</span>
+            <span class="k">for</span> <span class="n">element</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">element_count</span><span class="p">)</span>
+        <span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">groups</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_group_unowned</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">block_sizes</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">block_rows</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dof_at</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">intp</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">equation_at</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">row_count</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">intp</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">multiplier_at</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">row_count</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">intp</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">element</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">element_count</span><span class="p">):</span>
+            <span class="n">size</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">element_sizes</span><span class="p">[</span><span class="n">element</span><span class="p">])</span>
+            <span class="n">mine</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">absorbed</span><span class="p">[</span><span class="n">element</span><span class="p">],</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">row</span><span class="p">:</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">top</span><span class="p">[</span><span class="n">row</span><span class="p">]))</span>
+            <span class="n">positions</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="n">size</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">intp</span><span class="p">)</span>
+            <span class="n">cursor</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="k">for</span> <span class="n">dof</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">size</span><span class="p">):</span>
+                <span class="n">positions</span><span class="p">[</span><span class="n">dof</span><span class="p">]</span> <span class="o">=</span> <span class="n">cursor</span>
+                <span class="n">cursor</span> <span class="o">+=</span> <span class="mi">1</span>
+                <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">mine</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">top</span><span class="p">[</span><span class="n">row</span><span class="p">])</span> <span class="o">==</span> <span class="n">dof</span><span class="p">:</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">equation_at</span><span class="p">[</span><span class="n">row</span><span class="p">]</span> <span class="o">=</span> <span class="n">cursor</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">multiplier_at</span><span class="p">[</span><span class="n">row</span><span class="p">]</span> <span class="o">=</span> <span class="n">cursor</span>
+                        <span class="n">cursor</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">block_sizes</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">cursor</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">block_rows</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">mine</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dof_at</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">positions</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">rows</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">groups</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">block_sizes</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">rows</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">block_rows</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">rows</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dof_at</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">intp</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">block_offsets</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">(</span>
+            <span class="p">([</span><span class="mi">0</span><span class="p">],</span> <span class="n">np</span><span class="o">.</span><span class="n">cumsum</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">block_sizes</span><span class="p">)),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">intp</span>
+        <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">total</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">block_offsets</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_assign_owners</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">intp</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">"""Absorb rows into the elements that can still use them.</span>
+
+<span class="sd">        Every element gets one row, then a row is absorbed only where it grows</span>
+<span class="sd">        the rank of the rows already there, which keeps them independent on</span>
+<span class="sd">        that element. The rest keep blocks of their own.</span>
+<span class="sd">        """</span>
+        <span class="n">rows_of_element</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[[]</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">element_count</span><span class="p">)]</span>
+        <span class="n">bases</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[[]</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">element_count</span><span class="p">)]</span>
+        <span class="n">owner</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">row_count</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">intp</span><span class="p">)</span>
+
+        <span class="k">def</span><span class="w"> </span><span class="nf">elements_of</span><span class="p">(</span><span class="n">row</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]:</span>
+<span class="w">            </span><span class="sd">"""Return the elements the row touches with a nonzero coefficient."""</span>
+            <span class="k">return</span> <span class="nb">sorted</span><span class="p">(</span>
+                <span class="p">{</span>
+                    <span class="n">element</span>
+                    <span class="k">for</span> <span class="n">element</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">coefficient</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">entries</span><span class="p">[</span><span class="n">row</span><span class="p">]</span>
+                    <span class="k">if</span> <span class="n">coefficient</span> <span class="o">!=</span> <span class="mf">0.0</span>
+                <span class="p">}</span>
+            <span class="p">)</span>
+
+        <span class="k">def</span><span class="w"> </span><span class="nf">restriction</span><span class="p">(</span><span class="n">row</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">element</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+<span class="w">            </span><span class="sd">"""Return the row as a vector over the element's degrees of freedom."""</span>
+            <span class="n">size</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">element_sizes</span><span class="p">[</span><span class="n">element</span><span class="p">]</span>
+            <span class="n">vector</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">size</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">other</span><span class="p">,</span> <span class="n">index</span><span class="p">,</span> <span class="n">coefficient</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">entries</span><span class="p">[</span><span class="n">row</span><span class="p">]:</span>
+                <span class="k">if</span> <span class="n">other</span> <span class="o">==</span> <span class="n">element</span><span class="p">:</span>
+                    <span class="n">vector</span><span class="p">[</span><span class="n">index</span><span class="p">]</span> <span class="o">+=</span> <span class="n">coefficient</span>
+            <span class="k">return</span> <span class="n">vector</span>
+
+        <span class="k">def</span><span class="w"> </span><span class="nf">grows_rank</span><span class="p">(</span><span class="n">row</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">element</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">            </span><span class="sd">"""Whether the row is independent of the ones already absorbed."""</span>
+            <span class="n">residual</span> <span class="o">=</span> <span class="n">restriction</span><span class="p">(</span><span class="n">row</span><span class="p">,</span> <span class="n">element</span><span class="p">)</span>
+            <span class="n">scale</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">residual</span><span class="p">))</span>
+            <span class="k">if</span> <span class="n">scale</span> <span class="o">==</span> <span class="mf">0.0</span><span class="p">:</span>
+                <span class="k">return</span> <span class="kc">False</span>
+            <span class="k">for</span> <span class="n">vector</span> <span class="ow">in</span> <span class="n">bases</span><span class="p">[</span><span class="n">element</span><span class="p">]:</span>
+                <span class="n">residual</span> <span class="o">-=</span> <span class="nb">float</span><span class="p">(</span><span class="n">residual</span> <span class="o">@</span> <span class="n">vector</span><span class="p">)</span> <span class="o">*</span> <span class="n">vector</span>
+            <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">residual</span><span class="p">))</span> <span class="o">&gt;</span> <span class="mf">1.0e-10</span> <span class="o">*</span> <span class="n">scale</span>
+
+        <span class="k">def</span><span class="w"> </span><span class="nf">absorb</span><span class="p">(</span><span class="n">row</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">element</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">            </span><span class="sd">"""Give the row to the element and extend its orthonormal basis."""</span>
+            <span class="n">residual</span> <span class="o">=</span> <span class="n">restriction</span><span class="p">(</span><span class="n">row</span><span class="p">,</span> <span class="n">element</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">vector</span> <span class="ow">in</span> <span class="n">bases</span><span class="p">[</span><span class="n">element</span><span class="p">]:</span>
+                <span class="n">residual</span> <span class="o">-=</span> <span class="nb">float</span><span class="p">(</span><span class="n">residual</span> <span class="o">@</span> <span class="n">vector</span><span class="p">)</span> <span class="o">*</span> <span class="n">vector</span>
+            <span class="n">norm</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">residual</span><span class="p">))</span>
+            <span class="k">if</span> <span class="n">norm</span> <span class="o">&gt;</span> <span class="mf">0.0</span><span class="p">:</span>
+                <span class="n">bases</span><span class="p">[</span><span class="n">element</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">residual</span> <span class="o">/</span> <span class="n">norm</span><span class="p">)</span>
+            <span class="n">owner</span><span class="p">[</span><span class="n">row</span><span class="p">]</span> <span class="o">=</span> <span class="n">element</span>
+            <span class="n">rows_of_element</span><span class="p">[</span><span class="n">element</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">row</span><span class="p">)</span>
+
+        <span class="c1"># A singular operator cannot lead the factorization until something</span>
+        <span class="c1"># borders it, so every element gets a row first. The first row always</span>
+        <span class="c1"># grows the rank, so coverage is unconditional.</span>
+        <span class="k">for</span> <span class="n">element</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">element_count</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">rows_of_element</span><span class="p">[</span><span class="n">element</span><span class="p">]:</span>
+                <span class="k">continue</span>
+            <span class="n">spare</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="n">row</span>
+                <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">row_count</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">owner</span><span class="p">[</span><span class="n">row</span><span class="p">]</span> <span class="o">&lt;</span> <span class="mi">0</span> <span class="ow">and</span> <span class="n">element</span> <span class="ow">in</span> <span class="n">elements_of</span><span class="p">(</span><span class="n">row</span><span class="p">)</span>
+            <span class="p">]</span>
+            <span class="k">if</span> <span class="n">spare</span><span class="p">:</span>
+                <span class="n">absorb</span><span class="p">(</span><span class="n">spare</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">element</span><span class="p">)</span>
+
+        <span class="c1"># Then absorb a row only where it still grows the rank. One that grows</span>
+        <span class="c1"># nothing anywhere keeps a block of its own: a dependent element block</span>
+        <span class="c1"># would meet a zero pivot.</span>
+        <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">row_count</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">owner</span><span class="p">[</span><span class="n">row</span><span class="p">]</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="n">pool</span> <span class="o">=</span> <span class="p">[</span><span class="n">element</span> <span class="k">for</span> <span class="n">element</span> <span class="ow">in</span> <span class="n">elements_of</span><span class="p">(</span><span class="n">row</span><span class="p">)</span> <span class="k">if</span> <span class="n">grows_rank</span><span class="p">(</span><span class="n">row</span><span class="p">,</span> <span class="n">element</span><span class="p">)]</span>
+            <span class="k">if</span> <span class="n">pool</span><span class="p">:</span>
+                <span class="n">absorb</span><span class="p">(</span><span class="n">row</span><span class="p">,</span> <span class="nb">min</span><span class="p">(</span><span class="n">pool</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">e</span><span class="p">:</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">rows_of_element</span><span class="p">[</span><span class="n">e</span><span class="p">]),</span> <span class="n">e</span><span class="p">)))</span>
+        <span class="k">return</span> <span class="n">owner</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_group_unowned</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">"""Group the rows nobody absorbed per interface object."""</span>
+        <span class="n">free</span> <span class="o">=</span> <span class="p">[</span><span class="n">row</span> <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">row_count</span><span class="p">)</span> <span class="k">if</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">owner</span><span class="p">[</span><span class="n">row</span><span class="p">])</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">]</span>
+        <span class="n">groups</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">members</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">set</span><span class="p">[</span><span class="nb">int</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">free</span><span class="p">:</span>
+            <span class="n">touches</span> <span class="o">=</span> <span class="p">{</span><span class="n">element</span> <span class="k">for</span> <span class="n">element</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">coefficient</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">entries</span><span class="p">[</span><span class="n">row</span><span class="p">]}</span>
+            <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">seen</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">members</span><span class="p">):</span>
+                <span class="k">if</span> <span class="n">touches</span> <span class="o">&amp;</span> <span class="n">seen</span><span class="p">:</span>
+                    <span class="n">groups</span><span class="p">[</span><span class="n">index</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">row</span><span class="p">)</span>
+                    <span class="n">members</span><span class="p">[</span><span class="n">index</span><span class="p">]</span> <span class="o">|=</span> <span class="n">touches</span>
+                    <span class="k">break</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">groups</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">row</span><span class="p">])</span>
+                <span class="n">members</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">touches</span><span class="p">))</span>
+        <span class="k">return</span> <span class="n">groups</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">block_of_row</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">row</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">"""Block index holding the equation and the multiplier of a row."""</span>
+        <span class="k">if</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">owner</span><span class="p">[</span><span class="n">row</span><span class="p">])</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">owner</span><span class="p">[</span><span class="n">row</span><span class="p">])</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">element_count</span> <span class="o">+</span> <span class="nb">next</span><span class="p">(</span>
+            <span class="n">index</span> <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">rows</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">groups</span><span class="p">)</span> <span class="k">if</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">rows</span>
+        <span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">position_of_row</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">row</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">"""Slot of a row's equation and multiplier inside its block."""</span>
+        <span class="n">block</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">block_of_row</span><span class="p">(</span><span class="n">row</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">block</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">element_count</span><span class="p">:</span>
+            <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">equation_at</span><span class="p">[</span><span class="n">row</span><span class="p">])</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">groups</span><span class="p">[</span><span class="n">block</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">element_count</span><span class="p">]</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">row</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">system</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">blocks</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">double</span><span class="p">]],</span>
+        <span class="n">precision</span><span class="p">:</span> <span class="n">Precision</span> <span class="o">|</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">BlockSystem</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">"""Assemble the hybsol block system of the augmented operator."""</span>
+        <span class="n">data</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">],</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">double</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
+
+        <span class="k">def</span><span class="w"> </span><span class="nf">put</span><span class="p">(</span><span class="n">key</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">],</span> <span class="n">i</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">j</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">            </span><span class="sd">"""Accumulate one entry into a block, creating it on first use."""</span>
+            <span class="k">if</span> <span class="n">key</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">data</span><span class="p">:</span>
+                <span class="n">data</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">block_sizes</span><span class="p">[</span><span class="n">key</span><span class="p">[</span><span class="mi">0</span><span class="p">]],</span> <span class="bp">self</span><span class="o">.</span><span class="n">block_sizes</span><span class="p">[</span><span class="n">key</span><span class="p">[</span><span class="mi">1</span><span class="p">]]))</span>
+            <span class="n">data</span><span class="p">[</span><span class="n">key</span><span class="p">][</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span> <span class="o">+=</span> <span class="n">value</span>
+
+        <span class="k">for</span> <span class="n">element</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">element_count</span><span class="p">):</span>
+            <span class="n">positions</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dof_at</span><span class="p">[</span><span class="n">element</span><span class="p">]</span>
+            <span class="n">values</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">block_sizes</span><span class="p">[</span><span class="n">element</span><span class="p">],)</span> <span class="o">*</span> <span class="mi">2</span><span class="p">)</span>
+            <span class="n">values</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">ix_</span><span class="p">(</span><span class="n">positions</span><span class="p">,</span> <span class="n">positions</span><span class="p">)]</span> <span class="o">=</span> <span class="n">blocks</span><span class="p">[</span><span class="n">element</span><span class="p">]</span>
+            <span class="n">data</span><span class="p">[</span><span class="n">element</span><span class="p">,</span> <span class="n">element</span><span class="p">]</span> <span class="o">=</span> <span class="n">values</span>
+            <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">absorbed</span><span class="p">[</span><span class="n">element</span><span class="p">]:</span>
+                <span class="n">equation</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">equation_at</span><span class="p">[</span><span class="n">row</span><span class="p">])</span>
+                <span class="n">multiplier</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">multiplier_at</span><span class="p">[</span><span class="n">row</span><span class="p">])</span>
+                <span class="k">for</span> <span class="n">other</span><span class="p">,</span> <span class="n">local</span><span class="p">,</span> <span class="n">coefficient</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">entries</span><span class="p">[</span><span class="n">row</span><span class="p">]:</span>
+                    <span class="k">if</span> <span class="n">other</span> <span class="o">!=</span> <span class="n">element</span><span class="p">:</span>
+                        <span class="k">continue</span>
+                    <span class="n">column</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">positions</span><span class="p">[</span><span class="n">local</span><span class="p">])</span>
+                    <span class="n">put</span><span class="p">((</span><span class="n">element</span><span class="p">,</span> <span class="n">element</span><span class="p">),</span> <span class="n">column</span><span class="p">,</span> <span class="n">multiplier</span><span class="p">,</span> <span class="n">coefficient</span><span class="p">)</span>
+                    <span class="n">put</span><span class="p">((</span><span class="n">element</span><span class="p">,</span> <span class="n">element</span><span class="p">),</span> <span class="n">equation</span><span class="p">,</span> <span class="n">column</span><span class="p">,</span> <span class="n">coefficient</span><span class="p">)</span>
+
+        <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">row_count</span><span class="p">):</span>
+            <span class="n">block</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">block_of_row</span><span class="p">(</span><span class="n">row</span><span class="p">)</span>
+            <span class="n">slot</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">position_of_row</span><span class="p">(</span><span class="n">row</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">element</span><span class="p">,</span> <span class="n">local</span><span class="p">,</span> <span class="n">coefficient</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">entries</span><span class="p">[</span><span class="n">row</span><span class="p">]:</span>
+                <span class="n">column</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dof_at</span><span class="p">[</span><span class="n">element</span><span class="p">][</span><span class="n">local</span><span class="p">])</span>
+                <span class="k">if</span> <span class="n">block</span> <span class="o">==</span> <span class="n">element</span><span class="p">:</span>
+                    <span class="k">continue</span>
+                <span class="n">put</span><span class="p">((</span><span class="n">element</span><span class="p">,</span> <span class="n">block</span><span class="p">),</span> <span class="n">column</span><span class="p">,</span> <span class="n">slot</span><span class="p">,</span> <span class="n">coefficient</span><span class="p">)</span>
+                <span class="n">put</span><span class="p">((</span><span class="n">block</span><span class="p">,</span> <span class="n">element</span><span class="p">),</span> <span class="n">slot</span><span class="p">,</span> <span class="n">column</span><span class="p">,</span> <span class="n">coefficient</span><span class="p">)</span>
+
+        <span class="c1"># A group couples to element blocks but has no diagonal of its own,</span>
+        <span class="c1"># and hybsol wants every block row to have one.</span>
+        <span class="k">for</span> <span class="n">block</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">block_sizes</span><span class="p">)):</span>
+            <span class="n">data</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span>
+                <span class="p">(</span><span class="n">block</span><span class="p">,</span> <span class="n">block</span><span class="p">),</span>
+                <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">block_sizes</span><span class="p">[</span><span class="n">block</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">block_sizes</span><span class="p">[</span><span class="n">block</span><span class="p">])),</span>
+            <span class="p">)</span>
+
+        <span class="n">pattern</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">],</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">double</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">values</span> <span class="ow">in</span> <span class="n">data</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">pattern</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="n">row_block</span><span class="p">,</span> <span class="n">col_block</span> <span class="o">=</span> <span class="n">key</span>
+            <span class="n">pattern</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">values</span>
+            <span class="k">if</span> <span class="n">row_block</span> <span class="o">!=</span> <span class="n">col_block</span><span class="p">:</span>
+                <span class="n">pattern</span><span class="p">[</span><span class="n">col_block</span><span class="p">,</span> <span class="n">row_block</span><span class="p">]</span> <span class="o">=</span> <span class="n">values</span><span class="o">.</span><span class="n">T</span>
+        <span class="n">rows</span><span class="p">,</span> <span class="n">cols</span><span class="p">,</span> <span class="n">payload</span> <span class="o">=</span> <span class="p">[],</span> <span class="p">[],</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="p">(</span><span class="n">row_block</span><span class="p">,</span> <span class="n">col_block</span><span class="p">),</span> <span class="n">values</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">pattern</span><span class="o">.</span><span class="n">items</span><span class="p">()):</span>
+            <span class="n">rows</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">row_block</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">intp</span><span class="p">))</span>
+            <span class="n">cols</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">col_block</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">intp</span><span class="p">))</span>
+            <span class="n">payload</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">ascontiguousarray</span><span class="p">(</span><span class="n">values</span><span class="p">)</span><span class="o">.</span><span class="n">ravel</span><span class="p">())</span>
+        <span class="k">return</span> <span class="n">BlockSystem</span><span class="o">.</span><span class="n">from_blocks</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">block_sizes</span><span class="p">,</span>
+            <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">(</span><span class="n">rows</span><span class="p">),</span>
+            <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">(</span><span class="n">cols</span><span class="p">),</span>
+            <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">(</span><span class="n">payload</span><span class="p">),</span>
+            <span class="n">precision</span><span class="o">=</span><span class="n">precision</span><span class="p">,</span>
+        <span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">rhs</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">element_rhs</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">double</span><span class="p">],</span>
+        <span class="n">element_offsets</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">intp</span><span class="p">],</span>
+        <span class="n">constraint_rhs</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">double</span><span class="p">],</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">double</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">"""Scatter the caller's right-hand side into the block layout."""</span>
+        <span class="n">rhs</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">total</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">element</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">element_count</span><span class="p">):</span>
+            <span class="n">base</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">block_offsets</span><span class="p">[</span><span class="n">element</span><span class="p">])</span>
+            <span class="n">positions</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dof_at</span><span class="p">[</span><span class="n">element</span><span class="p">]</span>
+            <span class="n">start</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">element_offsets</span><span class="p">[</span><span class="n">element</span><span class="p">])</span>
+            <span class="n">rhs</span><span class="p">[</span><span class="n">base</span> <span class="o">+</span> <span class="n">positions</span><span class="p">]</span> <span class="o">=</span> <span class="n">element_rhs</span><span class="p">[</span><span class="n">start</span> <span class="p">:</span> <span class="n">start</span> <span class="o">+</span> <span class="n">positions</span><span class="o">.</span><span class="n">size</span><span class="p">]</span>
+        <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">row_count</span><span class="p">):</span>
+            <span class="n">block</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">block_offsets</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">block_of_row</span><span class="p">(</span><span class="n">row</span><span class="p">)])</span>
+            <span class="n">rhs</span><span class="p">[</span><span class="n">block</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">position_of_row</span><span class="p">(</span><span class="n">row</span><span class="p">)]</span> <span class="o">=</span> <span class="n">constraint_rhs</span><span class="p">[</span><span class="n">row</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">rhs</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">unpack</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">solution</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">double</span><span class="p">]</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">double</span><span class="p">]],</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">double</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">"""Recover element degrees of freedom and multipliers from a solution."""</span>
+        <span class="n">element_dofs</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">element</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">element_count</span><span class="p">):</span>
+            <span class="n">base</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">block_offsets</span><span class="p">[</span><span class="n">element</span><span class="p">])</span>
+            <span class="n">positions</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dof_at</span><span class="p">[</span><span class="n">element</span><span class="p">]</span>
+            <span class="n">element_dofs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">solution</span><span class="p">[</span><span class="n">base</span> <span class="o">+</span> <span class="n">positions</span><span class="p">]))</span>
+        <span class="n">multipliers</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">row_count</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">row_count</span><span class="p">):</span>
+            <span class="n">block</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">block_offsets</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">block_of_row</span><span class="p">(</span><span class="n">row</span><span class="p">)])</span>
+            <span class="n">multipliers</span><span class="p">[</span><span class="n">row</span><span class="p">]</span> <span class="o">=</span> <span class="n">solution</span><span class="p">[</span><span class="n">block</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">position_of_row</span><span class="p">(</span><span class="n">row</span><span class="p">)]</span>
+        <span class="k">return</span> <span class="n">element_dofs</span><span class="p">,</span> <span class="n">multipliers</span>
+
+
+<div class="viewcode-block" id="solve_hybridized">
+<a class="viewcode-back" href="../../source/hybridized_solves.html#fdg.solve_hybridized">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">solve_hybridized</span><span class="p">(</span>
+    <span class="n">geometry</span><span class="p">:</span> <span class="n">MeshGeometry</span><span class="p">,</span>
+    <span class="n">specs</span><span class="p">:</span> <span class="n">MeshKFormSpecs</span><span class="p">,</span>
+    <span class="n">element_rhs</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">double</span><span class="p">],</span>
+    <span class="n">constraints</span><span class="p">:</span> <span class="n">PackedRows</span><span class="p">,</span>
+    <span class="n">constraint_rhs</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">double</span><span class="p">],</span>
+    <span class="n">builder</span><span class="p">:</span> <span class="n">ElementBlockBuilder</span><span class="p">,</span>
+    <span class="n">precision</span><span class="p">:</span> <span class="n">Precision</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Precision</span><span class="o">.</span><span class="n">DOUBLE</span><span class="p">,</span>
+    <span class="n">n_threads</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">HybridizedSolution</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Solve the augmented block system of a mesh with trace constraints.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    geometry : MeshGeometry</span>
+<span class="sd">        Batched geometry, one space map per element.</span>
+<span class="sd">    specs : MeshKFormSpecs</span>
+<span class="sd">        Batched k-form specifications, one field group per element. The field</span>
+<span class="sd">        order of a group is the row and column order of its element block.</span>
+<span class="sd">    element_rhs : numpy.ndarray</span>
+<span class="sd">        Right-hand side of every element, concatenated in element order and</span>
+<span class="sd">        matching the block sizes the builder returns.</span>
+<span class="sd">    constraints : PackedRows</span>
+<span class="sd">        Packed constraint rows: row offsets, element ids, element-frame</span>
+<span class="sd">        components, local degrees of freedom and coefficients.</span>
+<span class="sd">    constraint_rhs : numpy.ndarray</span>
+<span class="sd">        One right-hand-side value per constraint row.</span>
+<span class="sd">    builder : ElementBlockBuilder</span>
+<span class="sd">        Called once per element to assemble its block.</span>
+<span class="sd">    precision : hybsol.Precision or str, default: "double"</span>
+<span class="sd">        Floating-point type the system stores its blocks in.</span>
+<span class="sd">    n_threads : int, default: 0</span>
+<span class="sd">        OpenMP threads used by the decomposition; ``0`` selects the OpenMP</span>
+<span class="sd">        default and ``1`` runs it serially.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    HybridizedSolution</span>
+<span class="sd">        Element degrees of freedom, multipliers and the constraint residual.</span>
+
+<span class="sd">    Raises</span>
+<span class="sd">    ------</span>
+<span class="sd">    ValueError</span>
+<span class="sd">        If the stores disagree on the element count, the packed rows are</span>
+<span class="sd">        malformed, a right-hand side has the wrong length, or the builder</span>
+<span class="sd">        returns a block that is not a square matrix.</span>
+<span class="sd">    RuntimeError</span>
+<span class="sd">        If the solution does not satisfy the constraints, which means an</span>
+<span class="sd">        element block is singular -- a 0-form operator needs at least one</span>
+<span class="sd">        absorbed row, and the problem needs a prescribed row to gauge it.</span>
+<span class="sd">    """</span>
+    <span class="n">element_count</span> <span class="o">=</span> <span class="n">geometry</span><span class="o">.</span><span class="n">element_count</span>
+    <span class="k">if</span> <span class="n">specs</span><span class="o">.</span><span class="n">element_count</span> <span class="o">!=</span> <span class="n">element_count</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">"specs describe </span><span class="si">{</span><span class="n">specs</span><span class="o">.</span><span class="n">element_count</span><span class="si">}</span><span class="s2"> elements, but geometry holds "</span>
+            <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">element_count</span><span class="si">}</span><span class="s2">."</span>
+        <span class="p">)</span>
+
+    <span class="n">labels</span> <span class="o">=</span> <span class="n">specs</span><span class="o">.</span><span class="n">labels</span>
+    <span class="n">blocks</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">element</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">element_count</span><span class="p">):</span>
+        <span class="n">field_specs</span> <span class="o">=</span> <span class="p">[</span><span class="n">specs</span><span class="o">.</span><span class="n">field_specs</span><span class="p">(</span><span class="n">element</span><span class="p">,</span> <span class="n">label</span><span class="p">)</span> <span class="k">for</span> <span class="n">label</span> <span class="ow">in</span> <span class="n">labels</span><span class="p">]</span>
+        <span class="n">block</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">builder</span><span class="p">(</span><span class="n">element</span><span class="p">,</span> <span class="n">field_specs</span><span class="p">,</span> <span class="n">geometry</span><span class="o">.</span><span class="n">space_map</span><span class="p">(</span><span class="n">element</span><span class="p">)))</span>
+        <span class="k">if</span> <span class="n">block</span><span class="o">.</span><span class="n">ndim</span> <span class="o">!=</span> <span class="mi">2</span> <span class="ow">or</span> <span class="n">block</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">!=</span> <span class="n">block</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">"builder returned a </span><span class="si">{</span><span class="n">block</span><span class="o">.</span><span class="n">ndim</span><span class="si">}</span><span class="s2">-D or non-square block for element "</span>
+                <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">element</span><span class="si">}</span><span class="s2">."</span>
+            <span class="p">)</span>
+        <span class="n">blocks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">block</span><span class="p">)</span>
+    <span class="n">element_sizes</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">block</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">block</span> <span class="ow">in</span> <span class="n">blocks</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">intp</span><span class="p">)</span>
+    <span class="n">element_offsets</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">(([</span><span class="mi">0</span><span class="p">],</span> <span class="n">np</span><span class="o">.</span><span class="n">cumsum</span><span class="p">(</span><span class="n">element_sizes</span><span class="p">)))</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">intp</span><span class="p">)</span>
+    <span class="n">total_dofs</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">element_offsets</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+
+    <span class="n">trial</span> <span class="o">=</span> <span class="n">specs</span><span class="o">.</span><span class="n">field_specs</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">labels</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+    <span class="n">component_offsets</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span>
+        <span class="p">[</span>
+            <span class="nb">int</span><span class="p">(</span><span class="n">trial</span><span class="o">.</span><span class="n">get_component_slice</span><span class="p">(</span><span class="n">component</span><span class="p">)</span><span class="o">.</span><span class="n">start</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">component</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">trial</span><span class="o">.</span><span class="n">component_count</span><span class="p">)</span>
+        <span class="p">],</span>
+        <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">intp</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">layout</span> <span class="o">=</span> <span class="n">_Layout</span><span class="p">(</span><span class="n">constraints</span><span class="p">,</span> <span class="n">component_offsets</span><span class="p">,</span> <span class="n">element_sizes</span><span class="p">)</span>
+
+    <span class="n">element_rhs</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">element_rhs</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">double</span><span class="p">)</span>
+    <span class="n">constraint_rhs</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">constraint_rhs</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">double</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">element_rhs</span><span class="o">.</span><span class="n">size</span> <span class="o">!=</span> <span class="n">total_dofs</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">"element right-hand side has </span><span class="si">{</span><span class="n">element_rhs</span><span class="o">.</span><span class="n">size</span><span class="si">}</span><span class="s2"> entries, expected "</span>
+            <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">total_dofs</span><span class="si">}</span><span class="s2">."</span>
+        <span class="p">)</span>
+    <span class="k">if</span> <span class="n">constraint_rhs</span><span class="o">.</span><span class="n">size</span> <span class="o">!=</span> <span class="n">layout</span><span class="o">.</span><span class="n">row_count</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">"constraint right-hand side has </span><span class="si">{</span><span class="n">constraint_rhs</span><span class="o">.</span><span class="n">size</span><span class="si">}</span><span class="s2"> entries, expected "</span>
+            <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">layout</span><span class="o">.</span><span class="n">row_count</span><span class="si">}</span><span class="s2">."</span>
+        <span class="p">)</span>
+
+    <span class="n">system</span> <span class="o">=</span> <span class="n">layout</span><span class="o">.</span><span class="n">system</span><span class="p">(</span><span class="n">blocks</span><span class="p">,</span> <span class="n">precision</span><span class="p">)</span>
+    <span class="n">rhs</span> <span class="o">=</span> <span class="n">layout</span><span class="o">.</span><span class="n">rhs</span><span class="p">(</span><span class="n">element_rhs</span><span class="p">,</span> <span class="n">element_offsets</span><span class="p">,</span> <span class="n">constraint_rhs</span><span class="p">)</span>
+    <span class="n">decomposition</span> <span class="o">=</span> <span class="n">system</span><span class="o">.</span><span class="n">decompose</span><span class="p">(</span><span class="n">n_threads</span><span class="o">=</span><span class="n">n_threads</span><span class="p">)</span>
+    <span class="n">element_dofs</span><span class="p">,</span> <span class="n">multipliers</span> <span class="o">=</span> <span class="n">layout</span><span class="o">.</span><span class="n">unpack</span><span class="p">(</span>
+        <span class="n">decomposition</span><span class="o">.</span><span class="n">solve</span><span class="p">(</span><span class="n">rhs</span><span class="p">,</span> <span class="n">n_threads</span><span class="o">=</span><span class="n">n_threads</span><span class="p">)</span>
+    <span class="p">)</span>
+
+    <span class="n">residual</span> <span class="o">=</span> <span class="mf">0.0</span>
+    <span class="k">for</span> <span class="n">row</span><span class="p">,</span> <span class="n">entries</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">layout</span><span class="o">.</span><span class="n">entries</span><span class="p">):</span>
+        <span class="n">value</span> <span class="o">=</span> <span class="o">-</span><span class="n">constraint_rhs</span><span class="p">[</span><span class="n">row</span><span class="p">]</span>
+        <span class="k">for</span> <span class="n">element</span><span class="p">,</span> <span class="n">local</span><span class="p">,</span> <span class="n">coefficient</span> <span class="ow">in</span> <span class="n">entries</span><span class="p">:</span>
+            <span class="n">value</span> <span class="o">+=</span> <span class="n">coefficient</span> <span class="o">*</span> <span class="n">element_dofs</span><span class="p">[</span><span class="n">element</span><span class="p">][</span><span class="n">local</span><span class="p">]</span>
+        <span class="n">residual</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">residual</span><span class="p">,</span> <span class="nb">abs</span><span class="p">(</span><span class="n">value</span><span class="p">))</span>
+    <span class="n">tolerance</span> <span class="o">=</span> <span class="mf">1.0e-6</span> <span class="k">if</span> <span class="nb">str</span><span class="p">(</span><span class="n">precision</span><span class="p">)</span> <span class="o">==</span> <span class="nb">str</span><span class="p">(</span><span class="n">Precision</span><span class="o">.</span><span class="n">SINGLE</span><span class="p">)</span> <span class="k">else</span> <span class="mf">1.0e-9</span>
+    <span class="k">if</span> <span class="n">residual</span> <span class="o">&gt;</span> <span class="n">tolerance</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">"the solution does not satisfy the constraints (residual </span><span class="si">{</span><span class="n">residual</span><span class="si">:</span><span class="s2">.3e</span><span class="si">}</span><span class="s2">); "</span>
+            <span class="s2">"an element block is probably singular."</span>
+        <span class="p">)</span>
+    <span class="k">return</span> <span class="n">HybridizedSolution</span><span class="p">(</span>
+        <span class="n">element_dofs</span><span class="o">=</span><span class="nb">tuple</span><span class="p">(</span><span class="n">element_dofs</span><span class="p">),</span>
+        <span class="n">multipliers</span><span class="o">=</span><span class="n">multipliers</span><span class="p">,</span>
+        <span class="n">constraint_residual</span><span class="o">=</span><span class="n">residual</span><span class="p">,</span>
+    <span class="p">)</span></div>
+
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=64cc4de3f052d77215f0"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=64cc4de3f052d77215f0"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2024, Jan Roth.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.1.0.
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.22.0.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

@@ -273,3 +273,69 @@ so the function is
 The one-dimensional bases are described in :ref:`fdg_basis_functions`.
 Derivatives act on the DoFs through the one-dimensional *incidence
 operators* of :ref:`fdg_incidence`.
+
+Interelement Continuity
+-----------------------
+
+A conforming :math:`k`-form space ties the per-element spaces together
+through their *tangential traces* on shared boundary objects. This
+section defines the constraint system built by
+:meth:`Mesh.compute_kform_continuity_constraints`; the formulas are the
+ones the C core evaluates.
+
+Let :math:`S` be a boundary object of dimension :math:`N_s` — a vertex,
+edge or face — shared by :math:`m \geq 2` elements. The pullback of a
+:math:`k`-form onto :math:`S` is a :math:`k`-form on :math:`S` and
+exists only when :math:`k \leq N_s`: a component whose wedge axes are
+not a subset of the object's axes has a vanishing tangential trace and
+is never constrained on that object.
+
+Common boundary space. For each incident element the trace space of one
+component on :math:`S` is a tensor-product space whose order along each
+object axis comes from that element's basis. ``fdg`` links every trace
+to the *lowest* order occurring among the incident elements, expanded in
+the hierarchical Legendre basis: an element boundary cannot be
+constrained to a higher-order boundary solution, so the lowest common
+order is the strongest link that never overconstrains. When all incident
+elements share the same order the moment map is injective on the trace
+space and the constraints enforce pointwise continuity; when orders
+differ the higher-order trace is only constrained through its moments
+against the lower-order test basis, i.e. continuity holds in the
+:math:`L^2` sense on :math:`S`.
+
+Elimination. Introduce shared boundary DoFs :math:`u_b` on the common
+space of :math:`S` and write, for each incident element :math:`i`,
+
+.. math::
+
+    C_b\, u_b - C_i\, u_i = 0,
+
+where :math:`C_b` and :math:`C_i` pair the common test basis with the
+boundary solution and with the trace of element :math:`i`. The block
+:math:`C_b\, u_b` is common to all :math:`m` equations, so :math:`u_b`
+eliminates and :math:`m - 1` independent blocks remain: every
+non-anchor element is linked to the anchor (the incident element with
+the lowest identifier) through rows carrying :math:`-1` on its own
+trace coefficients and :math:`+1` on the anchor's. The number of
+constraint rows on an object is therefore
+:math:`(m - 1)\, \dim V_S`, with :math:`V_S` the *own block* defined
+below, and is zero on objects incident to a single element.
+
+Own block. Constraints are emitted only for trace content that the
+object's own subobject constraints do not already pin. Along each axis
+of the object, an active (wedged) axis contributes all of its modes and
+an inactive axis contributes only its interior modes: the two endpoint
+functionals along an inactive axis are owned by the
+lower-dimensional subobjects, whose constraints already tie them. At
+the lowest order this reproduces the Whitney allocation of DoFs — a
+:math:`k`-form at order :math:`p = 1` carries DoFs only on objects of
+dimension exactly :math:`k` — so an object with :math:`N_s > k` has an
+empty own block and needs no constraints of its own: scalar traces
+agree on shared vertices alone, :math:`1`-form traces on shared edges
+alone, while an object with :math:`N_s = k` keeps exactly one mode per
+component (the :math:`2`-form face flux, the :math:`1`-form edge
+value). Higher orders grow the own block by the usual bubble counting:
+:math:`p - 1` edge bubbles for a scalar edge, :math:`p (p - 1)` face
+modes per :math:`1`-form component, :math:`(p - 1)^2` face bubbles for
+a scalar face. Rows are keyed and ordered by object, then component,
+then test mode.

@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 
 
@@ -27,22 +26,22 @@
   </noscript>
   
   <!-- Loaded before other Sphinx assets -->
-  <link href="../_static/styles/theme.css?digest=cb8930eaaf36d9849b67" rel="stylesheet" />
-<link href="../_static/styles/pydata-sphinx-theme.css?digest=cb8930eaaf36d9849b67" rel="stylesheet" />
+  <link href="../_static/styles/theme.css?digest=64cc4de3f052d77215f0" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=64cc4de3f052d77215f0" rel="stylesheet" />
 
     <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
     <link rel="stylesheet" type="text/css" href="../_static/jupyter-sphinx.css" />
     <link rel="stylesheet" type="text/css" href="../_static/thebelab.css" />
-    <link rel="stylesheet" type="text/css" href="../_static/sg_gallery.css?v=fd6457a4" />
+    <link rel="stylesheet" type="text/css" href="../_static/sg_gallery.css?v=c83e6b79" />
     <link rel="stylesheet" type="text/css" href="../_static/sg_gallery-binder.css?v=f4aeca0c" />
     <link rel="stylesheet" type="text/css" href="../_static/sg_gallery-dataframe.css?v=2082cf3c" />
     <link rel="stylesheet" type="text/css" href="../_static/sg_gallery-rendered-html.css?v=1277b6f3" />
   
   <!-- So that users can add custom icons -->
-  <script defer src="../_static/scripts/fontawesome.js?digest=cb8930eaaf36d9849b67"></script>
+  <script defer src="../_static/scripts/fontawesome.js?digest=64cc4de3f052d77215f0"></script>
   <!-- Pre-loaded scripts that we'll load fully later -->
-  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=cb8930eaaf36d9849b67" />
-<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=cb8930eaaf36d9849b67" />
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=64cc4de3f052d77215f0" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=64cc4de3f052d77215f0" />
 
     <script src="../_static/documentation_options.js?v=8c8a9e14"></script>
     <script src="../_static/doctools.js?v=fd6eb6e6"></script>
@@ -56,7 +55,7 @@
     <script>DOCUMENTATION_OPTIONS.search_as_you_type = false;</script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="C API" href="c_api.html" />
+    <link rel="next" title="Hybridized Solves" href="hybridized_solves.html" />
     <link rel="prev" title="Interior Product" href="interior_product.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -108,7 +107,7 @@
   
     <header id="pst-header" class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
 <div class="bd-header__inner bd-page-width">
-  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+  <button type="button" class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
     <span class="fa-solid fa-bars"></span>
   </button>
   
@@ -166,7 +165,7 @@
         <div class="navbar-item navbar-persistent--container">
           
 
-<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+<button type="button" class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
  <i class="fa-solid fa-magnifying-glass"></i>
  <span class="search-button__default-text">Search</span>
  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
@@ -177,15 +176,15 @@
         <div class="navbar-item">
 
 <div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
-  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+  <button type="button" class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
     <i class="theme-switch fa-solid fa-sun fa-lg fa-fw" data-mode="light" title="Light"></i>
     <i class="theme-switch fa-solid fa-moon fa-lg fa-fw" data-mode="dark" title="Dark"></i>
     <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg fa-fw" data-mode="auto" title="System Settings"></i>
   </button>
   <ul class="dropdown-menu dropdown-menu-end">
-    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg fa-fw me-1"></i>System Settings</button></li>
-    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg fa-fw me-1"></i>Light</button></li>
-    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg fa-fw me-1"></i>Dark</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg fa-fw me-1"></i>System Settings</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg fa-fw me-1"></i>Light</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg fa-fw me-1"></i>Dark</button></li>
   </ul>
 </div></div>
       
@@ -196,7 +195,7 @@
   
     <div class="navbar-persistent--mobile">
 
-<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+<button type="button" class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
  <i class="fa-solid fa-magnifying-glass"></i>
  <span class="search-button__default-text">Search</span>
  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
@@ -205,7 +204,7 @@
   
 
   
-    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+    <button type="button" class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
       <span class="fa-solid fa-outdent"></span>
     </button>
   
@@ -261,15 +260,15 @@
           <div class="navbar-item">
 
 <div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
-  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+  <button type="button" class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
     <i class="theme-switch fa-solid fa-sun fa-lg fa-fw" data-mode="light" title="Light"></i>
     <i class="theme-switch fa-solid fa-moon fa-lg fa-fw" data-mode="dark" title="Dark"></i>
     <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg fa-fw" data-mode="auto" title="System Settings"></i>
   </button>
   <ul class="dropdown-menu dropdown-menu-end">
-    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg fa-fw me-1"></i>System Settings</button></li>
-    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg fa-fw me-1"></i>Light</button></li>
-    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg fa-fw me-1"></i>Dark</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg fa-fw me-1"></i>System Settings</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg fa-fw me-1"></i>Light</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg fa-fw me-1"></i>Dark</button></li>
   </ul>
 </div></div>
         
@@ -278,7 +277,7 @@
   </div>
   
     <div class="sidebar-primary-items__start sidebar-primary__section">
-        <div class="sidebar-primary-item pst-sidebar-collapse"><button id="pst-collapse-sidebar-button" aria-expanded="true" aria-controls="pst-primary-sidebar">
+        <div class="sidebar-primary-item pst-sidebar-collapse"><button type="button" id="pst-collapse-sidebar-button" aria-expanded="true" aria-controls="pst-primary-sidebar">
   <svg class="pst-icon" role="img" aria-hidden="true" focusable="false" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
     <path fill="currentColor" d="M3 15.5C2.36232 15.5 1.74874 15.2564 1.28478 14.8189C0.820828 14.3815 0.541576 13.7832 0.504167 13.1467L0.5 13L0.5 3C0.499965 2.36232 0.743605 1.74874 1.18107 1.28478C1.61854 0.820828 2.21676 0.541576 2.85333 0.504167L3 0.5L13 0.5C13.6377 0.499965 14.2513 0.743605 14.7152 1.18107C15.1792 1.61854 15.4584 2.21676 15.4958 2.85333L15.5 3L15.5 13C15.5 13.6377 15.2564 14.2513 14.8189 14.7152C14.3815 15.1792 13.7832 15.4584 13.1467 15.4958L13 15.5L3 15.5ZM3 13.8333L10.5 13.8333L10.5 2.16667L3 2.16667C2.79589 2.16669 2.59889 2.24163 2.44636 2.37726C2.29383 2.5129 2.19638 2.69979 2.1725 2.9025L2.16667 3L2.16667 13C2.16669 13.2041 2.24163 13.4011 2.37726 13.5536C2.5129 13.7062 2.69979 13.8036 2.9025 13.8275L3 13.8333ZM6.65583 10.325L6.5775 10.2558L4.91083 8.58917C4.76735 8.44567 4.68116 8.25476 4.66843 8.05223C4.65569 7.84971 4.71729 7.6495 4.84167 7.48917L4.91083 7.41083L6.5775 5.74417C6.72747 5.59471 6.9287 5.50794 7.14032 5.50148C7.35194 5.49502 7.55809 5.56935 7.7169 5.70937C7.8757 5.8494 7.97525 6.04463 7.99533 6.25539C8.01541 6.46616 7.95451 6.67667 7.825 6.84417L7.75583 6.9225L6.67917 8L7.75583 9.0775C7.89931 9.22099 7.98551 9.41191 7.99824 9.61443C8.01097 9.81695 7.94938 10.0172 7.825 10.1775L7.75583 10.2558C7.61234 10.3993 7.42142 10.4855 7.2189 10.4982C7.01638 10.511 6.81617 10.4494 6.65583 10.325Z"/>
   </svg>
@@ -304,7 +303,10 @@
 <li class="toctree-l1"><a class="reference internal" href="inner_product.html">Inner Product Mass Matrix</a></li>
 <li class="toctree-l1"><a class="reference internal" href="incidence.html">Exterior Derivative</a></li>
 <li class="toctree-l1"><a class="reference internal" href="interior_product.html">Interior Product</a></li>
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">Boundary Constraints</a></li>
+<li class="toctree-l1 current active"><a aria-current="page" class="current reference internal" href="#">Boundary Constraints</a></li>
+<li class="toctree-l1"><a class="reference internal" href="hybridized_solves.html">Hybridized Solves</a></li>
+<li class="toctree-l1"><a class="reference internal" href="direct_continuity.html">Direct Continuity</a></li>
+<li class="toctree-l1"><a class="reference internal" href="moving_mesh.html">Moving Meshes</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="c_api.html">C API</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="c_common.html">Common Utilities</a></li>
 <li class="toctree-l2"><a class="reference internal" href="c_basis.html">Basis Sets</a></li>
@@ -378,24 +380,30 @@
                   
   <section id="boundary-constraints">
 <span id="fdg-boundary-constraints"></span><h1>Boundary Constraints<a class="headerlink" href="#boundary-constraints" title="Link to this heading">#</a></h1>
-<p>A boundary constraint compares the trace of an element k-form with a test
-k-form on one of its boundaries.  The public function
-<a class="reference internal" href="#fdg.compute_kform_boundary_constraints" title="fdg.compute_kform_boundary_constraints"><code class="xref py py-func docutils literal notranslate"><span class="pre">compute_kform_boundary_constraints()</span></code></a> constructs the rows for one
-selected element and one selected mesh boundary object.  The trace tables
-reuse the integration-independent endpoint basis cache for the element axes
-fixed on the boundary.  Trace assembly needs basis values (including the
-lower-order values used by positive-form components), not basis derivatives;
-there is therefore no separate derivative cache in this path.</p>
+<p>A boundary row pairs the trace of an element k-form with a test k-form on one
+of its boundaries.  The public function
+<a class="reference internal" href="#fdg.compute_kform_boundary_mass_matrices" title="fdg.compute_kform_boundary_mass_matrices"><code class="xref py py-func docutils literal notranslate"><span class="pre">compute_kform_boundary_mass_matrices()</span></code></a> assembles, in one call, the
+<em>per-object boundary mass matrices</em> of one shared mesh boundary object: one
+matrix per incident element, whose rows are the windowed common Legendre test
+space of the object and whose columns pair with the element trace degrees of
+freedom.  The trace tables reuse the integration-independent endpoint basis
+cache for the element axes fixed on the boundary.  Trace assembly needs basis
+values (including the lower-order values used by positive-form components),
+not basis derivatives; there is therefore no separate derivative cache in this
+path.</p>
 <section id="mathematical-construction">
 <h2>Mathematical construction<a class="headerlink" href="#mathematical-construction" title="Link to this heading">#</a></h2>
 <p>Let <span class="math notranslate nohighlight">\(\widehat{F}\)</span> be a canonical reference boundary and let
-<span class="math notranslate nohighlight">\(F_e\)</span> be its realization on element <span class="math notranslate nohighlight">\(e\)</span>.  The selected mesh object
+<span class="math notranslate nohighlight">\(F_e\)</span> be its realization on element <span class="math notranslate nohighlight">\(e\)</span>.  Each incident element
 provides an orientation record that identifies the fixed element axes and maps
-the free canonical axes to the element axes.  The element map is restricted to
-that boundary by repeated calls to <a class="reference internal" href="space_map.html#fdg.SpaceMap.boundary" title="fdg.SpaceMap.boundary"><code class="xref py py-meth docutils literal notranslate"><span class="pre">SpaceMap.boundary()</span></code></a>.</p>
+the free canonical axes to the element axes; the mesh reports such records for
+every boundary object, for example through <a class="reference internal" href="mesh.html#fdg.Mesh.iterate_boundary" title="fdg.Mesh.iterate_boundary"><code class="xref py py-meth docutils literal notranslate"><span class="pre">Mesh.iterate_boundary()</span></code></a>.
+The element map is restricted to that boundary by repeated calls to
+<a class="reference internal" href="space_map.html#fdg.SpaceMap.boundary" title="fdg.SpaceMap.boundary"><code class="xref py py-meth docutils literal notranslate"><span class="pre">SpaceMap.boundary()</span></code></a>.</p>
 <p>For a k-form, the restricted map supplies the tangential pullback.  If
 <span class="math notranslate nohighlight">\(u_e\)</span> is represented by element degrees of freedom and <span class="math notranslate nohighlight">\(v\)</span> is a
-test k-form on the boundary, a row of the constraint operator represents</p>
+row of the common test space, the corresponding row of the boundary mass
+matrix represents</p>
 <div class="math notranslate nohighlight">
 \[(v, \operatorname{tr}_e u_e)_{F_e}
 = \int_{\widehat{F}}
@@ -405,23 +413,46 @@ test k-form on the boundary, a row of the constraint operator represents</p>
 maps only tangential components and includes the usual k-form basis
 transformation.  The surface measure is positive; orientation signs are kept
 in the component mapping and in the canonical boundary parameterization.</p>
-<p>For two adjacent elements, let <span class="math notranslate nohighlight">\(T_A\)</span> and <span class="math notranslate nohighlight">\(T_B\)</span> be the operators
-returned for the same mesh boundary object.  Continuity can be enforced by
-assembling</p>
-<div class="math notranslate nohighlight">
-\[T_A u_A - T_B u_B = 0.\]</div>
-<p>It can also be checked after a solution has been computed by applying the two
-operators separately and comparing their row values.  The test space must be
-the same on both calls.  The mesh topology supplies the relative orientation,
-so the two calls do not need to use the same local ordering of the boundary
-axes.</p>
 </section>
-<section id="packed-operator-format">
-<h2>Packed operator format<a class="headerlink" href="#packed-operator-format" title="Link to this heading">#</a></h2>
-<p>The function returns four one-dimensional arrays:</p>
+<section id="common-test-space">
+<h2>Common test space<a class="headerlink" href="#common-test-space" title="Link to this heading">#</a></h2>
+<p>The rows of every returned matrix come from one common test space: on each
+free axis the common basis order is the lowest order of the incident
+elements, and an axis that carries no covector of a k-form component drops
+its two highest basis functions (<code class="docutils literal notranslate"><span class="pre">SKIPPED_BASIS</span> <span class="pre">=</span> <span class="pre">2</span></code>), reading the leading
+ones.  Each constraint then pairs the trace against exactly the low-degree
+functions the lower-order space can represent — the L2 projection of the
+(higher-order) boundary solution onto that space — so traces of
+higher-order neighbours never over-constrain the shared object.  Because
+both incident elements pair their traces against the same rows, equal traces
+produce equal pairing values.</p>
+</section>
+<section id="continuity-between-adjacent-elements">
+<h2>Continuity between adjacent elements<a class="headerlink" href="#continuity-between-adjacent-elements" title="Link to this heading">#</a></h2>
+<p>For two adjacent elements <span class="math notranslate nohighlight">\(A\)</span> and <span class="math notranslate nohighlight">\(B\)</span> sharing a boundary object,
+continuity is the statement</p>
+<div class="math notranslate nohighlight">
+\[T_A u_A - T_B u_B = 0,\]</div>
+<p>where <span class="math notranslate nohighlight">\(T_A\)</span> and <span class="math notranslate nohighlight">\(T_B\)</span> are the trace pairings collected by the two
+per-object mass matrices.  It is assembled globally with
+<a class="reference internal" href="mesh.html#fdg.Mesh.compute_kform_continuity_constraints" title="fdg.Mesh.compute_kform_continuity_constraints"><code class="xref py py-meth docutils literal notranslate"><span class="pre">Mesh.compute_kform_continuity_constraints()</span></code></a>, which walks the shared
+objects from faces to points, pairs consecutive incident elements with
+opposite signs, and derives the same windowed common test spaces internally.
+Prescribed boundary data are appended to those rows by
+<a class="reference internal" href="mesh.html#fdg.Mesh.compute_kform_global_constraints" title="fdg.Mesh.compute_kform_global_constraints"><code class="xref py py-meth docutils literal notranslate"><span class="pre">Mesh.compute_kform_global_constraints()</span></code></a>.</p>
+</section>
+<section id="packed-row-format">
+<h2>Packed row format<a class="headerlink" href="#packed-row-format" title="Link to this heading">#</a></h2>
+<p>The function returns <code class="docutils literal notranslate"><span class="pre">(common_specs,</span> <span class="pre">common_integration,</span> <span class="pre">matrices,</span>
+<span class="pre">packed_rows)</span></code>: the merged common <a class="reference internal" href="kform_types.html#fdg.KFormSpecs" title="fdg.KFormSpecs"><code class="xref py py-class docutils literal notranslate"><span class="pre">KFormSpecs</span></code></a>, the merged common
+integration space, one dense matrix per incident element, and — with
+<code class="docutils literal notranslate"><span class="pre">packed=True</span></code> — one five-array tuple per element:</p>
 <dl class="simple">
 <dt><code class="docutils literal notranslate"><span class="pre">row_offsets</span></code></dt><dd><p>An array of length <code class="docutils literal notranslate"><span class="pre">n_rows</span> <span class="pre">+</span> <span class="pre">1</span></code>.  Entries for row <code class="docutils literal notranslate"><span class="pre">i</span></code> occupy the half
 open range <code class="docutils literal notranslate"><span class="pre">row_offsets[i]:row_offsets[i</span> <span class="pre">+</span> <span class="pre">1]</span></code>.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">sides</span></code></dt><dd><p>Zero-based index of the incident element within the call, for each packed
+entry.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">components</span></code></dt><dd><p>Element k-form component index for each packed entry.</p>
 </dd>
@@ -437,11 +468,32 @@ open range <code class="docutils literal notranslate"><span class="pre">row_offs
 </section>
 <section id="csr-conversion">
 <h2>CSR conversion<a class="headerlink" href="#csr-conversion" title="Link to this heading">#</a></h2>
-<p>For global element-major rows, <code class="xref py py-func docutils literal notranslate"><span class="pre">packed_kform_constraints_to_csr()</span></code> converts
-the packed representation to <code class="docutils literal notranslate"><span class="pre">(data,</span> <span class="pre">indices,</span> <span class="pre">indptr)</span></code> arrays accepted
-directly by <code class="docutils literal notranslate"><span class="pre">scipy.sparse.csr_matrix</span></code>.  The column indices include the
-element offset and the flattened component offset, so callers do not need to
-materialize row indices or perform per-entry index arithmetic in Python.</p>
+<p>For global element-major rows — as returned by
+<a class="reference internal" href="mesh.html#fdg.Mesh.compute_kform_continuity_constraints" title="fdg.Mesh.compute_kform_continuity_constraints"><code class="xref py py-meth docutils literal notranslate"><span class="pre">Mesh.compute_kform_continuity_constraints()</span></code></a> and
+<a class="reference internal" href="mesh.html#fdg.Mesh.compute_kform_global_constraints" title="fdg.Mesh.compute_kform_global_constraints"><code class="xref py py-meth docutils literal notranslate"><span class="pre">Mesh.compute_kform_global_constraints()</span></code></a> —
+<code class="xref py py-func docutils literal notranslate"><span class="pre">packed_kform_constraints_to_csr()</span></code> converts the packed representation to
+<code class="docutils literal notranslate"><span class="pre">(data,</span> <span class="pre">indices,</span> <span class="pre">indptr)</span></code> arrays accepted directly by
+<code class="docutils literal notranslate"><span class="pre">scipy.sparse.csr_matrix</span></code>.  The column indices include the element offset
+and the flattened component offset, so callers do not need to materialize row
+indices or perform per-entry index arithmetic in Python.</p>
+</section>
+<section id="prescribed-rows">
+<h2>Prescribed rows<a class="headerlink" href="#prescribed-rows" title="Link to this heading">#</a></h2>
+<p>Inter-element constraints need two or more incident elements; strongly
+prescribed boundary data instead constrains a single element’s trace against
+data. <a class="reference internal" href="#fdg.compute_kform_boundary_trace_moments" title="fdg.compute_kform_boundary_trace_moments"><code class="xref py py-func docutils literal notranslate"><span class="pre">compute_kform_boundary_trace_moments()</span></code></a> is the explicit
+single-element route behind those rows: it shares the assembly core with
+<a class="reference internal" href="#fdg.compute_kform_boundary_mass_matrices" title="fdg.compute_kform_boundary_mass_matrices"><code class="xref py py-func docutils literal notranslate"><span class="pre">compute_kform_boundary_mass_matrices()</span></code></a> and returns the same
+<code class="docutils literal notranslate"><span class="pre">(common_specs,</span> <span class="pre">common_integration,</span> <span class="pre">matrices,</span> <span class="pre">packed)</span></code> tuple for one
+element. A datum <span class="math notranslate nohighlight">\(g\)</span> on the face is bound by the moment rows</p>
+<div class="math notranslate nohighlight">
+\[r_i(g) = \int_{\widehat{F}}
+  v_i \mathbin{\cdot} \operatorname{tr} g\,
+  |\det J_{F}|\,d\widehat{x},\]</div>
+<p>so the right-hand side entry of row <span class="math notranslate nohighlight">\(i\)</span> is the packed row applied to
+the mapped data degrees of freedom. The boundary-condition assembler
+(<a class="reference internal" href="mesh.html#fdg.Mesh.compute_kform_global_constraints" title="fdg.Mesh.compute_kform_global_constraints"><code class="xref py py-meth docutils literal notranslate"><span class="pre">Mesh.compute_kform_global_constraints()</span></code></a>) builds its prescribed rows
+through this interface.</p>
 </section>
 <section id="boundary-load">
 <h2>Boundary load<a class="headerlink" href="#boundary-load" title="Link to this heading">#</a></h2>
@@ -472,7 +524,7 @@ exponent reduces to <span class="math notranslate nohighlight">\(a\)</span>, so 
 outward boundary orientation relative to the canonical face parameterization,
 and the formula reduces to the scalar chain integral of previous releases.
 Zero-form data (<span class="math notranslate nohighlight">\(k = 0\)</span>) is not covered by the load; scalar boundary
-values are imposed strongly with <a class="reference internal" href="#fdg.compute_kform_boundary_constraints" title="fdg.compute_kform_boundary_constraints"><code class="xref py py-func docutils literal notranslate"><span class="pre">compute_kform_boundary_constraints()</span></code></a>.</p>
+values are imposed strongly with <a class="reference internal" href="mesh.html#fdg.Mesh.compute_kform_global_constraints" title="fdg.Mesh.compute_kform_global_constraints"><code class="xref py py-meth docutils literal notranslate"><span class="pre">Mesh.compute_kform_global_constraints()</span></code></a>.</p>
 <p>Unlike the trace constraint, the load is a metric-free chain integral: the
 surface measure of the face cancels exactly against the coefficient scaling of
 the pulled-back form, so no surface weights or pullback tensor enter the
@@ -488,38 +540,99 @@ the right-hand side.  The gallery example
 <a class="reference internal" href="../auto_examples/plot_multi_element_poisson_bc.html#sphx-glr-auto-examples-plot-multi-element-poisson-bc-py"><span class="std std-ref">Multi-element mixed Poisson equation with strong and weak boundary conditions</span></a> combines this
 weak Dirichlet condition on some faces with the strong Neumann condition
 <span class="math notranslate nohighlight">\(\operatorname{tr} q = g\)</span> (enforced by Lagrange multipliers with
-<a class="reference internal" href="#fdg.compute_kform_boundary_constraints" title="fdg.compute_kform_boundary_constraints"><code class="xref py py-func docutils literal notranslate"><span class="pre">compute_kform_boundary_constraints()</span></code></a>) on the remaining faces.</p>
-</section>
-<section id="topology-and-dimensions">
-<h2>Topology and dimensions<a class="headerlink" href="#topology-and-dimensions" title="Link to this heading">#</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">collections</span></code> is a tuple containing object-boundary arrays from dimension
-one through the element dimension.  For a three-dimensional element, for
-example, it contains line, face, and volume collections.  A collection for
-objects of dimension <code class="docutils literal notranslate"><span class="pre">d</span></code> has shape <code class="docutils literal notranslate"><span class="pre">(count,</span> <span class="pre">2*d)</span></code> and stores the IDs of its
-lower and upper boundaries in each local axis.</p>
-<p><code class="docutils literal notranslate"><span class="pre">boundary_id</span></code> is an ID in the collection matching the test space dimension:
-points use the implicit point collection, lines use the one-dimensional
-collection, faces use the two-dimensional collection, and so on.  The selected
-object must be immersed in <code class="docutils literal notranslate"><span class="pre">element_id</span></code>.  The wrapper rejects incompatible
-orders and dimensions, non-unique topology, or a boundary that is not present
-in the selected element.</p>
-<p>A zero-dimensional <a class="reference internal" href="basis_functions.html#fdg.FunctionSpace" title="fdg.FunctionSpace"><code class="xref py py-class docutils literal notranslate"><span class="pre">FunctionSpace</span></code></a> is the canonical test space for a
-point boundary:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">point_test</span> <span class="o">=</span> <span class="n">KFormSpecs</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">FunctionSpace</span><span class="p">())</span>
-</pre></div>
-</div>
+<a class="reference internal" href="mesh.html#fdg.Mesh.compute_kform_global_constraints" title="fdg.Mesh.compute_kform_global_constraints"><code class="xref py py-meth docutils literal notranslate"><span class="pre">Mesh.compute_kform_global_constraints()</span></code></a>) on the remaining faces.</p>
 </section>
 <section id="example">
 <h2>Example<a class="headerlink" href="#example" title="Link to this heading">#</a></h2>
-<p>The gallery example <a class="reference internal" href="../auto_examples/plot_boundary_constraints.html#sphx-glr-auto-examples-plot-boundary-constraints-py"><span class="std std-ref">Boundary Constraints and Continuity</span></a>
-constructs adjacent two-dimensional and three-dimensional elements.  It
-prints the packed rows, materializes them with <code class="docutils literal notranslate"><span class="pre">scipy.sparse</span></code>, and checks
-polynomial traces on shared faces, lines, and points before plotting the
-geometries.</p>
+<p>The gallery example <a class="reference internal" href="../auto_examples/plot_boundary_constraints.html#sphx-glr-auto-examples-plot-boundary-constraints-py"><span class="std std-ref">Boundary Trace Mass Matrices</span></a>
+constructs adjacent two-dimensional and three-dimensional elements that share
+one edge and one face.  It prints the packed rows of the per-object boundary
+mass matrices for every k-form order on the shared object, checks that
+constant traces pair identically on both elements, and plots the geometries.</p>
 <dl class="py function">
-<dt class="sig sig-object py" id="fdg.compute_kform_boundary_constraints">
-<span class="sig-prename descclassname"><span class="pre">fdg.</span></span><span class="sig-name descname"><span class="pre">compute_kform_boundary_constraints</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">test_specs</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">element_spec</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">element_map</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">collections</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">npts</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">element_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">boundary_id</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.14)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.5)"><span class="pre">numpy.ndarray</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#fdg.compute_kform_boundary_constraints" title="Link to this definition">#</a></dt>
-<dd><p>Compute one element’s physical k-form boundary rows.</p>
+<dt class="sig sig-object py" id="fdg.compute_kform_boundary_mass_matrices">
+<span class="sig-prename descclassname"><span class="pre">fdg.</span></span><span class="sig-name descname"><span class="pre">compute_kform_boundary_mass_matrices</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">element_specs</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">orientations</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">element_integrations</span></span></em>, <em class="sig-param"><span class="positional-only-separator o"><abbr title="Positional-only parameter separator (PEP 570)"><span class="pre">/</span></abbr></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">element_maps</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">boundary_dimension</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">c1_continuous</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">packed</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">integration_registry</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">DEFAULT_INTEGRATION_REGISTRY</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">basis_registry</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">DEFAULT_BASIS_REGISTRY</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#tuple" title="(in Python v3.14)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="kform_types.html#fdg.KFormSpecs" title="fdg.KFormSpecs"><span class="pre">KFormSpecs</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="integration.html#fdg.IntegrationSpace" title="fdg.IntegrationSpace"><span class="pre">IntegrationSpace</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#tuple" title="(in Python v3.14)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><span class="pre">numpy.typing.NDArray</span><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.double" title="(in NumPy v2.5)"><span class="pre">numpy.double</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#tuple" title="(in Python v3.14)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><span class="pre">PackedRows</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#fdg.compute_kform_boundary_mass_matrices" title="Link to this definition">#</a></dt>
+<dd><p>Assemble incident elements’ mass matrices against one common boundary space.</p>
+<p>Requires two or more incident elements of one shared object. Each element
+provides one orientation record: a signed one-based permutation of the
+element axes whose first <code class="docutils literal notranslate"><span class="pre">ndim</span> <span class="pre">-</span> <span class="pre">boundary_dimension</span></code> entries name the fixed
+normal axes and whose tail maps the free canonical boundary axes. Rows are the
+windowed common Legendre test space of the shared object (the two highest
+functions removed on axes inactive in a component); columns are the mapped
+element trace DoFs, the element k-form DoF counts of the boundary components.
+With <code class="docutils literal notranslate"><span class="pre">element_maps</span></code> (one SpaceMap per element) the assembly samples each
+face’s surface measure and k-form pullback on its own canonical grid;
+C1-continuous requests ignore the maps. A form order past the boundary
+dimension has no trace: <code class="docutils literal notranslate"><span class="pre">common_specs</span></code> is <code class="docutils literal notranslate"><span class="pre">None</span></code> and the matrices are
+empty.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>element_specs</strong> (<em>Sequence</em><em>[</em><a class="reference internal" href="kform_types.html#fdg.KFormSpecs" title="fdg.KFormSpecs"><em>KFormSpecs</em></a><em>]</em>) – Element k-form specification per incident element.</p></li>
+<li><p><strong>orientations</strong> (<em>Sequence</em><em>[</em><em>Sequence</em><em>[</em><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em>]</em><em>]</em>) – Signed one-based permutation of the element axes per element.</p></li>
+<li><p><strong>element_integrations</strong> (<em>Sequence</em><em>[</em><a class="reference internal" href="integration.html#fdg.IntegrationSpace" title="fdg.IntegrationSpace"><em>IntegrationSpace</em></a><em>]</em>) – Element integration space per element.</p></li>
+<li><p><strong>element_maps</strong> (<em>Sequence</em><em>[</em><a class="reference internal" href="space_map.html#fdg.SpaceMap" title="fdg.SpaceMap"><em>SpaceMap</em></a><em>]</em><em>, </em><em>optional</em>) – One volume map per element; ignored when <code class="docutils literal notranslate"><span class="pre">c1_continuous</span></code> is set.</p></li>
+<li><p><strong>boundary_dimension</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em>, </em><em>optional</em>) – Boundary dimension, defaults to <code class="docutils literal notranslate"><span class="pre">ndim</span> <span class="pre">-</span> <span class="pre">1</span></code>. Zero is allowed for scalar
+(order zero) traces: point rows pair vertex value functionals through the
+endpoint tables.</p></li>
+<li><p><strong>c1_continuous</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a><em>, </em><em>default: False</em>) – Reference-frame pairing; <code class="docutils literal notranslate"><span class="pre">element_maps</span></code> is ignored.</p></li>
+<li><p><strong>packed</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a><em>, </em><em>default: False</em>) – Also return one packed row tuple per element.</p></li>
+<li><p><strong>integration_registry</strong> (<a class="reference internal" href="integration.html#fdg.IntegrationRegistry" title="fdg.IntegrationRegistry"><em>IntegrationRegistry</em></a><em>, </em><em>default: DEFAULT_INTEGRATION_REGISTRY</em>) – Registry to get the quadrature rules from.</p></li>
+<li><p><strong>basis_registry</strong> (<a class="reference internal" href="basis_functions.html#fdg.BasisRegistry" title="fdg.BasisRegistry"><em>BasisRegistry</em></a><em>, </em><em>default: DEFAULT_BASIS_REGISTRY</em>) – Registry to get the traced basis tables from.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="docutils literal notranslate"><span class="pre">(common_specs,</span> <span class="pre">common_integration,</span> <span class="pre">matrices,</span> <span class="pre">packed)</span></code>: the merged
+common k-form specification (<code class="docutils literal notranslate"><span class="pre">None</span></code> when the form order exceeds the
+boundary dimension), the common integration space, one dense matrix per
+element, and — with <code class="docutils literal notranslate"><span class="pre">packed=True</span></code> — one packed row tuple per element
+<code class="docutils literal notranslate"><span class="pre">(row_offsets,</span> <span class="pre">sides,</span> <span class="pre">components,</span> <span class="pre">local_dofs,</span> <span class="pre">coefficients)</span></code>. <code class="docutils literal notranslate"><span class="pre">sides</span></code>
+holds the element’s index in <code class="docutils literal notranslate"><span class="pre">element_specs</span></code>; the coefficients are the
+dense matrix entries in row-major order.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#tuple" title="(in Python v3.14)">tuple</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="fdg.compute_kform_boundary_trace_moments">
+<span class="sig-prename descclassname"><span class="pre">fdg.</span></span><span class="sig-name descname"><span class="pre">compute_kform_boundary_trace_moments</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">element_specs</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">orientations</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">element_integrations</span></span></em>, <em class="sig-param"><span class="positional-only-separator o"><abbr title="Positional-only parameter separator (PEP 570)"><span class="pre">/</span></abbr></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">element_maps</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">boundary_dimension</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">c1_continuous</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">packed</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">integration_registry</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">DEFAULT_INTEGRATION_REGISTRY</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">basis_registry</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">DEFAULT_BASIS_REGISTRY</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#tuple" title="(in Python v3.14)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="kform_types.html#fdg.KFormSpecs" title="fdg.KFormSpecs"><span class="pre">KFormSpecs</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="integration.html#fdg.IntegrationSpace" title="fdg.IntegrationSpace"><span class="pre">IntegrationSpace</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#tuple" title="(in Python v3.14)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><span class="pre">numpy.typing.NDArray</span><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.double" title="(in NumPy v2.5)"><span class="pre">numpy.double</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#tuple" title="(in Python v3.14)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><span class="pre">PackedRows</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#fdg.compute_kform_boundary_trace_moments" title="Link to this definition">#</a></dt>
+<dd><p>Assemble trace mass rows of one or more elements against the common boundary space.</p>
+<p>The prescribed-data interface behind strong boundary conditions: each
+element’s trace pairing with the same row and column conventions as
+<a class="reference internal" href="#fdg.compute_kform_boundary_mass_matrices" title="fdg.compute_kform_boundary_mass_matrices"><code class="xref py py-func docutils literal notranslate"><span class="pre">compute_kform_boundary_mass_matrices()</span></code></a>. Requires at least one element
+and returns one dense matrix and one packed tuple per element. Bind a
+right-hand side by multiplying the rows with the mapped data degrees of
+freedom.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>element_specs</strong> (<em>Sequence</em><em>[</em><a class="reference internal" href="kform_types.html#fdg.KFormSpecs" title="fdg.KFormSpecs"><em>KFormSpecs</em></a><em>]</em>) – Element k-form specification per element; at least one.</p></li>
+<li><p><strong>orientations</strong> (<em>Sequence</em><em>[</em><em>Sequence</em><em>[</em><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em>]</em><em>]</em>) – Signed one-based permutation of the element axes per element.</p></li>
+<li><p><strong>element_integrations</strong> (<em>Sequence</em><em>[</em><a class="reference internal" href="integration.html#fdg.IntegrationSpace" title="fdg.IntegrationSpace"><em>IntegrationSpace</em></a><em>]</em>) – Element integration space per element.</p></li>
+<li><p><strong>element_maps</strong> (<em>Sequence</em><em>[</em><a class="reference internal" href="space_map.html#fdg.SpaceMap" title="fdg.SpaceMap"><em>SpaceMap</em></a><em>]</em><em>, </em><em>optional</em>) – One volume map per element; ignored when <code class="docutils literal notranslate"><span class="pre">c1_continuous</span></code> is set.</p></li>
+<li><p><strong>boundary_dimension</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em>, </em><em>optional</em>) – Boundary dimension, defaults to <code class="docutils literal notranslate"><span class="pre">ndim</span> <span class="pre">-</span> <span class="pre">1</span></code>. Zero is allowed for scalar
+(order zero) traces: point rows pair vertex value functionals through the
+endpoint tables.</p></li>
+<li><p><strong>c1_continuous</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a><em>, </em><em>default: False</em>) – Reference-frame pairing; <code class="docutils literal notranslate"><span class="pre">element_maps</span></code> is ignored.</p></li>
+<li><p><strong>packed</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a><em>, </em><em>default: False</em>) – Also return one packed row tuple per element.</p></li>
+<li><p><strong>integration_registry</strong> (<a class="reference internal" href="integration.html#fdg.IntegrationRegistry" title="fdg.IntegrationRegistry"><em>IntegrationRegistry</em></a><em>, </em><em>default: DEFAULT_INTEGRATION_REGISTRY</em>) – Registry to get the quadrature rules from.</p></li>
+<li><p><strong>basis_registry</strong> (<a class="reference internal" href="basis_functions.html#fdg.BasisRegistry" title="fdg.BasisRegistry"><em>BasisRegistry</em></a><em>, </em><em>default: DEFAULT_BASIS_REGISTRY</em>) – Registry to get the traced basis tables from.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="docutils literal notranslate"><span class="pre">(common_specs,</span> <span class="pre">common_integration,</span> <span class="pre">matrices,</span> <span class="pre">packed)</span></code> with one dense
+matrix and one packed row tuple per element; <code class="docutils literal notranslate"><span class="pre">common_specs</span></code> is <code class="docutils literal notranslate"><span class="pre">None</span></code>
+when the form order exceeds the boundary dimension. <code class="docutils literal notranslate"><span class="pre">sides</span></code> holds the
+element’s index in <code class="docutils literal notranslate"><span class="pre">element_specs</span></code>; the coefficients are the dense
+matrix entries in row-major order.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#tuple" title="(in Python v3.14)">tuple</a></p>
+</dd>
+</dl>
 </dd></dl>
 
 </section>
@@ -545,11 +658,11 @@ geometries.</p>
       </div>
     </a>
     <a class="right-next"
-       href="c_api.html"
+       href="hybridized_solves.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">C API</p>
+        <p class="prev-next-title">Hybridized Solves</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -573,12 +686,15 @@ geometries.</p>
   <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mathematical-construction">Mathematical construction</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#packed-operator-format">Packed operator format</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#common-test-space">Common test space</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#continuity-between-adjacent-elements">Continuity between adjacent elements</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#packed-row-format">Packed row format</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#csr-conversion">CSR conversion</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#prescribed-rows">Prescribed rows</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#boundary-load">Boundary load</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#topology-and-dimensions">Topology and dimensions</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#example">Example</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fdg.compute_kform_boundary_constraints"><code class="docutils literal notranslate"><span class="pre">compute_kform_boundary_constraints()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fdg.compute_kform_boundary_mass_matrices"><code class="docutils literal notranslate"><span class="pre">compute_kform_boundary_mass_matrices()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fdg.compute_kform_boundary_trace_moments"><code class="docutils literal notranslate"><span class="pre">compute_kform_boundary_trace_moments()</span></code></a></li>
 </ul>
 </li>
 </ul>
@@ -606,8 +722,8 @@ geometries.</p>
   </div>
   
   <!-- Scripts loaded after <body> so the DOM is not blocked -->
-  <script defer src="../_static/scripts/bootstrap.js?digest=cb8930eaaf36d9849b67"></script>
-<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=cb8930eaaf36d9849b67"></script>
+  <script defer src="../_static/scripts/bootstrap.js?digest=64cc4de3f052d77215f0"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=64cc4de3f052d77215f0"></script>
 
   <footer class="bd-footer">
 <div class="bd-footer__inner bd-page-width">
@@ -628,7 +744,6 @@ geometries.</p>
 
   <p class="sphinx-version">
     Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.1.0.
-    <br/>
   </p>
 </div>
       
@@ -641,7 +756,7 @@ geometries.</p>
         <div class="footer-item">
 <p class="theme-version">
   <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
-  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.21.0.
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.22.0.
 </p></div>
       
     </div>

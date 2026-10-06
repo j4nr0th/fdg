@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 
 
@@ -27,22 +26,22 @@
   </noscript>
   
   <!-- Loaded before other Sphinx assets -->
-  <link href="../_static/styles/theme.css?digest=cb8930eaaf36d9849b67" rel="stylesheet" />
-<link href="../_static/styles/pydata-sphinx-theme.css?digest=cb8930eaaf36d9849b67" rel="stylesheet" />
+  <link href="../_static/styles/theme.css?digest=64cc4de3f052d77215f0" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=64cc4de3f052d77215f0" rel="stylesheet" />
 
     <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
     <link rel="stylesheet" type="text/css" href="../_static/jupyter-sphinx.css" />
     <link rel="stylesheet" type="text/css" href="../_static/thebelab.css" />
-    <link rel="stylesheet" type="text/css" href="../_static/sg_gallery.css?v=fd6457a4" />
+    <link rel="stylesheet" type="text/css" href="../_static/sg_gallery.css?v=c83e6b79" />
     <link rel="stylesheet" type="text/css" href="../_static/sg_gallery-binder.css?v=f4aeca0c" />
     <link rel="stylesheet" type="text/css" href="../_static/sg_gallery-dataframe.css?v=2082cf3c" />
     <link rel="stylesheet" type="text/css" href="../_static/sg_gallery-rendered-html.css?v=1277b6f3" />
   
   <!-- So that users can add custom icons -->
-  <script defer src="../_static/scripts/fontawesome.js?digest=cb8930eaaf36d9849b67"></script>
+  <script defer src="../_static/scripts/fontawesome.js?digest=64cc4de3f052d77215f0"></script>
   <!-- Pre-loaded scripts that we'll load fully later -->
-  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=cb8930eaaf36d9849b67" />
-<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=cb8930eaaf36d9849b67" />
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=64cc4de3f052d77215f0" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=64cc4de3f052d77215f0" />
 
     <script src="../_static/documentation_options.js?v=8c8a9e14"></script>
     <script src="../_static/doctools.js?v=fd6eb6e6"></script>
@@ -56,7 +55,7 @@
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="Common Utilities" href="c_common.html" />
-    <link rel="prev" title="Boundary Constraints" href="boundary_constraints.html" />
+    <link rel="prev" title="Moving Meshes" href="moving_mesh.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
@@ -107,7 +106,7 @@
   
     <header id="pst-header" class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
 <div class="bd-header__inner bd-page-width">
-  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+  <button type="button" class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
     <span class="fa-solid fa-bars"></span>
   </button>
   
@@ -165,7 +164,7 @@
         <div class="navbar-item navbar-persistent--container">
           
 
-<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+<button type="button" class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
  <i class="fa-solid fa-magnifying-glass"></i>
  <span class="search-button__default-text">Search</span>
  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
@@ -176,15 +175,15 @@
         <div class="navbar-item">
 
 <div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
-  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+  <button type="button" class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
     <i class="theme-switch fa-solid fa-sun fa-lg fa-fw" data-mode="light" title="Light"></i>
     <i class="theme-switch fa-solid fa-moon fa-lg fa-fw" data-mode="dark" title="Dark"></i>
     <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg fa-fw" data-mode="auto" title="System Settings"></i>
   </button>
   <ul class="dropdown-menu dropdown-menu-end">
-    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg fa-fw me-1"></i>System Settings</button></li>
-    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg fa-fw me-1"></i>Light</button></li>
-    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg fa-fw me-1"></i>Dark</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg fa-fw me-1"></i>System Settings</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg fa-fw me-1"></i>Light</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg fa-fw me-1"></i>Dark</button></li>
   </ul>
 </div></div>
       
@@ -195,7 +194,7 @@
   
     <div class="navbar-persistent--mobile">
 
-<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+<button type="button" class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
  <i class="fa-solid fa-magnifying-glass"></i>
  <span class="search-button__default-text">Search</span>
  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
@@ -204,7 +203,7 @@
   
 
   
-    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+    <button type="button" class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
       <span class="fa-solid fa-outdent"></span>
     </button>
   
@@ -260,15 +259,15 @@
           <div class="navbar-item">
 
 <div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
-  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+  <button type="button" class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
     <i class="theme-switch fa-solid fa-sun fa-lg fa-fw" data-mode="light" title="Light"></i>
     <i class="theme-switch fa-solid fa-moon fa-lg fa-fw" data-mode="dark" title="Dark"></i>
     <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg fa-fw" data-mode="auto" title="System Settings"></i>
   </button>
   <ul class="dropdown-menu dropdown-menu-end">
-    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg fa-fw me-1"></i>System Settings</button></li>
-    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg fa-fw me-1"></i>Light</button></li>
-    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg fa-fw me-1"></i>Dark</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg fa-fw me-1"></i>System Settings</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg fa-fw me-1"></i>Light</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg fa-fw me-1"></i>Dark</button></li>
   </ul>
 </div></div>
         
@@ -277,7 +276,7 @@
   </div>
   
     <div class="sidebar-primary-items__start sidebar-primary__section">
-        <div class="sidebar-primary-item pst-sidebar-collapse"><button id="pst-collapse-sidebar-button" aria-expanded="true" aria-controls="pst-primary-sidebar">
+        <div class="sidebar-primary-item pst-sidebar-collapse"><button type="button" id="pst-collapse-sidebar-button" aria-expanded="true" aria-controls="pst-primary-sidebar">
   <svg class="pst-icon" role="img" aria-hidden="true" focusable="false" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
     <path fill="currentColor" d="M3 15.5C2.36232 15.5 1.74874 15.2564 1.28478 14.8189C0.820828 14.3815 0.541576 13.7832 0.504167 13.1467L0.5 13L0.5 3C0.499965 2.36232 0.743605 1.74874 1.18107 1.28478C1.61854 0.820828 2.21676 0.541576 2.85333 0.504167L3 0.5L13 0.5C13.6377 0.499965 14.2513 0.743605 14.7152 1.18107C15.1792 1.61854 15.4584 2.21676 15.4958 2.85333L15.5 3L15.5 13C15.5 13.6377 15.2564 14.2513 14.8189 14.7152C14.3815 15.1792 13.7832 15.4584 13.1467 15.4958L13 15.5L3 15.5ZM3 13.8333L10.5 13.8333L10.5 2.16667L3 2.16667C2.79589 2.16669 2.59889 2.24163 2.44636 2.37726C2.29383 2.5129 2.19638 2.69979 2.1725 2.9025L2.16667 3L2.16667 13C2.16669 13.2041 2.24163 13.4011 2.37726 13.5536C2.5129 13.7062 2.69979 13.8036 2.9025 13.8275L3 13.8333ZM6.65583 10.325L6.5775 10.2558L4.91083 8.58917C4.76735 8.44567 4.68116 8.25476 4.66843 8.05223C4.65569 7.84971 4.71729 7.6495 4.84167 7.48917L4.91083 7.41083L6.5775 5.74417C6.72747 5.59471 6.9287 5.50794 7.14032 5.50148C7.35194 5.49502 7.55809 5.56935 7.7169 5.70937C7.8757 5.8494 7.97525 6.04463 7.99533 6.25539C8.01541 6.46616 7.95451 6.67667 7.825 6.84417L7.75583 6.9225L6.67917 8L7.75583 9.0775C7.89931 9.22099 7.98551 9.41191 7.99824 9.61443C8.01097 9.81695 7.94938 10.0172 7.825 10.1775L7.75583 10.2558C7.61234 10.3993 7.42142 10.4855 7.2189 10.4982C7.01638 10.511 6.81617 10.4494 6.65583 10.325Z"/>
   </svg>
@@ -304,7 +303,10 @@
 <li class="toctree-l1"><a class="reference internal" href="incidence.html">Exterior Derivative</a></li>
 <li class="toctree-l1"><a class="reference internal" href="interior_product.html">Interior Product</a></li>
 <li class="toctree-l1"><a class="reference internal" href="boundary_constraints.html">Boundary Constraints</a></li>
-<li class="toctree-l1 current active has-children"><a class="current reference internal" href="#">C API</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l1"><a class="reference internal" href="hybridized_solves.html">Hybridized Solves</a></li>
+<li class="toctree-l1"><a class="reference internal" href="direct_continuity.html">Direct Continuity</a></li>
+<li class="toctree-l1"><a class="reference internal" href="moving_mesh.html">Moving Meshes</a></li>
+<li class="toctree-l1 current active has-children"><a aria-current="page" class="current reference internal" href="#">C API</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="c_common.html">Common Utilities</a></li>
 <li class="toctree-l2"><a class="reference internal" href="c_basis.html">Basis Sets</a></li>
 <li class="toctree-l2"><a class="reference internal" href="c_polynomials.html">Polynomials</a></li>
@@ -383,10 +385,12 @@ bindings in <code class="docutils literal notranslate"><span class="pre">src/pyt
 blocks used by the Python API: polynomial bases, quadrature rules,
 topological mesh handling, constraint assembly and reconstruction.</p>
 <p>The C core is written in C17 and has no dependency other than the <code class="docutils literal notranslate"><span class="pre">cutl</span></code>
-utility library. Error handling is done through status codes: most functions
-return a status or result type such as <a class="reference internal" href="c_common.html#c.fdg_result_t" title="fdg_result_t"><code class="xref c c-type docutils literal notranslate"><span class="pre">fdg_result_t</span></code></a>,
-<a class="reference internal" href="c_topology.html#c.topo_status_t" title="topo_status_t"><code class="xref c c-type docutils literal notranslate"><span class="pre">topo_status_t</span></code></a> or <a class="reference internal" href="c_constraints.html#c.constraint_status_t" title="constraint_status_t"><code class="xref c c-type docutils literal notranslate"><span class="pre">constraint_status_t</span></code></a>, where the zero
-value indicates success.</p>
+utility library. Error handling is done through status codes: functions that
+can fail return a status or result type such as <a class="reference internal" href="c_common.html#c.fdg_result_t" title="fdg_result_t"><code class="xref c c-type docutils literal notranslate"><span class="pre">fdg_result_t</span></code></a> or
+<a class="reference internal" href="c_topology.html#c.topo_status_t" title="topo_status_t"><code class="xref c c-type docutils literal notranslate"><span class="pre">topo_status_t</span></code></a>, where the zero value indicates success. Only
+resource failures (memory allocation) and a small number of collection-state
+rules are recoverable; every other invalid input is a precondition violation
+that aborts through the <code class="docutils literal notranslate"><span class="pre">CUTL_ASSERT</span></code> macro.</p>
 <p>Functions marked <a class="reference internal" href="c_common.html#c.FDG_INTERNAL" title="FDG_INTERNAL"><code class="xref c c-macro docutils literal notranslate"><span class="pre">FDG_INTERNAL</span></code></a> are hidden from the shared library
 symbol table; they are internal to the library but still usable by code that
 links the static archive, such as the Python bindings.</p>
@@ -406,14 +410,14 @@ links the static archive, such as the Python bindings.</p>
 <li class="toctree-l2"><a class="reference internal" href="c_common.html#c.FDG_INTERNAL"><code class="docutils literal notranslate"><span class="pre">FDG_INTERNAL</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="c_common.html#c.FDG_EXTERNAL"><code class="docutils literal notranslate"><span class="pre">FDG_EXTERNAL</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="c_common.html#c.FDG_ARRAY_ARG"><code class="docutils literal notranslate"><span class="pre">FDG_ARRAY_ARG()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="c_common.html#c.ASSERT"><code class="docutils literal notranslate"><span class="pre">ASSERT()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="c_common.html#c.ASSUME"><code class="docutils literal notranslate"><span class="pre">ASSUME()</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="c_basis.html">Basis Sets</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="c_basis.html#c.basis_set_type_t"><code class="docutils literal notranslate"><span class="pre">basis_set_type_t</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_basis.html#c.basis_set_type_is_valid"><code class="docutils literal notranslate"><span class="pre">basis_set_type_is_valid()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="c_basis.html#c.basis_spec_t"><code class="docutils literal notranslate"><span class="pre">basis_spec_t</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="c_basis.html#c.basis_set_t"><code class="docutils literal notranslate"><span class="pre">basis_set_t</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_basis.html#c.basis_set_to_boundary"><code class="docutils literal notranslate"><span class="pre">basis_set_to_boundary()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="c_basis.html#c.basis_endpoint_set_t"><code class="docutils literal notranslate"><span class="pre">basis_endpoint_set_t</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="c_basis.html#c.basis_endpoint_values"><code class="docutils literal notranslate"><span class="pre">basis_endpoint_values()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="c_basis.html#c.basis_set_values_all"><code class="docutils literal notranslate"><span class="pre">basis_set_values_all()</span></code></a></li>
@@ -435,12 +439,25 @@ links the static archive, such as the Python bindings.</p>
 <li class="toctree-l2"><a class="reference internal" href="c_basis.html#c.basis_compute_at_point_derivatives"><code class="docutils literal notranslate"><span class="pre">basis_compute_at_point_derivatives()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="c_basis.html#c.basis_compute_outer_product_basis_required_memory"><code class="docutils literal notranslate"><span class="pre">basis_compute_outer_product_basis_required_memory()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="c_basis.html#c.basis_compute_outer_product_basis"><code class="docutils literal notranslate"><span class="pre">basis_compute_outer_product_basis()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_basis.html#c.outer_product_pair_iterator_t"><code class="docutils literal notranslate"><span class="pre">outer_product_pair_iterator_t</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_basis.html#c.outer_product_pair_iterator_prefix_cache"><code class="docutils literal notranslate"><span class="pre">outer_product_pair_iterator_prefix_cache()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_basis.html#c.outer_product_pair_iterator_integration_point_indices"><code class="docutils literal notranslate"><span class="pre">outer_product_pair_iterator_integration_point_indices()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_basis.html#c.outer_product_pair_iterator_basis_indices_left"><code class="docutils literal notranslate"><span class="pre">outer_product_pair_iterator_basis_indices_left()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_basis.html#c.outer_product_pair_iterator_basis_indices_right"><code class="docutils literal notranslate"><span class="pre">outer_product_pair_iterator_basis_indices_right()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_basis.html#c.outer_product_pair_iterator_dim_factor"><code class="docutils literal notranslate"><span class="pre">outer_product_pair_iterator_dim_factor()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_basis.html#c.outer_product_pair_iterator_init"><code class="docutils literal notranslate"><span class="pre">outer_product_pair_iterator_init()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_basis.html#c.outer_product_pair_iterator_set_derivative_masks"><code class="docutils literal notranslate"><span class="pre">outer_product_pair_iterator_set_derivative_masks()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_basis.html#c.outer_product_pair_iterator_set_bases"><code class="docutils literal notranslate"><span class="pre">outer_product_pair_iterator_set_bases()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_basis.html#c.outer_product_pair_iterator_set_basis_indices"><code class="docutils literal notranslate"><span class="pre">outer_product_pair_iterator_set_basis_indices()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_basis.html#c.outer_product_pair_iterator_point_index"><code class="docutils literal notranslate"><span class="pre">outer_product_pair_iterator_point_index()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_basis.html#c.outer_product_pair_iterator_current_value"><code class="docutils literal notranslate"><span class="pre">outer_product_pair_iterator_current_value()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_basis.html#c.outer_product_pair_iterator_next_integration_point"><code class="docutils literal notranslate"><span class="pre">outer_product_pair_iterator_next_integration_point()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="c_basis.html#c.bernstein_basis_create"><code class="docutils literal notranslate"><span class="pre">bernstein_basis_create()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="c_basis.html#c.lagrange_basis_roots"><code class="docutils literal notranslate"><span class="pre">lagrange_basis_roots()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="c_basis.html#c.lagrange_basis_create"><code class="docutils literal notranslate"><span class="pre">lagrange_basis_create()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="c_basis.html#c.generate_lagrange_roots"><code class="docutils literal notranslate"><span class="pre">generate_lagrange_roots()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="c_basis.html#c.legendre_basis_create"><code class="docutils literal notranslate"><span class="pre">legendre_basis_create()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="c_basis.html#c.&#64;anonymous_01337bf2c569bf4ebce75481b61cf0cb"><code class="docutils literal notranslate"><span class="pre">&#64;anonymous_01337bf2c569bf4ebce75481b61cf0cb</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_basis.html#c.&#64;anonymous_9dde37b573227ba05424e6054e2cdac7"><code class="docutils literal notranslate"><span class="pre">&#64;anonymous_9dde37b573227ba05424e6054e2cdac7</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="c_basis.html#c.covector_basis_t"><code class="docutils literal notranslate"><span class="pre">covector_basis_t</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="c_basis.html#c.COVECTOR_BASIS_ZERO"><code class="docutils literal notranslate"><span class="pre">COVECTOR_BASIS_ZERO</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="c_basis.html#c.covector_basis_has_component"><code class="docutils literal notranslate"><span class="pre">covector_basis_has_component()</span></code></a></li>
@@ -483,6 +500,7 @@ links the static archive, such as the Python bindings.</p>
 <li class="toctree-l2"><a class="reference internal" href="c_integration.html#c.integration_rule_type_t"><code class="docutils literal notranslate"><span class="pre">integration_rule_type_t</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="c_integration.html#c.integration_rule_type_to_str"><code class="docutils literal notranslate"><span class="pre">integration_rule_type_to_str()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="c_integration.html#c.integration_spec_t"><code class="docutils literal notranslate"><span class="pre">integration_spec_t</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_integration.html#c.integration_rules_to_boundary"><code class="docutils literal notranslate"><span class="pre">integration_rules_to_boundary()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="c_integration.html#c.integration_rule_t"><code class="docutils literal notranslate"><span class="pre">integration_rule_t</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="c_integration.html#c.integration_rule_nodes"><code class="docutils literal notranslate"><span class="pre">integration_rule_nodes()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="c_integration.html#c.integration_rule_nodes_const"><code class="docutils literal notranslate"><span class="pre">integration_rule_nodes_const()</span></code></a></li>
@@ -500,6 +518,9 @@ links the static archive, such as the Python bindings.</p>
 <li class="toctree-l2"><a class="reference internal" href="c_integration.html#c.integration_rule_get_rules"><code class="docutils literal notranslate"><span class="pre">integration_rule_get_rules()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="c_integration.html#c.integration_rule_spec_get_accuracy"><code class="docutils literal notranslate"><span class="pre">integration_rule_spec_get_accuracy()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="c_integration.html#c.integration_specs_total_points"><code class="docutils literal notranslate"><span class="pre">integration_specs_total_points()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_integration.html#c.integration_spec_point_strides"><code class="docutils literal notranslate"><span class="pre">integration_spec_point_strides()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_integration.html#c.integration_rule_tensor_weights"><code class="docutils literal notranslate"><span class="pre">integration_rule_tensor_weights()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_integration.html#c.integration_orders_total_points"><code class="docutils literal notranslate"><span class="pre">integration_orders_total_points()</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="c_matrices.html">Matrices</a><ul>
@@ -516,14 +537,12 @@ links the static archive, such as the Python bindings.</p>
 <li class="toctree-l2"><a class="reference internal" href="c_topology.html#c.topo_obj_collection_t"><code class="docutils literal notranslate"><span class="pre">topo_obj_collection_t</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="c_topology.html#c.topo_obj_immersion_t"><code class="docutils literal notranslate"><span class="pre">topo_obj_immersion_t</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="c_topology.html#c.topo_obj_boundary_count"><code class="docutils literal notranslate"><span class="pre">topo_obj_boundary_count()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="c_topology.html#c.topo_obj_common_boundary"><code class="docutils literal notranslate"><span class="pre">topo_obj_common_boundary()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="c_topology.html#c.topo_obj_common_boundary_index"><code class="docutils literal notranslate"><span class="pre">topo_obj_common_boundary_index()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="c_topology.html#c.topo_obj_create_immersion_info"><code class="docutils literal notranslate"><span class="pre">topo_obj_create_immersion_info()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="c_topology.html#c.topo_obj_immersions_free"><code class="docutils literal notranslate"><span class="pre">topo_obj_immersions_free()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="c_topology.html#c.topo_obj_boundary_immersion_create"><code class="docutils literal notranslate"><span class="pre">topo_obj_boundary_immersion_create()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="c_topology.html#c.topo_obj_immersion_of_object"><code class="docutils literal notranslate"><span class="pre">topo_obj_immersion_of_object()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="c_topology.html#c.topo_obj_boundary_orientation"><code class="docutils literal notranslate"><span class="pre">topo_obj_boundary_orientation()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="c_topology.html#c.topo_obj_find_common_boundary"><code class="docutils literal notranslate"><span class="pre">topo_obj_find_common_boundary()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="c_topology.html#c.topo_bnd_iter_t"><code class="docutils literal notranslate"><span class="pre">topo_bnd_iter_t</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="c_topology.html#c.topo_reorder_with_orientation"><code class="docutils literal notranslate"><span class="pre">topo_reorder_with_orientation()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="c_topology.html#c.topo_iterate_boundary"><code class="docutils literal notranslate"><span class="pre">topo_iterate_boundary()</span></code></a></li>
@@ -549,34 +568,60 @@ links the static archive, such as the Python bindings.</p>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="c_constraints.html">Constraints</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_status_t"><code class="docutils literal notranslate"><span class="pre">constraint_status_t</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_kform_spec_t"><code class="docutils literal notranslate"><span class="pre">constraint_kform_spec_t</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_element_side_t"><code class="docutils literal notranslate"><span class="pre">constraint_element_side_t</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_quadrature_t"><code class="docutils literal notranslate"><span class="pre">constraint_quadrature_t</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_face_quadrature_t"><code class="docutils literal notranslate"><span class="pre">constraint_face_quadrature_t</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.boundary_element_space_t"><code class="docutils literal notranslate"><span class="pre">boundary_element_space_t</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_trace_pullback_t"><code class="docutils literal notranslate"><span class="pre">constraint_trace_pullback_t</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_physical_batch_item_t"><code class="docutils literal notranslate"><span class="pre">constraint_physical_batch_item_t</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_trace_basis_values_t"><code class="docutils literal notranslate"><span class="pre">constraint_trace_basis_values_t</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_entry_t"><code class="docutils literal notranslate"><span class="pre">constraint_entry_t</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_rows_view_t"><code class="docutils literal notranslate"><span class="pre">constraint_rows_view_t</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_status_to_str"><code class="docutils literal notranslate"><span class="pre">constraint_status_to_str()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_status_msg"><code class="docutils literal notranslate"><span class="pre">constraint_status_msg()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_kform_component_count"><code class="docutils literal notranslate"><span class="pre">constraint_kform_component_count()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_kform_component_dof_count"><code class="docutils literal notranslate"><span class="pre">constraint_kform_component_dof_count()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_kform_component_offsets"><code class="docutils literal notranslate"><span class="pre">constraint_kform_component_offsets()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_reference_required"><code class="docutils literal notranslate"><span class="pre">constraint_reference_required()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_reference_assemble"><code class="docutils literal notranslate"><span class="pre">constraint_reference_assemble()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_physical_required"><code class="docutils literal notranslate"><span class="pre">constraint_physical_required()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_physical_side_required"><code class="docutils literal notranslate"><span class="pre">constraint_physical_side_required()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_physical_side_assemble"><code class="docutils literal notranslate"><span class="pre">constraint_physical_side_assemble()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_physical_side_assemble_precomputed"><code class="docutils literal notranslate"><span class="pre">constraint_physical_side_assemble_precomputed()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_trace_pullback_build_work_t"><code class="docutils literal notranslate"><span class="pre">constraint_trace_pullback_build_work_t</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_trace_pullback_build_t"><code class="docutils literal notranslate"><span class="pre">constraint_trace_pullback_build_t</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_trace_pullback_build_work_sizes_t"><code class="docutils literal notranslate"><span class="pre">constraint_trace_pullback_build_work_sizes_t</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_trace_pullback_build_work_size"><code class="docutils literal notranslate"><span class="pre">constraint_trace_pullback_build_work_size()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_trace_pullback_build_work_t_"><code class="docutils literal notranslate"><span class="pre">constraint_trace_pullback_build_work_t_</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.&#64;anonymous_bac6f8001b58d4a605add22dd456a995"><code class="docutils literal notranslate"><span class="pre">&#64;anonymous_bac6f8001b58d4a605add22dd456a995</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_boundary_mass_spec_t"><code class="docutils literal notranslate"><span class="pre">constraint_boundary_mass_spec_t</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_boundary_mass_work_sizes_t"><code class="docutils literal notranslate"><span class="pre">constraint_boundary_mass_work_sizes_t</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_boundary_mass_work_t"><code class="docutils literal notranslate"><span class="pre">constraint_boundary_mass_work_t</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_boundary_mass_work_size"><code class="docutils literal notranslate"><span class="pre">constraint_boundary_mass_work_size()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_boundary_mass_work_memory"><code class="docutils literal notranslate"><span class="pre">constraint_boundary_mass_work_memory()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_boundary_mass_work_init"><code class="docutils literal notranslate"><span class="pre">constraint_boundary_mass_work_init()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_boundary_mass_request_t"><code class="docutils literal notranslate"><span class="pre">constraint_boundary_mass_request_t</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_boundary_mass_layout"><code class="docutils literal notranslate"><span class="pre">constraint_boundary_mass_layout()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_boundary_mass_assemble"><code class="docutils literal notranslate"><span class="pre">constraint_boundary_mass_assemble()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_boundary_mass_pack"><code class="docutils literal notranslate"><span class="pre">constraint_boundary_mass_pack()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_boundary_mass_gram"><code class="docutils literal notranslate"><span class="pre">constraint_boundary_mass_gram()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constrain_elements_on_boundary_request_t"><code class="docutils literal notranslate"><span class="pre">constrain_elements_on_boundary_request_t</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constrain_elements_on_boundary_plan_t"><code class="docutils literal notranslate"><span class="pre">constrain_elements_on_boundary_plan_t</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constrain_elements_on_boundary_work_t"><code class="docutils literal notranslate"><span class="pre">constrain_elements_on_boundary_work_t</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constrain_elements_on_boundary_prepare"><code class="docutils literal notranslate"><span class="pre">constrain_elements_on_boundary_prepare()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constrain_elements_on_boundary_work_size"><code class="docutils literal notranslate"><span class="pre">constrain_elements_on_boundary_work_size()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constrain_elements_on_boundary_assemble"><code class="docutils literal notranslate"><span class="pre">constrain_elements_on_boundary_assemble()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constrain_elements_on_boundary_plan_release"><code class="docutils literal notranslate"><span class="pre">constrain_elements_on_boundary_plan_release()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.boundary_space_map_resample_request_t"><code class="docutils literal notranslate"><span class="pre">boundary_space_map_resample_request_t</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.boundary_space_map_resample"><code class="docutils literal notranslate"><span class="pre">boundary_space_map_resample()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.boundary_space_map_resample_work_size"><code class="docutils literal notranslate"><span class="pre">boundary_space_map_resample_work_size()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_physical_side_load_work_t"><code class="docutils literal notranslate"><span class="pre">constraint_physical_side_load_work_t</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_physical_side_load_work_size"><code class="docutils literal notranslate"><span class="pre">constraint_physical_side_load_work_size()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_physical_side_load"><code class="docutils literal notranslate"><span class="pre">constraint_physical_side_load()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_physical_assemble"><code class="docutils literal notranslate"><span class="pre">constraint_physical_assemble()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_physical_batch_required"><code class="docutils literal notranslate"><span class="pre">constraint_physical_batch_required()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_physical_batch_assemble"><code class="docutils literal notranslate"><span class="pre">constraint_physical_batch_assemble()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_rows_required_offset_count"><code class="docutils literal notranslate"><span class="pre">constraint_rows_required_offset_count()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_rows_required_entry_capacity"><code class="docutils literal notranslate"><span class="pre">constraint_rows_required_entry_capacity()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_rows_validate"><code class="docutils literal notranslate"><span class="pre">constraint_rows_validate()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_face_source_axis"><code class="docutils literal notranslate"><span class="pre">constraint_face_source_axis()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_face_canonical_specs"><code class="docutils literal notranslate"><span class="pre">constraint_face_canonical_specs()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_face_point_to_source"><code class="docutils literal notranslate"><span class="pre">constraint_face_point_to_source()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.constraint_trace_pullback_build"><code class="docutils literal notranslate"><span class="pre">constraint_trace_pullback_build()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.direct_continuity_request_t"><code class="docutils literal notranslate"><span class="pre">direct_continuity_request_t</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.direct_continuity_layout_t"><code class="docutils literal notranslate"><span class="pre">direct_continuity_layout_t</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.direct_continuity_work_t"><code class="docutils literal notranslate"><span class="pre">direct_continuity_work_t</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.direct_continuity_plan_t"><code class="docutils literal notranslate"><span class="pre">direct_continuity_plan_t</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.direct_entry_fn"><code class="docutils literal notranslate"><span class="pre">direct_entry_fn</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.direct_continuity_prepare"><code class="docutils literal notranslate"><span class="pre">direct_continuity_prepare()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.direct_continuity_layout"><code class="docutils literal notranslate"><span class="pre">direct_continuity_layout()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.direct_continuity_build"><code class="docutils literal notranslate"><span class="pre">direct_continuity_build()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.direct_continuity_scatter"><code class="docutils literal notranslate"><span class="pre">direct_continuity_scatter()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.direct_continuity_triplet_count"><code class="docutils literal notranslate"><span class="pre">direct_continuity_triplet_count()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.direct_continuity_scatter_triplets"><code class="docutils literal notranslate"><span class="pre">direct_continuity_scatter_triplets()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.direct_continuity_plan_release"><code class="docutils literal notranslate"><span class="pre">direct_continuity_plan_release()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.direct_continuity_work_memory"><code class="docutils literal notranslate"><span class="pre">direct_continuity_work_memory()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.direct_continuity_work_init"><code class="docutils literal notranslate"><span class="pre">direct_continuity_work_init()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.direct_continuity_plan_memory"><code class="docutils literal notranslate"><span class="pre">direct_continuity_plan_memory()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.direct_continuity_plan_init"><code class="docutils literal notranslate"><span class="pre">direct_continuity_plan_init()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="c_constraints.html#c.direct_entity_index"><code class="docutils literal notranslate"><span class="pre">direct_entity_index()</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="c_reconstruction.html">Reconstruction</a><ul>
@@ -605,12 +650,12 @@ links the static archive, such as the Python bindings.</p>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="boundary_constraints.html"
+       href="moving_mesh.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Boundary Constraints</p>
+        <p class="prev-next-title">Moving Meshes</p>
       </div>
     </a>
     <a class="right-next"
@@ -655,8 +700,8 @@ links the static archive, such as the Python bindings.</p>
   </div>
   
   <!-- Scripts loaded after <body> so the DOM is not blocked -->
-  <script defer src="../_static/scripts/bootstrap.js?digest=cb8930eaaf36d9849b67"></script>
-<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=cb8930eaaf36d9849b67"></script>
+  <script defer src="../_static/scripts/bootstrap.js?digest=64cc4de3f052d77215f0"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=64cc4de3f052d77215f0"></script>
 
   <footer class="bd-footer">
 <div class="bd-footer__inner bd-page-width">
@@ -677,7 +722,6 @@ links the static archive, such as the Python bindings.</p>
 
   <p class="sphinx-version">
     Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.1.0.
-    <br/>
   </p>
 </div>
       
@@ -690,7 +734,7 @@ links the static archive, such as the Python bindings.</p>
         <div class="footer-item">
 <p class="theme-version">
   <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
-  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.21.0.
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.22.0.
 </p></div>
       
     </div>

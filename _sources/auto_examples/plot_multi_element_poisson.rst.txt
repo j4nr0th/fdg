@@ -25,7 +25,8 @@ Multi-element Poisson equation
 
 This example demonstrates how the mixed Poisson equation can be solved on
 multiple hypercube elements at once, with the continuity of the flux across
-the shared faces enforced by :meth:`Mesh.compute_kform_boundary_constraints`.
+the shared faces enforced by
+:meth:`Mesh.compute_kform_continuity_constraints`.
 
 The mixed Poisson equation is defined in the weak form as:
 
@@ -52,9 +53,10 @@ a Lagrange multiplier :math:`\lambda^{(n - 1)}`:
     \left( v^{(n - 1)}, \operatorname{tr}_{\Omega_a} q^{(n - 1)} -
     \operatorname{tr}_{\Omega_b} q^{(n - 1)} \right)_F = 0
 
-The traces are assembled with :meth:`Mesh.compute_kform_boundary_constraints`,
-which computes the physical boundary rows of one element against the shared
-face.
+The traces are assembled with
+:meth:`Mesh.compute_kform_continuity_constraints`, which derives the common
+trace test spaces internally and returns packed global rows that compare the
+traces of paired elements on each shared face.
 
 For this example, a 2x2 grid of four quadrilateral elements and a 2x2x2 grid
 of eight hexahedral elements are used, together with the same manufactured
@@ -90,7 +92,8 @@ which vanishes on the outer boundary and is represented exactly by the
 cubic geometry basis. The deformation is modest (c = 0.3), so the map
 remains a diffeomorphism with :math:`\det J \in [0.4, 1.6]`. The flux
 continuity across the curved shared faces is enforced with
-:meth:`Mesh.compute_kform_boundary_constraints`.
+:meth:`Mesh.compute_kform_continuity_constraints`, whose rows carry the full
+pullback geometry of every incident element.
 
 The three-dimensional solution is rendered with `pyvista
 <https://docs.pyvista.org/>`_ as curved (Lagrange) hexahedral cells, the
@@ -99,7 +102,7 @@ and the flux as arrows on a uniform grid of points. The sign of the error is
 lost; the logarithmic scale is needed because the error spans several orders
 of magnitude.
 
-.. GENERATED FROM PYTHON SOURCE LINES 83-111
+.. GENERATED FROM PYTHON SOURCE LINES 86-114
 
 .. code-block:: Python
 
@@ -138,7 +141,7 @@ of magnitude.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 112-118
+.. GENERATED FROM PYTHON SOURCE LINES 115-121
 
 The manufactured solution is the same as in the single-element Poisson
 example: a product of cosines that vanishes on the boundary of the
@@ -147,7 +150,7 @@ that domain; their interiors are deformed, but their outer boundaries are
 not.
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 119-163
+.. GENERATED FROM PYTHON SOURCE LINES 122-166
 
 .. code-block:: Python
 
@@ -202,7 +205,7 @@ not.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 164-172
+.. GENERATED FROM PYTHON SOURCE LINES 167-175
 
 First the topological mesh of the domain is built. The mesh has no geometry:
 it only stores the connections between the points, lines, faces and
@@ -213,7 +216,7 @@ lines and faces are simply referenced by the same point IDs in multiple
 elements.
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 173-192
+.. GENERATED FROM PYTHON SOURCE LINES 176-195
 
 .. code-block:: Python
 
@@ -243,7 +246,7 @@ elements.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 193-206
+.. GENERATED FROM PYTHON SOURCE LINES 196-209
 
 The mesh is now created from the corners. In the reference domain every
 element is the unit hypercube :math:`[x_1 - 1, x_1] \times \dots`; the
@@ -259,7 +262,7 @@ which is then used to map :math:`k`-form components between the reference
 domain and the physical domain.
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 207-238
+.. GENERATED FROM PYTHON SOURCE LINES 210-241
 
 .. code-block:: Python
 
@@ -301,7 +304,7 @@ domain and the physical domain.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 239-246
+.. GENERATED FROM PYTHON SOURCE LINES 242-249
 
 Along with the :class:`IntegrationSpace` objects that define integration we
 must define the discretization of the :math:`k`-forms using a :class:`FunctionSpace`
@@ -311,7 +314,7 @@ created with :class:`KFormSpecs`: the :math:`(n - 1)`-form flux :math:`q`
 and the :math:`n`-form solution :math:`u`.
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 247-261
+.. GENERATED FROM PYTHON SOURCE LINES 250-264
 
 .. code-block:: Python
 
@@ -336,14 +339,14 @@ and the :math:`n`-form solution :math:`u`.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 262-266
+.. GENERATED FROM PYTHON SOURCE LINES 265-269
 
 For the left side of the system the two mass matrices of the two
 :math:`k`-forms are computed, and the incidence operator is applied as
 needed. This produces the element block of the saddle-point system.
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 266-290
+.. GENERATED FROM PYTHON SOURCE LINES 269-293
 
 .. code-block:: Python
 
@@ -378,13 +381,13 @@ needed. This produces the element block of the saddle-point system.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 291-294
+.. GENERATED FROM PYTHON SOURCE LINES 294-297
 
 The right side of the Poisson equation is computed from the "dual projection"
 of the manufactured source term on the function space.
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 294-311
+.. GENERATED FROM PYTHON SOURCE LINES 297-314
 
 .. code-block:: Python
 
@@ -412,33 +415,39 @@ of the manufactured source term on the function space.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 312-317
+.. GENERATED FROM PYTHON SOURCE LINES 315-322
 
-The boundary constraints returned by
-:meth:`Mesh.compute_kform_boundary_constraints` are packed sparse rows. For
-this example they are materialized into dense element operators, whose
-columns are the flattened degrees of freedom of the flux :math:`q`.
+The continuity rows returned by
+:meth:`Mesh.compute_kform_continuity_constraints` are packed sparse global
+rows: each entry names an element, an element-frame component, and a local
+DoF of the flux :math:`q`. For this example they are materialized into one
+dense global operator whose columns are the interleaved element blocks of
+flux degrees of freedom.
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 318-339
+.. GENERATED FROM PYTHON SOURCE LINES 323-348
 
 .. code-block:: Python
 
 
 
     def packed_to_dense(
-        result: tuple[np.ndarray, ...], element_spec: KFormSpecs
+        packed: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray],
+        specs_q: KFormSpecs,
+        element_count: int,
+        block: int,
     ) -> np.ndarray:
-        """Materialize packed boundary-constraint rows as a dense operator."""
-        row_offsets, components, local_dofs, coefficients = result
+        """Materialize packed global continuity rows as a dense operator."""
+        row_offsets, element_ids, components, local_dofs, coefficients = packed
         n_rows = row_offsets.size - 1
-        n_dofs = int(np.sum(element_spec.component_dof_counts))
-        matrix = np.zeros((n_rows, n_dofs))
+        matrix = np.zeros((n_rows, element_count * block))
         for row in range(n_rows):
             start, end = int(row_offsets[row]), int(row_offsets[row + 1])
             for i in range(start, end):
-                column = int(
-                    element_spec.get_component_slice(int(components[i])).start
+                element = int(element_ids[i])
+                column = (
+                    element * block
+                    + int(specs_q.get_component_slice(int(components[i])).start)
                     + int(local_dofs[i])
                 )
                 matrix[row, column] += coefficients[i]
@@ -452,19 +461,20 @@ columns are the flattened degrees of freedom of the flux :math:`q`.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 340-349
+.. GENERATED FROM PYTHON SOURCE LINES 349-359
 
 With all the small building blocks in place, the global saddle-point system
 can be assembled. The element blocks are placed on the diagonal, while the
 continuity constraints of the flux across the shared faces are added as rows
-of the constraint matrix :math:`C`, one Lagrange multiplier block per shared
-face. The shared faces are curved by the deformation, so every constraint
-row is assembled with the full pullback geometry of its element. The shared
-faces are enumerated with :meth:`Mesh.iterate_shared`, which reports the
-pair of elements and the orientation of every shared object.
+of the constraint matrix :math:`C`, one Lagrange multiplier per packed row.
+The continuity rows are assembled in one
+:meth:`Mesh.compute_kform_continuity_constraints` call: the method walks the
+shared objects from faces to points, pairs consecutive incident elements,
+and returns cycle-free rows whose test spaces are derived from the incident
+element specifications.
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 349-412
+.. GENERATED FROM PYTHON SOURCE LINES 359-398
 
 .. code-block:: Python
 
@@ -475,7 +485,6 @@ pair of elements and the orientation of every shared object.
         maps: list[SpaceMap],
         specs_q: KFormSpecs,
         specs_u: KFormSpecs,
-        test_specs: KFormSpecs,
     ) -> tuple[list[np.ndarray], list[np.ndarray], float]:
         """Solve the multi-element mixed Poisson system with continuity constraints."""
         nq = int(np.sum(specs_q.component_dof_counts))
@@ -493,29 +502,9 @@ pair of elements and the orientation of every shared object.
             )
             rhs[off + nq : off + blk] = assemble_element_rhs(specs_u, specs_q, maps[e])[nq:]
 
-        constraints: list[tuple[int, int, np.ndarray, np.ndarray]] = []
-        n_lambda = 0
-        for mdim, object_id, element_ids, _ in mesh.iterate_shared(mesh.ndim - 1):
-            assert mdim == mesh.ndim - 1 and element_ids.size == 2
-            t = [
-                packed_to_dense(
-                    mesh.compute_kform_boundary_constraints(
-                        test_specs, specs_q, maps[int(eid)], int(eid), int(object_id)
-                    ),
-                    specs_q,
-                )
-                for eid in element_ids
-            ]
-            constraints.append((int(element_ids[0]), int(element_ids[1]), t[0], t[1]))
-            n_lambda += t[0].shape[0]
-
-        c_matrix = np.zeros((n_lambda, nx))
-        offset = 0
-        for a, b, t_a, t_b in constraints:
-            n_test = t_a.shape[0]
-            c_matrix[offset : offset + n_test, a * blk : a * blk + nq] = t_a
-            c_matrix[offset : offset + n_test, b * blk : b * blk + nq] = -t_b
-            offset += n_test
+        packed = mesh.compute_kform_continuity_constraints([specs_q] * nel, maps)
+        c_matrix = packed_to_dense(packed, specs_q, nel, blk)
+        n_lambda = c_matrix.shape[0]
 
         system = np.block([[lhs, c_matrix.T], [c_matrix, np.zeros((n_lambda, n_lambda))]])
         solution = np.linalg.solve(system, np.concatenate((rhs, np.zeros(n_lambda))))
@@ -523,11 +512,8 @@ pair of elements and the orientation of every shared object.
         q_dofs = [solution[e * blk : e * blk + nq] for e in range(nel)]
         u_dofs = [solution[e * blk + nq : e * blk + blk] for e in range(nel)]
 
-        # Max absolute trace mismatch over all shared faces.
-        continuity = max(
-            float(np.max(np.abs(t_a @ q_dofs[a] - t_b @ q_dofs[b])))
-            for a, b, t_a, t_b in constraints
-        )
+        # Max absolute mismatch of the packed continuity rows over all shared faces.
+        continuity = float(np.max(np.abs(c_matrix @ solution[:nx])))
         return q_dofs, u_dofs, continuity
 
 
@@ -538,14 +524,14 @@ pair of elements and the orientation of every shared object.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 413-417
+.. GENERATED FROM PYTHON SOURCE LINES 399-403
 
 To compute the :math:`L^2` error, the computed solution is reconstructed on
 every element, subtracted from the manufactured solution, and the square of
 the error is integrated over the element.
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 417-443
+.. GENERATED FROM PYTHON SOURCE LINES 403-429
 
 .. code-block:: Python
 
@@ -582,13 +568,13 @@ the error is integrated over the element.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 444-447
+.. GENERATED FROM PYTHON SOURCE LINES 430-433
 
 All the small building blocks discussed before can now be put together to
 form the error calculation function.
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 447-488
+.. GENERATED FROM PYTHON SOURCE LINES 433-467
 
 .. code-block:: Python
 
@@ -615,15 +601,8 @@ form the error calculation function.
         maps_high = create_element_maps(ndim, integration_high)
 
         specs_u, specs_q = create_kform_specs(type_basis, order_basis, ndim)
-        # The multiplier space on a shared face matches the flux trace: an
-        # (ndim-1)-form on an (ndim-1)-dimensional face with the same basis type
-        # and order as the element.
-        test_specs = KFormSpecs(
-            ndim - 1,
-            FunctionSpace(*(BasisSpecs(type_basis, order_basis) for _ in range(ndim - 1))),
-        )
 
-        q_dofs, u_dofs, continuity = solve(mesh, maps, specs_q, specs_u, test_specs)
+        q_dofs, u_dofs, continuity = solve(mesh, maps, specs_q, specs_u)
         err_l2 = np.sqrt(
             sum(
                 reconstruct_element_error_l2(specs_u, u_dofs[e], maps_high[e])
@@ -640,13 +619,13 @@ form the error calculation function.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 489-492
+.. GENERATED FROM PYTHON SOURCE LINES 468-471
 
 For this test, we will use the Bernstein basis, the Gauss integration rule,
 and the order difference of 1 between the lower and higher order integration
 rules.
 
-.. GENERATED FROM PYTHON SOURCE LINES 492-527
+.. GENERATED FROM PYTHON SOURCE LINES 471-506
 
 .. code-block:: Python
 
@@ -692,13 +671,13 @@ rules.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 528-531
+.. GENERATED FROM PYTHON SOURCE LINES 507-510
 
 In two dimensions the grid consists of four unit squares. The error of the
 manufactured solution is measured for increasing polynomial order.
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 531-549
+.. GENERATED FROM PYTHON SOURCE LINES 510-528
 
 .. code-block:: Python
 
@@ -733,23 +712,23 @@ manufactured solution is measured for increasing polynomial order.
 
  .. code-block:: none
 
-    p = 1: L2 error = 6.167e-02, max continuity residual = 6.939e-17, time = 0.002 s
-    p = 2: L2 error = 2.620e-02, max continuity residual = 1.388e-17, time = 0.002 s
-    p = 3: L2 error = 4.857e-03, max continuity residual = 1.388e-17, time = 0.003 s
-    p = 4: L2 error = 1.018e-03, max continuity residual = 6.939e-18, time = 0.004 s
-    p = 5: L2 error = 2.268e-04, max continuity residual = 1.388e-17, time = 0.006 s
-    p = 6: L2 error = 3.883e-05, max continuity residual = 6.939e-18, time = 0.010 s
+    p = 1: L2 error = 6.167e-02, max continuity residual = 9.350e-18, time = 0.001 s
+    p = 2: L2 error = 2.620e-02, max continuity residual = 1.634e-17, time = 0.001 s
+    p = 3: L2 error = 4.857e-03, max continuity residual = 2.776e-17, time = 0.001 s
+    p = 4: L2 error = 1.018e-03, max continuity residual = 2.066e-17, time = 0.002 s
+    p = 5: L2 error = 2.268e-04, max continuity residual = 1.598e-17, time = 0.003 s
+    p = 6: L2 error = 3.883e-05, max continuity residual = 1.778e-17, time = 0.005 s
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 550-553
+.. GENERATED FROM PYTHON SOURCE LINES 529-532
 
 The same building blocks solve the three-dimensional Poisson equation on a
 2x2x2 grid of eight hexahedral elements, covering :math:`[-1, 1]^3`.
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 553-573
+.. GENERATED FROM PYTHON SOURCE LINES 532-552
 
 .. code-block:: Python
 
@@ -786,16 +765,16 @@ The same building blocks solve the three-dimensional Poisson equation on a
 
  .. code-block:: none
 
-    p = 1: L2 error = 7.235e-02, max continuity residual = 2.776e-17, time = 0.009 s
-    p = 2: L2 error = 2.907e-02, max continuity residual = 1.388e-17, time = 0.021 s
-    p = 3: L2 error = 6.578e-03, max continuity residual = 1.041e-17, time = 0.081 s
-    p = 4: L2 error = 1.356e-03, max continuity residual = 5.204e-17, time = 0.316 s
-    p = 5: L2 error = 3.029e-04, max continuity residual = 1.926e-16, time = 1.269 s
+    p = 1: L2 error = 7.235e-02, max continuity residual = 9.714e-17, time = 0.005 s
+    p = 2: L2 error = 2.907e-02, max continuity residual = 6.036e-17, time = 0.012 s
+    p = 3: L2 error = 6.578e-03, max continuity residual = 5.728e-17, time = 0.047 s
+    p = 4: L2 error = 1.356e-03, max continuity residual = 5.551e-17, time = 0.171 s
+    p = 5: L2 error = 3.029e-04, max continuity residual = 1.110e-16, time = 0.635 s
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 574-580
+.. GENERATED FROM PYTHON SOURCE LINES 553-559
 
 The highest-order three-dimensional solution is rendered with pyvista. The
 hexahedral mesh is built from the topological mesh as cubic Lagrange cells,
@@ -804,7 +783,7 @@ independently on every element, then transformed from reference k-forms to
 physical k-forms with :class:`SampledSpaceMap`.
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 580-619
+.. GENERATED FROM PYTHON SOURCE LINES 559-593
 
 .. code-block:: Python
 
@@ -835,12 +814,7 @@ physical k-forms with :class:`SampledSpaceMap`.
     )
     maps_vis = create_element_maps(3, integration_vis)
     specs_u_vis, specs_q_vis = create_kform_specs(BTYPE, ORDER_VIS, 3)
-    test_specs_vis = KFormSpecs(
-        2, FunctionSpace(*(BasisSpecs(BTYPE, ORDER_VIS) for _ in range(2)))
-    )
-    q_dofs_vis, u_dofs_vis, _ = solve(
-        mesh_3d, maps_vis, specs_q_vis, specs_u_vis, test_specs_vis
-    )
+    q_dofs_vis, u_dofs_vis, _ = solve(mesh_3d, maps_vis, specs_q_vis, specs_u_vis)
     ERROR_ORDER_VIS = 24
     error_samples_vis = sample_error_grid(
         u_dofs_vis, specs_u_vis, maps_vis, ERROR_ORDER_VIS + 1
@@ -854,7 +828,7 @@ physical k-forms with :class:`SampledSpaceMap`.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 620-626
+.. GENERATED FROM PYTHON SOURCE LINES 594-600
 
 The error is shown directly on high-order Lagrange hexahedral cells as
 :math:`\\log_{10}` of its absolute value. The sign of the error is lost; the
@@ -863,7 +837,7 @@ magnitude. Values below :math:`10^{-10}` of the maximum are clamped to the
 lowest color.
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 626-651
+.. GENERATED FROM PYTHON SOURCE LINES 600-625
 
 .. code-block:: Python
 
@@ -904,14 +878,14 @@ lowest color.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 652-656
+.. GENERATED FROM PYTHON SOURCE LINES 626-630
 
 The flux :math:`q` of the mixed formulation is a 2-form in three dimensions;
 its physical components are transformed on a uniform grid before taking the
 Euclidean Hodge star to obtain the vector field rendered as arrows.
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 656-706
+.. GENERATED FROM PYTHON SOURCE LINES 630-680
 
 .. code-block:: Python
 
@@ -980,7 +954,7 @@ Euclidean Hodge star to obtain the vector field rendered as arrows.
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 5.452 seconds)
+   **Total running time of the script:** (0 minutes 2.862 seconds)
 
 
 .. _sphx_glr_download_auto_examples_plot_multi_element_poisson.py:

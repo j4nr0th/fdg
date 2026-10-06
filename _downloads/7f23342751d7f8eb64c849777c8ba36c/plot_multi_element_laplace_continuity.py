@@ -26,7 +26,7 @@ lowest-ID incident element of each object. Existing shared-object continuity
 rows then propagate that prescribed trace to the other incident elements, so a
 boundary node is never independently constrained multiple times.
 
-The prototype deliberately keeps the test spaces explicit. On a shared
+The continuity assembly derives the test spaces internally. On a shared
 object, the default scalar trace test degree is the minimum element degree
 minus two in every tangential direction. Thus degree-one traces have no
 interior rows; their edge and face boundary values are connected when the
@@ -36,14 +36,13 @@ the maximum residual of these physical trace equations after the solve.
 
 from __future__ import annotations
 
-from itertools import combinations, product
+from itertools import product
 from time import perf_counter
 from typing import Literal
 
 import numpy as np
 import numpy.typing as npt
 import scipy.sparse
-import scipy.sparse.linalg
 from fdg import (
     BasisSpecs,
     BasisType,
@@ -55,10 +54,11 @@ from fdg import (
     IntegrationSpecs,
     KFormSpecs,
     Mesh,
+    MeshGeometry,
+    MeshKFormSpecs,
     SpaceMap,
-    compute_kform_boundary_constraints,
-    compute_kform_incidence_matrix,
-    compute_kform_mass_matrix,
+    laplace_stiffness,
+    solve_hybridized,
 )
 from fdg.integration import projection_l2_dual
 from matplotlib import pyplot as plt
@@ -174,209 +174,27 @@ def make_element_maps(ndim: int, integration_order: int) -> list[SpaceMap]:
 
 
 # %%
-# Explicit test spaces for the hierarchy
-# ---------------------------------------
+# Continuity row assembly
+# -----------------------
 #
-# A shared object is constrained in its own canonical coordinates. For every
-# canonical k-form component, the caller supplies a test ``KFormSpecs``. The
-# helper below chooses the minimum order seen by all incident elements and uses
-# order ``p`` on active component axes and ``p - 2`` on inactive axes. The
-# latter leaves only interior trace equations; the boundary of that object is
-# handled later when the hierarchy reaches the next lower dimension.
-#
-# This explicit construction also demonstrates the low-level API contract:
-# basis type and order are inputs, not values inferred by the C implementation.
-
-
-def _object_count(mesh: Mesh, mdim: int) -> int:
-    """Return the number of mesh objects of one dimension."""
-    if mdim == 0:
-        return mesh.point_count
-    return int(mesh.collections[mdim - 1].shape[0])
-
-
-def _mapped_orders(
-    element_specs: list[KFormSpecs],
-    mdim: int,
-    element_ids: npt.NDArray[np.uint64],
-    orientations: npt.NDArray[np.int8],
-) -> tuple[int, ...]:
-    """Return minimum element orders in the object's canonical axes."""
-    ndim = element_specs[0].dimension
-    fixed_count = ndim - mdim
-    result: list[int] = []
-    for canonical_axis in range(mdim):
-        orders = [
-            element_specs[int(element_id)].base_space.orders[
-                abs(int(orientations[row, fixed_count + canonical_axis])) - 1
-            ]
-            for row, element_id in enumerate(element_ids)
-        ]
-        result.append(min(orders))
-    return tuple(result)
-
-
-def make_test_specs(
-    mesh: Mesh,
-    element_specs: list[KFormSpecs],
-    form_order: int,
-    basis_type: BasisType,
-) -> list[list[list[KFormSpecs]]]:
-    """Build explicit per-object trace tests for the scalar prototype."""
-    ndim = mesh.ndim
-    result: list[list[list[KFormSpecs]]] = []
-    incidents_by_dimension: list[dict[int, tuple[np.ndarray, np.ndarray]]] = []
-    for mdim in range(ndim):
-        incidents: dict[int, tuple[np.ndarray, np.ndarray]] = {}
-        for iterator in (mesh.iterate_shared(mdim), mesh.iterate_boundary(mdim)):
-            incidents.update(
-                {
-                    int(object_id): (element_ids, orientations)
-                    for _, object_id, element_ids, orientations in iterator
-                }
-            )
-        incidents_by_dimension.append(incidents)
-
-    for mdim in range(ndim):
-        objects: list[list[KFormSpecs]] = []
-        for object_id in range(_object_count(mesh, mdim)):
-            incident = incidents_by_dimension[mdim].get(object_id)
-            if incident is None or mdim < form_order:
-                objects.append([])
-                continue
-            element_ids, orientations = incident
-            mapped_orders = _mapped_orders(element_specs, mdim, element_ids, orientations)
-            component_specs: list[KFormSpecs] = []
-            for active_axes in combinations(range(mdim), form_order):
-                test_orders = tuple(
-                    order if axis in active_axes else order - 2
-                    for axis, order in enumerate(mapped_orders)
-                )
-                if min(test_orders, default=0) < 0:
-                    continue
-                test_space = FunctionSpace(
-                    *(BasisSpecs(basis_type, order) for order in test_orders)
-                )
-                component_specs.append(KFormSpecs(form_order, test_space))
-            objects.append(component_specs)
-        result.append(objects)
-    return result
-
-
-# %%
-# Reference and production row assembly
-# --------------------------------------
-#
-# ``build_continuity_rows_reference`` is intentionally kept as a readable
-# Python reference. It walks shared objects from faces to points, pairs
-# consecutive incident elements, and reuses the one-boundary assembler for
-# both sides with opposite signs. ``build_continuity_rows`` then calls the
-# production C-backed method with exactly the same explicit test specification.
-
-
-def _local_component_rows(
-    local_result: tuple[np.ndarray, ...],
-    test_spec: KFormSpecs,
-    component: int,
-    element_id: int,
-    sign: float,
-) -> list[list[tuple[int, int, int, float]]]:
-    """Return one packed entry list per canonical test row."""
-    row_offsets, local_components, local_dofs, coefficients = local_result
-    component_counts = np.asarray(test_spec.component_dof_counts)
-    row_start = int(np.sum(component_counts[:component]))
-    row_count = int(component_counts[component])
-    return [
-        [
-            (
-                element_id,
-                int(local_components[index]),
-                int(local_dofs[index]),
-                sign * float(coefficients[index]),
-            )
-            for index in range(int(row_offsets[row]), int(row_offsets[row + 1]))
-        ]
-        for row in range(row_start, row_start + row_count)
-    ]
-
-
-def build_continuity_rows_reference(
-    mesh: Mesh,
-    maps: list[SpaceMap],
-    element_specs: list[KFormSpecs],
-    test_specs: list[list[list[KFormSpecs]]],
-) -> PackedRows:
-    """Assemble cycle-free rows using the local boundary API reference."""
-    rows: list[list[tuple[int, int, int, float]]] = []
-    for mdim, object_id, shared_element_ids, _ in mesh.iterate_shared_all():
-        object_tests = test_specs[mdim][int(object_id)]
-        if not object_tests:
-            continue
-        for first, second in zip(
-            shared_element_ids[:-1], shared_element_ids[1:], strict=True
-        ):
-            first_id, second_id = int(first), int(second)
-            for component, test_spec in enumerate(object_tests):
-                first_result = compute_kform_boundary_constraints(
-                    test_spec,
-                    element_specs[first_id],
-                    maps[first_id],
-                    mesh.collections,
-                    mesh.point_count,
-                    first_id,
-                    int(object_id),
-                )
-                second_result = compute_kform_boundary_constraints(
-                    test_spec,
-                    element_specs[second_id],
-                    maps[second_id],
-                    mesh.collections,
-                    mesh.point_count,
-                    second_id,
-                    int(object_id),
-                )
-                first_rows = _local_component_rows(
-                    first_result, test_spec, component, first_id, +1.0
-                )
-                second_rows = _local_component_rows(
-                    second_result, test_spec, component, second_id, -1.0
-                )
-                if len(first_rows) != len(second_rows):
-                    raise ValueError(
-                        "Paired elements produced different trace row counts."
-                    )
-                rows.extend(
-                    first_row + second_row
-                    for first_row, second_row in zip(first_rows, second_rows, strict=True)
-                )
-    row_offsets = np.zeros(len(rows) + 1, dtype=np.uintp)
-    element_ids: list[int] = []
-    components: list[int] = []
-    local_dofs: list[int] = []
-    coefficients: list[float] = []
-    for row, entries in enumerate(rows):
-        element_ids.extend(entry[0] for entry in entries)
-        components.extend(entry[1] for entry in entries)
-        local_dofs.extend(entry[2] for entry in entries)
-        coefficients.extend(entry[3] for entry in entries)
-        row_offsets[row + 1] = len(element_ids)
-    return (
-        row_offsets,
-        np.asarray(element_ids, dtype=np.uint64),
-        np.asarray(components, dtype=np.uint32),
-        np.asarray(local_dofs, dtype=np.uintp),
-        np.asarray(coefficients, dtype=np.double),
-    )
+# One call to ``Mesh.compute_kform_continuity_constraints`` walks the shared
+# objects from faces down to points, pairs consecutive incident elements, and
+# returns the cycle-free rows as five packed arrays: row offsets, element IDs,
+# element-frame components, local DoF indices, and coefficients. The trace
+# test spaces are derived internally: on each shared object the canonical test
+# component takes the lowest incident element order per axis, reduced by two
+# on axes without the component's covector. The first side of every pair
+# carries a positive sign and the second side a negative sign, so each row
+# states that the paired traces agree.
 
 
 def build_continuity_rows(
     mesh: Mesh,
     maps: list[SpaceMap],
     element_specs: list[KFormSpecs],
-    test_specs: list[list[list[KFormSpecs]]],
 ) -> PackedRows:
     """Assemble hierarchical rows through the public C-backed mesh method."""
-    return mesh.compute_kform_continuity_constraints(element_specs, maps, test_specs)
+    return mesh.compute_kform_continuity_constraints(element_specs, maps)
 
 
 def packed_to_dense(packed: PackedRows, element_specs: list[KFormSpecs]) -> np.ndarray:
@@ -469,22 +287,34 @@ def manufactured_source(*coordinates: npt.NDArray[np.double]) -> npt.NDArray[np.
 
 
 # %%
-# Sparse constrained solve
-# ------------------------
+# Hybridized solve
+# ----------------
 #
-# The primal stiffness matrix is assembled one element at a time. It is
-# therefore block diagonal: each dense block is an element-local operator and
-# no entry couples two elements until continuity rows are added. The packed
-# rows are converted directly to a sparse matrix, then appended to the
-# block-diagonal operator as Lagrange-multiplier equations.
+# Each element operator is *singular* -- the constants lie in its nullspace --
+# so it cannot be factorized on its own. ``solve_hybridized`` absorbs the
+# constraint rows into the element blocks, which borders each block back to
+# nonsingularity, and hands the system to the ``hybsol`` block solver. No
+# Schur complement is formed and no separate multiplier solve happens.
 #
-# For Dirichlet data, the same descending boundary hierarchy supplies one
-# owner trace per boundary object. Shared-boundary continuity rows remain in
-# the system and transfer that owner value to the other incident elements.
-#
-# The resulting saddle system is solved with SciPy's sparse LU factorization.
-# This keeps the global matrix sparse while retaining the direct formulation;
-# a Schur-complement implementation could reuse the same block structure.
+# For Dirichlet data the boundary hierarchy supplies one owner trace per
+# boundary object; the continuity rows transfer it to the other elements.
+
+
+def gauge_row(
+    packed: PackedRows, element: int
+) -> tuple[PackedRows, npt.NDArray[np.double]]:
+    """Pin one degree of freedom, which gauges the constant nullspace."""
+    row_offsets, element_ids, components, local_dofs, coefficients = packed
+    rows = (
+        np.concatenate((row_offsets, np.asarray([element_ids.size + 1], dtype=np.uintp))),
+        np.concatenate((element_ids, np.asarray([element], dtype=np.uint64))),
+        np.concatenate((components, np.asarray([0], dtype=np.uint32))),
+        np.concatenate((local_dofs, np.asarray([0], dtype=np.uintp))),
+        np.concatenate((coefficients, np.asarray([1.0]))),
+    )
+    rhs = np.zeros(rows[0].size - 1)
+    rhs[-1] = 1.0
+    return rows, rhs
 
 
 def solve_direct_laplace(
@@ -502,59 +332,41 @@ def solve_direct_laplace(
         *(BasisSpecs(BasisType.LAGRANGE_GAUSS_LOBATTO, order) for _ in range(ndim))
     )
     element_specs = [KFormSpecs(0, base_space) for _ in maps]
-    tests = make_test_specs(mesh, element_specs, 0, BasisType.LEGENDRE)
-    packed = build_continuity_rows(mesh, maps, element_specs, tests)
+    packed = build_continuity_rows(mesh, maps, element_specs)
     continuity = packed_to_sparse(packed, element_specs)
 
     n0 = int(np.sum(element_specs[0].component_dof_counts))
     total_dofs = len(maps) * n0
-    local_stiffnesses: list[np.ndarray] = []
     rhs = np.zeros(total_dofs)
-    incidence = compute_kform_incidence_matrix(base_space, 0)
     for element_id, element_map in enumerate(maps):
-        mass_one = np.asarray(
-            compute_kform_mass_matrix(element_map, 1, base_space, base_space)
-        )
-        local_stiffness = incidence.T @ mass_one @ incidence
-        local_stiffnesses.append(local_stiffness)
         offset = element_id * n0
         rhs[offset : offset + n0] = projection_l2_dual(
             manufactured_source, base_space, element_map
         ).values.flatten()
-    # Element-local operators have no off-diagonal element blocks. Keep that
-    # structure explicit instead of materializing a global dense matrix.
-    stiffness = scipy.sparse.block_diag(
-        [scipy.sparse.csc_matrix(local) for local in local_stiffnesses], format="csc"
-    )
 
     if boundary_condition == "dirichlet":
         boundary_conditions = {
             int(object_id): manufactured_solution
             for _, object_id, _, _ in mesh.iterate_boundary(ndim - 1)
         }
-        global_packed, constraint_rhs = mesh.compute_kform_global_constraints(
-            element_specs, maps, tests, boundary_conditions
+        constraints, constraint_rhs = mesh.compute_kform_global_constraints(
+            element_specs, maps, boundary_conditions
         )
-        constraints = packed_to_sparse(global_packed, element_specs)
     else:
-        gauge = scipy.sparse.csr_matrix(([1.0], ([0], [0])), shape=(1, total_dofs))
-        constraints = scipy.sparse.vstack((continuity, gauge), format="csr")
-        constraint_rhs = np.zeros(constraints.shape[0])
-        constraint_rhs[-1] = 1.0
-    saddle = scipy.sparse.bmat(
-        [
-            [stiffness, constraints.T],
-            [constraints, None],
-        ],
-        format="csc",
+        constraints, constraint_rhs = gauge_row(packed, 0)
+
+    geometry = MeshGeometry.from_elements(*maps)
+    structure = MeshKFormSpecs.from_space(ndim, [("u", 0)], base_space, len(maps))
+    result = solve_hybridized(
+        geometry,
+        structure,
+        rhs,
+        constraints,
+        constraint_rhs,
+        laplace_stiffness,
     )
-    # The sparse LU factorization both solves the augmented system and
-    # certifies nonsingularity for this diagnostic example.
-    factor = scipy.sparse.linalg.splu(saddle)
-    solution = factor.solve(np.concatenate((rhs, constraint_rhs)))[:total_dofs]
-    constraint_residual = float(
-        np.max(np.abs(constraints @ solution - constraint_rhs), initial=0.0)
-    )
+    solution = np.concatenate(result.element_dofs)
+    constraint_residual = result.constraint_residual
     if constraint_residual > 1.0e-10:
         raise RuntimeError(
             f"0-form boundary/continuity residual is too large: {constraint_residual:.3e}"
@@ -574,16 +386,14 @@ def solve_direct_laplace(
             * np.abs(element_map.determinant)
             * element_map.integration_space.weights()
         )
-    rank = int(saddle.shape[0])
-    expected_rank = saddle.shape[0]
-    if rank != expected_rank:
-        raise RuntimeError(f"Saddle system is rank deficient: {rank}/{expected_rank}")
+    # The block solve certified the system nonsingular, so its size is its rank.
+    rank = total_dofs + constraints[0].size - 1
     return (
         solution,
         continuity,
         float(np.sqrt(error_squared)),
         rank,
-        constraints.shape[0],
+        constraints[0].size - 1,
         constraint_residual,
     )
 

@@ -11,8 +11,9 @@ Two kinds of boundary conditions are demonstrated:
 
 * a **strong** condition on the flux :math:`q`, enforced with Lagrange
   multipliers: the trace :math:`\operatorname{tr} q` on a face is prescribed
-  by :meth:`Mesh.compute_kform_boundary_constraints`, exactly like the flux
-  continuity between two elements;
+  with :meth:`Mesh.compute_kform_global_constraints`, which appends the
+  prescribed trace rows and their data moments to the shared-face continuity
+  rows of :meth:`Mesh.compute_kform_continuity_constraints`;
 * a **weak** condition on the solution :math:`u`, applied through the natural
   boundary term of the mixed formulation: the momentum equation is
   :math:`(p, q) + (\mathrm{d}p, u) = \int_{\partial\Omega} p \wedge \star u_D`,
@@ -40,6 +41,7 @@ import pyvista as pv
 from fdg import (
     BasisSpecs,
     BasisType,
+    BoundaryCondition,
     CoordinateMap,
     DegreesOfFreedom,
     FunctionSpace,
@@ -54,7 +56,6 @@ from fdg import (
     compute_kform_mass_matrix,
     incidence_kform_operator,
     projection_kform_l2_dual,
-    projection_kform_l2_primal,
     reconstruct,
     transform_kform_to_target,
 )
@@ -293,26 +294,33 @@ def assemble_element_rhs(
 
 # %%
 #
-# The boundary constraints returned by
-# :meth:`Mesh.compute_kform_boundary_constraints` are packed sparse rows. For
-# this example they are materialized into dense element operators, whose
-# columns are the flattened degrees of freedom of the flux :math:`q`.
+# The constraint rows returned by
+# :meth:`Mesh.compute_kform_continuity_constraints` and
+# :meth:`Mesh.compute_kform_global_constraints` are packed sparse global rows:
+# each entry names an element, an element-frame component, and a local DoF of
+# the flux :math:`q`. For this example they are materialized into one dense
+# global operator whose columns are the interleaved element blocks of flux
+# degrees of freedom.
 #
 
 
 def packed_to_dense(
-    result: tuple[np.ndarray, ...], element_spec: KFormSpecs
+    packed: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray],
+    specs_q: KFormSpecs,
+    element_count: int,
+    block: int,
 ) -> np.ndarray:
-    """Materialize packed boundary-constraint rows as a dense operator."""
-    row_offsets, components, local_dofs, coefficients = result
+    """Materialize packed global constraint rows as a dense operator."""
+    row_offsets, element_ids, components, local_dofs, coefficients = packed
     n_rows = row_offsets.size - 1
-    n_dofs = int(np.sum(element_spec.component_dof_counts))
-    matrix = np.zeros((n_rows, n_dofs))
+    matrix = np.zeros((n_rows, element_count * block))
     for row in range(n_rows):
         start, end = int(row_offsets[row]), int(row_offsets[row + 1])
         for i in range(start, end):
-            column = int(
-                element_spec.get_component_slice(int(components[i])).start
+            element = int(element_ids[i])
+            column = (
+                element * block
+                + int(specs_q.get_component_slice(int(components[i])).start)
                 + int(local_dofs[i])
             )
             matrix[row, column] += coefficients[i]
@@ -336,45 +344,46 @@ def face_axis_side(orient: npt.NDArray[np.int8]) -> tuple[int, int]:
     return abs(int(orient[0])) - 1, -1 if orient[0] < 0 else 1
 
 
-def strong_constraint_row(
+def strong_boundary_conditions(
     mesh: Mesh,
-    test_specs: KFormSpecs,
+    maps: list[SpaceMap],
     specs_q: KFormSpecs,
-    sm: SpaceMap,
-    element_id: int,
-    boundary_id: int,
-) -> tuple[np.ndarray, np.ndarray]:
-    r"""Assemble the strong Neumann row and its prescribed data.
+    strong: set[tuple[int, int]],
+) -> tuple[BoundaryCondition, int]:
+    """Collect the strong faces and the shared-row count of the constraint system.
 
-    The prescribed data is the trace of the exact flux: with the Lagrange
-    multiplier enforcing :math:`\operatorname{tr} q = g_F`, tracing the exact
-    flux avoids any manual sign bookkeeping of the outward normal.
+    The strong faces carry the trace of the exact flux as prescribed data:
+    one callable per physical flux component in the canonical combination
+    order, exactly the format expected by
+    :class:`~fdg.boundary_conditions.BoundaryCondition`. The standalone
+    continuity call reports how many of the global constraint rows are
+    shared-face continuity rows, which the residual split below relies on.
     """
-    t = packed_to_dense(
-        mesh.compute_kform_boundary_constraints(
-            test_specs, specs_q, sm, element_id, boundary_id
-        ),
-        specs_q,
+    strong_faces = tuple(
+        int(object_id)
+        for _, object_id, _, orientations in mesh.iterate_boundary(mesh.ndim - 1)
+        if face_axis_side(orientations[0]) in strong
     )
-    q_exact = np.concatenate(
-        [
-            p.flatten()
-            for p in projection_kform_l2_primal(
-                flux_components(specs_q.dimension), specs_q, sm
-            )
-        ]
+    shared_packed = mesh.compute_kform_continuity_constraints(
+        [specs_q] * mesh.element_count, maps
     )
-    return t, t @ q_exact
+    n_shared = shared_packed[0].size - 1
+    return (
+        BoundaryCondition(faces=strong_faces, data=flux_components(specs_q.dimension)),
+        n_shared,
+    )
 
 
 # %%
 # With all the small building blocks in place, the global saddle-point system
-# can be assembled. The element blocks are placed on the diagonal, while the
-# continuity constraints of the flux across the shared faces are added as rows
-# of the constraint matrix :math:`C`, one Lagrange multiplier block per shared
-# face, and the strong Neumann conditions on the selected outer faces are added
-# as rows of the constraint matrix :math:`N` with the prescribed trace data.
-# The weak Dirichlet condition contributes the boundary load
+# can be assembled. The element blocks are placed on the diagonal. The
+# constraint matrix :math:`C` is assembled with one
+# :meth:`Mesh.compute_kform_global_constraints` call, which returns the
+# shared-face continuity rows first (with zero right-hand side) followed by
+# the strong prescribed rows on the selected outer faces; the prescribed rows
+# impose :math:`\operatorname{tr} q = g_F` through their Lagrange multipliers,
+# with the right-hand side given by the windowed dual moments of the exact
+# flux data. The weak Dirichlet condition contributes the boundary load
 # :func:`compute_kform_boundary_load` to the momentum right-hand side.
 #
 
@@ -384,9 +393,8 @@ def solve(
     maps: list[SpaceMap],
     specs_q: KFormSpecs,
     specs_u: KFormSpecs,
-    test_specs: KFormSpecs,
     strong: set[tuple[int, int]],
-) -> tuple[list[np.ndarray], list[np.ndarray], float]:
+) -> tuple[list[np.ndarray], list[np.ndarray], float, float]:
     """Solve the mixed Poisson system with strong and weak boundary conditions.
 
     Parameters
@@ -394,12 +402,32 @@ def solve(
     strong : set of (axis, side)
         Outer boundary faces on which the flux trace is prescribed strongly.
         The remaining outer boundary faces get the weak Dirichlet condition.
+
+    Returns
+    -------
+    tuple
+        ``(q_dofs, u_dofs, continuity, strong_residual)``: the per-element
+        flux and solution DoFs, the maximum shared-face continuity residual,
+        and the maximum strong-condition residual.
     """
     nq = int(np.sum(specs_q.component_dof_counts))
     nu = int(np.sum(specs_u.component_dof_counts))
     blk = nq + nu
     nel = mesh.element_count
     nx = nel * blk
+
+    # The weak Dirichlet load pairs the datum with the flux trace on a face
+    # test space matching the flux: same basis family and order as the
+    # element, one axis fewer.
+    load_specs = KFormSpecs(
+        mesh.ndim - 1,
+        FunctionSpace(
+            *(
+                BasisSpecs(basis.type, basis.order)
+                for basis in tuple(specs_q.base_space.basis_specs)[: mesh.ndim - 1]
+            )
+        ),
+    )
 
     lhs = np.zeros((nx, nx))
     rhs = np.zeros(nx)
@@ -410,47 +438,14 @@ def solve(
         )
         rhs[off + nq : off + blk] = assemble_element_rhs(specs_u, specs_q, maps[e])[nq:]
 
-    constraints: list[tuple[int, int, np.ndarray, np.ndarray]] = []
-    n_lambda = 0
-    for mdim, object_id, element_ids, _ in mesh.iterate_shared(mesh.ndim - 1):
-        assert mdim == mesh.ndim - 1 and element_ids.size == 2
-        t = [
-            packed_to_dense(
-                mesh.compute_kform_boundary_constraints(
-                    test_specs, specs_q, maps[int(eid)], int(eid), int(object_id)
-                ),
-                specs_q,
-            )
-            for eid in element_ids
-        ]
-        constraints.append((int(element_ids[0]), int(element_ids[1]), t[0], t[1]))
-        n_lambda += t[0].shape[0]
-
-    c_matrix = np.zeros((n_lambda, nx))
-    offset = 0
-    for a, b, t_a, t_b in constraints:
-        n_test = t_a.shape[0]
-        c_matrix[offset : offset + n_test, a * blk : a * blk + nq] = t_a
-        c_matrix[offset : offset + n_test, b * blk : b * blk + nq] = -t_b
-        offset += n_test
-
-    strong_rows: list[tuple[int, np.ndarray, np.ndarray]] = []
-    n_strong = 0
     for mdim, object_id, element_ids, orientations in mesh.iterate_boundary(
         mesh.ndim - 1
     ):
         assert mdim == mesh.ndim - 1 and element_ids.size == 1
         element_id = int(element_ids[0])
-        orient = orientations[0]
-        if face_axis_side(orient) in strong:
-            t, g = strong_constraint_row(
-                mesh, test_specs, specs_q, maps[element_id], element_id, int(object_id)
-            )
-            strong_rows.append((element_id, t, g))
-            n_strong += t.shape[0]
-        else:
+        if face_axis_side(orientations[0]) not in strong:
             rhs[element_id * blk : element_id * blk + nq] += compute_kform_boundary_load(
-                test_specs,
+                load_specs,
                 specs_q,
                 maps[element_id],
                 mesh.collections,
@@ -460,34 +455,23 @@ def solve(
                 manufactured_solution,
             )
 
-    n_matrix = np.zeros((n_strong, nx))
-    offset = 0
-    for element_id, t, _ in strong_rows:
-        n_test = t.shape[0]
-        n_matrix[offset : offset + n_test, element_id * blk : element_id * blk + nq] = t
-        offset += n_test
+    condition, n_shared = strong_boundary_conditions(mesh, maps, specs_q, strong)
+    packed, constraint_rhs = mesh.compute_kform_global_constraints(
+        [specs_q] * nel, maps, [condition]
+    )
+    c_matrix = packed_to_dense(packed, specs_q, nel, blk)
+    n_lambda = c_matrix.shape[0]
 
-    system = np.block(
-        [
-            [lhs, c_matrix.T, n_matrix.T],
-            [c_matrix, np.zeros((n_lambda, n_lambda)), np.zeros((n_lambda, n_strong))],
-            [n_matrix, np.zeros((n_strong, n_lambda)), np.zeros((n_strong, n_strong))],
-        ]
-    )
-    strong_rhs = np.concatenate([g for _, _, g in strong_rows])
-    solution = np.linalg.solve(
-        system, np.concatenate((rhs, np.zeros(n_lambda), strong_rhs))
-    )
+    system = np.block([[lhs, c_matrix.T], [c_matrix, np.zeros((n_lambda, n_lambda))]])
+    solution = np.linalg.solve(system, np.concatenate((rhs, constraint_rhs)))
 
     q_dofs = [solution[e * blk : e * blk + nq] for e in range(nel)]
     u_dofs = [solution[e * blk + nq : e * blk + blk] for e in range(nel)]
 
-    # Max absolute trace mismatch over all shared faces.
-    continuity = max(
-        float(np.max(np.abs(t_a @ q_dofs[a] - t_b @ q_dofs[b])))
-        for a, b, t_a, t_b in constraints
-    )
-    return q_dofs, u_dofs, continuity
+    residual = np.abs(c_matrix @ solution[:nx] - constraint_rhs)
+    continuity = float(np.max(residual[:n_shared], initial=0.0))
+    strong_residual = float(np.max(residual[n_shared:], initial=0.0))
+    return q_dofs, u_dofs, continuity, strong_residual
 
 
 # %%
@@ -549,47 +533,17 @@ def compute_l2_error(
     maps_high = create_element_maps(ndim, integration_high)
 
     specs_u, specs_q = create_kform_specs(type_basis, order_basis, ndim)
-    # The multiplier space on a shared face matches the flux trace: an
-    # (ndim-1)-form on an (ndim-1)-dimensional face with the same basis type
-    # and order as the element.
-    test_specs = KFormSpecs(
-        ndim - 1,
-        FunctionSpace(*(BasisSpecs(type_basis, order_basis) for _ in range(ndim - 1))),
-    )
 
-    q_dofs, u_dofs, continuity = solve(mesh, maps, specs_q, specs_u, test_specs, strong)
+    q_dofs, u_dofs, continuity, strong_residual = solve(
+        mesh, maps, specs_q, specs_u, strong
+    )
     err_l2 = np.sqrt(
         sum(
             reconstruct_element_error_l2(specs_u, u_dofs[e], maps_high[e])
             for e in range(mesh.element_count)
         )
     )
-    strong_residual = max(
-        float(np.max(np.abs(t @ q_dofs[e] - g)))
-        for e, t, g in strong_rows(mesh, maps, specs_q, test_specs, strong)
-    )
     return float(err_l2), continuity, strong_residual
-
-
-def strong_rows(
-    mesh: Mesh,
-    maps: list[SpaceMap],
-    specs_q: KFormSpecs,
-    test_specs: KFormSpecs,
-    strong: set[tuple[int, int]],
-) -> list[tuple[int, np.ndarray, np.ndarray]]:
-    """Recompute the strong rows for residual reporting."""
-    rows = []
-    for mdim, object_id, element_ids, orientations in mesh.iterate_boundary(
-        mesh.ndim - 1
-    ):
-        element_id = int(element_ids[0])
-        if face_axis_side(orientations[0]) in strong:
-            t, g = strong_constraint_row(
-                mesh, test_specs, specs_q, maps[element_id], element_id, int(object_id)
-            )
-            rows.append((element_id, t, g))
-    return rows
 
 
 # %%
@@ -742,11 +696,8 @@ integration_vis = IntegrationSpace(
 )
 maps_vis = create_element_maps(3, integration_vis)
 specs_u_vis, specs_q_vis = create_kform_specs(BTYPE, ORDER_VIS, 3)
-test_specs_vis = KFormSpecs(
-    2, FunctionSpace(*(BasisSpecs(BTYPE, ORDER_VIS) for _ in range(2)))
-)
-q_dofs_vis, u_dofs_vis, _ = solve(
-    mesh_3d, maps_vis, specs_q_vis, specs_u_vis, test_specs_vis, strong_neighboring
+q_dofs_vis, u_dofs_vis, _, _ = solve(
+    mesh_3d, maps_vis, specs_q_vis, specs_u_vis, strong_neighboring
 )
 ERROR_ORDER_VIS = 24
 error_samples_vis = sample_error_grid(

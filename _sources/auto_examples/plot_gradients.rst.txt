@@ -369,7 +369,7 @@ We can now check how these derivatives look.
 
  .. code-block:: none
 
-    Min-Max error is: 1.6e-15 and  2.8
+    Min-Max error is: 1.8e-15 and  2.8
 
 
 
@@ -427,7 +427,7 @@ Now also for the y-derivative.
 
  .. code-block:: none
 
-    Min-Max error is: 8.9e-16 and    3
+    Min-Max error is: 3.3e-16 and    3
 
 
 
@@ -435,7 +435,7 @@ Now also for the y-derivative.
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 1.382 seconds)
+   **Total running time of the script:** (0 minutes 0.696 seconds)
 
 
 .. _sphx_glr_download_auto_examples_plot_gradients.py:
